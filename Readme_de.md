@@ -244,3 +244,17 @@ print(hero.getInfo());
 ```
 
 ---
+
+## Enums
+```cfs
+
+enum colors
+{
+   red = 5,
+   green,
+   blue
+}
+
+print(colors.green); # Output 6
+
+```
