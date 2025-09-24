@@ -1,12 +1,14 @@
-﻿public sealed class ClassInstance
+﻿namespace CFGS_VM.VMCore.Extention
 {
-    public string ClassName { get; }
-    public Dictionary<string, object> Fields { get; }
-
-    public ClassInstance(string className)
+    public sealed class ClassInstance
     {
-        ClassName = className;
-        Fields = new Dictionary<string, object>();
+        public string ClassName { get; }
+        public Dictionary<string, object> Fields { get; }
+
+        public ClassInstance(string className)
+        {
+            ClassName = className;
+            Fields = new Dictionary<string, object>();
+        }
     }
 }
-

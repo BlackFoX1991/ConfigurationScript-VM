@@ -1,5 +1,7 @@
 ﻿using CFGS_VM.Analytic;
 using CFGS_VM.VMCore.Extension;
+using CFGS_VM.VMCore.Command;
+using System;
 
 namespace CFGS_VM.VMCore
 {
@@ -213,6 +215,7 @@ namespace CFGS_VM.VMCore
 
                         _insns.Add(new Instruction(OpCode.NEW_OBJECT, cds.Name, cds.Line, cds.Col));
                         _insns.Add(new Instruction(OpCode.VAR_DECL, "this", cds.Line, cds.Col, s.OriginFile));
+
                         foreach (var kv in cds.Fields)
                         {
                             string fieldName = kv.Key;
@@ -227,7 +230,43 @@ namespace CFGS_VM.VMCore
                                 CompileExpr(initExpr);
                             else
                                 _insns.Add(new Instruction(OpCode.PUSH_NULL, null, cds.Line, cds.Col, s.OriginFile));
+
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
+                        }
+                        foreach (var en in cds.Enums)
+                        {
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, en.Name, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.NEW_DICT, 0, en.Line, en.Col));
+
+                            var reverseDict = new Dictionary<int, string>();
+
+                            foreach (var member in en.Members)
+                            {
+                                _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col));
+                                _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, en.Line, en.Col));
+                                _insns.Add(new Instruction(OpCode.PUSH_INT, (int)member.Value, en.Line, en.Col));
+                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col));
+
+                                reverseDict[(int)member.Value] = member.Name;
+                            }
+
+                            // __name Dictionary anlegen
+                            _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__name", en.Line, en.Col));
+                            _insns.Add(new Instruction(OpCode.NEW_DICT, 0, en.Line, en.Col));
+
+                            foreach (var kv in reverseDict)
+                            {
+                                _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col));
+                                _insns.Add(new Instruction(OpCode.PUSH_INT, kv.Key, en.Line, en.Col));
+                                _insns.Add(new Instruction(OpCode.PUSH_STR, kv.Value, en.Line, en.Col));
+                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col));
+                            }
+
+                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col));
+
+                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
                         }
 
                         foreach (var func in cds.Methods)
@@ -579,6 +618,9 @@ namespace CFGS_VM.VMCore
                     throw new CompilerException($"unknown statement type {s.GetType().Name}", s.Line, s.Col, s.OriginFile);
             }
         }
+
+
+
 
         /// <summary>
         /// The CompileExpr

@@ -1,4 +1,6 @@
-﻿public class Instruction
+﻿using CFGS_VM.VMCore.Command;
+
+public class Instruction
 {
     /// <summary>
     /// Gets the Code

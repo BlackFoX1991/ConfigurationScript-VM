@@ -1,7 +1,8 @@
 {
   "profiles": {
     "CFGS_NE": {
-      "commandName": "Project"
+      "commandName": "Project",
+      "commandLineArgs": "-d main.cfs"
     }
   }
 }
