@@ -230,6 +230,20 @@ print(hero.getInfo());
 
 ---
 
+## Enums
+```cfs
+
+enum colors
+{
+   red = 5,
+   green,
+   blue
+}
+
+print(colors.green); # Output 6
+
+```
+
 
 [Hier geht es zur deutschen Version](Readme_de.md)
 
