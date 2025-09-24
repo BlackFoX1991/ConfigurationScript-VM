@@ -82,7 +82,6 @@ print(numbers);
 ---
 
 ## For Loops
-🔄 Iterates over a range or array using the syntax `for(var x = 0; x < len(arr); x++;)`.
 
 ```cfs
 var arr = [10, 20, 30, 40, 50];
@@ -232,4 +231,4 @@ print(hero.getInfo());
 ---
 
 
-
+(Hier geht es zur deutschen Version)[Readme_de.md]
