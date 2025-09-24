@@ -3,136 +3,108 @@
     /// <summary>
     /// Defines the <see cref="Node" />
     /// </summary>
-    public abstract class Node
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="Node"/> class.
+    /// </remarks>
+    /// <param name="line">The line<see cref="int"/></param>
+    /// <param name="col">The col<see cref="int"/></param>
+    /// <param name="originFile">The originFile<see cref="string"/></param>
+    public abstract class Node(int line, int col, string originFile)
     {
         /// <summary>
         /// Gets the Line
         /// </summary>
-        public int Line { get; }
+        public int Line { get; } = line;
 
         /// <summary>
         /// Gets the Col
         /// </summary>
-        public int Col { get; }
+        public int Col { get; } = col;
 
         /// <summary>
         /// Gets the OriginFile
         /// </summary>
-        public string OriginFile { get; }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="Node"/> class.
-        /// </summary>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="originFile">The originFile<see cref="string"/></param>
-        protected Node(int line, int col, string originFile)
-        {
-            Line = line;
-            Col = col;
-            OriginFile = originFile;
-        }
+        public string OriginFile { get; } = originFile;
     }
 
     /// <summary>
     /// Defines the <see cref="Expr" />
     /// </summary>
-    public abstract class Expr : Node
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="Expr"/> class.
+    /// </remarks>
+    /// <param name="line">The line<see cref="int"/></param>
+    /// <param name="col">The col<see cref="int"/></param>
+    /// <param name="fname">The fname<see cref="string"/></param>
+    public abstract class Expr(int line, int col, string fname) : Node(line, col, fname)
     {
-        /// <summary>
-        /// Initializes a new instance of the <see cref="Expr"/> class.
-        /// </summary>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        protected Expr(int line, int col, string fname) : base(line, col, fname)
-        {
-        }
     }
 
     /// <summary>
     /// Defines the <see cref="Stmt" />
     /// </summary>
-    public abstract class Stmt : Node
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="Stmt"/> class.
+    /// </remarks>
+    /// <param name="line">The line<see cref="int"/></param>
+    /// <param name="col">The col<see cref="int"/></param>
+    /// <param name="fname">The fname<see cref="string"/></param>
+    public abstract class Stmt(int line, int col, string fname) : Node(line, col, fname)
     {
-        /// <summary>
-        /// Initializes a new instance of the <see cref="Stmt"/> class.
-        /// </summary>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        protected Stmt(int line, int col, string fname) : base(line, col, fname)
-        {
-        }
     }
 
     /// <summary>
     /// Defines the <see cref="NumberExpr" />
     /// </summary>
-    public class NumberExpr : Expr
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="NumberExpr"/> class.
+    /// </remarks>
+    /// <param name="v">The v<see cref="dynamic?"/></param>
+    /// <param name="line">The line<see cref="int"/></param>
+    /// <param name="col">The col<see cref="int"/></param>
+    /// <param name="fname">The fname<see cref="string"/></param>
+    public class NumberExpr(dynamic? v, int line, int col, string fname) : Expr(line, col, fname)
     {
         /// <summary>
         /// Defines the Value
         /// </summary>
-        public dynamic? Value;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="NumberExpr"/> class.
-        /// </summary>
-        /// <param name="v">The v<see cref="dynamic?"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public NumberExpr(dynamic? v, int line, int col, string fname) : base(line, col, fname)
-        {
-            Value = v;
-        }
+        public dynamic? Value = v;
     }
 
     /// <summary>
     /// Defines the <see cref="StringExpr" />
     /// </summary>
-    public class StringExpr : Expr
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="StringExpr"/> class.
+    /// </remarks>
+    /// <param name="v">The v<see cref="string"/></param>
+    /// <param name="line">The line<see cref="int"/></param>
+    /// <param name="col">The col<see cref="int"/></param>
+    /// <param name="fname">The fname<see cref="string"/></param>
+    public class StringExpr(string v, int line, int col, string fname) : Expr(line, col, fname)
     {
         /// <summary>
         /// Defines the Value
         /// </summary>
-        public string Value;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="StringExpr"/> class.
-        /// </summary>
-        /// <param name="v">The v<see cref="string"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public StringExpr(string v, int line, int col, string fname) : base(line, col, fname)
-        {
-            Value = v;
-        }
+        public string Value = v;
     }
 
     /// <summary>
     /// Defines the <see cref="CharExpr" />
     /// </summary>
-    public class CharExpr : Expr
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="CharExpr"/> class.
+    /// </remarks>
+    /// <param name="v">The v<see cref="char"/></param>
+    /// <param name="line">The line<see cref="int"/></param>
+    /// <param name="col">The col<see cref="int"/></param>
+    /// <param name="fname">The fname<see cref="string"/></param>
+    public class CharExpr(char v, int line, int col, string fname) : Expr(line, col, fname)
     {
         /// <summary>
         /// Defines the Value
         /// </summary>
-        public char Value;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="CharExpr"/> class.
-        /// </summary>
-        /// <param name="v">The v<see cref="char"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public CharExpr(char v, int line, int col, string fname) : base(line, col, fname)
-        {
-            Value = v;
-        }
+        public char Value = v;
     }
 
     /// <summary>
@@ -152,33 +124,25 @@
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
-        public BoolExpr(bool v, int line, int col, string fname) : base(line, col, fname)
-        {
-            Value = v;
-        }
+        public BoolExpr(bool v, int line, int col, string fname) : base(line, col, fname) => Value = v;
     }
 
     /// <summary>
     /// Defines the <see cref="VarExpr" />
     /// </summary>
-    public class VarExpr : Expr
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="VarExpr"/> class.
+    /// </remarks>
+    /// <param name="n">The n<see cref="string"/></param>
+    /// <param name="line">The line<see cref="int"/></param>
+    /// <param name="col">The col<see cref="int"/></param>
+    /// <param name="fname">The fname<see cref="string"/></param>
+    public class VarExpr(string n, int line, int col, string fname) : Expr(line, col, fname)
     {
         /// <summary>
         /// Defines the Name
         /// </summary>
-        public string Name;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="VarExpr"/> class.
-        /// </summary>
-        /// <param name="n">The n<see cref="string"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public VarExpr(string n, int line, int col, string fname) : base(line, col, fname)
-        {
-            Name = n;
-        }
+        public string Name = n;
     }
 
     /// <summary>
@@ -829,39 +793,16 @@
     /// </summary>
     public class ClassDeclStmt : Stmt
     {
-        /// <summary>
-        /// Defines the Name
-        /// </summary>
         public string Name;
-
-        /// <summary>
-        /// Defines the Methods
-        /// </summary>
         public List<FuncDeclStmt> Methods;
-
-        /// <summary>
-        /// Defines the Fields
-        /// </summary>
+        public List<EnumDeclStmt> Enums;
         public Dictionary<string, Expr?> Fields;
-
-        /// <summary>
-        /// Defines the Parameters
-        /// </summary>
         public List<string> Parameters;
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ClassDeclStmt"/> class.
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="methods">The methods<see cref="List{FuncDeclStmt}"/></param>
-        /// <param name="fields">The fields<see cref="Dictionary{string, Expr?}"/></param>
-        /// <param name="parameters">The parameters<see cref="List{string}"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
         public ClassDeclStmt(
             string name,
             List<FuncDeclStmt> methods,
+            List<EnumDeclStmt> enums,
             Dictionary<string, Expr?> fields,
             List<string> parameters,
             int line,
@@ -871,10 +812,12 @@
         {
             Name = name;
             Methods = methods;
+            Enums = enums;
             Fields = fields;
             Parameters = parameters;
         }
     }
+
 
     /// <summary>
     /// Defines the <see cref="EnumMemberNode" />
@@ -1457,23 +1400,18 @@
     /// <summary>
     /// Defines the <see cref="ReturnStmt" />
     /// </summary>
-    public class ReturnStmt : Stmt
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="ReturnStmt"/> class.
+    /// </remarks>
+    /// <param name="value">The value<see cref="Expr"/></param>
+    /// <param name="line">The line<see cref="int"/></param>
+    /// <param name="col">The col<see cref="int"/></param>
+    /// <param name="fname">The fname<see cref="string"/></param>
+    public class ReturnStmt(Expr value, int line, int col, string fname) : Stmt(line, col, fname)
     {
         /// <summary>
         /// Defines the Value
         /// </summary>
-        public Expr Value;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ReturnStmt"/> class.
-        /// </summary>
-        /// <param name="value">The value<see cref="Expr"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public ReturnStmt(Expr value, int line, int col, string fname) : base(line, col, fname)
-        {
-            Value = value;
-        }
+        public Expr Value = value;
     }
 }

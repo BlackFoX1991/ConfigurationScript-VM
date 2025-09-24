@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using CFGS_VM.Analytic;
 using CFGS_VM.VMCore;
 
 /// <summary>
