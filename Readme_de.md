@@ -46,6 +46,7 @@ Diese Vorgehensweise ermöglicht flexibles Testen und Ausprobieren, entweder int
 9. [Break und Continue](#break-und-continue)
 10. [Closures / Funktionen als Werte](#closures--funktionen-als-werte)
 11. [Klassen / Objekte](#klassen--objekte)
+12. [Enums](#Enums)
 
 ---
 
