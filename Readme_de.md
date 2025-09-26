@@ -259,3 +259,7 @@ enum colors
 print(colors.green); # Output 6
 
 ```
+
+[Beispiele](CFGS_NE/Samples)
+
+[Back](README.md)
