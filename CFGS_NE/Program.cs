@@ -1,6 +1,6 @@
-﻿using System.Globalization;
-using CFGS_VM.Analytic;
+﻿using CFGS_VM.Analytic;
 using CFGS_VM.VMCore;
+using System.Globalization;
 
 /// <summary>
 /// Defines the <see cref="Program" />
@@ -77,7 +77,7 @@ public class Program
     /// <param name="debug">The debug<see cref="bool"/></param>
     private static void RunSource(string source, string name, bool debug)
     {
-        var lexer = new Lexer(name,source);
+        var lexer = new Lexer(name, source);
         var parser = new Parser(lexer);
         var ast = parser.Parse();
 
@@ -88,12 +88,9 @@ public class Program
         {
             Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
 
-            // Berechne Spaltenbreiten dynamisch
-            // Berechnung der Spaltenbreiten zur Laufzeit
             int opCodeWidth = Math.Max(bytecode.Max(i => i.Code.ToString().Length), "OpCode".Length);
             int operandWidth = Math.Max(bytecode.Max(i => i.Operand?.ToString()?.Length ?? 4), "Operand".Length);
 
-            // Tabellenkopf
             string header = "| " + "Line,Col".PadRight(15)
                           + " | " + "Instr#".PadRight(8)
                           + " | " + "OpCode".PadRight(opCodeWidth)
@@ -126,18 +123,10 @@ public class Program
             }
         }
 
-
-
-
-
         var vm = new VM();
         vm.LoadFunctions(compiler._functions);
         vm.Run(name, bytecode);
-        
     }
-
-    
-
 
     /// <summary>
     /// The ReadMultilineInput
