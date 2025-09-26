@@ -493,6 +493,25 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// The ToBool
+        /// </summary>
+        /// <param name="v">The v<see cref="object?"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool ToBool(object? v)
+        {
+            if (v is null) return false;
+            if (v is bool b) return b;
+            if (v is int i) return i != 0;
+            if (v is long l) return l != 0L;
+            if (v is double d) return d != 0.0;
+            if (v is float f) return f != 0f;
+            if (v is string s) return s.Length != 0;
+            if (v is List<object> list) return list.Count != 0;
+            if (v is Dictionary<string, object> dict) return dict.Count != 0;
+            return true;
+        }
+
+        /// <summary>
         /// The Run
         /// </summary>
         /// <param name="scriptname">The scriptname<see cref="string"/></param>
@@ -555,8 +574,9 @@ namespace CFGS_VM.VMCore
                             _stack.Push((bool)instr.Operand);
                         break;
                     case OpCode.PUSH_NULL:
-                        _stack.Push(0);
+                        _stack.Push(null);
                         break;
+
                     case OpCode.PUSH_SCOPE:
                         {
                             _scopes.Add(new Env(_scopes[^1]));
@@ -640,6 +660,21 @@ namespace CFGS_VM.VMCore
 
                                     _stack.Push(sliceDict);
                                 }
+                                else if (target is string s)
+                                {
+                                    int len = s.Length;
+                                    int start = startObj == null ? 0 : Convert.ToInt32(startObj);
+                                    int end = endObj == null ? len : Convert.ToInt32(endObj);
+
+                                    if (start < 0) start += len;
+                                    if (end < 0) end += len;
+
+                                    start = Math.Clamp(start, 0, len);
+                                    end = Math.Clamp(end, 0, len);
+                                    if (end < start) end = start;
+
+                                    _stack.Push(s.Substring(start, end - start));
+                                }
                                 else
                                 {
                                     throw new VMException($"Runtime error: SLICE_GET target must be array or dictionary", instr.Line, instr.Col, instr.OriginFile);
@@ -674,6 +709,21 @@ namespace CFGS_VM.VMCore
                                         sliceDict[keys[i]] = dict[keys[i]];
 
                                     _stack.Push(sliceDict);
+                                }
+                                else if (target is string s)
+                                {
+                                    int len = s.Length;
+                                    int start = startObj == null ? 0 : Convert.ToInt32(startObj);
+                                    int end = endObj == null ? len : Convert.ToInt32(endObj);
+
+                                    if (start < 0) start += len;
+                                    if (end < 0) end += len;
+
+                                    start = Math.Clamp(start, 0, len);
+                                    end = Math.Clamp(end, 0, len);
+                                    if (end < start) end = start;
+
+                                    _stack.Push(s.Substring(start, end - start));
                                 }
                                 else
                                 {
@@ -1504,12 +1554,7 @@ namespace CFGS_VM.VMCore
                     case OpCode.NOT:
                         {
                             var v = _stack.Pop();
-                            bool result;
-                            if (v is bool b) result = !b;
-                            else if (v is int i) result = i == 0;
-                            else if (v == null) result = true;
-                            else result = false;
-                            _stack.Push(result);
+                            _stack.Push(!ToBool(v));
                             break;
                         }
 
@@ -1543,15 +1588,39 @@ namespace CFGS_VM.VMCore
                         }
 
                     case OpCode.JMP:
-                        if (instr.Operand is null) break;
-                        _ip = (int)instr.Operand;
-                        break;
+                        {
+                            if (instr.Operand is null)
+                                throw new VMException("Runtime error: JMP missing target", instr.Line, instr.Col, instr.OriginFile);
+
+                            _ip = (int)instr.Operand;
+                            continue;
+                        }
 
                     case OpCode.JMP_IF_FALSE:
                         {
-                            if (instr.Operand is null) break;
-                            var cond = _stack.Pop();
-                            if (!ToBool(cond)) _ip = (int)instr.Operand;
+                            if (instr.Operand is null)
+                                throw new VMException("Runtime error: JMP_IF_FALSE missing target", instr.Line, instr.Col, instr.OriginFile);
+
+                            var v = _stack.Pop();
+                            if (!ToBool(v))
+                            {
+                                _ip = (int)instr.Operand;
+                                continue;
+                            }
+                            break;
+                        }
+
+                    case OpCode.JMP_IF_TRUE:
+                        {
+                            if (instr.Operand is null)
+                                throw new VMException("Runtime error: JMP_IF_TRUE missing target", instr.Line, instr.Col, instr.OriginFile);
+
+                            var v = _stack.Pop();
+                            if (ToBool(v))
+                            {
+                                _ip = (int)instr.Operand;
+                                continue;
+                            }
                             break;
                         }
 
@@ -1622,6 +1691,7 @@ namespace CFGS_VM.VMCore
                                 _scopes.Add(callEnv);
                                 _callStack.Push(new CallFrame(_ip, 1, null));
                                 _ip = func.Address;
+                                continue;
                             }
                             else
                             {
@@ -1642,8 +1712,8 @@ namespace CFGS_VM.VMCore
                                 _scopes.Add(callEnv);
                                 _callStack.Push(new CallFrame(_ip, 1, null));
                                 _ip = clos.Address;
+                                continue;
                             }
-                            break;
                         }
 
                     case OpCode.CALL_INDIRECT:
@@ -1704,7 +1774,7 @@ namespace CFGS_VM.VMCore
                                 _scopes.Add(callEnv);
                                 _callStack.Push(new CallFrame(_ip, 1, receiver));
                                 _ip = f.Address;
-                                break;
+                                continue;
                             }
                             else
                             {
@@ -1752,7 +1822,7 @@ namespace CFGS_VM.VMCore
                                 _scopes.Add(callEnv);
                                 _callStack.Push(new CallFrame(_ip, 1, receiver));
                                 _ip = f.Address;
-                                break;
+                                continue;
                             }
                         }
 
@@ -1768,7 +1838,7 @@ namespace CFGS_VM.VMCore
                             _ip = fr.ReturnIp;
 
                             _stack.Push(retVal);
-                            break;
+                            continue;
                         }
 
                     case OpCode.TRY_PUSH:
@@ -1996,27 +2066,6 @@ namespace CFGS_VM.VMCore
                 case bool b: w.Write(b ? "true" : "false"); break;
                 default: w.Write(Convert.ToString(v, CultureInfo.InvariantCulture)); break;
             }
-        }
-
-        /// <summary>
-        /// The ToBool
-        /// </summary>
-        /// <param name="v">The v<see cref="object"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        private static bool ToBool(object v)
-        {
-            return v switch
-            {
-                null => false,
-                bool b => b,
-                int i => i != 0,
-                long l => l != 0L,
-                double d => d != 0.0,
-                decimal m => m != 0m,
-                string s => !string.IsNullOrEmpty(s),
-                List<object> arr => arr.Count != 0,
-                _ => true
-            };
         }
 
         /// <summary>

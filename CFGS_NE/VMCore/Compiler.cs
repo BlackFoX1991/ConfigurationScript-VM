@@ -558,15 +558,25 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
-                case BreakStmt:
-                    _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col));
-                    _breakLists.Peek().Add(_insns.Count - 1);
-                    break;
-
                 case ContinueStmt:
-                    _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col));
-                    _continueLists.Peek().Add(_insns.Count - 1);
-                    break;
+                    {
+                        _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
+
+                        int jmpIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
+                        _continueLists.Peek().Add(jmpIdx);
+                        break;
+                    }
+
+                case BreakStmt:
+                    {
+                        _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
+
+                        int jmpIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
+                        _breakLists.Peek().Add(jmpIdx);
+                        break;
+                    }
 
                 case ExprStmt es:
                     CompileExpr(es.Expression);
@@ -683,12 +693,61 @@ namespace CFGS_VM.VMCore
 
                 case BinaryExpr b:
                     {
-                        var op = OpFromToken(b.Op, b, FileName);
+                        if (b.Op == TokenType.AndAnd)
+                        {
+                            CompileExpr(b.Left);
 
+                            int jmpIfLeftFalse = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, b.Line, b.Col, b.OriginFile));
+
+                            CompileExpr(b.Right);
+
+                            int jmpIfRightFalse = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, b.Line, b.Col, b.OriginFile));
+
+                            _insns.Add(new Instruction(OpCode.PUSH_BOOL, true, b.Line, b.Col, b.OriginFile));
+                            int jmpEnd = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP, null, b.Line, b.Col, b.OriginFile));
+
+                            int lFalse = _insns.Count;
+                            _insns[jmpIfLeftFalse] = new Instruction(OpCode.JMP_IF_FALSE, lFalse, b.Line, b.Col, b.OriginFile);
+                            _insns[jmpIfRightFalse] = new Instruction(OpCode.JMP_IF_FALSE, lFalse, b.Line, b.Col, b.OriginFile);
+
+                            _insns.Add(new Instruction(OpCode.PUSH_BOOL, false, b.Line, b.Col, b.OriginFile));
+
+                            _insns[jmpEnd] = new Instruction(OpCode.JMP, _insns.Count, b.Line, b.Col, b.OriginFile);
+                            break;
+                        }
+                        else if (b.Op == TokenType.OrOr)
+                        {
+                            CompileExpr(b.Left);
+
+                            int jmpIfLeftTrue = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP_IF_TRUE, null, b.Line, b.Col, b.OriginFile));
+
+                            CompileExpr(b.Right);
+
+                            int jmpIfRightTrue = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP_IF_TRUE, null, b.Line, b.Col, b.OriginFile));
+
+                            _insns.Add(new Instruction(OpCode.PUSH_BOOL, false, b.Line, b.Col, b.OriginFile));
+                            int jmpEnd = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP, null, b.Line, b.Col, b.OriginFile));
+
+                            int lTrue = _insns.Count;
+                            _insns[jmpIfLeftTrue] = new Instruction(OpCode.JMP_IF_TRUE, lTrue, b.Line, b.Col, b.OriginFile);
+                            _insns[jmpIfRightTrue] = new Instruction(OpCode.JMP_IF_TRUE, lTrue, b.Line, b.Col, b.OriginFile);
+
+                            _insns.Add(new Instruction(OpCode.PUSH_BOOL, true, b.Line, b.Col, b.OriginFile));
+
+                            _insns[jmpEnd] = new Instruction(OpCode.JMP, _insns.Count, b.Line, b.Col, b.OriginFile);
+                            break;
+                        }
+
+                        var op = OpFromToken(b.Op, b, FileName);
                         CompileExpr(b.Left);
                         CompileExpr(b.Right);
-
-                        _insns.Add(new Instruction(op, null, e.Line, e.Col, e.OriginFile));
+                        _insns.Add(new Instruction(op, null, b.Line, b.Col, b.OriginFile));
                         break;
                     }
 

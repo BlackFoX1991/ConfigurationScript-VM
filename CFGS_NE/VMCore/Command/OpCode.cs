@@ -1,5 +1,8 @@
 ﻿namespace CFGS_VM.VMCore.Command
 {
+    /// <summary>
+    /// Defines the OpCode
+    /// </summary>
     public enum OpCode
     {
         /// <summary>
@@ -111,9 +114,11 @@
         /// Defines the NEW_DICT
         /// </summary>
         NEW_DICT,
+
+        /// <summary>
+        /// Defines the NEW_OBJECT
+        /// </summary>
         NEW_OBJECT,
-
-
 
         /// <summary>
         /// Defines the ARRAY_PUSH
@@ -259,6 +264,11 @@
         /// Defines the JMP_IF_FALSE
         /// </summary>
         JMP_IF_FALSE,
+
+        /// <summary>
+        /// Defines the JMP_IF_TRUE
+        /// </summary>
+        JMP_IF_TRUE,
 
         /// <summary>
         /// Defines the HALT
