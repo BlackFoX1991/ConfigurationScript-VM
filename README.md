@@ -41,6 +41,7 @@ This setup allows flexible testing and experimentation, either interactively or 
 9. [Break and Continue](#break-and-continue)
 10. [Closures / Functions as Values](#closures--functions-as-values)
 11. [Classes / Objects](#classes--objects)
+12. [Enums](#Enums)
 
 ---
 
