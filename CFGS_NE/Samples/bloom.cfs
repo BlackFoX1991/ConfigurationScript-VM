@@ -1,0 +1,97 @@
+class BloomFilter
+{
+    var bits = [];
+    var hashOffsets = [5, 7, 11];
+	
+	enum color
+	{
+		red,
+		green,
+		blue
+	}
+    
+    func init(size)
+    {
+        for(var i = 0;i<size;i++;)
+        {
+            this.bits[] = 0;
+        }
+    }
+    # Add a new TrueFalse Value to Bit-Array
+    func Add(word)
+    {
+        var i = 0;
+        while(i < len(this.hashOffsets))
+        {
+            var h = this.CreateHash(word, this.hashOffsets[i++]);
+            var index = abs(h % len(this.bits));
+            this.bits[index] = 1;
+        }
+    }
+	
+	func GetBits(BitsPerLine)
+	{
+		var lineCount = 0;
+		var output = "";
+		for(var bt = 0;bt<len(this.bits);bt++;)
+		{
+			output += str(this.bits[bt]);
+			lineCount++;
+			if(lineCount == BitsPerLine)
+			{
+				output = output + '\r' + '\n';
+				lineCount = 0;
+			}
+		}
+		return output;
+
+	}
+    
+
+    # Check for TrueFalse Value in Bit-Array
+    func Check(word)
+    {
+        var i = 0;
+        while(i < len(this.hashOffsets))
+        {
+            var h = this.CreateHash(word, this.hashOffsets[i++]);
+            var index = abs(h % len(this.bits));
+            if(this.bits[index] == 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+	
+	func Capacity()
+	{
+		var taken = 0;
+		for(var x = 0;x<len(this.bits);x++;)
+		{
+			if(this.bits[x] == 1)
+			{
+				taken++;
+			}
+		}
+		return "Taken Slots " + (taken*100/len(this.bits)) + " %";
+	}
+    
+    # Create Hash Function
+    func CreateHash(input, offset)
+    {
+        var hash = 0;
+        if(input == "") { return 0; }
+        var i = 0;
+        while(i < len(input))
+        {
+            hash = ((hash << offset) - hash) + toi32(input[i++]);
+            hash = hash & hash;
+        }
+        return hash;
+    }
+    
+}
+
+
+

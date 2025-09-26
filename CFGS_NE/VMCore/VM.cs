@@ -368,6 +368,19 @@ namespace CFGS_VM.VMCore
                     Console.WriteLine();
                     return 1;
 
+                case "put":
+                    PrintValue(args[0], Console.Out, 1, escapeNewlines: false);
+                    return 1;
+
+                case "clear":
+                    Console.Clear();
+                    return 1;
+
+                case "getl":
+                    return Console.ReadLine() ?? "";
+                case "getc":
+                    return Console.Read();
+
             }
 
             throw new VMException($"Runtime error: unknown builtin function '{name}'", instr.Line, instr.Col, instr.OriginFile);
@@ -389,7 +402,11 @@ namespace CFGS_VM.VMCore
         {"toi64",1 },
         {"abs",1 },
         {"rand",0 },
-        {"getfields",1 }
+        {"getfields",1 },
+            {"getl",0 },
+            {"getc",0 },
+            {"put",1 },
+            {"clear",0 }
     };
 
         /// <summary>
