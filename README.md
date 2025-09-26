@@ -50,10 +50,10 @@ This setup allows flexible testing and experimentation, either interactively or 
 
 ```cfs
 var score = 100;
-print(score); // 100
+print(score); # 100
 
 var playerName = "Alex";
-print(playerName); // Alex
+print(playerName); # Alex
 ```
 
 ---
@@ -123,12 +123,12 @@ print(settings);
 func addNumbers(a, b) {
     return a + b;
 }
-print(addNumbers(15, 25)); // 40
+print(addNumbers(15, 25)); # 40
 
 func greet(name) {
     return "Hello, " + name + "!";
 }
-print(greet("Sam")); // Hello, Sam!
+print(greet("Sam")); # Hello, Sam!
 ```
 
 ---
@@ -206,7 +206,7 @@ func makeAdder(x) {
     };
 }
 var addFive = makeAdder(5);
-print(addFive(10)); // 15
+print(addFive(10)); # 15
 ```
 
 ---
