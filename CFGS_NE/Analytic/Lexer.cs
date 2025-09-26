@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Text;
 
 /// <summary>
 /// Defines the <see cref="Lexer" />
@@ -154,45 +155,74 @@ public class Lexer
 
             if (char.IsDigit(Current))
             {
-                string num = "";
-                bool floating = false;
+                int startLine = _line, startCol = _col;
+                var sb = new StringBuilder();
+                bool hasDot = false;
+                bool hasExp = false;
 
-                while (char.IsDigit(Current) || Current == '.' || Current == 'e' || Current == 'E'
-                       || Current == '+' || Current == '-')
+                while (char.IsDigit(Current))
                 {
-                    if (Current == '.')
-                    {
-                        if (floating)
-                            throw new LexerException("invalid floating point number", _line, _col, FileName);
-                        floating = true;
-                    }
-
-                    num += Current;
+                    sb.Append(Current);
                     SyncPos();
                 }
 
+                if (Current == '.' && char.IsDigit(Peek))
+                {
+                    hasDot = true;
+                    sb.Append(Current);
+                    SyncPos();
+                    while (char.IsDigit(Current))
+                    {
+                        sb.Append(Current);
+                        SyncPos();
+                    }
+                }
+
+                if (Current == 'e' || Current == 'E')
+                {
+                    hasExp = true;
+                    sb.Append(Current);
+                    SyncPos();
+
+                    if (Current == '+' || Current == '-')
+                    {
+                        sb.Append(Current);
+                        SyncPos();
+                    }
+
+                    if (!char.IsDigit(Current))
+                        throw new LexerException("invalid float exponent (missing digits)", _line, _col, FileName);
+
+                    while (char.IsDigit(Current))
+                    {
+                        sb.Append(Current);
+                        SyncPos();
+                    }
+                }
+
+                var num = sb.ToString();
                 object value;
 
-                if (floating || num.Contains("e") || num.Contains("E"))
+                if (hasDot || hasExp)
                 {
                     if (double.TryParse(num, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
                         value = d;
                     else
-                        throw new LexerException("invalid float literal '{num}'", _line, _col, FileName);
+                        throw new LexerException($"invalid float literal '{num}'", startLine, startCol, FileName);
                 }
                 else
                 {
-                    if (int.TryParse(num, out var i))
+                    if (int.TryParse(num, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i))
                         value = i;
-                    else if (long.TryParse(num, out var l))
+                    else if (long.TryParse(num, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l))
                         value = l;
-                    else if (decimal.TryParse(num, out var m))
+                    else if (decimal.TryParse(num, NumberStyles.Number, CultureInfo.InvariantCulture, out var m))
                         value = m;
                     else
-                        throw new LexerException($"invalid number literal '{num}'", _line, _col, FileName);
+                        throw new LexerException($"invalid number literal '{num}'", startLine, startCol, FileName);
                 }
 
-                return new Token(TokenType.Number, value, _line, _col, FileName);
+                return new Token(TokenType.Number, value, startLine, startCol, FileName);
             }
 
             if (char.IsLetter(c) || c == '_')

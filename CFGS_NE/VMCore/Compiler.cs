@@ -1,11 +1,9 @@
 ﻿using CFGS_VM.Analytic;
-using CFGS_VM.VMCore.Extension;
 using CFGS_VM.VMCore.Command;
-using System;
+using CFGS_VM.VMCore.Extension;
 
 namespace CFGS_VM.VMCore
 {
-
     /// <summary>
     /// Defines the <see cref="Compiler" />
     /// </summary>
@@ -65,7 +63,6 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.HALT, null, LastStmt.Line + 1, 1, LastStmt.OriginFile));
             else
                 _insns.Add(new Instruction(OpCode.HALT));
-
 
             return _insns;
         }
@@ -208,23 +205,23 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(OpCode.JMP, null, cds.Line, cds.Col, s.OriginFile));
 
                         var initMethod = cds.Methods.FirstOrDefault(m => m.Name == "init");
-                        var ctorParams = initMethod != null ? [.. initMethod.Parameters] : new List<string>(cds.Parameters);
+                        var ctorParams = initMethod != null ? new List<string>(initMethod.Parameters)
+                                                            : new List<string>(cds.Parameters);
 
                         int ctorStart = _insns.Count;
                         _functions[$"__ctor_{cds.Name}"] = new FunctionInfo(ctorParams, ctorStart);
 
-                        _insns.Add(new Instruction(OpCode.NEW_OBJECT, cds.Name, cds.Line, cds.Col));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, "this", cds.Line, cds.Col, s.OriginFile));
+                        const string SELF = "__obj";
+                        _insns.Add(new Instruction(OpCode.NEW_OBJECT, cds.Name, cds.Line, cds.Col, s.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, SELF, cds.Line, cds.Col, s.OriginFile));
 
                         foreach (var kv in cds.Fields)
                         {
                             string fieldName = kv.Key;
                             Expr? initExpr = kv.Value;
 
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, cds.Line, cds.Col, s.OriginFile));
-
-
 
                             if (initExpr != null)
                                 CompileExpr(initExpr);
@@ -233,75 +230,74 @@ namespace CFGS_VM.VMCore
 
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
                         }
+
+                        foreach (var p in ctorParams)
+                        {
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, p, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.ROT, null, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
+                        }
+
                         foreach (var en in cds.Enums)
                         {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, en.Name, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.NEW_DICT, 0, en.Line, en.Col));
+                            _insns.Add(new Instruction(OpCode.NEW_DICT, 0, en.Line, en.Col, s.OriginFile));
 
                             var reverseDict = new Dictionary<int, string>();
-
                             foreach (var member in en.Members)
                             {
-                                _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col));
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, en.Line, en.Col));
-                                _insns.Add(new Instruction(OpCode.PUSH_INT, (int)member.Value, en.Line, en.Col));
-                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col));
-
+                                _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, en.Line, en.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.PUSH_INT, (int)member.Value, en.Line, en.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
                                 reverseDict[(int)member.Value] = member.Name;
                             }
 
-                            // __name Dictionary anlegen
-                            _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__name", en.Line, en.Col));
-                            _insns.Add(new Instruction(OpCode.NEW_DICT, 0, en.Line, en.Col));
-
-                            foreach (var kv in reverseDict)
+                            _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__name", en.Line, en.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.NEW_DICT, 0, en.Line, en.Col, s.OriginFile));
+                            foreach (var kv2 in reverseDict)
                             {
-                                _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col));
-                                _insns.Add(new Instruction(OpCode.PUSH_INT, kv.Key, en.Line, en.Col));
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, kv.Value, en.Line, en.Col));
-                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col));
+                                _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.PUSH_INT, kv2.Key, en.Line, en.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.PUSH_STR, kv2.Value, en.Line, en.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
                             }
-
-                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col));
-
+                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
                         }
 
                         foreach (var func in cds.Methods)
                         {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, func.Name, cds.Line, cds.Col, s.OriginFile));
 
                             var methodParams = new List<string>(func.Parameters);
                             methodParams.Insert(0, "this");
-                            var methodFuncExpr = new FuncExpr(methodParams, func.Body, func.Line, func.Col, s.OriginFile);
 
+                            var methodFuncExpr = new FuncExpr(methodParams, func.Body, func.Line, func.Col, s.OriginFile);
                             CompileExpr(methodFuncExpr);
+
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
                         }
 
                         if (initMethod != null)
                         {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, "init", cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, s.OriginFile));
 
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", cds.Line, cds.Col, s.OriginFile));
-
                             foreach (var p in ctorParams)
-                            {
                                 _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, s.OriginFile));
-                            }
 
-                            int totalArgs = 1 + ctorParams.Count;
-                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, totalArgs, cds.Line, cds.Col, s.OriginFile));
-
+                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, ctorParams.Count, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.POP, null, cds.Line, cds.Col, s.OriginFile));
                         }
 
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", cds.Line, cds.Col, s.OriginFile));
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
                         _insns.Add(new Instruction(OpCode.RET, null, cds.Line, cds.Col, s.OriginFile));
 
                         _insns[jmpOverCtorIdx] = new Instruction(OpCode.JMP, _insns.Count, cds.Line, cds.Col, s.OriginFile);
@@ -309,10 +305,8 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(
                             OpCode.PUSH_CLOSURE,
                             new object[] { ctorStart, $"__ctor_{cds.Name}" },
-                            cds.Line,
-                            cds.Col
+                            cds.Line, cds.Col, s.OriginFile
                         ));
-
                         _insns.Add(new Instruction(OpCode.VAR_DECL, cds.Name, cds.Line, cds.Col, s.OriginFile));
                         break;
                     }
@@ -619,13 +613,10 @@ namespace CFGS_VM.VMCore
             }
         }
 
-
-
-
         /// <summary>
         /// The CompileExpr
         /// </summary>
-        /// <param name="e">The e<see cref="Expr"/></param>
+        /// <param name="e">The e<see cref="Expr?"/></param>
         private void CompileExpr(Expr? e)
         {
             switch (e)
@@ -691,10 +682,15 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case BinaryExpr b:
-                    CompileExpr(b.Left);
-                    CompileExpr(b.Right);
-                    _insns.Add(new Instruction(OpFromToken(b.Op, b, FileName), null, e.Line, e.Col, e.OriginFile));
-                    break;
+                    {
+                        var op = OpFromToken(b.Op, b, FileName);
+
+                        CompileExpr(b.Left);
+                        CompileExpr(b.Right);
+
+                        _insns.Add(new Instruction(op, null, e.Line, e.Col, e.OriginFile));
+                        break;
+                    }
 
                 case UnaryExpr ue:
                     CompileExpr(ue.Right);
@@ -733,59 +729,59 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case CallExpr call:
-                    foreach (var arg in call.Args)
-                        CompileExpr(arg);
-
-                    if (call.Target is IndexExpr ie)
                     {
-                        CompileExpr(ie.Target);
+                        if (call.Target is IndexExpr ie)
+                        {
+                            CompileExpr(ie.Target);
+                            if (ie.Index is StringExpr s)
+                                _insns.Add(new Instruction(OpCode.PUSH_STR, s.Value, e.Line, e.Col, e.OriginFile));
+                            else
+                                CompileExpr(ie.Index);
+                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, e.Line, e.Col, e.OriginFile));
 
-                        _insns.Add(new Instruction(OpCode.DUP, null, e.Line, e.Col, e.OriginFile));
+                            for (int i = call.Args.Count - 1; i >= 0; i--)
+                                CompileExpr(call.Args[i]);
 
-                        if (ie.Index is StringExpr s)
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, s.Value, e.Line, e.Col, e.OriginFile));
+                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, call.Args.Count, e.Line, e.Col, e.OriginFile));
+                        }
+                        else if (call.Target is VarExpr ve && IsBuiltinFunction(ve.Name))
+                        {
+                            for (int i = call.Args.Count - 1; i >= 0; i--)
+                                CompileExpr(call.Args[i]);
+
+                            _insns.Add(new Instruction(OpCode.CALL, ve.Name, e.Line, e.Col, e.OriginFile));
+                        }
                         else
-                            CompileExpr(ie.Index);
+                        {
+                            CompileExpr(call.Target);
 
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, e.Line, e.Col, e.OriginFile));
+                            for (int i = call.Args.Count - 1; i >= 0; i--)
+                                CompileExpr(call.Args[i]);
 
-                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, null, e.Line, e.Col, e.OriginFile));
+                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, call.Args.Count, e.Line, e.Col, e.OriginFile));
+                        }
+                        break;
                     }
-                    else if (call.Target is VarExpr ve && IsBuiltinFunction(ve.Name))
-                    {
-                        _insns.Add(new Instruction(OpCode.CALL, ve.Name, e.Line, e.Col, e.OriginFile));
-                    }
-                    else
-                    {
-                        CompileExpr(call.Target);
-                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, null, e.Line, e.Col, e.OriginFile));
-                    }
-                    break;
 
                 case NewExpr ne:
                     {
                         _insns.Add(new Instruction(OpCode.LOAD_VAR, ne.ClassName, ne.Line, ne.Col, e.OriginFile));
-
-                        foreach (var a in ne.Args)
-                            CompileExpr(a);
-
+                        for (int i = ne.Args.Count - 1; i >= 0; i--)
+                            CompileExpr(ne.Args[i]);
                         _insns.Add(new Instruction(OpCode.CALL_INDIRECT, ne.Args.Count, ne.Line, ne.Col, e.OriginFile));
                         break;
                     }
 
                 case MethodCallExpr mce:
                     {
-                        foreach (var arg in mce.Args)
-                            CompileExpr(arg);
-
                         CompileExpr(mce.Target);
-
-                        _insns.Add(new Instruction(OpCode.DUP, null, mce.Line, mce.Col, e.OriginFile));
-
                         _insns.Add(new Instruction(OpCode.PUSH_STR, mce.Method, mce.Line, mce.Col, e.OriginFile));
                         _insns.Add(new Instruction(OpCode.INDEX_GET, null, mce.Line, mce.Col, e.OriginFile));
 
-                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, null, mce.Line, mce.Col, e.OriginFile));
+                        for (int i = mce.Args.Count - 1; i >= 0; i--)
+                            CompileExpr(mce.Args[i]);
+
+                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, mce.Args.Count, mce.Line, mce.Col, e.OriginFile));
                         break;
                     }
 
@@ -858,7 +854,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// The CompileLValue
         /// </summary>
-        /// <param name="target">The target<see cref="Expr"/></param>
+        /// <param name="target">The target<see cref="Expr?"/></param>
         /// <param name="load">The load<see cref="bool"/></param>
         private void CompileLValue(Expr? target, bool load)
         {
@@ -885,7 +881,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// The CompileLValueStore
         /// </summary>
-        /// <param name="target">The target<see cref="Expr"/></param>
+        /// <param name="target">The target<see cref="Expr?"/></param>
         private void CompileLValueStore(Expr? target)
         {
             if (target is VarExpr v)
