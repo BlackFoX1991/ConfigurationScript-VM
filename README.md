@@ -245,6 +245,8 @@ print(colors.green); # Output 6
 
 ```
 
+[Examples](CFGS_NE/Samples/)
+
 
 [Hier geht es zur deutschen Version](Readme_de.md)
 
