@@ -69,7 +69,7 @@ for(var i = 0; i < len(numbers); i++;) {
 
 var nestedArray = ["A", "B", ["C", "D"]];
 print(nestedArray);
-print(nestedArray[2][1]); // D
+print(nestedArray[2][1]); # D
 
 # Push new item to array
 numbers[] = 99;
