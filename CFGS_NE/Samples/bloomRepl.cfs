@@ -1,0 +1,119 @@
+import "bloom.cfs";
+
+# ====== BloomFilter-REPL ======
+# Erwartet, dass die Klasse BloomFilter (aus deinem Snippet) im selben File
+# oder davor definiert ist.
+
+# --- kleine String-/Parsing-Utils ---
+func split_ws(s)
+{
+    var out = [];
+    var cur = "";
+    var i = 0;
+    while (i < len(s))
+    {
+        var ch = s[i++];
+        # Whitespace? (Space oder Tab)
+        if (ch == ' ' || ch == '\t')
+        {
+            if (len(cur) > 0) { out[] = cur; cur = ""; }
+        }
+        else
+        {
+            cur = cur + ch;
+        }
+    }
+    if (len(cur) > 0) { out[] = cur; }
+    return out;
+}
+
+func parse_int(s)
+{
+    if (len(s) == 0) { return 0; }
+    var i = 0;
+    var sign = 1;
+    if (s[0] == '-') { sign = -1; i = 1; }
+    var n = 0;
+    while (i < len(s))
+    {
+        var c = toi32(s[i++]);
+        if (c < toi32('0') || c > toi32('9')) { return 0; }
+        n = n * 10 + (c - toi32('0'));
+    }
+    return sign * n;
+}
+
+# --- REPL selbst ---
+func repl()
+{
+    # Größe des Filters frei wählbar
+    var size = 128;
+    var bf = new BloomFilter(size);
+
+    print("BloomFilter REPL – size=" + size);
+    print("Befehle: add <wort> | check <wort> | bits [breite] | cap | help | quit");
+
+    while (true)
+    {
+        put("> ");
+        var line = getl();
+        if (line == "") { break; }         # EOF
+        var toks = split_ws(line);
+        if (len(toks) == 0) { continue; }
+
+        var cmd = toks[0];
+
+        if (cmd == "quit" || cmd == "exit")
+        {
+            print("bye.");
+            break;
+        }
+        else if (cmd == "help")
+        {
+            print("add <wort>      – Wort einfügen");
+            print("check <wort>    – Testen, ob evtl. enthalten");
+            print("bits [breite]   – Bitfeld ausgeben (Standard 64 pro Zeile)");
+            print("cap             – belegte Slots in %");
+            print("quit            – Ende");
+        }
+        else if (cmd == "add")
+        {
+            if (len(toks) < 2)
+            {
+                print("Usage: add <wort>");
+                continue;
+            }
+            var w = toks[1];
+            bf.Add(w);
+            print("added: " + w);
+        }
+        else if (cmd == "check")
+        {
+            if (len(toks) < 2)
+            {
+                print("Usage: check <wort>");
+                continue;
+            }
+            var w2 = toks[1];
+            var ok = bf.Check(w2);
+            if (ok) { print("maybe present"); } else { print("definitely not present"); }
+        }
+        else if (cmd == "bits")
+        {
+            var width = 64;
+            if (len(toks) >= 2) { width = parse_int(toks[1]); if (width <= 0) { width = 64; } }
+            print(bf.GetBits(width));
+        }
+        else if (cmd == "cap")
+        {
+            print(bf.Capacity());
+        }
+        else
+        {
+            print("Unbekanntes Kommando. 'help' tippen für Hilfe.");
+        }
+    }
+}
+
+# Start
+repl();
