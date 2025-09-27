@@ -56,10 +56,10 @@ Diese Vorgehensweise ermöglicht flexibles Testen und Ausprobieren, entweder int
 
 ```cfs
 var score = 100;
-print(score); // 100
+print(score); # 100
 
 var playerName = "Alex";
-print(playerName); // Alex
+print(playerName); # Alex
 ```
 
 ---
@@ -76,7 +76,7 @@ for(var i = 0; i < len(numbers); i++;) {
 
 var nestedArray = ["A", "B", ["C", "D"]];
 print(nestedArray);
-print(nestedArray[2][1]); // D
+print(nestedArray[2][1]); # D
 
 # Neues Element hinzufügen
 numbers[] = 99;
@@ -137,7 +137,7 @@ print(addNumbers(15, 25)); // 40
 func greet(name) {
     return "Hello, " + name + "!";
 }
-print(greet("Sam")); // Hello, Sam!
+print(greet("Sam")); # Hello, Sam!
 ```
 
 ---
@@ -212,7 +212,7 @@ while(true) {
 var multiply = func(a, b) {
     return a * b;
 };
-print(multiply(5, 6)); // 30
+print(multiply(5, 6)); # 30
 
 func makeAdder(x) {
     return func(y) {
@@ -220,7 +220,7 @@ func makeAdder(x) {
     };
 }
 var addFive = makeAdder(5);
-print(addFive(10)); // 15
+print(addFive(10)); # 15
 ```
 
 ---
