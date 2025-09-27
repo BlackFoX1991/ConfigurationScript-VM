@@ -349,6 +349,16 @@ namespace CFGS_VM.VMCore
                     if (args[0] is Dictionary<string, object> dct) return dct.Count;
                     return -1;
 
+                case "isdigit":
+                    if (args[0] is null) return false;
+                    return char.IsDigit(Convert.ToChar(args[0]));
+                case "isletter":
+                    if (args[0] is null) return false;
+                    return char.IsLetter(Convert.ToChar(args[0]));
+                case "isalnum":
+                    if (args[0] is null) return false;
+                    return char.IsLetterOrDigit(Convert.ToChar(args[0]));
+
                 case "str":
                     return args[0].ToString() ?? "";
 
