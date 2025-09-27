@@ -2,7 +2,7 @@
   "profiles": {
     "CFGS_NE": {
       "commandName": "Project",
-      "commandLineArgs": "-d sample.cfs"
+      "commandLineArgs": "-d Iptr.cfs"
     }
   }
 }

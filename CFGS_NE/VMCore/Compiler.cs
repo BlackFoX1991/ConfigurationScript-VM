@@ -51,21 +51,93 @@ namespace CFGS_VM.VMCore
         /// </summary>
         /// <param name="program">The program<see cref="List{Stmt}"/></param>
         /// <returns>The <see cref="List{Instruction}"/></returns>
+        /* public List<Instruction> Compile(List<Stmt> program)
+         {
+             Stmt? LastStmt = null;
+
+             // PASS 1: alle Funktionen hoisten
+             foreach (var f in program.OfType<FuncDeclStmt>())
+             {
+                 // Funktionskörper „parken“
+                 int funcStart = _insns.Count;
+                 _functions[f.Name] = new FunctionInfo(f.Parameters, funcStart);
+                 if (f.Body is BlockStmt b) b.IsFunctionBody = true;
+                 CompileStmt(f.Body, insideFunction: true);
+                 _insns.Add(new Instruction(OpCode.PUSH_NULL, null, f.Line, f.Col, f.OriginFile));
+                 _insns.Add(new Instruction(OpCode.RET, null, f.Line, f.Col, f.OriginFile));
+
+                 // Jetzt direkt am Programmanfang die Closure verfügbar machen:
+                 _insns.Add(new Instruction(OpCode.PUSH_CLOSURE, new object[] { funcStart, f.Name }, f.Line, f.Col, f.OriginFile));
+                 _insns.Add(new Instruction(OpCode.VAR_DECL, f.Name, f.Line, f.Col, f.OriginFile));
+             }
+
+             // PASS 2: restliche (nicht-Funktions-)Statements kompilieren
+             foreach (var s in program)
+             {
+                 if (s is FuncDeclStmt) continue; // schon gehoisted
+                 CompileStmt(s, insideFunction: false);
+             }
+
+             foreach (var s in program)
+             {
+                 CompileStmt(s, insideFunction: false);
+                 LastStmt = s;
+             }
+             if (LastStmt is not null)
+                 _insns.Add(new Instruction(OpCode.HALT, null, LastStmt.Line + 1, 1, LastStmt.OriginFile));
+             else
+                 _insns.Add(new Instruction(OpCode.HALT));
+
+             return _insns;
+         }*/
         public List<Instruction> Compile(List<Stmt> program)
         {
-            Stmt? LastStmt = null;
+            _insns.Clear();
+            _functions.Clear();
+
+            var funcDecls = new List<FuncDeclStmt>();
+            foreach (var s in program)
+                if (s is FuncDeclStmt f) funcDecls.Add(f);
+
+            int jmpOverAllFuncsIdx = _insns.Count;
+            _insns.Add(new Instruction(OpCode.JMP, null, 0, 0)); // wird gleich gepatcht
+
+            var orderedFuncs = new List<(FuncDeclStmt fd, int funcStart)>();
+            foreach (var fd in funcDecls)
+            {
+                int funcStart = _insns.Count;
+                _functions[fd.Name] = new FunctionInfo(fd.Parameters, funcStart);
+
+                if (fd.Body is BlockStmt b) b.IsFunctionBody = true;
+                CompileStmt(fd.Body, insideFunction: true);
+
+                // epilog
+                _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fd.Line, fd.Col, fd.OriginFile));
+                _insns.Add(new Instruction(OpCode.RET, null, fd.Line, fd.Col, fd.OriginFile));
+
+                orderedFuncs.Add((fd, funcStart));
+            }
+
+            _insns[jmpOverAllFuncsIdx] = new Instruction(OpCode.JMP, _insns.Count, 0, 0);
+
+            foreach (var (fd, funcStart) in orderedFuncs)
+            {
+                _insns.Add(new Instruction(OpCode.PUSH_CLOSURE,
+                    new object[] { funcStart, fd.Name }, fd.Line, fd.Col, fd.OriginFile));
+                _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, fd.Line, fd.Col, fd.OriginFile));
+            }
+
             foreach (var s in program)
             {
+                if (s is FuncDeclStmt) continue; 
                 CompileStmt(s, insideFunction: false);
-                LastStmt = s;
             }
-            if (LastStmt is not null)
-                _insns.Add(new Instruction(OpCode.HALT, null, LastStmt.Line + 1, 1, LastStmt.OriginFile));
-            else
-                _insns.Add(new Instruction(OpCode.HALT));
+
+            _insns.Add(new Instruction(OpCode.HALT, null, 0, 0));
 
             return _insns;
         }
+
 
         /// <summary>
         /// The CompileStmt
@@ -592,7 +664,8 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case FuncDeclStmt fd:
-                    {
+                    break;
+                    /*{
                         int jmpOverFuncIdx = _insns.Count;
                         _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col));
 
@@ -610,7 +683,7 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(OpCode.PUSH_CLOSURE, new object[] { funcStart, fd.Name }, s.Line, s.Col));
                         _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, s.Line, s.Col));
                         break;
-                    }
+                    }*/
 
                 case ReturnStmt rs:
                     if (rs.Value != null) CompileExpr(rs.Value);
