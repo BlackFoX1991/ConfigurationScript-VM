@@ -140,6 +140,9 @@
         /// </summary>
         ARRAY_DELETE_ELEM_ALL,
 
+        ARRAY_DELETE_SLICE_ALL,
+        ARRAY_DELETE_SLICE,
+
         /// <summary>
         /// Defines the ADD
         /// </summary>
@@ -299,6 +302,7 @@
         /// Defines the CALL_INDIRECT
         /// </summary>
         CALL_INDIRECT,
+
 
         /// <summary>
         /// Defines the PUSH_CLOSURE

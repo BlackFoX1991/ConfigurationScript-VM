@@ -284,6 +284,7 @@
     /// Defines the Import
     /// </summary>
     Import,
+    From,
 
     /// <summary>
     /// Defines the New
