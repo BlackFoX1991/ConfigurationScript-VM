@@ -588,7 +588,7 @@ namespace CFGS_VM.VMCore
                 case "abs":
                     return Math.Abs((dynamic)args[0]);
                 case "rand":
-                    return new Random().Next();
+                    return new Random((int)args[0]).Next((int)args[1], (int)args[2]);
 
                 case "print":
                     PrintValue(args[0], Console.Out, 1, escapeNewlines: false);
@@ -629,7 +629,7 @@ namespace CFGS_VM.VMCore
         {"toi32",1 },
         {"toi64",1 },
         {"abs",1 },
-        {"rand",0 },
+        {"rand",3 },
         {"getfields",1 },
             {"getl",0 },
             {"getc",0 },
