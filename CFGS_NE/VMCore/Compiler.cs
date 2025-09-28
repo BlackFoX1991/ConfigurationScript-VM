@@ -218,6 +218,7 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                // delete arr[i];
                 case DeleteIndexStmt di:
                     CompileExpr(di.Index);
                     _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, di.Name, s.Line, s.Col, s.OriginFile));
@@ -227,6 +228,52 @@ namespace CFGS_VM.VMCore
                     _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ALL, dv.Name, s.Line, s.Col, s.OriginFile));
                     break;
 
+
+                // delete ...
+                case DeleteExprStmt des:
+                    {
+                        if (des.Target is SliceExpr se)
+                        {
+                            // delete arr[a~b];
+                            if (se.Target is VarExpr v)
+                            {
+                                // Nur start/end auf den Stack, Ziel per Name
+                                if (se.Start != null) CompileExpr(se.Start); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
+                                if (se.End != null) CompileExpr(se.End); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.ARRAY_DELETE_SLICE, v.Name, des.Line, des.Col, s.OriginFile));
+                            }
+                            else
+                            {
+                                // Ziel AUSWERTEN + start/end auf den Stack, Operand = null
+                                CompileExpr(se.Target);
+                                if (se.Start != null) CompileExpr(se.Start); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
+                                if (se.End != null) CompileExpr(se.End); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.ARRAY_DELETE_SLICE, null, des.Line, des.Col, s.OriginFile));
+                            }
+                            break;
+                        }
+
+                        if (des.Target is IndexExpr ie)
+                        {
+                            // delete arr[i];
+                            CompileExpr(ie.Target);
+                            CompileExpr(ie.Index);
+                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, null, des.Line, des.Col, s.OriginFile));
+                            break;
+                        }
+
+                        if (des.Target is VarExpr v2 && des.DeleteAll)
+                        {
+                            // delete arr[];
+                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ALL, v2.Name, des.Line, des.Col, s.OriginFile));
+                            break;
+                        }
+
+                        throw new CompilerException("unsupported delete target", des.Line, des.Col, s.OriginFile);
+                    }
+
+
+                // (Nur falls du noch einen separaten Typ hast – ansonsten weglassen)
                 case DeleteAllStmt das:
                     {
                         if (das.Target is VarExpr var)
@@ -239,37 +286,22 @@ namespace CFGS_VM.VMCore
                             CompileExpr(xie.Index);
                             _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM_ALL, null, das.Line, das.Col, s.OriginFile));
                         }
-
+                        else if (das.Target is SliceExpr xse)
+                        {
+                            CompileExpr(xse.Target);
+                            if (xse.Start != null) CompileExpr(xse.Start); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, das.Line, das.Col, s.OriginFile));
+                            if (xse.End != null) CompileExpr(xse.End); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, das.Line, das.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_SLICE, null, das.Line, das.Col, s.OriginFile));
+                        }
                         else
                         {
-                            throw new CompilerException("delete [] only supported for variables or indexed containers.", das.Line, das.Col, s.OriginFile);
+                            throw new CompilerException("delete [] nur für Variablen/Index/Slices", das.Line, das.Col, s.OriginFile);
                         }
                         break;
                     }
 
-                case DeleteExprStmt des:
-                    if (des.Target is IndexExpr ie)
-                    {
-                        CompileExpr(ie.Target);
-                        CompileExpr(ie.Index);
 
-                        if (des.DeleteAll)
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM_ALL, null, des.Line, des.Col, s.OriginFile));
-                        else
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, null, des.Line, des.Col, s.OriginFile));
-                    }
-                    else if (des.Target is VarExpr v)
-                    {
-                        if (des.DeleteAll)
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ALL, v.Name, des.Line, des.Col, s.OriginFile));
-                        else
-                            throw new CompilerException("delete without [] not supported for plain variables", des.Line, des.Col, s.OriginFile);
-                    }
-                    else
-                    {
-                        throw new CompilerException("delete [] only supported for variables or indexed containers.", des.Line, des.Col, s.OriginFile);
-                    }
-                    break;
+
 
                 case ClassDeclStmt cds:
                     {
@@ -759,10 +791,12 @@ namespace CFGS_VM.VMCore
                     if (slice.End is not null)
                         CompileExpr(slice.End);
                     else
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, null, slice.Line, slice.Col, e.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, slice.Line, slice.Col, e.OriginFile));
+
 
                     _insns.Add(new Instruction(OpCode.SLICE_GET, null, slice.Line, slice.Col, e.OriginFile));
                     break;
+
 
                 case BinaryExpr b:
                     {
@@ -878,11 +912,13 @@ namespace CFGS_VM.VMCore
                         }
                         else if (call.Target is VarExpr ve && IsBuiltinFunction(ve.Name))
                         {
+                            
                             for (int i = call.Args.Count - 1; i >= 0; i--)
                                 CompileExpr(call.Args[i]);
-
                             _insns.Add(new Instruction(OpCode.CALL, ve.Name, e.Line, e.Col, e.OriginFile));
+                            break;
                         }
+
                         else
                         {
                             CompileExpr(call.Target);

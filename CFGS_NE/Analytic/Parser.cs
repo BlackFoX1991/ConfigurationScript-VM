@@ -5,10 +5,7 @@
     /// </summary>
     public class Parser
     {
-        /// <summary>
-        /// Defines the _importedModules
-        /// </summary>
-        private readonly HashSet<string> _importedModules = new();
+
 
         /// <summary>
         /// Defines the _lexer
@@ -79,37 +76,26 @@
                 while (_current.Type == TokenType.Import)
                 {
                     Eat(TokenType.Import);
-                    if (_current.Type != TokenType.String)
-                        throw new ParserException($"expected string but got '{_current.Type}'", _current.Line, _current.Column, _current.Filename);
-
-                    string path = _current.Value.ToString() ?? "";
-                    Eat(TokenType.String);
-                    if (File.Exists(path))
+                    if (_current.Type == TokenType.String)
                     {
-                        if (!_importedModules.Contains(path))
-                        {
-                            try
-                            {
-
-                                StreamReader lreader = new StreamReader(path, true);
-                                string nsrc = lreader.ReadToEnd();
-                                lreader.Close();
-                                var lex = new Lexer(path, nsrc);
-                                var prs = new Parser(lex);
-                                stmts.AddRange(prs.Parse());
-
-                                _importedModules.Add(path);
-                            }
-                            catch (Exception pex)
-                            {
-
-                                throw new ParserException(pex.Message, _current.Line, _current.Column, _current.Filename);
-                            }
-                        }
-                        else
-                            Console.WriteLine($"Warning : tried to import script more than once '{path}', line {_current.Line}, position {_current.Column}.");
-
+                        string path = _current.Value.ToString() ?? "";
+                        Eat(TokenType.String);
+                        stmts.AddRange(GetImports(path, _current.Line, _current.Column, _current.Filename));
                     }
+                    else if (_current.Type == TokenType.Ident)
+                    {
+                        string clsName = _current.Value.ToString() ?? "";
+                        
+                        Eat(TokenType.Ident);
+                        Eat(TokenType.From);
+                        if (_current.Type != TokenType.String)
+                            throw new ParserException("expected string after 'from' in import statement", _current.Line, _current.Column, _current.Filename);
+                        string path = _current.Value.ToString() ?? "";
+                        stmts.AddRange(GetImports(path, _current.Line, _current.Column, _current.Filename, clsName));
+                        Eat(TokenType.String);
+                    }
+
+
                     Eat(TokenType.Semi);
 
                 }
@@ -122,6 +108,50 @@
                 stmts.Add(Statement());
             }
             return stmts;
+        }
+
+        private List<Stmt> GetImports(string path, int ln, int col, string fsname, string specClass = "")
+        {
+
+            List<Stmt> imports = new List<Stmt>();
+            if (File.Exists(path))
+            {
+                try
+                {
+
+                    StreamReader lreader = new StreamReader(path, true);
+                    string nsrc = lreader.ReadToEnd();
+                    lreader.Close();
+                    var lex = new Lexer(path, nsrc);
+                    var prs = new Parser(lex);
+                    imports = prs.Parse();
+                    if (specClass.Trim() != "")
+                    {
+                        Stmt? clsImport = null;
+                        
+                        foreach (var stmt in imports)
+                        {
+
+                            if (stmt is ClassDeclStmt cls && cls.Name == specClass)
+                            {
+                                clsImport = cls;
+                                break;
+                            }
+                        }
+                        if (clsImport is null)
+                            throw new ParserException($"Could not find class '{specClass}' in import file '{path}'", ln, col, fsname);
+
+                        imports.Clear();
+                        imports.Add(clsImport);
+                    }
+                }
+                catch (Exception pex)
+                {
+
+                    throw new ParserException(pex.Message, _current.Line, _current.Column, _current.Filename);
+                }
+            }
+            return imports;
         }
 
         /// <summary>
@@ -678,37 +708,95 @@
             {
                 int line = _current.Line;
                 int col = _current.Column;
+                string fsname = _current.Filename;
 
                 Eat(TokenType.Delete);
 
                 if (_current.Type != TokenType.Ident)
                     throw new ParserException("expected identifier after delete", line, col, _current.Filename);
 
-                Expr target = new VarExpr(_current.Value.ToString() ?? "", line, col, _current.Filename);
+                // Basis-Ziel: Variable
+                Expr target = new VarExpr(_current.Value?.ToString() ?? "", line, col, fsname);
                 Eat(TokenType.Ident);
 
-                while (_current.Type == TokenType.LBracket)
+                // Beliebig viele Verkettungen: .field oder [ ... ] oder [start~end]
+                while (true)
                 {
-                    Eat(TokenType.LBracket);
+                    if (_current.Type == TokenType.Dot)
+                    {
+                        // .field  -> als Index mit String-Key modellieren
+                        Eat(TokenType.Dot);
+                        if (_current.Type != TokenType.Ident)
+                            throw new ParserException("expected identifier after '.'", line, col, _current.Filename);
 
-                    if (_current.Type == TokenType.RBracket)
-                    {
-                        Eat(TokenType.RBracket);
-                        Eat(TokenType.Semi);
-                        return new DeleteExprStmt(target, true, line, col, _current.Filename);
+                        string fieldName = _current.Value?.ToString() ?? "";
+                        Eat(TokenType.Ident);
+
+                        target = new IndexExpr(
+                            target,
+                            new StringExpr(fieldName, line, col, fsname),
+                            line, col, fsname
+                        );
+                        continue;
                     }
-                    else
+
+                    if (_current.Type == TokenType.LBracket)
                     {
-                        Expr idx = Expr();
-                        Eat(TokenType.RBracket);
-                        target = new IndexExpr(target, idx, line, col, _current.Filename);
+                        Eat(TokenType.LBracket);
+
+                        // delete arr[];  -> ganzen Container auf dieser Ebene leeren
+                        if (_current.Type == TokenType.RBracket)
+                        {
+                            Eat(TokenType.RBracket);
+                            Eat(TokenType.Semi);
+                            return new DeleteExprStmt(target, /*DeleteAll*/ true, line, col, fsname);
+                        }
+
+                        // Slice- oder Index-Syntax
+                        Expr? start = null;
+                        Expr? end = null;
+
+                        // Wenn nicht sofort '~' kommt, ist ein Start-Ausdruck vorhanden
+                        if (_current.Type != TokenType.Range)
+                            start = Expr();
+
+                        if (_current.Type == TokenType.Range)
+                        {
+                            // Slice: start~end — beide optional
+                            Eat(TokenType.Range);
+                            if (_current.Type != TokenType.RBracket)
+                                end = Expr();
+
+                            Eat(TokenType.RBracket);
+                            target = new SliceExpr(target, start, end, line, col, fsname);
+                        }
+                        else
+                        {
+                            // Reiner Index: [expr]  (hier MUSS ein Index gegeben sein)
+                            if (start is null)
+                                throw new ParserException("expected index expression before ']'", line, col, fsname);
+
+                            Eat(TokenType.RBracket);
+                            target = new IndexExpr(target, start, line, col, fsname);
+                        }
+
+                        continue;
                     }
+
+                    // keine weitere Verkettung
+                    break;
                 }
 
+                // Abschluss-Semikolon
                 Eat(TokenType.Semi);
-                return new DeleteExprStmt(target, false, line, col, _current.Filename);
+
+                // Normales Delete eines Elements (IndexExpr) oder Slices (SliceExpr),
+                // oder generisch auf dem zusammengesetzten Ziel.
+                return new DeleteExprStmt(target, /*DeleteAll*/ false, line, col, fsname);
             }
         }
+
+
 
         /// <summary>
         /// The ParseBlock
