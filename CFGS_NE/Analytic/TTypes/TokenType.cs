@@ -284,6 +284,10 @@
     /// Defines the Import
     /// </summary>
     Import,
+
+    /// <summary>
+    /// Defines the From
+    /// </summary>
     From,
 
     /// <summary>
