@@ -324,6 +324,5 @@ Please note: import statements must appear at the top of the script.
 
 [Examples](CFGS_NE/Samples/)
 
-
-[Hier geht es zur deutschen Version](Readme_de.md)
+[Built-In Functions](builtin.md)
 
