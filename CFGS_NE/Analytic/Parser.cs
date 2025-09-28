@@ -5,8 +5,6 @@
     /// </summary>
     public class Parser
     {
-
-
         /// <summary>
         /// Defines the _lexer
         /// </summary>
@@ -85,7 +83,7 @@
                     else if (_current.Type == TokenType.Ident)
                     {
                         string clsName = _current.Value.ToString() ?? "";
-                        
+
                         Eat(TokenType.Ident);
                         Eat(TokenType.From);
                         if (_current.Type != TokenType.String)
@@ -94,7 +92,6 @@
                         stmts.AddRange(GetImports(path, _current.Line, _current.Column, _current.Filename, clsName));
                         Eat(TokenType.String);
                     }
-
 
                     Eat(TokenType.Semi);
 
@@ -110,6 +107,15 @@
             return stmts;
         }
 
+        /// <summary>
+        /// The GetImports
+        /// </summary>
+        /// <param name="path">The path<see cref="string"/></param>
+        /// <param name="ln">The ln<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="fsname">The fsname<see cref="string"/></param>
+        /// <param name="specClass">The specClass<see cref="string"/></param>
+        /// <returns>The <see cref="List{Stmt}"/></returns>
         private List<Stmt> GetImports(string path, int ln, int col, string fsname, string specClass = "")
         {
 
@@ -128,7 +134,7 @@
                     if (specClass.Trim() != "")
                     {
                         Stmt? clsImport = null;
-                        
+
                         foreach (var stmt in imports)
                         {
 
@@ -243,9 +249,8 @@
         }
 
         /// <summary>
-        /// The ParseExprStmt
+        /// Gets the ParseExprStmt
         /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseExprStmt
         {
             get
@@ -306,7 +311,6 @@
             var enums = new List<EnumDeclStmt>();
             var fields = new Dictionary<string, Expr?>();
 
-
             while (_current.Type != TokenType.RBrace)
             {
                 if (_current.Type == TokenType.Var)
@@ -347,9 +351,8 @@
         }
 
         /// <summary>
-        /// The ParseNew
+        /// Gets the ParseNew
         /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr ParseNew
         {
             get
@@ -403,9 +406,8 @@
         }
 
         /// <summary>
-        /// The ParseThrow
+        /// Gets the ParseThrow
         /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseThrow
         {
             get
@@ -420,9 +422,8 @@
         }
 
         /// <summary>
-        /// The ParseTry
+        /// Gets the ParseTry
         /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseTry
         {
             get
@@ -497,9 +498,8 @@
         }
 
         /// <summary>
-        /// The ParseBreak
+        /// Gets the ParseBreak
         /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseBreak
         {
             get
@@ -511,9 +511,8 @@
         }
 
         /// <summary>
-        /// The ParseContinue
+        /// Gets the ParseContinue
         /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseContinue
         {
             get
@@ -525,9 +524,8 @@
         }
 
         /// <summary>
-        /// The ParsePrint
+        /// Gets the ParsePrint
         /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParsePrint
         {
             get
@@ -542,9 +540,8 @@
         }
 
         /// <summary>
-        /// The ParseVarDecl
+        /// Gets the ParseVarDecl
         /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseVarDecl
         {
             get
@@ -699,9 +696,8 @@
         }
 
         /// <summary>
-        /// The ParseDelete
+        /// Gets the ParseDelete
         /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseDelete
         {
             get
@@ -715,16 +711,13 @@
                 if (_current.Type != TokenType.Ident)
                     throw new ParserException("expected identifier after delete", line, col, _current.Filename);
 
-                // Basis-Ziel: Variable
                 Expr target = new VarExpr(_current.Value?.ToString() ?? "", line, col, fsname);
                 Eat(TokenType.Ident);
 
-                // Beliebig viele Verkettungen: .field oder [ ... ] oder [start~end]
                 while (true)
                 {
                     if (_current.Type == TokenType.Dot)
                     {
-                        // .field  -> als Index mit String-Key modellieren
                         Eat(TokenType.Dot);
                         if (_current.Type != TokenType.Ident)
                             throw new ParserException("expected identifier after '.'", line, col, _current.Filename);
@@ -744,25 +737,21 @@
                     {
                         Eat(TokenType.LBracket);
 
-                        // delete arr[];  -> ganzen Container auf dieser Ebene leeren
                         if (_current.Type == TokenType.RBracket)
                         {
                             Eat(TokenType.RBracket);
                             Eat(TokenType.Semi);
-                            return new DeleteExprStmt(target, /*DeleteAll*/ true, line, col, fsname);
+                            return new DeleteExprStmt(target, true, line, col, fsname);
                         }
 
-                        // Slice- oder Index-Syntax
                         Expr? start = null;
                         Expr? end = null;
 
-                        // Wenn nicht sofort '~' kommt, ist ein Start-Ausdruck vorhanden
                         if (_current.Type != TokenType.Range)
                             start = Expr();
 
                         if (_current.Type == TokenType.Range)
                         {
-                            // Slice: start~end — beide optional
                             Eat(TokenType.Range);
                             if (_current.Type != TokenType.RBracket)
                                 end = Expr();
@@ -772,7 +761,6 @@
                         }
                         else
                         {
-                            // Reiner Index: [expr]  (hier MUSS ein Index gegeben sein)
                             if (start is null)
                                 throw new ParserException("expected index expression before ']'", line, col, fsname);
 
@@ -783,20 +771,14 @@
                         continue;
                     }
 
-                    // keine weitere Verkettung
                     break;
                 }
 
-                // Abschluss-Semikolon
                 Eat(TokenType.Semi);
 
-                // Normales Delete eines Elements (IndexExpr) oder Slices (SliceExpr),
-                // oder generisch auf dem zusammengesetzten Ziel.
-                return new DeleteExprStmt(target, /*DeleteAll*/ false, line, col, fsname);
+                return new DeleteExprStmt(target, false, line, col, fsname);
             }
         }
-
-
 
         /// <summary>
         /// The ParseBlock

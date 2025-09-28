@@ -140,7 +140,14 @@
         /// </summary>
         ARRAY_DELETE_ELEM_ALL,
 
+        /// <summary>
+        /// Defines the ARRAY_DELETE_SLICE_ALL
+        /// </summary>
         ARRAY_DELETE_SLICE_ALL,
+
+        /// <summary>
+        /// Defines the ARRAY_DELETE_SLICE
+        /// </summary>
         ARRAY_DELETE_SLICE,
 
         /// <summary>
@@ -302,7 +309,6 @@
         /// Defines the CALL_INDIRECT
         /// </summary>
         CALL_INDIRECT,
-
 
         /// <summary>
         /// Defines the PUSH_CLOSURE

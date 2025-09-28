@@ -51,45 +51,6 @@ namespace CFGS_VM.VMCore
         /// </summary>
         /// <param name="program">The program<see cref="List{Stmt}"/></param>
         /// <returns>The <see cref="List{Instruction}"/></returns>
-        /* public List<Instruction> Compile(List<Stmt> program)
-         {
-             Stmt? LastStmt = null;
-
-             // PASS 1: alle Funktionen hoisten
-             foreach (var f in program.OfType<FuncDeclStmt>())
-             {
-                 // Funktionskörper „parken“
-                 int funcStart = _insns.Count;
-                 _functions[f.Name] = new FunctionInfo(f.Parameters, funcStart);
-                 if (f.Body is BlockStmt b) b.IsFunctionBody = true;
-                 CompileStmt(f.Body, insideFunction: true);
-                 _insns.Add(new Instruction(OpCode.PUSH_NULL, null, f.Line, f.Col, f.OriginFile));
-                 _insns.Add(new Instruction(OpCode.RET, null, f.Line, f.Col, f.OriginFile));
-
-                 // Jetzt direkt am Programmanfang die Closure verfügbar machen:
-                 _insns.Add(new Instruction(OpCode.PUSH_CLOSURE, new object[] { funcStart, f.Name }, f.Line, f.Col, f.OriginFile));
-                 _insns.Add(new Instruction(OpCode.VAR_DECL, f.Name, f.Line, f.Col, f.OriginFile));
-             }
-
-             // PASS 2: restliche (nicht-Funktions-)Statements kompilieren
-             foreach (var s in program)
-             {
-                 if (s is FuncDeclStmt) continue; // schon gehoisted
-                 CompileStmt(s, insideFunction: false);
-             }
-
-             foreach (var s in program)
-             {
-                 CompileStmt(s, insideFunction: false);
-                 LastStmt = s;
-             }
-             if (LastStmt is not null)
-                 _insns.Add(new Instruction(OpCode.HALT, null, LastStmt.Line + 1, 1, LastStmt.OriginFile));
-             else
-                 _insns.Add(new Instruction(OpCode.HALT));
-
-             return _insns;
-         }*/
         public List<Instruction> Compile(List<Stmt> program)
         {
             _insns.Clear();
@@ -100,7 +61,7 @@ namespace CFGS_VM.VMCore
                 if (s is FuncDeclStmt f) funcDecls.Add(f);
 
             int jmpOverAllFuncsIdx = _insns.Count;
-            _insns.Add(new Instruction(OpCode.JMP, null, 0, 0)); // wird gleich gepatcht
+            _insns.Add(new Instruction(OpCode.JMP, null, 0, 0));
 
             var orderedFuncs = new List<(FuncDeclStmt fd, int funcStart)>();
             foreach (var fd in funcDecls)
@@ -111,7 +72,6 @@ namespace CFGS_VM.VMCore
                 if (fd.Body is BlockStmt b) b.IsFunctionBody = true;
                 CompileStmt(fd.Body, insideFunction: true);
 
-                // epilog
                 _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fd.Line, fd.Col, fd.OriginFile));
                 _insns.Add(new Instruction(OpCode.RET, null, fd.Line, fd.Col, fd.OriginFile));
 
@@ -129,7 +89,7 @@ namespace CFGS_VM.VMCore
 
             foreach (var s in program)
             {
-                if (s is FuncDeclStmt) continue; 
+                if (s is FuncDeclStmt) continue;
                 CompileStmt(s, insideFunction: false);
             }
 
@@ -137,7 +97,6 @@ namespace CFGS_VM.VMCore
 
             return _insns;
         }
-
 
         /// <summary>
         /// The CompileStmt
@@ -218,7 +177,6 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
-                // delete arr[i];
                 case DeleteIndexStmt di:
                     CompileExpr(di.Index);
                     _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, di.Name, s.Line, s.Col, s.OriginFile));
@@ -228,23 +186,18 @@ namespace CFGS_VM.VMCore
                     _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ALL, dv.Name, s.Line, s.Col, s.OriginFile));
                     break;
 
-
-                // delete ...
                 case DeleteExprStmt des:
                     {
                         if (des.Target is SliceExpr se)
                         {
-                            // delete arr[a~b];
                             if (se.Target is VarExpr v)
                             {
-                                // Nur start/end auf den Stack, Ziel per Name
                                 if (se.Start != null) CompileExpr(se.Start); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
                                 if (se.End != null) CompileExpr(se.End); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
                                 _insns.Add(new Instruction(OpCode.ARRAY_DELETE_SLICE, v.Name, des.Line, des.Col, s.OriginFile));
                             }
                             else
                             {
-                                // Ziel AUSWERTEN + start/end auf den Stack, Operand = null
                                 CompileExpr(se.Target);
                                 if (se.Start != null) CompileExpr(se.Start); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
                                 if (se.End != null) CompileExpr(se.End); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
@@ -255,7 +208,6 @@ namespace CFGS_VM.VMCore
 
                         if (des.Target is IndexExpr ie)
                         {
-                            // delete arr[i];
                             CompileExpr(ie.Target);
                             CompileExpr(ie.Index);
                             _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, null, des.Line, des.Col, s.OriginFile));
@@ -264,7 +216,6 @@ namespace CFGS_VM.VMCore
 
                         if (des.Target is VarExpr v2 && des.DeleteAll)
                         {
-                            // delete arr[];
                             _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ALL, v2.Name, des.Line, des.Col, s.OriginFile));
                             break;
                         }
@@ -272,8 +223,6 @@ namespace CFGS_VM.VMCore
                         throw new CompilerException("unsupported delete target", des.Line, des.Col, s.OriginFile);
                     }
 
-
-                // (Nur falls du noch einen separaten Typ hast – ansonsten weglassen)
                 case DeleteAllStmt das:
                     {
                         if (das.Target is VarExpr var)
@@ -299,9 +248,6 @@ namespace CFGS_VM.VMCore
                         }
                         break;
                     }
-
-
-
 
                 case ClassDeclStmt cds:
                     {
@@ -697,26 +643,6 @@ namespace CFGS_VM.VMCore
 
                 case FuncDeclStmt fd:
                     break;
-                    /*{
-                        int jmpOverFuncIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col));
-
-                        int funcStart = _insns.Count;
-                        _functions[fd.Name] = new FunctionInfo(fd.Parameters, funcStart);
-
-                        if (fd.Body is BlockStmt b) b.IsFunctionBody = true;
-                        CompileStmt(fd.Body, insideFunction: true);
-
-                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, s.Line, s.Col));
-                        _insns.Add(new Instruction(OpCode.RET, null, s.Line, s.Col));
-
-                        _insns[jmpOverFuncIdx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col);
-
-                        _insns.Add(new Instruction(OpCode.PUSH_CLOSURE, new object[] { funcStart, fd.Name }, s.Line, s.Col));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, s.Line, s.Col));
-                        break;
-                    }*/
-
                 case ReturnStmt rs:
                     if (rs.Value != null) CompileExpr(rs.Value);
                     else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, s.Line, s.Col));
@@ -793,10 +719,8 @@ namespace CFGS_VM.VMCore
                     else
                         _insns.Add(new Instruction(OpCode.PUSH_NULL, null, slice.Line, slice.Col, e.OriginFile));
 
-
                     _insns.Add(new Instruction(OpCode.SLICE_GET, null, slice.Line, slice.Col, e.OriginFile));
                     break;
-
 
                 case BinaryExpr b:
                     {
@@ -912,7 +836,7 @@ namespace CFGS_VM.VMCore
                         }
                         else if (call.Target is VarExpr ve && IsBuiltinFunction(ve.Name))
                         {
-                            
+
                             for (int i = call.Args.Count - 1; i >= 0; i--)
                                 CompileExpr(call.Args[i]);
                             _insns.Add(new Instruction(OpCode.CALL, ve.Name, e.Line, e.Col, e.OriginFile));

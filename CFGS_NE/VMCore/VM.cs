@@ -4,7 +4,6 @@ using CFGS_VM.VMCore.Extention;
 using System.Globalization;
 using System.Text;
 
-
 namespace CFGS_VM.VMCore
 {
     /// <summary>
@@ -131,11 +130,6 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Defines the <see cref="BoundMethod" />
         /// </summary>
-        /// 
-        // ---- Event-Loop: Queues & Timer ----
-
-
-
         private sealed class BoundMethod
         {
             /// <summary>
@@ -263,6 +257,14 @@ namespace CFGS_VM.VMCore
         public VM()
         {
         }
+
+        /// <summary>
+        /// The DeleteSliceOnTarget
+        /// </summary>
+        /// <param name="target">The target<see cref="object"/></param>
+        /// <param name="startObj">The startObj<see cref="object"/></param>
+        /// <param name="endObj">The endObj<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
         private static void DeleteSliceOnTarget(ref object target, object startObj, object endObj, Instruction instr)
         {
             if (target is string)
@@ -282,7 +284,6 @@ namespace CFGS_VM.VMCore
                         end = Math.Clamp(end, 0, len);
                         if (end < start) end = start;
 
-                        // lösche [start, end) – halb-offen
                         if (start < end)
                             arr.RemoveRange(start, end - start);
                         return;
@@ -290,7 +291,6 @@ namespace CFGS_VM.VMCore
 
                 case Dictionary<string, object> dict:
                     {
-                        // Löschen nach Positionsbereich in der Insertion-Order
                         var keys = dict.Keys.ToList();
                         int len = keys.Count;
 
@@ -325,7 +325,6 @@ namespace CFGS_VM.VMCore
 
                         if (start < end)
                         {
-                            // String ist immutable -> neuen bauen (vor + nach Slice)
                             target = s.Substring(0, start) + s.Substring(end);
                         }
                         return;
@@ -336,26 +335,28 @@ namespace CFGS_VM.VMCore
             }
         }
 
-
+        /// <summary>
+        /// The NormalizeSliceBounds
+        /// </summary>
+        /// <param name="startObj">The startObj<see cref="object?"/></param>
+        /// <param name="endObj">The endObj<see cref="object?"/></param>
+        /// <param name="len">The len<see cref="int"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="(int start, int endEx)"/></returns>
         private static (int start, int endEx) NormalizeSliceBounds(object? startObj, object? endObj, int len, Instruction instr)
         {
-            // start
             int start = startObj == null ? 0 : Convert.ToInt32(startObj);
             if (start < 0) start += len;
 
-            // end (exklusiv)
             int endEx = endObj == null ? len : Convert.ToInt32(endObj);
             if (endEx < 0) endEx += len;
 
-            // Clamp + Ordnung
             start = Math.Clamp(start, 0, len);
             endEx = Math.Clamp(endEx, 0, len);
             if (endEx < start) endEx = start;
 
             return (start, endEx);
         }
-
-
 
         /// <summary>
         /// The IsNumber
@@ -400,11 +401,15 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The ToNumber
+        /// </summary>
+        /// <param name="val">The val<see cref="object?"/></param>
+        /// <returns>The <see cref="object"/></returns>
         private static object ToNumber(object? val)
         {
             if (val is null) return 0;
 
-            // Bereits numerisch? Dann ggf. lossless "kleiner" machen.
             switch (val)
             {
                 case int or long or float or double or decimal:
@@ -413,19 +418,16 @@ namespace CFGS_VM.VMCore
                     return b ? 1 : 0;
                 case char ch:
                     if (char.IsDigit(ch)) return (int)(ch - '0');
-                    return (int)ch; // Codepoint
+                    return (int)ch;
             }
 
-            // Alles andere -> String normalisieren und parsen
             var s = val.ToString() ?? "";
             s = s.Trim();
 
             if (s.Length == 0) return 0;
 
-            // Unterstriche (Zahlentrenner) entfernen
             s = s.Replace("_", "");
 
-            // Präfix-basierte Zahlensysteme
             if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
                 return ParseIntegerRadix(s[2..], 16);
             if (s.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
@@ -433,22 +435,18 @@ namespace CFGS_VM.VMCore
             if (s.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
                 return ParseIntegerRadix(s[2..], 8);
 
-            // Dezimaltrennzeichen vereinheitlichen ("," -> ".")
             if (s.Contains(',')) s = s.Replace(',', '.');
 
-            // Entscheiden: integer-ähnlich vs. float-ähnlich
             bool looksFloat = s.IndexOfAny(new[] { '.', 'e', 'E' }) >= 0;
 
             if (!looksFloat)
             {
-                // Integer-Pfad
                 if (int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i32))
                     return i32;
 
                 if (long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i64))
                     return i64;
 
-                // Fällt über long hinaus oder hat Vorzeichen-Besonderheiten → decimal/double versuchen
                 if (decimal.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var decInt))
                     return decInt;
 
@@ -459,7 +457,6 @@ namespace CFGS_VM.VMCore
             }
             else
             {
-                // Float-Pfad: zuerst decimal für Präzision, dann double für große Exponenten
                 if (decimal.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var dec))
                     return dec;
 
@@ -470,13 +467,17 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The ParseIntegerRadix
+        /// </summary>
+        /// <param name="digits">The digits<see cref="string"/></param>
+        /// <param name="radix">The radix<see cref="int"/></param>
+        /// <returns>The <see cref="object"/></returns>
         private static object ParseIntegerRadix(string digits, int radix)
         {
-            // Leerraum schon vorher getrimmt; hier nur Validierung/Parsing.
             if (digits.Length == 0)
                 throw new FormatException("toi: leere Ziffernfolge.");
 
-            // Optionales Vorzeichen
             bool neg = false;
             int idx = 0;
             if (digits[0] == '+' || digits[0] == '-')
@@ -508,7 +509,6 @@ namespace CFGS_VM.VMCore
 
             if (neg) acc = -acc;
 
-            // Kleinster passender Typ: int wenn möglich, sonst long
             if (acc <= int.MaxValue && acc >= int.MinValue) return (int)acc;
             return acc;
         }
@@ -592,10 +592,9 @@ namespace CFGS_VM.VMCore
 
                 case "print":
                     PrintValue(args[0], Console.Out, 1, escapeNewlines: false);
-                    Console.Out.WriteLine();   // explizit auf den gleichen Stream
-                    Console.Out.Flush();       // sofort ausgeben, nicht puffern
+                    Console.Out.WriteLine();
+                    Console.Out.Flush();
                     return 1;
-
 
                 case "put":
                     PrintValue(args[0], Console.Out, 1, escapeNewlines: false);
@@ -863,8 +862,6 @@ namespace CFGS_VM.VMCore
                             break;
                         }
 
-
-
                     case OpCode.NEW_ARRAY:
                         {
                             if (instr.Operand is null) break;
@@ -878,12 +875,9 @@ namespace CFGS_VM.VMCore
 
                     case OpCode.SLICE_GET:
                         {
-                            // Stack (ohne Operand):  target, start, end   -> VM poppt in Reihenfolge: end, start, target
-                            // Stack (mit Operand-Name): start, end        -> VM holt target aus Env
                             object endObj = _stack.Pop();
                             object startObj = _stack.Pop();
 
-                            // target holen
                             object target;
                             if (instr.Operand is string name)
                             {
@@ -896,22 +890,17 @@ namespace CFGS_VM.VMCore
                                 target = _stack.Pop();
                             }
 
-                            // Hilfsfunktion: Normalisiert start/end inkl. negativer Indizes und end-exklusiv
                             static void Normalize(int len, object startRaw, object endRaw, out int start, out int end)
                             {
-                                // null => offen
                                 start = startRaw == null ? 0 : Convert.ToInt32(startRaw);
                                 end = endRaw == null ? len : Convert.ToInt32(endRaw);
 
-                                // negative Indizes vom Ende
                                 if (start < 0) start += len;
                                 if (end < 0) end += len;
 
-                                // clamp in [0, len]
                                 start = Math.Clamp(start, 0, len);
                                 end = Math.Clamp(end, 0, len);
 
-                                // leere Range erzwingen statt invertiert
                                 if (end < start) end = start;
                             }
 
@@ -926,7 +915,6 @@ namespace CFGS_VM.VMCore
 
                                 case Dictionary<string, object> dict:
                                     {
-                                        // Reihenfolge stabilisieren (Keys -> Liste)
                                         var keys = dict.Keys.ToList();
                                         Normalize(keys.Count, startObj, endObj, out int start, out int end);
 
@@ -941,7 +929,7 @@ namespace CFGS_VM.VMCore
                                 case string s:
                                     {
                                         Normalize(s.Length, startObj, endObj, out int start, out int end);
-                                        _stack.Push(s.Substring(start, end - start)); // end-exklusiv
+                                        _stack.Push(s.Substring(start, end - start));
                                         break;
                                     }
 
@@ -952,11 +940,8 @@ namespace CFGS_VM.VMCore
                             break;
                         }
 
-
                     case OpCode.SLICE_SET:
                         {
-                            // Stack (ohne Operand):  target, start, end, value   -> VM poppt: value, end, start, target
-                            // Stack (mit Operand):   start, end, value           -> VM holt target aus Env
                             object value = _stack.Pop();
                             object endObj = _stack.Pop();
                             object startObj = _stack.Pop();
@@ -968,24 +953,19 @@ namespace CFGS_VM.VMCore
                                 var env = FindEnvWithLocal(name)
                                     ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
                                 target = env.Vars[name];
-                                
 
                                 DoSliceSet(ref target, startObj, endObj, value, instr);
-                                env.Vars[name] = target; // zurückschreiben (für Strings/Objekte)
+                                env.Vars[name] = target;
                             }
                             else
                             {
                                 target = _stack.Pop();
-                                
+
                                 DoSliceSet(ref target, startObj, endObj, value, instr);
-                                // wenn nötig wieder auf den Stack pushen – hier nicht, weil es ein Statement ist
                             }
                             break;
                         }
 
-                        /// <summary>
-                        /// Führt ein end-exklusives Slice-Set mit Normalisierung (inkl. negativer Indizes) aus.
-                        /// </summary>
                         void DoSliceSet(ref object target, object startObj, object endObj, object value, Instruction instr)
                         {
 
@@ -1012,14 +992,10 @@ namespace CFGS_VM.VMCore
 
                                         if (value is List<object> lst)
                                         {
-                                            // Überschreibt in-place so weit wie möglich
                                             int count = Math.Min(end - start, lst.Count);
                                             for (int i = 0; i < count; i++)
                                                 arr[start + i] = lst[i];
 
-                                            // Falls replacement länger als der Slice ist: (optional) anhängen/expandieren?
-                                            // Aktuell: ignorieren (wie vorher). Wenn du expandieren willst:
-                                            // for (int i = count; i < lst.Count; i++) arr.Insert(start + i, lst[i]);
                                         }
                                         else
                                         {
@@ -1053,20 +1029,14 @@ namespace CFGS_VM.VMCore
 
                                 case string s:
                                     {
-                                        // Strings sind immutable → in neue Zeichenkette schreiben
                                         Normalize(s.Length, startObj, endObj, out int start, out int end);
 
                                         var sb = new StringBuilder(s);
                                         var replacement = (value?.ToString()) ?? "";
 
-                                        // Ersetzt Zeichen im Bereich [start, end) mit replacement (trunkt falls kürzer)
                                         int count = Math.Min(end - start, replacement.Length);
                                         for (int i = 0; i < count; i++)
                                             sb[start + i] = replacement[i];
-
-                                        // Optional: wenn replacement länger ist, kannst du Insert nutzen (aktuell ignoriert)
-                                        // if (replacement.Length > count)
-                                        //     sb.Insert(start + count, replacement.Substring(count));
 
                                         target = sb.ToString();
                                         break;
@@ -1077,8 +1047,6 @@ namespace CFGS_VM.VMCore
                                         instr.Line, instr.Col, instr.OriginFile);
                             }
                         }
-
-
 
                     case OpCode.INDEX_GET:
                         {
@@ -1123,7 +1091,6 @@ namespace CFGS_VM.VMCore
 
                             break;
                         }
-
 
                     case OpCode.NEW_DICT:
                         {
@@ -1225,9 +1192,6 @@ namespace CFGS_VM.VMCore
                         }
                     case OpCode.ARRAY_DELETE_SLICE:
                         {
-                            // Stack-Layout:
-                            //  - wenn Operand != null:  ... , start, end
-                            //  - wenn Operand == null :  ... , target, start, end
                             var endObj = _stack.Pop();
                             var startObj = _stack.Pop();
 
@@ -1240,23 +1204,18 @@ namespace CFGS_VM.VMCore
 
                                 DeleteSliceOnTarget(ref target, startObj, endObj, instr);
 
-                                // falls sich Referenz geändert hat (z.B. neuer String), zurückschreiben
                                 env.Vars[name] = target;
                             }
                             else
                             {
                                 target = _stack.Pop();
                                 DeleteSliceOnTarget(ref target, startObj, endObj, instr);
-                                // kein Zurückschreiben nötig; bei Arrays/Dictionaries passiert In-Place,
-                                // bei Strings wurde 'target' neu gesetzt – bewusst nicht gepusht (delete hat kein Ergebnis)
                             }
                             break;
                         }
 
-
                     case OpCode.ARRAY_DELETE_SLICE_ALL:
                         {
-                            // Stack: ... , target, startObj, endObj   (Compiler muss target zuerst pushen)
                             var endObj = _stack.Pop();
                             var startObj = _stack.Pop();
                             var target = _stack.Pop();
@@ -1283,9 +1242,6 @@ namespace CFGS_VM.VMCore
                             }
                             break;
                         }
-
-                   
-
 
                     case OpCode.ARRAY_DELETE_ELEM:
                         {
@@ -1975,8 +1931,6 @@ namespace CFGS_VM.VMCore
                                     for (int i = argCount - 1; i >= 0; i--)
                                         args.Insert(0, _stack.Pop());
 
-
-
                                     var result = CallBuiltin(funcName, args, instr);
                                     _stack.Push(result);
                                     break;
@@ -2034,7 +1988,6 @@ namespace CFGS_VM.VMCore
                                         throw new VMException($"Runtime error: not enough arguments for CALL_INDIRECT (expected {explicitArgCount})", instr.Line, instr.Col, instr.OriginFile);
                                     argsList.Add(_stack.Pop());
                                 }
-
 
                                 if (_stack.Count == 0)
                                     throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile);
@@ -2122,7 +2075,6 @@ namespace CFGS_VM.VMCore
                                         throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile);
                                     argsList.Insert(0, _stack.Pop());
                                 }
-
 
                                 var callEnv = new Env(f.CapturedEnv);
                                 for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
@@ -2420,6 +2372,13 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The GetIndexedValue
+        /// </summary>
+        /// <param name="target">The target<see cref="object"/></param>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="object"/></returns>
         private static object GetIndexedValue(object target, object idxObj, Instruction instr)
         {
             switch (target)
@@ -2468,6 +2427,13 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The SetIndexedValue
+        /// </summary>
+        /// <param name="target">The target<see cref="object"/></param>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <param name="value">The value<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
         private static void SetIndexedValue(ref object target, object idxObj, object value, Instruction instr)
         {
             switch (target)
@@ -2505,7 +2471,13 @@ namespace CFGS_VM.VMCore
             }
         }
 
-
+        /// <summary>
+        /// The CreateIndexException
+        /// </summary>
+        /// <param name="target">The target<see cref="object"/></param>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="VMException"/></returns>
         private static VMException CreateIndexException(object target, object idxObj, Instruction instr)
         {
             string tid = target?.GetType().FullName ?? "null";
