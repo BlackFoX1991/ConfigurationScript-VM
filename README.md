@@ -33,15 +33,17 @@ This setup allows flexible testing and experimentation, either interactively or 
 1. [Variables](#variables)
 2. [Arrays](#arrays)
 3. [Dictionaries (Objects)](#dictionaries-objects)
-4. [Functions](#functions)
-5. [For Loops](#for-loops)
-6. [While Loops](#while-loops)
-7. [If / Else](#if--else)
-8. [Match-Case](#match-case)
-9. [Break and Continue](#break-and-continue)
-10. [Closures / Functions as Values](#closures--functions-as-values)
-11. [Classes / Objects](#classes--objects)
-12. [Enums](#Enums)
+4. [Slicing](#Slicing)
+5. [Functions](#functions)
+6. [For Loops](#for-loops)
+7. [While Loops](#while-loops)
+8. [If / Else](#if--else)
+9. [Match-Case](#match-case)
+10. [Break and Continue](#break-and-continue)
+11. [Closures / Functions as Values](#closures--functions-as-values)
+12. [Classes / Objects](#classes--objects)
+13. [Enums](#Enums)
+14. [Import](#Import)
 
 ---
 
@@ -79,19 +81,8 @@ print(numbers);
 delete numbers[1];
 print(numbers);
 ```
-
 ---
 
-## For Loops
-
-```cfs
-var arr = [10, 20, 30, 40, 50];
-for(var x = 0; x < len(arr); x++;) {
-    print("Element at index " + x + ": " + arr[x]);
-}
-```
-
----
 
 ## Dictionaries (Objects)
 🗂 Key-value pairs, accessed via dot notation or `[]`. You can push new keys or delete them.
@@ -112,6 +103,67 @@ print(settings);
 # Delete a key
 delete settings["volume"];
 print(settings);
+```
+---
+
+# Slicing 
+
+## Array
+```cfs
+# Get values example
+var a = [];
+a[] = 1; a[] = 2; a[] = 3; a[] = 4; a[] = 5;
+print(a[0~2]);
+print(a[1~4]);
+print(a[~3]);
+print(a[2~]);
+```
+
+```cfs
+# Set values example
+var a = [];
+a[] = 1; a[] = 2; a[] = 3; a[] = 4; a[] = 5;
+a[1] = 99;
+print(a[~]);
+delete a[1~3];
+print(a[~]);
+```
+
+## Dictionary
+
+```cfs
+# Get values example
+var d = { "a": 1, "b": 2, "c": 3, "d": 4 };
+print(len(d[0~2]));
+print(d["b"]);
+```
+
+```cfs
+# Set values example
+var d = { "a": 1, "b": 2 };
+d["b"] = 99;
+d["x"] = 7;
+print(len(d));
+delete d[0~1];
+print(len(d));
+```
+
+## String
+
+```cfs
+# Get values example
+var s = "abcdef";
+print(s[0~2]);
+print(s[2~5]);
+print(s[~3]);
+print(s[3~]);
+```
+
+```cfs
+# Set values example ( Please note : strings are immutable, you have to initialize new string and assign the new slice )
+var s = "abcdef";
+s = s[~1] + s[3~];
+print(s);
 ```
 
 ---
@@ -141,6 +193,17 @@ var counter = 1;
 while(counter <= 5) {
     print(counter);
     counter++;
+}
+```
+
+---
+
+## For Loops
+
+```cfs
+var arr = [10, 20, 30, 40, 50];
+for(var x = 0; x < len(arr); x++;) {
+    print("Element at index " + x + ": " + arr[x]);
 }
 ```
 
@@ -244,6 +307,20 @@ enum colors
 print(colors.green); # Output 6
 
 ```
+
+---
+
+## Import
+
+Use the `import` statement to include external scripts or individual classes.
+
+```cfs
+import "yourpath.ext";
+import class_name from "yourpath.ext";
+```
+Please note: import statements must appear at the top of the script.
+
+---
 
 [Examples](CFGS_NE/Samples/)
 
