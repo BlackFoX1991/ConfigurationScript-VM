@@ -546,7 +546,7 @@ namespace CFGS_VM.VMCore
 
                 case "getfields":
                     if (args[0] is not Dictionary<string, object>)
-                        return new List<object> { "null" };
+                        return new List<object>();
                     var fld = args[0] as Dictionary<string, object>;
                     return fld?.Keys.ToList<object>() ?? new List<object>();
                 case "isarray":
