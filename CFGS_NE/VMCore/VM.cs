@@ -1922,15 +1922,10 @@ namespace CFGS_VM.VMCore
                         {
                             if (instr.Operand is string funcName)
                             {
-                                if (bInFunc.TryGetValue(funcName, out int argCount))
+                                if (bInFunc.TryGetValue(funcName, out int expectedArgs))
                                 {
-                                    if (argCount < bInFunc[funcName])
-                                        throw new VMException($"Runtime error: {funcName}() expects {bInFunc[funcName]} argument(s), got {argCount}", instr.Line, instr.Col, instr.OriginFile);
-
                                     var args = new List<object>();
-                                    for (int i = argCount - 1; i >= 0; i--)
-                                        args.Insert(0, _stack.Pop());
-
+                                    for (int i = expectedArgs - 1; i >= 0; i--) args.Insert(0, _stack.Pop());
                                     var result = CallBuiltin(funcName, args, instr);
                                     _stack.Push(result);
                                     break;
@@ -1940,47 +1935,24 @@ namespace CFGS_VM.VMCore
                                     throw new VMException($"Runtime error: unknown function {funcName}", instr.Line, instr.Col, instr.OriginFile);
 
                                 if (func.Parameters.Count > 0 && func.Parameters[0] == "this")
-                                    throw new VMException($"Runtime error: cannot CALL method '{funcName}' without receiver. Use CALL_INDIRECT with a bound receiver.", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException(
+                                        $"Runtime error: cannot CALL method '{funcName}' without receiver. Use CALL_INDIRECT with a bound receiver.",
+                                        instr.Line, instr.Col, instr.OriginFile);
 
-                                var callEnv = new Env(_scopes[^1]);
-                                for (int i = func.Parameters.Count - 1; i >= 0; i--)
-                                {
-                                    var argValue = _stack.Pop();
-                                    callEnv.Define(func.Parameters[i], argValue);
-                                }
-
-                                _scopes.Add(callEnv);
-                                _callStack.Push(new CallFrame(_ip, 1, null));
-                                _ip = func.Address;
-                                continue;
+                                _stack.Push(new Closure(func.Address, func.Parameters, _scopes[^1], funcName));
+                                goto case OpCode.CALL_INDIRECT;
                             }
                             else
                             {
-                                var fn = _stack.Pop();
-                                if (fn is not Closure clos)
-                                    throw new VMException($"Runtime error: CALL target is not a closure", instr.Line, instr.Col, instr.OriginFile);
-
-                                if (clos.Parameters.Count > 0 && clos.Parameters[0] == "this")
-                                    throw new VMException("Runtime error: cannot CALL a method-closure without receiver. Use CALL_INDIRECT after INDEX_GET or provide the receiver explicitly.", instr.Line, instr.Col, instr.OriginFile);
-
-                                var callEnv = new Env(clos.CapturedEnv);
-                                for (int i = clos.Parameters.Count - 1; i >= 0; i--)
-                                {
-                                    var argValue = _stack.Pop();
-                                    callEnv.Define(clos.Parameters[i], argValue);
-                                }
-
-                                _scopes.Add(callEnv);
-                                _callStack.Push(new CallFrame(_ip, 1, null));
-                                _ip = clos.Address;
-                                continue;
+                                goto case OpCode.CALL_INDIRECT;
                             }
                         }
 
                     case OpCode.CALL_INDIRECT:
                         {
-                            if (instr.Operand is int explicitArgCount)
+                            if (instr.Operand is IConvertible)
                             {
+                                int explicitArgCount = Convert.ToInt32(instr.Operand);
                                 var argsList = new List<object>();
                                 for (int i = 0; i < explicitArgCount; i++)
                                 {
@@ -2021,7 +1993,7 @@ namespace CFGS_VM.VMCore
                                 }
                                 else
                                 {
-                                    throw new VMException("Runtime error: attempt to call non-function value.", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code} )", instr.Line, instr.Col, instr.OriginFile);
                                 }
 
                                 var callEnv = new Env(f.CapturedEnv);
@@ -2034,6 +2006,7 @@ namespace CFGS_VM.VMCore
 
                                 _scopes.Add(callEnv);
                                 _callStack.Push(new CallFrame(_ip, 1, receiver));
+
                                 _ip = f.Address;
                                 continue;
                             }
@@ -2064,7 +2037,7 @@ namespace CFGS_VM.VMCore
                                 }
                                 else
                                 {
-                                    throw new VMException("Runtime error: attempt to call non-function value.", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException($"Runtime error: attempt to call non-function value ( {instr.Code} )", instr.Line, instr.Col, instr.OriginFile);
                                 }
 
                                 int piStart = (f.Parameters.Count > 0 && f.Parameters[0] == "this") ? 1 : 0;
@@ -2404,7 +2377,7 @@ namespace CFGS_VM.VMCore
                         string key = idxObj?.ToString() ?? "";
                         if (dict.TryGetValue(key, out var val))
                             return val;
-                        return 0;
+                        return null;
                     }
 
                 case ClassInstance obj:
