@@ -509,33 +509,43 @@ namespace CFGS_VM.VMCore
                 case MatchStmt ms:
                     {
                         CompileExpr(ms.Expression);
+
                         var endJumps = new List<int>();
 
                         foreach (var c in ms.Cases)
                         {
-                            _insns.Add(new Instruction(OpCode.DUP, null, ms.Line, ms.Col));
+                            _insns.Add(new Instruction(OpCode.DUP, null, ms.Line, ms.Col, s.OriginFile));
                             CompileExpr(c.Pattern);
-                            _insns.Add(new Instruction(OpCode.EQ, null, ms.Line, ms.Col));
+                            _insns.Add(new Instruction(OpCode.EQ, null, ms.Line, ms.Col, s.OriginFile));
 
                             int jmpNext = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, ms.Line, ms.Col));
+                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, ms.Line, ms.Col, s.OriginFile));
+
+                            _insns.Add(new Instruction(OpCode.POP, null, ms.Line, ms.Col, s.OriginFile));
 
                             CompileStmt(c.Body, insideFunction);
 
                             endJumps.Add(_insns.Count);
-                            _insns.Add(new Instruction(OpCode.JMP, null, ms.Line, ms.Col));
+                            _insns.Add(new Instruction(OpCode.JMP, null, ms.Line, ms.Col, s.OriginFile));
 
-                            _insns[jmpNext] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, ms.Line, ms.Col);
+                            _insns[jmpNext] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, ms.Line, ms.Col, s.OriginFile);
                         }
 
                         if (ms.DefaultCase != null)
+                        {
+                            _insns.Add(new Instruction(OpCode.POP, null, ms.Line, ms.Col, s.OriginFile));
+
                             CompileStmt(ms.DefaultCase, insideFunction);
+                        }
+                        else
+                        {
+                            _insns.Add(new Instruction(OpCode.POP, null, ms.Line, ms.Col, s.OriginFile));
+                        }
 
                         int endTarget = _insns.Count;
                         foreach (int idx in endJumps)
-                            _insns[idx] = new Instruction(OpCode.JMP, endTarget, ms.Line, ms.Col);
+                            _insns[idx] = new Instruction(OpCode.JMP, endTarget, ms.Line, ms.Col, s.OriginFile);
 
-                        _insns.Add(new Instruction(OpCode.POP, null, ms.Line, ms.Col));
                         break;
                     }
 
