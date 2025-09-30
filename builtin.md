@@ -26,6 +26,7 @@
 | `clear`    | `()`                         | `Int` (`1`)            | Clears console |
 | `getl`     | `()`                         | `String`               | Reads a line (no newline) |
 | `getc`     | `()`                         | `Int`                  | Reads next char code |
+| `emit`     | `(Opcode,arg)`               | `(nothing)`            | emits a opcode directly to the Bytecode VM ( Opcodes can be found in the OpCode.cs ). Please note : emit is still in a test-phase.
 
 ---
 
@@ -120,6 +121,26 @@ print("Hi " + name);
 print("Press a key:");
 var code = getc();
 print(code);
+```
+
+### emit
+
+This creates a loop that pushes the variable x with the integer value 3 and repeats the instruction until it reaches 0.
+```cfs
+emit(PUSH_INT, 3);
+emit(VAR_DECL, "x");
+emit(LOAD_VAR, "x");
+emit(PUSH_INT, 0);
+emit(GT);
+emit(JMP_IF_FALSE, 15);      
+emit(LOAD_VAR, "x");
+emit(CALL, "print");
+emit(POP);
+emit(LOAD_VAR, "x");
+emit(PUSH_INT, 1);
+emit(SUB);
+emit(STORE_VAR, "x");
+emit(JMP, 3);  
 ```
 
 
