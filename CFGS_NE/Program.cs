@@ -125,7 +125,7 @@ public class Program
 
         var vm = new VM();
         vm.LoadFunctions(compiler._functions);
-        vm.Run(name, bytecode);
+        vm.Run(bytecode,debug);
     }
 
     /// <summary>

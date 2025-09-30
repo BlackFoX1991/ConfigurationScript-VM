@@ -761,12 +761,13 @@ namespace CFGS_VM.VMCore
             return true;
         }
 
+
         /// <summary>
         /// The Run
         /// </summary>
         /// <param name="scriptname">The scriptname<see cref="string"/></param>
         /// <param name="_insns">The _insns<see cref="List{Instruction}"/></param>
-        public void Run(string scriptname, List<Instruction> _insns)
+        public void Run(List<Instruction> _insns, bool StepDbg = false, bool singleStep = false)
         {
 
             if (_insns is null || _insns.Count == 0) return;
@@ -777,6 +778,16 @@ namespace CFGS_VM.VMCore
 
                 while (_ip < _insns.Count)
                 {
+                    if(StepDbg)
+                    {
+                        
+                        Console.ForegroundColor = ConsoleColor.DarkGray;
+                        Console.WriteLine($"[DEBUG] IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}");
+                        var instrDbg = _insns[_ip];
+                        Console.WriteLine($"[DEBUG] NEXT INSTR: {instrDbg} (Line {instrDbg.Line}, Col {instrDbg.Col})");
+                        Console.ResetColor();
+                        if (singleStep)Console.ReadKey();
+                    }
                     var instr = _insns[_ip++];
 
                     switch (instr.Code)
@@ -2184,7 +2195,7 @@ namespace CFGS_VM.VMCore
             catch (VMException vex)
             {
                 var enriched = vex.Message + Environment.NewLine
-                    + BuildCrashReport(scriptname, _insns[_ip], _ip, vex);
+                    + BuildCrashReport(_insns[_ip].OriginFile, _insns[_ip], _ip, vex);
                 throw new VMException(enriched,
                     _insns[_ip].Line,
                     _insns[_ip].Col,
@@ -2193,11 +2204,11 @@ namespace CFGS_VM.VMCore
             catch (Exception ex)
             {
                 string enriched = "Internal VM error: " + ex.Message + Environment.NewLine
-                    + BuildCrashReport(scriptname, _insns[_ip], _ip, ex);
+                    + BuildCrashReport(_insns[_ip].OriginFile, _insns[_ip], _ip, ex);
                 throw new VMException(enriched,
                     _insns[_ip]?.Line ?? -1,
                     _insns[_ip]?.Col ?? -1,
-                    _insns[_ip]?.OriginFile ?? scriptname);
+                    _insns[_ip]?.OriginFile ?? "");
             }
         }
 
