@@ -281,6 +281,11 @@
         JMP_IF_TRUE,
 
         /// <summary>
+        /// Defines the LABEL
+        /// </summary>
+        LABEL,
+
+        /// <summary>
         /// Defines the HALT
         /// </summary>
         HALT,

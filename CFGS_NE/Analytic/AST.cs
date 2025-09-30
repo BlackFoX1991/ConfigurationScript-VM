@@ -36,6 +36,17 @@
     }
 
     /// <summary>
+    /// Defines the <see cref="EmptyStmt" />
+    /// </summary>
+    public class EmptyStmt(TokenType tp, int line, int col, string originFile) : Stmt(line, col, originFile)
+    {
+        /// <summary>
+        /// Defines the eType
+        /// </summary>
+        public TokenType eType = tp;
+    }
+
+    /// <summary>
     /// Defines the <see cref="NumberExpr" />
     /// </summary>
     public class NumberExpr(dynamic? v, int line, int col, string fname) : Expr(line, col, fname)
@@ -363,6 +374,36 @@
         public PrintStmt(Expr e, int line, int col, string fname) : base(line, col, fname)
         {
             Expression = e;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="EmitStmt" />
+    /// </summary>
+    public class EmitStmt : Stmt
+    {
+        /// <summary>
+        /// Defines the Command
+        /// </summary>
+        public int Command;
+
+        /// <summary>
+        /// Defines the Argument
+        /// </summary>
+        public object? Argument;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="EmitStmt"/> class.
+        /// </summary>
+        /// <param name="command">The command<see cref="int"/></param>
+        /// <param name="argm">The argm<see cref="object?"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="fname">The fname<see cref="string"/></param>
+        public EmitStmt(int command, object? argm, int line, int col, string fname) : base(line, col, fname)
+        {
+            Command = command;
+            Argument = argm;
         }
     }
 

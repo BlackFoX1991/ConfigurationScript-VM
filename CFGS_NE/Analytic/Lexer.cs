@@ -256,6 +256,7 @@ public class Lexer
                     "import" => MakeToken(TokenType.Import, id),
                     "enum" => MakeToken(TokenType.Enum, id),
                     "from" => MakeToken(TokenType.From, id),
+                    "emit" => MakeToken(TokenType.Emit, id),
                     _ => MakeToken(TokenType.Ident, id)
                 };
             }
