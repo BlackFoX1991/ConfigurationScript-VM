@@ -53,49 +53,101 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="List{Instruction}"/></returns>
         public List<Instruction> Compile(List<Stmt> program)
         {
-            _insns.Clear();
-            _functions.Clear();
-
-            var funcDecls = new List<FuncDeclStmt>();
-            foreach (var s in program)
-                if (s is FuncDeclStmt f) funcDecls.Add(f);
-
-            int jmpOverAllFuncsIdx = _insns.Count;
-            _insns.Add(new Instruction(OpCode.JMP, null, 0, 0));
-
-            var orderedFuncs = new List<(FuncDeclStmt fd, int funcStart)>();
-            foreach (var fd in funcDecls)
+            try
             {
-                int funcStart = _insns.Count;
-                _functions[fd.Name] = new FunctionInfo(fd.Parameters, funcStart);
+                _insns.Clear();
+                _functions.Clear();
 
-                if (fd.Body is BlockStmt b) b.IsFunctionBody = true;
-                CompileStmt(fd.Body, insideFunction: true);
+                var funcDecls = new List<FuncDeclStmt>();
+                foreach (var s in program)
+                {
+                    if (s is FuncDeclStmt f)
+                    {
+                        if (_functions.ContainsKey(f.Name))
+                            throw new CompilerException($"duplicate function '{f.Name}'", f.Line, f.Col, f.OriginFile);
 
-                _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fd.Line, fd.Col, fd.OriginFile));
-                _insns.Add(new Instruction(OpCode.RET, null, fd.Line, fd.Col, fd.OriginFile));
+                        _functions[f.Name] = new FunctionInfo(f.Parameters, -1);
+                        funcDecls.Add(f);
+                    }
+                }
 
-                orderedFuncs.Add((fd, funcStart));
+                int jmpOverAllFuncsIdx = _insns.Count;
+                _insns.Add(new Instruction(OpCode.JMP, null, 0, 0));
+
+                var orderedFuncs = new List<(FuncDeclStmt fd, int funcStart)>();
+                foreach (var fd in funcDecls)
+                {
+                    try
+                    {
+                        int funcStart = _insns.Count;
+                        _functions[fd.Name] = new FunctionInfo(fd.Parameters, funcStart);
+
+                        if (fd.Body is BlockStmt b)
+                            b.IsFunctionBody = true;
+                        else
+                            throw new CompilerException($"function '{fd.Name}' must have a block body", fd.Line, fd.Col, fd.OriginFile);
+
+                        CompileStmt(fd.Body, insideFunction: true);
+
+                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fd.Line, fd.Col, fd.OriginFile));
+                        _insns.Add(new Instruction(OpCode.RET, null, fd.Line, fd.Col, fd.OriginFile));
+
+                        orderedFuncs.Add((fd, funcStart));
+                    }
+                    catch (CompilerException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new CompilerException(
+                            $"internal compiler error while compiling function '{fd.Name}': {ex.Message}",
+                            fd.Line, fd.Col, fd.OriginFile);
+                    }
+                }
+
+                _insns[jmpOverAllFuncsIdx] = new Instruction(OpCode.JMP, _insns.Count, 0, 0);
+
+                foreach (var (fd, funcStart) in orderedFuncs)
+                {
+                    _insns.Add(new Instruction(
+                        OpCode.PUSH_CLOSURE, new object[] { funcStart, fd.Name }, fd.Line, fd.Col, fd.OriginFile));
+                    _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, fd.Line, fd.Col, fd.OriginFile));
+                }
+
+                foreach (var s in program)
+                {
+                    if (s is FuncDeclStmt) continue;
+
+                    try
+                    {
+                        CompileStmt(s, insideFunction: false);
+                    }
+                    catch (CompilerException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new CompilerException(
+                            $"internal compiler error at top-level: {ex.Message}",
+                            s.Line, s.Col, s.OriginFile);
+                    }
+                }
+
+                _insns.Add(new Instruction(OpCode.HALT, null, 0, 0));
+                return _insns;
             }
-
-            _insns[jmpOverAllFuncsIdx] = new Instruction(OpCode.JMP, _insns.Count, 0, 0);
-
-            foreach (var (fd, funcStart) in orderedFuncs)
+            catch (CompilerException)
             {
-                _insns.Add(new Instruction(OpCode.PUSH_CLOSURE,
-                    new object[] { funcStart, fd.Name }, fd.Line, fd.Col, fd.OriginFile));
-                _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, fd.Line, fd.Col, fd.OriginFile));
+                throw;
             }
-
-            foreach (var s in program)
+            catch (Exception ex)
             {
-                if (s is FuncDeclStmt) continue;
-                CompileStmt(s, insideFunction: false);
+                throw new CompilerException(
+                    $"internal compiler error: {ex.Message}",
+                    0, 0, "<compiler>");
             }
-
-            _insns.Add(new Instruction(OpCode.HALT, null, 0, 0));
-
-            return _insns;
         }
 
         /// <summary>
@@ -121,6 +173,15 @@ namespace CFGS_VM.VMCore
                     CompileExpr(a.Value);
                     _insns.Add(new Instruction(OpCode.STORE_VAR, a.Name, s.Line, s.Col, s.OriginFile));
                     break;
+
+                case EmptyStmt etst:
+                    break;
+
+                case EmitStmt emitStmt:
+                    {
+                        _insns.Add(new Instruction((OpCode)emitStmt.Command, emitStmt.Argument, s.Line, s.Col, s.OriginFile));
+                        break;
+                    }
 
                 case AssignIndexExprStmt aies:
                     {
@@ -172,7 +233,7 @@ namespace CFGS_VM.VMCore
 
                         else
                         {
-                            throw new CompilerException("push [] nur für Variablen oder IndexExpr unterstützt.", ps.Line, ps.Col, s.OriginFile);
+                            throw new CompilerException("invalid use of 'push' []", ps.Line, ps.Col, s.OriginFile);
                         }
                         break;
                     }
@@ -244,7 +305,7 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            throw new CompilerException("delete [] nur für Variablen/Index/Slices", das.Line, das.Col, s.OriginFile);
+                            throw new CompilerException("invalid use of 'delete'", das.Line, das.Col, s.OriginFile);
                         }
                         break;
                     }
@@ -369,29 +430,29 @@ namespace CFGS_VM.VMCore
 
                         foreach (var member in eds.Members)
                         {
-                            _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, eds.Line, eds.Col));
-                            _insns.Add(new Instruction(OpCode.PUSH_INT, (int)member.Value, eds.Line, eds.Col));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, eds.Line, eds.Col));
+                            _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col, eds.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, eds.Line, eds.Col, eds.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_INT, (int)member.Value, eds.Line, eds.Col, eds.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, eds.Line, eds.Col, eds.OriginFile));
 
                             reverseDict[(int)member.Value] = member.Name;
                         }
 
-                        _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__name", eds.Line, eds.Col));
-                        _insns.Add(new Instruction(OpCode.NEW_DICT, 0, eds.Line, eds.Col));
+                        _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col, eds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__name", eds.Line, eds.Col, eds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.NEW_DICT, 0, eds.Line, eds.Col, eds.OriginFile));
 
                         foreach (var kv in reverseDict)
                         {
-                            _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col));
-                            _insns.Add(new Instruction(OpCode.PUSH_INT, kv.Key, eds.Line, eds.Col));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, kv.Value, eds.Line, eds.Col));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, eds.Line, eds.Col));
+                            _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col, eds.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_INT, kv.Key, eds.Line, eds.Col, eds.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, kv.Value, eds.Line, eds.Col, eds.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, eds.Line, eds.Col, eds.OriginFile));
                         }
 
-                        _insns.Add(new Instruction(OpCode.INDEX_SET, null, eds.Line, eds.Col));
+                        _insns.Add(new Instruction(OpCode.INDEX_SET, null, eds.Line, eds.Col, eds.OriginFile));
 
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, eds.Name, eds.Line, eds.Col));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, eds.Name, eds.Line, eds.Col, eds.OriginFile));
 
                         break;
                     }
@@ -449,11 +510,11 @@ namespace CFGS_VM.VMCore
                         foreach (var idx in _continueLists.Peek())
                             _insns[idx] = new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile);
 
-                        _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col));
+                        _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
                         _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col, s.OriginFile);
 
                         foreach (var idx in _breakLists.Peek())
-                            _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col);
+                            _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col, s.OriginFile);
 
                         _breakLists.Pop();
                         _continueLists.Pop();
@@ -471,20 +532,20 @@ namespace CFGS_VM.VMCore
                         {
                             CompileExpr(fs.Condition);
                             int jmpFalseIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, s.Line, s.Col));
+                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, s.Line, s.Col, s.OriginFile));
 
                             CompileStmt(fs.Body, insideFunction);
 
                             int incStart = _insns.Count;
                             foreach (var idx in _continueLists.Peek())
-                                _insns[idx] = new Instruction(OpCode.JMP, incStart, s.Line, s.Col);
+                                _insns[idx] = new Instruction(OpCode.JMP, incStart, s.Line, s.Col, s.OriginFile);
 
                             if (fs.Increment != null) CompileStmt(fs.Increment, insideFunction);
-                            _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col));
-                            _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col);
+                            _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
+                            _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col, s.OriginFile);
 
                             foreach (var idx in _breakLists.Peek())
-                                _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col);
+                                _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col, s.OriginFile);
                         }
                         else
                         {
@@ -492,13 +553,13 @@ namespace CFGS_VM.VMCore
 
                             int incStart = _insns.Count;
                             foreach (var idx in _continueLists.Peek())
-                                _insns[idx] = new Instruction(OpCode.JMP, incStart, s.Line, s.Col);
+                                _insns[idx] = new Instruction(OpCode.JMP, incStart, s.Line, s.Col, s.OriginFile);
 
                             if (fs.Increment != null) CompileStmt(fs.Increment, insideFunction);
-                            _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col));
+                            _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
 
                             foreach (var idx in _breakLists.Peek())
-                                _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col);
+                                _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col, s.OriginFile);
                         }
 
                         _breakLists.Pop();
@@ -551,68 +612,68 @@ namespace CFGS_VM.VMCore
 
                 case ThrowStmt ts:
                     CompileExpr(ts.Value);
-                    _insns.Add(new Instruction(OpCode.THROW, null, s.Line, s.Col));
+                    _insns.Add(new Instruction(OpCode.THROW, null, s.Line, s.Col, s.OriginFile));
                     break;
 
                 case TryCatchFinallyStmt tcf:
                     {
                         int tryPushIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.TRY_PUSH, new int[] { -1, -1 }, s.Line, s.Col));
+                        _insns.Add(new Instruction(OpCode.TRY_PUSH, new int[] { -1, -1 }, s.Line, s.Col, s.OriginFile));
 
                         CompileStmt(tcf.TryBlock, insideFunction);
 
                         if (tcf.FinallyBlock != null)
                         {
                             int jmpToFinallyIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col));
+                            _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
 
                             int catchStart = -1;
                             int jmpAfterCatchIdx = -1;
                             if (tcf.CatchBlock != null)
                             {
                                 catchStart = _insns.Count;
-                                _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col));
+                                _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col, s.OriginFile));
                                 if (!string.IsNullOrEmpty(tcf.CatchVar))
-                                    _insns.Add(new Instruction(OpCode.VAR_DECL, tcf.CatchVar, s.Line, s.Col));
+                                    _insns.Add(new Instruction(OpCode.VAR_DECL, tcf.CatchVar, s.Line, s.Col, s.OriginFile));
                                 foreach (var st in tcf.CatchBlock.Statements) CompileStmt(st, insideFunction);
-                                _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col));
+                                _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
                                 jmpAfterCatchIdx = _insns.Count;
-                                _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col));
+                                _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
                             }
 
                             int finallyStart = _insns.Count;
 
-                            _insns[tryPushIdx] = new Instruction(OpCode.TRY_PUSH, new int[] { catchStart, finallyStart }, s.Line, s.Col);
+                            _insns[tryPushIdx] = new Instruction(OpCode.TRY_PUSH, new int[] { catchStart, finallyStart }, s.Line, s.Col, s.OriginFile);
 
                             CompileStmt(tcf.FinallyBlock, insideFunction);
 
-                            _insns.Add(new Instruction(OpCode.END_FINALLY, null, s.Line, s.Col));
+                            _insns.Add(new Instruction(OpCode.END_FINALLY, null, s.Line, s.Col, s.OriginFile));
 
-                            _insns[jmpToFinallyIdx] = new Instruction(OpCode.JMP, finallyStart, s.Line, s.Col);
+                            _insns[jmpToFinallyIdx] = new Instruction(OpCode.JMP, finallyStart, s.Line, s.Col, s.OriginFile);
                             if (jmpAfterCatchIdx != -1)
-                                _insns[jmpAfterCatchIdx] = new Instruction(OpCode.JMP, finallyStart, s.Line, s.Col);
+                                _insns[jmpAfterCatchIdx] = new Instruction(OpCode.JMP, finallyStart, s.Line, s.Col, s.OriginFile);
                         }
                         else
                         {
-                            _insns.Add(new Instruction(OpCode.TRY_POP, null, s.Line, s.Col));
+                            _insns.Add(new Instruction(OpCode.TRY_POP, null, s.Line, s.Col, s.OriginFile));
                             int jmpOverCatchIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col));
+                            _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
 
                             int catchStart = -1;
                             if (tcf.CatchBlock != null)
                             {
                                 catchStart = _insns.Count;
-                                _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col));
+                                _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col, s.OriginFile));
                                 if (!string.IsNullOrEmpty(tcf.CatchVar))
-                                    _insns.Add(new Instruction(OpCode.VAR_DECL, tcf.CatchVar, s.Line, s.Col));
+                                    _insns.Add(new Instruction(OpCode.VAR_DECL, tcf.CatchVar, s.Line, s.Col, s.OriginFile));
                                 foreach (var st in tcf.CatchBlock.Statements) CompileStmt(st, insideFunction);
-                                _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col));
-                                _insns.Add(new Instruction(OpCode.TRY_POP, null, s.Line, s.Col));
+                                _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.TRY_POP, null, s.Line, s.Col, s.OriginFile));
                             }
 
                             int endIdx = _insns.Count;
-                            _insns[tryPushIdx] = new Instruction(OpCode.TRY_PUSH, new int[] { catchStart, -1 }, s.Line, s.Col);
-                            _insns[jmpOverCatchIdx] = new Instruction(OpCode.JMP, endIdx, s.Line, s.Col);
+                            _insns[tryPushIdx] = new Instruction(OpCode.TRY_PUSH, new int[] { catchStart, -1 }, s.Line, s.Col, s.OriginFile);
+                            _insns[jmpOverCatchIdx] = new Instruction(OpCode.JMP, endIdx, s.Line, s.Col, s.OriginFile);
                         }
 
                         break;
@@ -640,14 +701,14 @@ namespace CFGS_VM.VMCore
 
                 case ExprStmt es:
                     CompileExpr(es.Expression);
-                    _insns.Add(new Instruction(OpCode.POP, null, s.Line, s.Col));
+                    _insns.Add(new Instruction(OpCode.POP, null, s.Line, s.Col, s.OriginFile));
                     break;
 
                 case CompoundAssignStmt ca:
                     CompileLValue(ca.Target, load: true);
                     CompileExpr(ca.Value);
 
-                    _insns.Add(new Instruction(OpFromToken(ca.Op, ca, FileName), null, s.Line, s.Col));
+                    _insns.Add(new Instruction(OpFromToken(ca.Op, ca, FileName), null, s.Line, s.Col, s.OriginFile));
                     CompileLValueStore(ca.Target);
                     break;
 
@@ -655,8 +716,8 @@ namespace CFGS_VM.VMCore
                     break;
                 case ReturnStmt rs:
                     if (rs.Value != null) CompileExpr(rs.Value);
-                    else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, s.Line, s.Col));
-                    _insns.Add(new Instruction(OpCode.RET, null, s.Line, s.Col));
+                    else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, s.Line, s.Col, s.OriginFile));
+                    _insns.Add(new Instruction(OpCode.RET, null, s.Line, s.Col, s.OriginFile));
                     break;
 
                 default:
@@ -963,7 +1024,7 @@ namespace CFGS_VM.VMCore
             if (target is VarExpr v)
             {
                 if (load)
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, v.Name, v.Line, v.Col));
+                    _insns.Add(new Instruction(OpCode.LOAD_VAR, v.Name, v.Line, v.Col, v.OriginFile));
             }
             else if (target is IndexExpr ie)
             {
@@ -972,7 +1033,7 @@ namespace CFGS_VM.VMCore
 
                 CompileExpr(ie.Target);
                 CompileExpr(ie.Index);
-                if (load) _insns.Add(new Instruction(OpCode.INDEX_GET, null, ie.Line, ie.Col));
+                if (load) _insns.Add(new Instruction(OpCode.INDEX_GET, null, ie.Line, ie.Col, ie.OriginFile));
             }
             else
             {
@@ -988,21 +1049,21 @@ namespace CFGS_VM.VMCore
         {
             if (target is VarExpr v)
             {
-                _insns.Add(new Instruction(OpCode.STORE_VAR, v.Name, v.Line, v.Col));
+                _insns.Add(new Instruction(OpCode.STORE_VAR, v.Name, v.Line, v.Col, v.OriginFile));
             }
             else if (target is IndexExpr ie)
             {
                 if (ie.Index == null)
                 {
                     CompileExpr(ie.Target);
-                    _insns.Add(new Instruction(OpCode.ARRAY_PUSH, null, ie.Line, ie.Col));
+                    _insns.Add(new Instruction(OpCode.ARRAY_PUSH, null, ie.Line, ie.Col, ie.OriginFile));
                 }
                 else
                 {
                     CompileExpr(ie.Target);
                     CompileExpr(ie.Index);
-                    _insns.Add(new Instruction(OpCode.ROT, null, ie.Line, ie.Col));
-                    _insns.Add(new Instruction(OpCode.INDEX_SET, null, ie.Line, ie.Col));
+                    _insns.Add(new Instruction(OpCode.ROT, null, ie.Line, ie.Col, ie.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_SET, null, ie.Line, ie.Col, ie.OriginFile));
                 }
             }
             else

@@ -1,4 +1,6 @@
-﻿namespace CFGS_VM.Analytic
+﻿using CFGS_VM.VMCore.Command;
+
+namespace CFGS_VM.Analytic
 {
     /// <summary>
     /// Defines the <see cref="Parser" />
@@ -168,6 +170,7 @@
         {
             return _current.Type switch
             {
+                TokenType.Semi => ParseEmptyStmt,
                 TokenType.Print => ParsePrint,
                 TokenType.Var => ParseVarDecl,
                 TokenType.Ident => ParseAssignOrIndexAssignOrPushOrExpr(),
@@ -185,9 +188,63 @@
                 TokenType.Throw => ParseThrow,
                 TokenType.Class => ParseClassDecl(),
                 TokenType.Enum => ParseEnumDecl(),
+                TokenType.Emit => ParseEmitStmt,
 
                 _ => ParseExprStmt
             };
+        }
+
+        /// <summary>
+        /// Gets the ParseEmptyStmt
+        /// </summary>
+        private Stmt ParseEmptyStmt
+        {
+            get
+            {
+                int line = _current.Line;
+                int col = _current.Column;
+                string fs = _current.Filename;
+
+                Eat(TokenType.Semi);
+                return new EmptyStmt(TokenType.Semi, line, col, fs);
+            }
+        }
+
+        /// <summary>
+        /// Gets the ParseEmitStmt
+        /// </summary>
+        private EmitStmt ParseEmitStmt
+        {
+            get
+            {
+                object? argLine = string.Empty;
+                Eat(TokenType.Emit);
+                Eat(TokenType.LParen);
+                if (_current.Type != TokenType.Ident)
+                    throw new ParserException("expected opcode name", _current.Line, _current.Column, _current.Filename);
+                int gcode = -1;
+                if (Enum.TryParse<OpCode>(_current.Value.ToString() ?? "", ignoreCase: false, out OpCode cmd))
+                    gcode = Convert.ToInt32(cmd);
+                else
+                    throw new ParserException("invalid opcode name", _current.Line, _current.Column, _current.Filename);
+
+                Eat(TokenType.Ident);
+                if (_current.Type == TokenType.Comma)
+                {
+                    Eat(TokenType.Comma);
+                    if (_current.Type == TokenType.Number)
+                        argLine = (int)_current.Value;
+                    else if (_current.Type == TokenType.String)
+                        argLine = _current.Value.ToString() ?? "";
+                    else
+                        throw new ParserException("expected number or string as opcode argument", _current.Line, _current.Column, _current.Filename);
+
+                    Advance();
+                }
+                Eat(TokenType.RParen);
+                Eat(TokenType.Semi);
+                return new EmitStmt(gcode, argLine, _current.Line, _current.Column, _current.Filename);
+            }
         }
 
         /// <summary>
@@ -432,7 +489,7 @@
                 int col = _current.Column;
 
                 Eat(TokenType.Try);
-                BlockStmt tryBlock = ParseBlock();
+                BlockStmt tryBlock = ParseEmbeddedBlockOrSingleStatement();
 
                 string? catchVar = null;
                 BlockStmt? catchBlock = null;
@@ -447,13 +504,13 @@
                     catchVar = _current.Value.ToString();
                     Eat(TokenType.Ident);
                     Eat(TokenType.RParen);
-                    catchBlock = ParseBlock();
+                    catchBlock = ParseEmbeddedBlockOrSingleStatement();
                 }
 
                 if (_current.Type == TokenType.Finally)
                 {
                     Eat(TokenType.Finally);
-                    finallyBlock = ParseBlock();
+                    finallyBlock = ParseEmbeddedBlockOrSingleStatement();
                 }
 
                 return new TryCatchFinallyStmt(tryBlock, catchVar, catchBlock, finallyBlock, line, col, _current.Filename);
@@ -482,14 +539,14 @@
                     Eat(TokenType.Case);
                     Expr pattern = Expr();
                     Eat(TokenType.Colon);
-                    BlockStmt body = ParseBlock();
+                    BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
                     cases.Add(new CaseClause(pattern, body, _current.Line, _current.Column, _current.Filename));
                 }
                 else if (_current.Type == TokenType.Default)
                 {
                     Eat(TokenType.Default);
                     Eat(TokenType.Colon);
-                    defaultCase = ParseBlock();
+                    defaultCase = ParseEmbeddedBlockOrSingleStatement();
                 }
             }
 
@@ -781,16 +838,33 @@
         }
 
         /// <summary>
+        /// The ParseEmbeddedBlockOrSingleStatement
+        /// </summary>
+        /// <returns>The <see cref="BlockStmt"/></returns>
+        private BlockStmt ParseEmbeddedBlockOrSingleStatement()
+        {
+            if (_current.Type == TokenType.LBrace)
+            {
+                return ParseBlock();
+            }
+
+            var one = Statement();
+            return new BlockStmt(new List<Stmt> { one }, one.Line, one.Col, one.OriginFile);
+        }
+
+        /// <summary>
         /// The ParseBlock
         /// </summary>
         /// <returns>The <see cref="BlockStmt"/></returns>
         private BlockStmt ParseBlock()
         {
-            Eat(TokenType.LBrace);
             var stmts = new List<Stmt>();
+
+            Eat(TokenType.LBrace);
             while (_current.Type != TokenType.RBrace)
                 stmts.Add(Statement());
             Eat(TokenType.RBrace);
+
             return new BlockStmt(stmts, _current.Line, _current.Column, _current.Filename);
         }
 
@@ -804,7 +878,7 @@
             Eat(TokenType.LParen);
             Expr cond = Expr();
             Eat(TokenType.RParen);
-            BlockStmt thenBlk = ParseBlock();
+            BlockStmt thenBlk = ParseEmbeddedBlockOrSingleStatement();
 
             Stmt? elseBlk = null;
             if (_current.Type == TokenType.Else)
@@ -817,7 +891,7 @@
                 }
                 else
                 {
-                    elseBlk = ParseBlock();
+                    elseBlk = ParseEmbeddedBlockOrSingleStatement();
                 }
             }
 
@@ -834,7 +908,7 @@
             Eat(TokenType.LParen);
             Expr cond = Expr();
             Eat(TokenType.RParen);
-            BlockStmt body = ParseBlock();
+            BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
             return new WhileStmt(cond, body, _current.Line, _current.Column, _current.Filename);
         }
 
@@ -863,7 +937,7 @@
                 inc = Statement();
             Eat(TokenType.RParen);
 
-            BlockStmt body = ParseBlock();
+            BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
             return new ForStmt(init, cond, inc, body, _current.Line, _current.Column, _current.Filename);
         }
 
