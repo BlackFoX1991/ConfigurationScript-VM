@@ -1,6 +1,7 @@
 ﻿using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extension;
 using CFGS_VM.VMCore.Extention;
+using System;
 using System.Globalization;
 using System.Text;
 
@@ -11,6 +12,272 @@ namespace CFGS_VM.VMCore
     /// </summary>
     public class VM
     {
+        /// <summary>
+        /// The IntrinsicInvoker
+        /// </summary>
+        /// <param name="receiver">The receiver<see cref="object"/></param>
+        /// <param name="args">The args<see cref="List{object}"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="object"/></returns>
+        private delegate object IntrinsicInvoker(object receiver, List<object> args, Instruction instr);
+
+        /// <summary>
+        /// Defines the <see cref="IntrinsicMethod" />
+        /// </summary>
+        private sealed class IntrinsicMethod
+        {
+            /// <summary>
+            /// Gets the Name
+            /// </summary>
+            public string Name { get; }
+
+            /// <summary>
+            /// Gets the ArityMin
+            /// </summary>
+            public int ArityMin { get; }
+
+            /// <summary>
+            /// Gets the ArityMax
+            /// </summary>
+            public int ArityMax { get; }
+
+            /// <summary>
+            /// Gets the Invoke
+            /// </summary>
+            public IntrinsicInvoker Invoke { get; }
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="IntrinsicMethod"/> class.
+            /// </summary>
+            /// <param name="name">The name<see cref="string"/></param>
+            /// <param name="arityMin">The arityMin<see cref="int"/></param>
+            /// <param name="arityMax">The arityMax<see cref="int"/></param>
+            /// <param name="invoke">The invoke<see cref="IntrinsicInvoker"/></param>
+            public IntrinsicMethod(string name, int arityMin, int arityMax, IntrinsicInvoker invoke)
+            {
+                Name = name; ArityMin = arityMin; ArityMax = arityMax; Invoke = invoke;
+            }
+
+            /// <summary>
+            /// The ToString
+            /// </summary>
+            /// <returns>The <see cref="string"/></returns>
+            public override string ToString() => $"<intrinsic {Name}>";
+        }
+
+        /// <summary>
+        /// Defines the <see cref="IntrinsicBound" />
+        /// </summary>
+        private sealed class IntrinsicBound
+        {
+            /// <summary>
+            /// Gets the Method
+            /// </summary>
+            public IntrinsicMethod Method { get; }
+
+            /// <summary>
+            /// Gets the Receiver
+            /// </summary>
+            public object Receiver { get; }
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="IntrinsicBound"/> class.
+            /// </summary>
+            /// <param name="m">The m<see cref="IntrinsicMethod"/></param>
+            /// <param name="recv">The recv<see cref="object"/></param>
+            public IntrinsicBound(IntrinsicMethod m, object recv)
+            {
+                Method = m; Receiver = recv;
+            }
+
+            /// <summary>
+            /// The ToString
+            /// </summary>
+            /// <returns>The <see cref="string"/></returns>
+            public override string ToString() => $"<bound {Method.Name}>";
+        }
+
+        /// <summary>
+        /// The ClampIndex
+        /// </summary>
+        /// <param name="idx">The idx<see cref="int"/></param>
+        /// <param name="len">The len<see cref="int"/></param>
+        /// <returns>The <see cref="int"/></returns>
+        private static int ClampIndex(int idx, int len)
+        {
+            if (idx < 0) idx += len;
+            if (idx < 0) idx = 0;
+            if (idx > len) idx = len;
+            return idx;
+        }
+
+        /// <summary>
+        /// Defines the StringProto
+        /// </summary>
+        private static readonly Dictionary<string, IntrinsicMethod> StringProto = new(StringComparer.Ordinal)
+        {
+            ["substr"] = new IntrinsicMethod("substr", 2, 2, (recv, a, instr) =>
+            {
+                string s = recv?.ToString() ?? "";
+                int len = s.Length;
+                int start = ClampIndex(Convert.ToInt32(a[0]), len);
+                int length = Math.Max(0, Convert.ToInt32(a[1]));
+                if (start > len) start = len;
+                if (start + length > len) length = len - start;
+                return s.Substring(start, length);
+            }),
+
+            ["slice"] = new IntrinsicMethod("slice", 0, 2, (recv, a, instr) =>
+            {
+                string s = recv?.ToString() ?? "";
+                int len = s.Length;
+                object? startObj = a.Count > 0 ? a[0] : null;
+                object? endObj = a.Count > 1 ? a[1] : null;
+                var (st, ex) = NormalizeSliceBounds(startObj, endObj, len, instr);
+                return s.Substring(st, ex - st);
+            }),
+
+            ["replace_range"] = new IntrinsicMethod("replace_range", 3, 3, (recv, a, instr) =>
+            {
+                string s = recv?.ToString() ?? "";
+                int len = s.Length;
+                var (st, ex) = NormalizeSliceBounds(a[0], a[1], len, instr);
+                string repl = a[2]?.ToString() ?? "";
+                return s.Substring(0, st) + repl + s.Substring(ex);
+            }),
+
+            ["remove_range"] = new IntrinsicMethod("remove_range", 2, 2, (recv, a, instr) =>
+            {
+                string s = recv?.ToString() ?? "";
+                int len = s.Length;
+                var (st, ex) = NormalizeSliceBounds(a[0], a[1], len, instr);
+                return s.Substring(0, st) + s.Substring(ex);
+            }),
+
+            ["insert_at"] = new IntrinsicMethod("insert_at", 2, 2, (recv, a, instr) =>
+            {
+                string s = recv?.ToString() ?? "";
+                int len = s.Length;
+                int idx = ClampIndex(Convert.ToInt32(a[0]), len);
+                string repl = a[1]?.ToString() ?? "";
+                return s.Substring(0, idx) + repl + s.Substring(idx);
+            }),
+
+            ["len"] = new IntrinsicMethod("len", 0, 0, (recv, a, instr) =>
+            {
+                string s = recv?.ToString() ?? "";
+                return s.Length;
+            }),
+        };
+
+        private sealed class FileHandle : IDisposable
+        {
+            public string Path { get; }
+            public int Mode { get; }
+            private FileStream? _fs;
+            private StreamReader? _reader;
+            private StreamWriter? _writer;
+
+            public bool IsOpen => _fs != null;
+
+            public FileHandle(string path, int mode, FileStream fs, bool canRead, bool canWrite)
+            {
+                Path = path;
+                Mode = mode;
+                _fs = fs;
+                if (canRead)
+                    _reader = new StreamReader(_fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+                if (canWrite)
+                    _writer = new StreamWriter(_fs, Encoding.UTF8, bufferSize: 1024, leaveOpen: true) { AutoFlush = false };
+            }
+
+            public override string ToString() => _fs == null ? $"<file closed '{Path}'>" : $"<file '{Path}'>";
+
+            public void Dispose()
+            {
+                try { _writer?.Flush(); } catch { }
+                _writer?.Dispose(); _reader?.Dispose(); _fs?.Dispose();
+                _writer = null; _reader = null; _fs = null;
+                GC.SuppressFinalize(this);
+            }
+            ~FileHandle() { Dispose(); }
+
+            private FileStream FS => _fs ?? throw new ObjectDisposedException(nameof(FileHandle));
+            private StreamWriter Writer => _writer ?? throw new InvalidOperationException("file not opened for writing");
+            private StreamReader Reader => _reader ?? throw new InvalidOperationException("file not opened for reading");
+
+            public void Write(string s) { Writer.Write(s); }
+            public void Writeln(string s) { Writer.WriteLine(s); }
+            public string Read(int count)
+            {
+                if (count <= 0) return string.Empty;
+                char[] buf = new char[count];
+                int read = Reader.Read(buf, 0, count);
+                return new string(buf, 0, read);
+            }
+            public string ReadLine() => Reader.ReadLine() ?? "";
+            public void Flush() => Writer.Flush();
+            public long Tell() => FS.Position;
+            public bool Eof() => Reader.EndOfStream && FS.Position >= FS.Length;
+            public long Seek(long offset, SeekOrigin origin) => FS.Seek(offset, origin);
+            public void Close() => Dispose();
+        }
+        /// <summary>
+        /// Defines the FileProto
+        /// </summary>
+        private static readonly Dictionary<string, IntrinsicMethod> FileProto = new(StringComparer.Ordinal)
+        {
+            ["write"] = new IntrinsicMethod("write", 1, 1, (recv, a, instr) => { var fh = (FileHandle)recv; fh.Write(a[0]?.ToString() ?? ""); return fh; }),
+            ["writeln"] = new IntrinsicMethod("writeln", 1, 1, (recv, a, instr) => { var fh = (FileHandle)recv; fh.Writeln(a[0]?.ToString() ?? ""); return fh; }),
+            ["flush"] = new IntrinsicMethod("flush", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; fh.Flush(); return fh; }),
+            ["read"] = new IntrinsicMethod("read", 1, 1, (recv, a, instr) => { var fh = (FileHandle)recv; return fh.Read(Convert.ToInt32(a[0])); }),
+            ["readline"] = new IntrinsicMethod("readline", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; return fh.ReadLine(); }),
+            ["seek"] = new IntrinsicMethod("seek", 2, 2, (recv, a, instr) =>
+            {
+                var fh = (FileHandle)recv; long off = Convert.ToInt64(a[0]); int org = Convert.ToInt32(a[1]);
+                var o = org switch { 0 => SeekOrigin.Begin, 1 => SeekOrigin.Current, 2 => SeekOrigin.End, _ => SeekOrigin.Begin };
+                return fh.Seek(off, o);
+            }),
+            ["tell"] = new IntrinsicMethod("tell", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; return fh.Tell(); }),
+            ["eof"] = new IntrinsicMethod("eof", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; return fh.Eof(); }),
+            ["close"] = new IntrinsicMethod("close", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; fh.Close(); return 1; }),
+        };
+
+        public sealed class ExceptionObject
+        {
+            public string Type { get; }
+            public string Message { get; }
+            public string File { get; }
+            public int Line { get; }
+            public int Col { get; }
+            public string Stack { get; }  // optional, kann leer sein
+
+            public ExceptionObject(string type, string message, string file, int line, int col, string stack = "")
+            {
+                Type = type;
+                Message = message;
+                File = file;
+                Line = line;
+                Col = col;
+                Stack = stack;
+            }
+
+            public override string ToString() => $"{Type}: {Message}";
+        }
+
+        private static readonly Dictionary<string, IntrinsicMethod> ExceptionProto =
+    new(StringComparer.Ordinal)
+    {
+        ["message"] = new IntrinsicMethod("message", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Message),
+        ["type"] = new IntrinsicMethod("type", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Type),
+        ["file"] = new IntrinsicMethod("file", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).File),
+        ["line"] = new IntrinsicMethod("line", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Line),
+        ["col"] = new IntrinsicMethod("col", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Col),
+        ["stack"] = new IntrinsicMethod("stack", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Stack),
+        ["toString"] = new IntrinsicMethod("toString", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).ToString()),
+    };
+
+
         /// <summary>
         /// Defines the <see cref="Env" />
         /// </summary>
@@ -252,10 +519,16 @@ namespace CFGS_VM.VMCore
         private readonly Stack<CallFrame> _callStack = new();
 
         /// <summary>
+        /// Gets the DebugStream
+        /// </summary>
+        public MemoryStream DebugStream { get; private set; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="VM"/> class.
         /// </summary>
         public VM()
         {
+            DebugStream = new MemoryStream();
         }
 
         /// <summary>
@@ -364,7 +637,78 @@ namespace CFGS_VM.VMCore
         /// <param name="x">The x<see cref="object"/></param>
         /// <returns>The <see cref="bool"/></returns>
         public static bool IsNumber(object x) =>
-   x is sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal;
+            x is sbyte or byte or short or ushort or int or uint or long or ulong
+              or float or double or decimal;
+
+        /// <summary>
+        /// Defines the NumKind
+        /// </summary>
+        private enum NumKind
+        {
+            /// <summary>
+            /// Defines the Int32
+            /// </summary>
+            Int32,
+
+            /// <summary>
+            /// Defines the Int64
+            /// </summary>
+            Int64,
+
+            /// <summary>
+            /// Defines the UInt64
+            /// </summary>
+            UInt64,
+
+            /// <summary>
+            /// Defines the Double
+            /// </summary>
+            Double,
+
+            /// <summary>
+            /// Defines the Decimal
+            /// </summary>
+            Decimal
+        }
+
+        /// <summary>
+        /// The PromoteKind
+        /// </summary>
+        /// <param name="a">The a<see cref="object"/></param>
+        /// <param name="b">The b<see cref="object"/></param>
+        /// <returns>The <see cref="NumKind"/></returns>
+        private static NumKind PromoteKind(object a, object b)
+        {
+            if (a is decimal || b is decimal) return NumKind.Decimal;
+            if (a is double || b is double || a is float || b is float) return NumKind.Double;
+            if (a is ulong || b is ulong) return NumKind.UInt64;
+            if (a is long || b is long) return NumKind.Int64;
+            return NumKind.Int32;
+        }
+
+        /// <summary>
+        /// The CoercePair
+        /// </summary>
+        /// <param name="a">The a<see cref="object"/></param>
+        /// <param name="b">The b<see cref="object"/></param>
+        /// <returns>The <see cref="(object A, object B, NumKind K)"/></returns>
+        private static (object A, object B, NumKind K) CoercePair(object a, object b)
+        {
+            var k = PromoteKind(a, b);
+            switch (k)
+            {
+                case NumKind.Decimal:
+                    return (Convert.ToDecimal(a), Convert.ToDecimal(b), k);
+                case NumKind.Double:
+                    return (Convert.ToDouble(a), Convert.ToDouble(b), k);
+                case NumKind.UInt64:
+                    return (Convert.ToUInt64(a), Convert.ToUInt64(b), k);
+                case NumKind.Int64:
+                    return (Convert.ToInt64(a), Convert.ToInt64(b), k);
+                default:
+                    return (Convert.ToInt32(a), Convert.ToInt32(b), k);
+            }
+        }
 
         /// <summary>
         /// The CompareAsDecimal
@@ -524,6 +868,66 @@ namespace CFGS_VM.VMCore
         {
             switch (name)
             {
+
+                case "json":
+                    {
+                        return JsonStringify(args[0]);
+                    }
+
+                case "fopen":
+                    {
+                        if (args.Count < 2)
+                            throw new VMException("Runtime error: fopen(path, mode) expects 2 arguments",
+                                instr.Line, instr.Col, instr.OriginFile);
+
+                        object a0 = args[0];
+                        object a1 = args[1];
+
+                        string path;
+                        int mode;
+
+                        if (a0 is string || a0 is char)
+                        {
+                            path = a0.ToString() ?? "";
+                            mode = Convert.ToInt32(a1);
+                        }
+                        else if (a1 is string || a1 is char)
+                        {
+                            path = a1.ToString() ?? "";
+                            mode = Convert.ToInt32(a0);
+                        }
+                        else
+                        {
+                            throw new VMException("Runtime error: fopen needs a string path and a numeric mode",
+                                instr.Line, instr.Col, instr.OriginFile);
+                        }
+
+                        FileMode fmode; FileAccess facc; bool canRead = false, canWrite = false;
+                        switch (mode)
+                        {
+                            case 0: fmode = FileMode.Open; facc = FileAccess.Read; canRead = true; break;
+                            case 1: fmode = FileMode.OpenOrCreate; facc = FileAccess.ReadWrite; canRead = true; canWrite = true; break;
+                            case 2: fmode = FileMode.Create; facc = FileAccess.Write; canWrite = true; break;
+                            case 3: fmode = FileMode.Append; facc = FileAccess.Write; canWrite = true; break;
+                            case 4: fmode = FileMode.OpenOrCreate; facc = FileAccess.Write; canWrite = true; break;
+                            default:
+                                throw new VMException($"Runtime error: invalid fopen mode {mode}",
+                                    instr.Line, instr.Col, instr.OriginFile);
+                        }
+
+                        try
+                        {
+                            var fs = new FileStream(path, fmode, facc, FileShare.Read);
+                            if (mode == 3) fs.Seek(0, SeekOrigin.End);
+                            return new FileHandle(path, mode, fs, canRead, canWrite);
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new VMException($"Runtime error: fopen failed for '{path}': {ex.Message}",
+                                instr.Line, instr.Col, instr.OriginFile);
+                        }
+                    }
+
                 case "typeof":
                     {
                         var val = args[0];
@@ -591,7 +995,7 @@ namespace CFGS_VM.VMCore
                     return new Random((int)args[0]).Next((int)args[1], (int)args[2]);
 
                 case "print":
-                    PrintValue(args[0], Console.Out, 1, escapeNewlines: false);
+                    PrintValue(args[0], Console.Out, 1, escapeNewlines: true);
                     Console.Out.WriteLine();
                     Console.Out.Flush();
                     return 1;
@@ -640,6 +1044,8 @@ namespace CFGS_VM.VMCore
             {"isspace",1 },
             {"isalnum",1 },
             {"toi",1 },
+            { "fopen", 2 },
+            {"json",1 }
     };
 
         /// <summary>
@@ -663,47 +1069,6 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// Defines the NumKind
-        /// </summary>
-        private enum NumKind
-        {
-            /// <summary>
-            /// Defines the None
-            /// </summary>
-            None,
-
-            /// <summary>
-            /// Defines the Int
-            /// </summary>
-            Int,
-
-            /// <summary>
-            /// Defines the Long
-            /// </summary>
-            Long,
-
-            /// <summary>
-            /// Defines the Float
-            /// </summary>
-            Float,
-
-            /// <summary>
-            /// Defines the Double
-            /// </summary>
-            Double,
-
-            /// <summary>
-            /// Defines the Decimal
-            /// </summary>
-            Decimal,
-
-            /// <summary>
-            /// Defines the NotNumber
-            /// </summary>
-            NotNumber
-        }
-
-        /// <summary>
         /// The IsNumericType
         /// </summary>
         /// <param name="v">The v<see cref="object"/></param>
@@ -711,35 +1076,6 @@ namespace CFGS_VM.VMCore
         private static bool IsNumericType(object v)
         {
             return v is int || v is long || v is double || v is decimal;
-        }
-
-        /// <summary>
-        /// The GetNumKind
-        /// </summary>
-        /// <param name="v">The v<see cref="object"/></param>
-        /// <returns>The <see cref="NumKind"/></returns>
-        private static NumKind GetNumKind(object v)
-        {
-            if (v is int) return NumKind.Int;
-            if (v is long) return NumKind.Long;
-            if (v is double) return NumKind.Double;
-            if (v is decimal) return NumKind.Decimal;
-            return NumKind.None;
-        }
-
-        /// <summary>
-        /// The PromoteKind
-        /// </summary>
-        /// <param name="a">The a<see cref="NumKind"/></param>
-        /// <param name="b">The b<see cref="NumKind"/></param>
-        /// <returns>The <see cref="NumKind"/></returns>
-        private static NumKind PromoteKind(NumKind a, NumKind b)
-        {
-            if (a == NumKind.Decimal || b == NumKind.Decimal) return NumKind.Decimal;
-            if (a == NumKind.Double || b == NumKind.Double) return NumKind.Double;
-            if (a == NumKind.Long || b == NumKind.Long) return NumKind.Long;
-            if (a == NumKind.Int && b == NumKind.Int) return NumKind.Int;
-            return NumKind.None;
         }
 
         /// <summary>
@@ -761,32 +1097,42 @@ namespace CFGS_VM.VMCore
             return true;
         }
 
-
         /// <summary>
         /// The Run
         /// </summary>
-        /// <param name="scriptname">The scriptname<see cref="string"/></param>
         /// <param name="_insns">The _insns<see cref="List{Instruction}"/></param>
-        public void Run(List<Instruction> _insns, bool StepDbg = false, bool singleStep = false)
+        /// <param name="StepDbg">The StepDbg<see cref="bool"/></param>
+        /// <param name="Breakpoints">The Breakpoints<see cref="List{int}?"/></param>
+        public void Run(List<Instruction> _insns, bool StepDbg = false, List<int>? Breakpoints = null)
         {
-
+            int curLine = -1;
             if (_insns is null || _insns.Count == 0) return;
-
+            bool routed = false;
             int _ip = 0;
-            try
+            while (_ip < _insns.Count)
             {
-
-                while (_ip < _insns.Count)
+                try
                 {
-                    if(StepDbg)
+
+                    if (StepDbg)
                     {
-                        
+
                         Console.ForegroundColor = ConsoleColor.DarkGray;
-                        Console.WriteLine($"[DEBUG] IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}");
+                        Console.WriteLine($"[DEBUG] {_insns[_ip].Line} ->  IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}");
                         var instrDbg = _insns[_ip];
                         Console.WriteLine($"[DEBUG] NEXT INSTR: {instrDbg} (Line {instrDbg.Line}, Col {instrDbg.Col})");
                         Console.ResetColor();
-                        if (singleStep)Console.ReadKey();
+                        if (Breakpoints is not null)
+                        {
+                            if (Breakpoints.Contains(curLine))
+                            {
+                                Console.ForegroundColor = ConsoleColor.Red;
+                                Console.WriteLine($"[DEBUG] BREAKPOINT HIT at Line {instrDbg.Line}, Col {instrDbg.Col}");
+                                Console.ResetColor();
+                                Console.WriteLine("Press any Key to continue...");
+                                Console.ReadKey();
+                            }
+                        }
                     }
                     var instr = _insns[_ip++];
 
@@ -1429,12 +1775,15 @@ namespace CFGS_VM.VMCore
 
                                 if (IsNumber(l) && IsNumber(r))
                                 {
-                                    var res = PerformBinaryNumericOp(l, r,
-                                        (a, b) => a + b,
-                                        (a, b) => a + b,
-                                        (a, b) => a + b,
-                                        (a, b) => a + b,
-                                        OpCode.ADD);
+                                    var (A, B, K) = CoercePair(l, r);
+                                    object res = K switch
+                                    {
+                                        NumKind.Decimal => (object)((decimal)A + (decimal)B),
+                                        NumKind.Double => (double)A + (double)B,
+                                        NumKind.UInt64 => (ulong)A + (ulong)B,
+                                        NumKind.Int64 => (long)A + (long)B,
+                                        _ => (int)A + (int)B,
+                                    };
                                     _stack.Push(res);
                                 }
                                 else if (l is List<object> || r is List<object> ||
@@ -1456,16 +1805,18 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
-
                                 if (!IsNumber(l) || !IsNumber(r))
                                     throw new VMException("SUB on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
 
-                                var res = PerformBinaryNumericOp(l, r,
-                                    (a, b) => a - b,
-                                    (a, b) => a - b,
-                                    (a, b) => a - b,
-                                    (a, b) => a - b,
-                                    OpCode.SUB);
+                                var (A, B, K) = CoercePair(l, r);
+                                object res = K switch
+                                {
+                                    NumKind.Decimal => (object)((decimal)A - (decimal)B),
+                                    NumKind.Double => (double)A - (double)B,
+                                    NumKind.UInt64 => (ulong)A - (ulong)B,
+                                    NumKind.Int64 => (long)A - (long)B,
+                                    _ => (int)A - (int)B,
+                                };
                                 _stack.Push(res);
                                 break;
                             }
@@ -1477,12 +1828,15 @@ namespace CFGS_VM.VMCore
 
                                 if (IsNumber(l) && IsNumber(r))
                                 {
-                                    var res = PerformBinaryNumericOp(l, r,
-                                        (a, b) => a * b,
-                                        (a, b) => a * b,
-                                        (a, b) => a * b,
-                                        (a, b) => a * b,
-                                        OpCode.MUL);
+                                    var (A, B, K) = CoercePair(l, r);
+                                    object res = K switch
+                                    {
+                                        NumKind.Decimal => (object)((decimal)A * (decimal)B),
+                                        NumKind.Double => (double)A * (double)B,
+                                        NumKind.UInt64 => (ulong)A * (ulong)B,
+                                        NumKind.Int64 => (long)A * (long)B,
+                                        _ => (int)A * (int)B,
+                                    };
                                     _stack.Push(res);
                                 }
                                 else if (l is string && IsNumber(r))
@@ -1504,21 +1858,24 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
-
                                 if (!IsNumber(l) || !IsNumber(r))
                                     throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
 
-                                var kind = PromoteKind(GetNumKind(l), GetNumKind(r));
-                                if ((kind == NumKind.Int && Convert.ToInt32(r) == 0) ||
-                                    (kind == NumKind.Long && Convert.ToInt64(r) == 0))
+                                var (A, B, K) = CoercePair(l, r);
+                                if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
+                                 || K == NumKind.Int64 && Convert.ToInt64(r) == 0
+                                 || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
+                                 || K == NumKind.Decimal && Convert.ToDecimal(r) == 0m)
                                     throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile);
 
-                                var res = PerformBinaryNumericOp(l, r,
-                                    (a, b) => a % b,
-                                    (a, b) => a % b,
-                                    (a, b) => a % b,
-                                    (a, b) => a % b,
-                                    OpCode.MOD);
+                                object res = K switch
+                                {
+                                    NumKind.Decimal => (object)((decimal)A % (decimal)B),
+                                    NumKind.Double => (double)A % (double)B,
+                                    NumKind.UInt64 => (ulong)A % (ulong)B,
+                                    NumKind.Int64 => (long)A % (long)B,
+                                    _ => (int)A % (int)B,
+                                };
                                 _stack.Push(res);
                                 break;
                             }
@@ -1527,52 +1884,26 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
-
                                 if (!IsNumber(l) || !IsNumber(r))
                                     throw new VMException($"Runtime error: cannot DIV {l?.GetType()} and {r?.GetType()}",
                                         instr.Line, instr.Col, instr.OriginFile);
 
-                                var ak = GetNumKind(l);
-                                var bk = GetNumKind(r);
-                                var k = PromoteKind(ak, bk);
+                                var (A, B, K) = CoercePair(l, r);
+                                if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
+                                 || K == NumKind.Int64 && Convert.ToInt64(r) == 0
+                                 || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
+                                 || K == NumKind.Decimal && Convert.ToDecimal(r) == 0m)
+                                    throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile);
 
-                                switch (k)
+                                object res = K switch
                                 {
-                                    case NumKind.Int:
-                                        {
-                                            int li = Convert.ToInt32(l);
-                                            int ri = Convert.ToInt32(r);
-                                            if (ri == 0) throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile);
-                                            _stack.Push(li / ri);
-                                            break;
-                                        }
-                                    case NumKind.Long:
-                                        {
-                                            long la = Convert.ToInt64(l);
-                                            long rb = Convert.ToInt64(r);
-                                            if (rb == 0) throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile);
-                                            _stack.Push(la / rb);
-                                            break;
-                                        }
-                                    case NumKind.Double:
-                                        {
-                                            double ld = Convert.ToDouble(l);
-                                            double rd = Convert.ToDouble(r);
-                                            _stack.Push(ld / rd);
-                                            break;
-                                        }
-                                    case NumKind.Decimal:
-                                        {
-                                            decimal ld = Convert.ToDecimal(l);
-                                            decimal rd = Convert.ToDecimal(r);
-                                            if (rd == 0m) throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile);
-                                            _stack.Push(ld / rd);
-                                            break;
-                                        }
-                                    default:
-                                        throw new VMException($"Runtime error: cannot DIV {l?.GetType()} and {r?.GetType()}",
-                                            instr.Line, instr.Col, instr.OriginFile);
-                                }
+                                    NumKind.Decimal => (object)((decimal)A / (decimal)B),
+                                    NumKind.Double => (double)A / (double)B,
+                                    NumKind.UInt64 => (ulong)A / (ulong)B,
+                                    NumKind.Int64 => (long)A / (long)B,
+                                    _ => (int)A / (int)B,
+                                };
+                                _stack.Push(res);
                                 break;
                             }
 
@@ -1580,25 +1911,18 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
-
                                 if (!IsNumber(l) || !IsNumber(r))
                                     throw new VMException("EXPO on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
 
-                                var res = PerformBinaryNumericOp(l, r,
-                                    (a, b) =>
-                                    {
-                                        if (b < 0) return Math.Pow(a, b);
-                                        return (int)Math.Pow(a, b);
-                                    },
-                                    (a, b) =>
-                                    {
-                                        if (b < 0) return Math.Pow(a, b);
-                                        return (long)Math.Pow(a, b);
-                                    },
-                                    (a, b) => Math.Pow(a, b),
-                                    (a, b) => (decimal)Math.Pow((double)a, (double)b),
-                                    OpCode.EXPO);
-
+                                var (A, B, K) = CoercePair(l, r);
+                                object res = K switch
+                                {
+                                    NumKind.Decimal => (object)((decimal)Math.Pow((double)(decimal)A, (double)(decimal)B)),
+                                    NumKind.Double => Math.Pow((double)A, (double)B),
+                                    NumKind.UInt64 => (ulong)Math.Pow((double)(ulong)A, (double)(ulong)B),
+                                    NumKind.Int64 => (long)Math.Pow((double)(long)A, (double)(long)B),
+                                    _ => (int)Math.Pow((double)(int)A, (double)(int)B),
+                                };
                                 _stack.Push(res);
                                 break;
                             }
@@ -1607,17 +1931,13 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
+                                if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
+                                    throw new VMException("BIT_AND requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
 
-                                if (!(l is int || l is long) || !(r is int || r is long))
-                                    throw new VMException("BIT_AND requires integral types (int/long)", instr.Line, instr.Col, instr.OriginFile);
-
-                                var res = PerformBinaryNumericOp(l, r,
-                                    (a, b) => a & b,
-                                    (a, b) => a & b,
-                                    (a, b) => throw new VMException("BIT_AND not supported on double", instr.Line, instr.Col, instr.OriginFile),
-                                    (a, b) => throw new VMException("BIT_AND not supported on decimal", instr.Line, instr.Col, instr.OriginFile),
-                                    OpCode.BIT_AND);
-                                _stack.Push(res);
+                                if (l is ulong || r is ulong || l is long || r is long)
+                                    _stack.Push(Convert.ToInt64(l) & Convert.ToInt64(r));
+                                else
+                                    _stack.Push(Convert.ToInt32(l) & Convert.ToInt32(r));
                                 break;
                             }
 
@@ -1625,17 +1945,13 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
+                                if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
+                                    throw new VMException("BIT_OR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
 
-                                if (!(l is int || l is long) || !(r is int || r is long))
-                                    throw new VMException("BIT_OR requires integral types (int/long)", instr.Line, instr.Col, instr.OriginFile);
-
-                                var res = PerformBinaryNumericOp(l, r,
-                                    (a, b) => a | b,
-                                    (a, b) => a | b,
-                                    (a, b) => throw new VMException("BIT_OR not supported on double", instr.Line, instr.Col, instr.OriginFile),
-                                    (a, b) => throw new VMException("BIT_OR not supported on decimal", instr.Line, instr.Col, instr.OriginFile),
-                                    OpCode.BIT_OR);
-                                _stack.Push(res);
+                                if (l is ulong || r is ulong || l is long || r is long)
+                                    _stack.Push(Convert.ToInt64(l) | Convert.ToInt64(r));
+                                else
+                                    _stack.Push(Convert.ToInt32(l) | Convert.ToInt32(r));
                                 break;
                             }
 
@@ -1643,17 +1959,13 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
+                                if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
+                                    throw new VMException("BIT_XOR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
 
-                                if (!(l is int || l is long) || !(r is int || r is long))
-                                    throw new VMException("BIT_XOR requires integral types (int/long)", instr.Line, instr.Col, instr.OriginFile);
-
-                                var res = PerformBinaryNumericOp(l, r,
-                                    (a, b) => a ^ b,
-                                    (a, b) => a ^ b,
-                                    (a, b) => throw new VMException("BIT_XOR not supported on double", instr.Line, instr.Col, instr.OriginFile),
-                                    (a, b) => throw new VMException("BIT_XOR not supported on decimal", instr.Line, instr.Col, instr.OriginFile),
-                                    OpCode.BIT_XOR);
-                                _stack.Push(res);
+                                if (l is ulong || r is ulong || l is long || r is long)
+                                    _stack.Push(Convert.ToInt64(l) ^ Convert.ToInt64(r));
+                                else
+                                    _stack.Push(Convert.ToInt32(l) ^ Convert.ToInt32(r));
                                 break;
                             }
 
@@ -1661,17 +1973,14 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
+                                if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
+                                    throw new VMException("SHL requires (int|long|uint|ulong) << int", instr.Line, instr.Col, instr.OriginFile);
 
-                                if (!(l is int || l is long) || !IsNumber(r))
-                                    throw new VMException("SHL requires (int|long) << int", instr.Line, instr.Col, instr.OriginFile);
-
-                                var res = PerformBinaryNumericOp(l, r,
-                                    (a, b) => a << (b & 0x1F),
-                                    (a, b) => a << (int)(b & 0x3F),
-                                    (a, b) => throw new VMException("SHL not supported on double", instr.Line, instr.Col, instr.OriginFile),
-                                    (a, b) => throw new VMException("SHL not supported on decimal", instr.Line, instr.Col, instr.OriginFile),
-                                    OpCode.SHL);
-                                _stack.Push(res);
+                                int sh = Convert.ToInt32(r) & 0x3F;
+                                if (l is long or ulong)
+                                    _stack.Push(Convert.ToInt64(l) << sh);
+                                else
+                                    _stack.Push(Convert.ToInt32(l) << (sh & 0x1F));
                                 break;
                             }
 
@@ -1679,17 +1988,14 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
+                                if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
+                                    throw new VMException("SHR requires (int|long|uint|ulong) >> int", instr.Line, instr.Col, instr.OriginFile);
 
-                                if (!(l is int || l is long) || !IsNumber(r))
-                                    throw new VMException("SHR requires (int|long) >> int", instr.Line, instr.Col, instr.OriginFile);
-
-                                var res = PerformBinaryNumericOp(l, r,
-                                    (a, b) => a >> (b & 0x1F),
-                                    (a, b) => a >> (int)(b & 0x3F),
-                                    (a, b) => throw new VMException("SHR not supported on double", instr.Line, instr.Col, instr.OriginFile),
-                                    (a, b) => throw new VMException("SHR not supported on decimal", instr.Line, instr.Col, instr.OriginFile),
-                                    OpCode.SHR);
-                                _stack.Push(res);
+                                int sh = Convert.ToInt32(r) & 0x3F;
+                                if (l is long or ulong)
+                                    _stack.Push(Convert.ToInt64(l) >> sh);
+                                else
+                                    _stack.Push(Convert.ToInt32(l) >> (sh & 0x1F));
                                 break;
                             }
 
@@ -1697,15 +2003,13 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
-
                                 bool res;
                                 if (IsNumber(l) && IsNumber(r))
                                     res = CompareAsDecimal(l) == CompareAsDecimal(r);
                                 else if (l is string ls && r is string rs)
-                                    res = (ls == rs);
+                                    res = string.Equals(ls, rs, StringComparison.Ordinal);
                                 else
                                     res = Equals(l, r);
-
                                 _stack.Push(res);
                                 break;
                             }
@@ -1714,15 +2018,13 @@ namespace CFGS_VM.VMCore
                             {
                                 var r = _stack.Pop();
                                 var l = _stack.Pop();
-
                                 bool res;
                                 if (IsNumber(l) && IsNumber(r))
                                     res = CompareAsDecimal(l) != CompareAsDecimal(r);
                                 else if (l is string ls && r is string rs)
-                                    res = (ls != rs);
+                                    res = !string.Equals(ls, rs, StringComparison.Ordinal);
                                 else
                                     res = !Equals(l, r);
-
                                 _stack.Push(res);
                                 break;
                             }
@@ -1733,13 +2035,20 @@ namespace CFGS_VM.VMCore
 
                                 if (IsNumber(l) && IsNumber(r))
                                 {
-                                    var v = PerformBinaryNumericOp(l, r,
-                                        (a, b) => a < b, (a, b) => a < b, (a, b) => a < b, (a, b) => a < b, OpCode.LT);
+                                    var (A, B, K) = CoercePair(l, r);
+                                    bool v = K switch
+                                    {
+                                        NumKind.Decimal => (decimal)A < (decimal)B,
+                                        NumKind.Double => (double)A < (double)B,
+                                        NumKind.UInt64 => (ulong)A < (ulong)B,
+                                        NumKind.Int64 => (long)A < (long)B,
+                                        _ => (int)A < (int)B,
+                                    };
                                     _stack.Push(v);
                                 }
                                 else if (l is string ls && r is string rs)
                                 {
-                                    _stack.Push(string.CompareOrdinal(ls, rs));
+                                    _stack.Push(string.CompareOrdinal(ls, rs) < 0);
                                 }
                                 else
                                 {
@@ -1754,8 +2063,15 @@ namespace CFGS_VM.VMCore
 
                                 if (IsNumber(l) && IsNumber(r))
                                 {
-                                    var v = PerformBinaryNumericOp(l, r,
-                                        (a, b) => a > b, (a, b) => a > b, (a, b) => a > b, (a, b) => a > b, OpCode.GT);
+                                    var (A, B, K) = CoercePair(l, r);
+                                    bool v = K switch
+                                    {
+                                        NumKind.Decimal => (decimal)A > (decimal)B,
+                                        NumKind.Double => (double)A > (double)B,
+                                        NumKind.UInt64 => (ulong)A > (ulong)B,
+                                        NumKind.Int64 => (long)A > (long)B,
+                                        _ => (int)A > (int)B,
+                                    };
                                     _stack.Push(v);
                                 }
                                 else if (l is string ls && r is string rs)
@@ -1775,8 +2091,15 @@ namespace CFGS_VM.VMCore
 
                                 if (IsNumber(l) && IsNumber(r))
                                 {
-                                    var v = PerformBinaryNumericOp(l, r,
-                                        (a, b) => a <= b, (a, b) => a <= b, (a, b) => a <= b, (a, b) => a <= b, OpCode.LE);
+                                    var (A, B, K) = CoercePair(l, r);
+                                    bool v = K switch
+                                    {
+                                        NumKind.Decimal => (decimal)A <= (decimal)B,
+                                        NumKind.Double => (double)A <= (double)B,
+                                        NumKind.UInt64 => (ulong)A <= (ulong)B,
+                                        NumKind.Int64 => (long)A <= (long)B,
+                                        _ => (int)A <= (int)B,
+                                    };
                                     _stack.Push(v);
                                 }
                                 else if (l is string ls && r is string rs)
@@ -1796,8 +2119,15 @@ namespace CFGS_VM.VMCore
 
                                 if (IsNumber(l) && IsNumber(r))
                                 {
-                                    var v = PerformBinaryNumericOp(l, r,
-                                        (a, b) => a >= b, (a, b) => a >= b, (a, b) => a >= b, (a, b) => a >= b, OpCode.GE);
+                                    var (A, B, K) = CoercePair(l, r);
+                                    bool v = K switch
+                                    {
+                                        NumKind.Decimal => (decimal)A >= (decimal)B,
+                                        NumKind.Double => (double)A >= (double)B,
+                                        NumKind.UInt64 => (ulong)A >= (ulong)B,
+                                        NumKind.Int64 => (long)A >= (long)B,
+                                        _ => (int)A >= (int)B,
+                                    };
                                     _stack.Push(v);
                                 }
                                 else if (l is string ls && r is string rs)
@@ -1814,18 +2144,21 @@ namespace CFGS_VM.VMCore
                         case OpCode.NEG:
                             {
                                 var v = _stack.Pop();
-                                if (v is int i) { _stack.Push(-i); }
-                                else if (v is long l) { _stack.Push(-l); }
-                                else if (v is double d) { _stack.Push(-d); }
-                                else if (v is float f) { _stack.Push(-f); }
-                                else if (v is decimal m) { _stack.Push(-m); }
-                                else
-                                {
+                                if (!IsNumber(v))
                                     throw new VMException(
                                         $"NEG only works on numeric types (got {v ?? "null"} of type {v?.GetType().Name ?? "null"})",
                                         instr.Line, instr.Col, instr.OriginFile
                                     );
-                                }
+
+                                object res =
+                                    v is decimal md ? (object)(-md) :
+                                    v is double dd ? (object)(-dd) :
+                                    v is float ff ? (object)(-ff) :
+                                    v is long ll ? (object)(-ll) :
+                                    v is ulong uu ? (object)unchecked((long)-(long)uu) :
+                                    (object)(-Convert.ToInt32(v));
+
+                                _stack.Push(res);
                                 break;
                             }
 
@@ -1937,6 +2270,7 @@ namespace CFGS_VM.VMCore
 
                         case OpCode.CALL:
                             {
+
                                 if (instr.Operand is string funcName)
                                 {
                                     if (bInFunc.TryGetValue(funcName, out int expectedArgs))
@@ -1985,7 +2319,19 @@ namespace CFGS_VM.VMCore
                                     Closure f;
                                     object? receiver = null;
 
-                                    if (callee is BoundMethod bm)
+                                    if (callee is IntrinsicBound ib_ex)
+                                    {
+                                        if (explicitArgCount < ib_ex.Method.ArityMin || explicitArgCount > ib_ex.Method.ArityMax)
+                                            throw new VMException(
+                                                $"Runtime error: {ib_ex.Method.Name} expects {ib_ex.Method.ArityMin}..{ib_ex.Method.ArityMax} args, got {explicitArgCount}",
+                                                instr.Line, instr.Col, instr.OriginFile
+                                            );
+
+                                        var result = ib_ex.Method.Invoke(ib_ex.Receiver, argsList, instr);
+                                        _stack.Push(result);
+                                        continue;
+                                    }
+                                    else if (callee is BoundMethod bm)
                                     {
                                         f = bm.Function;
                                         receiver = bm.Receiver;
@@ -2036,7 +2382,22 @@ namespace CFGS_VM.VMCore
                                     Closure f;
                                     object? receiver = null;
 
-                                    if (callee is BoundMethod bm)
+                                    if (callee is IntrinsicBound ib)
+                                    {
+                                        int need = ib.Method.ArityMin;
+                                        var argsB = new List<object>();
+                                        for (int i = 0; i < need; i++)
+                                        {
+                                            if (_stack.Count == 0)
+                                                throw new VMException("Runtime error: insufficient args for intrinsic call", instr.Line, instr.Col, instr.OriginFile);
+                                            argsB.Add(_stack.Pop());
+                                        }
+                                        var result = ib.Method.Invoke(ib.Receiver, argsB, instr);
+                                        _stack.Push(result);
+                                        continue;
+                                    }
+
+                                    else if (callee is BoundMethod bm)
                                     {
                                         f = bm.Function;
                                         receiver = bm.Receiver;
@@ -2094,7 +2455,7 @@ namespace CFGS_VM.VMCore
 
                         case OpCode.TRY_PUSH:
                             {
-                                var arr = instr.Operand as int[] ?? new int[] { -1, -1 };
+                                var arr = instr.Operand as int[] ?? new[] { -1, -1 };
                                 int catchAddr = arr.Length > 0 ? arr[0] : -1;
                                 int finallyAddr = arr.Length > 1 ? arr[1] : -1;
                                 _tryHandlers.Add(new TryHandler(catchAddr, finallyAddr));
@@ -2103,113 +2464,170 @@ namespace CFGS_VM.VMCore
 
                         case OpCode.TRY_POP:
                             {
-                                if (_tryHandlers.Count == 0) throw new VMException($"Runtime error: TRY_POP with empty try stack", instr.Line, instr.Col, instr.OriginFile);
+                                if (_tryHandlers.Count == 0)
+                                    throw new VMException("Runtime error: TRY_POP with empty try stack", instr.Line, instr.Col, instr.OriginFile);
                                 _tryHandlers.RemoveAt(_tryHandlers.Count - 1);
                                 break;
                             }
 
                         case OpCode.THROW:
                             {
-                                var ex = _stack.Pop();
-                                bool handled = false;
+                                var any = _stack.Pop();
 
-                                for (int i = _tryHandlers.Count - 1; i >= 0; i--)
-                                {
-                                    var h = _tryHandlers[i];
-                                    if (h.CatchAddr >= 0)
-                                    {
-                                        _stack.Push(ex);
-                                        _ip = h.CatchAddr;
-                                        h.CatchAddr = -1;
-                                        handled = true;
-                                        break;
-                                    }
-                                    else if (h.FinallyAddr >= 0)
-                                    {
-                                        h.Exception = ex;
-                                        _ip = h.FinallyAddr;
-                                        handled = true;
-                                        break;
-                                    }
-                                    else
-                                    {
-                                        _tryHandlers.RemoveAt(i);
-                                    }
-                                }
+                                // Immer ExceptionObject routen; jetzt MIT Stacktrace
+                                var payload = any as ExceptionObject
+                                    ?? new ExceptionObject(
+                                           type: "UserError",
+                                            message: any?.ToString() ?? "error",
+                                            file: instr.OriginFile,
+                                            line: instr.Line,
+                                            col: instr.Col,
+                                            stack: BuildStackString(_insns, instr)   // ← NEU
+                                       );
 
-                                if (!handled)
-                                {
-                                    throw new VMException($"Uncaught exception: {ex}", instr.Line, instr.Col, instr.OriginFile);
-                                }
-                                break;
+                                if (RouteExceptionToTryHandlers(payload, instr, out var nip))
+                                { _ip = nip; continue; }
+
+                                throw new VMException($"Uncaught exception: {payload}", instr.Line, instr.Col, instr.OriginFile);
                             }
 
                         case OpCode.END_FINALLY:
                             {
                                 if (_tryHandlers.Count == 0) break;
+
                                 var h = _tryHandlers[^1];
                                 _tryHandlers.RemoveAt(_tryHandlers.Count - 1);
 
                                 if (h.Exception != null)
                                 {
-                                    var toRethrow = h.Exception;
+                                    var any = h.Exception;
                                     h.Exception = null;
-                                    bool handled2 = false;
-                                    for (int i = _tryHandlers.Count - 1; i >= 0; i--)
-                                    {
-                                        var nh = _tryHandlers[i];
-                                        if (nh.CatchAddr >= 0)
-                                        {
-                                            _stack.Push(toRethrow);
-                                            _ip = nh.CatchAddr;
-                                            nh.CatchAddr = -1;
-                                            handled2 = true;
-                                            break;
-                                        }
-                                        else if (nh.FinallyAddr >= 0)
-                                        {
-                                            nh.Exception = toRethrow;
-                                            _ip = nh.FinallyAddr;
-                                            handled2 = true;
-                                            break;
-                                        }
-                                        else
-                                        {
-                                            _tryHandlers.RemoveAt(i);
-                                        }
-                                    }
 
-                                    if (!handled2)
-                                    {
-                                        throw new VMException($"Uncaught exception: {toRethrow}", instr.Line, instr.Col, instr.OriginFile);
-                                    }
+                                    var payload = any as ExceptionObject
+                                        ?? new ExceptionObject(
+                                               type: "UserError",
+                                               message: any?.ToString() ?? "error",
+                                               file: instr.OriginFile,
+                                               line: instr.Line,
+                                               col: instr.Col,
+                                               stack: BuildStackString(_insns, instr)   // ← NEU
+                                           );
+
+                                    if (RouteExceptionToTryHandlers(payload, instr, out var nip))
+                                    { _ip = nip; continue; }
+
+                                    throw new VMException($"Uncaught exception: {payload}", instr.Line, instr.Col, instr.OriginFile);
                                 }
                                 break;
                             }
+
+
 
                         default:
                             throw new VMException($"Runtime error: unknown opcode {instr.Code}", instr.Line, instr.Col, instr.OriginFile);
                     }
                 }
+                catch (VMException ex)
+                {
+                    var payload = new ExceptionObject(
+                        type: "RuntimeError",
+                        message: ex.Message,
+                        file: _insns[_ip].OriginFile,
+                        line: _insns[_ip].Line,
+                        col: _insns[_ip].Col,
+                        stack: BuildStackString(_insns, _insns[_ip]) // ← NEU: Stacktrace
+                    );
+
+                    if (RouteExceptionToTryHandlers(payload, _insns[_ip], out var nip))
+                    {
+                        _ip = nip;
+                        routed = true;
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                if (routed)
+                    continue;
+
+
             }
-            catch (VMException vex)
+        }
+
+        private string BuildStackString(List<Instruction> insns, Instruction current)
+        {
+            var sb = new StringBuilder();
+
+            // Frame 0: aktuelle Instruktion
+            sb.Append("  at ")
+              .Append(current.OriginFile).Append(':')
+              .Append(current.Line).Append(':')
+              .Append(current.Col).AppendLine();
+
+            // Rest: CallFrames (innen -> außen)
+            foreach (var frame in _callStack.Reverse())
             {
-                var enriched = vex.Message + Environment.NewLine
-                    + BuildCrashReport(_insns[_ip].OriginFile, _insns[_ip], _ip, vex);
-                throw new VMException(enriched,
-                    _insns[_ip].Line,
-                    _insns[_ip].Col,
-                    _insns[_ip].OriginFile);
+                int ip = Math.Clamp(frame.ReturnIp, 0, insns.Count - 1);
+                var i = insns[ip];
+                sb.Append("  at ")
+                  .Append(i.OriginFile).Append(':')
+                  .Append(i.Line).Append(':')
+                  .Append(i.Col).AppendLine();
             }
-            catch (Exception ex)
+
+            return sb.ToString();
+        }
+
+
+        /// <summary>
+        /// The SafeCurrentInstr
+        /// </summary>
+        /// <param name="insns">The insns<see cref="List{Instruction}"/></param>
+        /// <param name="ip">The ip<see cref="int"/></param>
+        /// <returns>The <see cref="Instruction"/></returns>
+        private static Instruction SafeCurrentInstr(List<Instruction> insns, int ip)
+        {
+            if (insns == null || insns.Count == 0)
+                return new Instruction(OpCode.HALT, null, -1, -1, "");
+            int i = ip;
+            if (i < 0) i = 0;
+            if (i >= insns.Count) i = insns.Count - 1;
+            return insns[i];
+        }
+
+        /// <summary>
+        /// The RouteExceptionToTryHandlers
+        /// </summary>
+        /// <param name="exPayload">The exPayload<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <param name="newIp">The newIp<see cref="int"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool RouteExceptionToTryHandlers(object exPayload, Instruction instr, out int newIp)
+        {
+            for (int i = _tryHandlers.Count - 1; i >= 0; i--)
             {
-                string enriched = "Internal VM error: " + ex.Message + Environment.NewLine
-                    + BuildCrashReport(_insns[_ip].OriginFile, _insns[_ip], _ip, ex);
-                throw new VMException(enriched,
-                    _insns[_ip]?.Line ?? -1,
-                    _insns[_ip]?.Col ?? -1,
-                    _insns[_ip]?.OriginFile ?? "");
+                var h = _tryHandlers[i];
+                if (h.CatchAddr >= 0)
+                {
+                    _stack.Push(exPayload);
+                    newIp = h.CatchAddr;
+                    h.CatchAddr = -1;
+                    return true;
+                }
+                else if (h.FinallyAddr >= 0)
+                {
+                    h.Exception = exPayload;
+                    newIp = h.FinallyAddr;
+                    return true;
+                }
+                else
+                {
+                    _tryHandlers.RemoveAt(i);
+                }
             }
+            newIp = -1;
+            return false;
         }
 
         /// <summary>
@@ -2311,42 +2729,141 @@ namespace CFGS_VM.VMCore
         /// <param name="s">The s<see cref="string"/></param>
         /// <param name="escapeNewlines">The escapeNewlines<see cref="bool"/></param>
         /// <returns>The <see cref="string"/></returns>
-        private static string EscapeJsonString(string s, bool escapeNewlines = true)
+        private static string JsonEscapeString(string s)
         {
-            if (s == null) return "";
-            var sb = new StringBuilder();
-            foreach (char c in s)
+            var sb = new StringBuilder(s.Length + 8);
+            foreach (var ch in s)
             {
-                switch (c)
+                switch (ch)
                 {
-                    case '\\': sb.Append("\\\\"); break;
                     case '\"': sb.Append("\\\""); break;
-                    case '\n': sb.Append(escapeNewlines ? "\\n" : "\n"); break;
-                    case '\r': sb.Append(escapeNewlines ? "\\r" : "\r"); break;
-                    case '\t': sb.Append(escapeNewlines ? "\\t" : "\t"); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
                     default:
-                        if (char.IsControl(c))
-                        {
-                            sb.Append("\\u");
-                            sb.Append(((int)c).ToString("x4"));
-                        }
-                        else sb.Append(c);
+                        if (ch < ' ')
+                            sb.AppendFormat(CultureInfo.InvariantCulture, "\\u{0:X4}", (int)ch);
+                        else
+                            sb.Append(ch);
                         break;
                 }
             }
             return sb.ToString();
         }
 
-        /// <summary>
-        /// The PrintValue
-        /// </summary>
-        /// <param name="v">The v<see cref="object"/></param>
-        /// <param name="w">The w<see cref="TextWriter"/></param>
-        /// <param name="mode">The mode<see cref="int"/></param>
-        /// <param name="seen">The seen<see cref="HashSet{object}?"/></param>
-        /// <param name="escapeNewlines">The escapeNewlines<see cref="bool"/></param>
+        private static void WriteJsonValue(object? v, TextWriter w, HashSet<object>? seen = null, int mode = 2)
+        {
+            seen ??= new HashSet<object>(ReferenceEqualityComparer.Instance);
+
+            if (v is null) { w.Write("null"); return; }
+
+            switch (v)
+            {
+                case bool b:
+                    w.Write(b ? "true" : "false"); return;
+
+                case sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal:
+                    w.Write(Convert.ToString(v, CultureInfo.InvariantCulture)); return;
+
+                case string s:
+                    w.Write('"'); w.Write(JsonEscapeString(s)); w.Write('"'); return;
+
+                case ExceptionObject exo:
+                    {
+                        w.Write('{');
+                        w.Write("\"type\":\""); w.Write(JsonEscapeString(exo.Type)); w.Write("\",");
+                        w.Write("\"message\":\""); w.Write(JsonEscapeString(exo.Message)); w.Write("\",");
+                        w.Write("\"file\":\""); w.Write(JsonEscapeString(exo.File)); w.Write("\",");
+                        w.Write("\"line\":"); w.Write(exo.Line.ToString(CultureInfo.InvariantCulture)); w.Write(",");
+                        w.Write("\"col\":"); w.Write(exo.Col.ToString(CultureInfo.InvariantCulture));
+                        if (!string.IsNullOrEmpty(exo.Stack))
+                        {
+                            w.Write(",\"stack\":\""); w.Write(JsonEscapeString(exo.Stack)); w.Write('"');
+                        }
+                        w.Write('}');
+                        return;
+                    }
+
+                case List<object> list:
+                    {
+                        if (seen.Contains(v)) { w.Write("[]"); return; }
+                        seen.Add(v);
+                        w.Write('[');
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            WriteJsonValue(list[i], w, seen, mode);
+                            if (i + 1 < list.Count) w.Write(',');
+                        }
+                        w.Write(']');
+                        seen.Remove(v);
+                        return;
+                    }
+
+                case Dictionary<string, object> dict:
+                    {
+                        if (seen.Contains(v)) { w.Write("{}"); return; }
+                        seen.Add(v);
+
+                        var entries = dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList();
+                        if (mode == 2)
+                        {
+                            entries = [.. entries
+                    .Where(kv => kv.Value != null
+                                 && kv.Value is not Closure
+                                 && kv.Value is not FunctionInfo
+                                 && kv.Value is not Delegate)];
+                        }
+
+                        w.Write('{');
+                        for (int i = 0; i < entries.Count; i++)
+                        {
+                            var kv = entries[i];
+                            w.Write('"'); w.Write(JsonEscapeString(kv.Key)); w.Write("\":");
+                            WriteJsonValue(kv.Value, w, seen, mode);
+                            if (i + 1 < entries.Count) w.Write(',');
+                        }
+                        w.Write('}');
+                        seen.Remove(v);
+                        return;
+                    }
+
+                case Closure clos:
+                    // als String repräsentieren
+                    w.Write('"'); w.Write(JsonEscapeString(clos.Name ?? "<closure>")); w.Write('"'); return;
+
+                default:
+                    // Fallback: ToString als String
+                    w.Write('"'); w.Write(JsonEscapeString(Convert.ToString(v, CultureInfo.InvariantCulture) ?? "")); w.Write('"');
+                    return;
+            }
+        }
+
+        public static string JsonStringify(object? v, int mode = 2)
+        {
+            var sb = new StringBuilder();
+            using var sw = new StringWriter(sb, CultureInfo.InvariantCulture);
+            WriteJsonValue(v, sw, null, mode);
+            return sb.ToString();
+        }
+
+
         private static void PrintValue(object v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = true)
         {
+            // 'escapeNewlines' bedeutet hier: \n,\r,\t usw. beim Drucken in echte Steuerzeichen umwandeln
+            static string UnescapeForPrinting(string s)
+            {
+                // nur die gängigen Shortcuts – bewusst kein volles JSON-Escaping
+                return s
+                    .Replace("\\n", "\n")
+                    .Replace("\\r", "\r")
+                    .Replace("\\t", "\t")
+                    .Replace("\\b", "\b")
+                    .Replace("\\f", "\f");
+            }
+
             seen ??= new HashSet<object>(ReferenceEqualityComparer.Instance);
 
             if (v == null) { w.Write("null"); return; }
@@ -2355,7 +2872,6 @@ namespace CFGS_VM.VMCore
             {
                 if (seen.Contains(v)) { w.Write("[...]"); return; }
                 seen.Add(v);
-
                 w.Write("[");
                 for (int i = 0; i < list.Count; i++)
                 {
@@ -2376,18 +2892,19 @@ namespace CFGS_VM.VMCore
                 if (mode == 2)
                 {
                     entries = [.. entries
-                        .Where(kv => kv.Value != null
-                                     && !(kv.Value is Closure)
-                                     && !(kv.Value is FunctionInfo)
-                                     && !(kv.Value is Delegate))];
+                .Where(kv => kv.Value != null
+                             && kv.Value is not Closure
+                             && kv.Value is not FunctionInfo
+                             && kv.Value is not Delegate)];
                 }
 
                 w.Write("{");
                 for (int i = 0; i < entries.Count; i++)
                 {
                     var kv = entries[i];
+                    // Keys einfach roh ausgeben (kein JSON-Escaping mehr)
                     w.Write("\"");
-                    w.Write(escapeNewlines ? EscapeJsonString(kv.Key) : kv.Key);
+                    w.Write(escapeNewlines ? UnescapeForPrinting(kv.Key) : kv.Key);
                     w.Write("\": ");
                     PrintValue(kv.Value, w, mode, seen, escapeNewlines);
                     if (i + 1 < entries.Count) w.Write(", ");
@@ -2400,26 +2917,30 @@ namespace CFGS_VM.VMCore
             if (v is Closure clos)
             {
                 if (mode == 2)
-                    w.Write("\"" + (escapeNewlines ? EscapeJsonString(clos.Name ?? "<closure>") : clos.Name ?? "<closure>") + "\"");
+                    w.Write("\"" + (escapeNewlines ? UnescapeForPrinting(clos.Name ?? "<closure>") : (clos.Name ?? "<closure>")) + "\"");
                 else
                     w.Write(clos.ToString());
                 return;
             }
 
+            if (v is ExceptionObject exo)
+            {
+                // menschenlesbare Kurzform beim Print
+                if (mode == 2)
+                    w.Write($"\"{exo.Type}: {exo.Message}\"");
+                else
+                    w.Write(exo.ToString());
+                return;
+            }
+
             if (v is FunctionInfo fi) { w.Write($"<fn {fi.Address}>"); return; }
-            if (v is Delegate d) { w.Write("<delegate>"); return; }
+            if (v is Delegate) { w.Write("<delegate>"); return; }
 
             switch (v)
             {
                 case string s:
-                    if (mode == 2 || mode == 1)
-                    {
-                        w.Write(escapeNewlines ? EscapeJsonString(s) : s);
-                    }
-                    else
-                    {
-                        w.Write(s);
-                    }
+                    // Strings roh; optional \n etc. in echte Steuerzeichen umwandeln
+                    w.Write(escapeNewlines ? UnescapeForPrinting(s) : s);
                     break;
                 case double xd: w.Write(xd.ToString(CultureInfo.InvariantCulture)); break;
                 case float f: w.Write(f.ToString(CultureInfo.InvariantCulture)); break;
@@ -2427,51 +2948,11 @@ namespace CFGS_VM.VMCore
                 case long l: w.Write(l.ToString(CultureInfo.InvariantCulture)); break;
                 case int i: w.Write(i.ToString(CultureInfo.InvariantCulture)); break;
                 case bool b: w.Write(b ? "true" : "false"); break;
-                default: w.Write(Convert.ToString(v, CultureInfo.InvariantCulture)); break;
+                default:
+                    w.Write(Convert.ToString(v, CultureInfo.InvariantCulture));
+                    break;
             }
             w.Flush();
-        }
-
-        /// <summary>
-        /// The PerformBinaryNumericOp
-        /// </summary>
-        /// <param name="l">The l<see cref="object"/></param>
-        /// <param name="r">The r<see cref="object"/></param>
-        /// <param name="intOp">The intOp<see cref="Func{int, int, object}"/></param>
-        /// <param name="longOp">The longOp<see cref="Func{long, long, object}"/></param>
-        /// <param name="doubleOp">The doubleOp<see cref="Func{double, double, object}"/></param>
-        /// <param name="decimalOp">The decimalOp<see cref="Func{decimal, decimal, object}"/></param>
-        /// <param name="code">The code<see cref="OpCode"/></param>
-        /// <returns>The <see cref="object"/></returns>
-        private static object PerformBinaryNumericOp(
-            object l, object r,
-            Func<int, int, object> intOp,
-            Func<long, long, object> longOp,
-            Func<double, double, object> doubleOp,
-            Func<decimal, decimal, object> decimalOp,
-            OpCode code)
-        {
-            var ak = GetNumKind(l);
-            var bk = GetNumKind(r);
-            var k = PromoteKind(ak, bk);
-
-            if (k == NumKind.None)
-                throw new Exception($"Runtime error: cannot perform {code} on non-numeric types '{l?.GetType()}' and '{r?.GetType()}'");
-
-            switch (k)
-            {
-                case NumKind.Int:
-                    return intOp(Convert.ToInt32(l is bool bl ? (bl ? 1 : 0) : l),
-                                 Convert.ToInt32(r is bool br ? (br ? 1 : 0) : r));
-                case NumKind.Long:
-                    return longOp(Convert.ToInt64(l), Convert.ToInt64(r));
-                case NumKind.Double:
-                    return doubleOp(Convert.ToDouble(l), Convert.ToDouble(r));
-                case NumKind.Decimal:
-                    return decimalOp(Convert.ToDecimal(l), Convert.ToDecimal(r));
-                default:
-                    throw new Exception($"Runtime error: unsupported numeric promotion for {code}");
-            }
         }
 
         /// <summary>
@@ -2493,8 +2974,30 @@ namespace CFGS_VM.VMCore
                         return arr[index];
                     }
 
+                case FileHandle fh:
+                    {
+                        if (idxObj is string mname && FileProto.TryGetValue(mname, out var im))
+                            return new IntrinsicBound(im, fh);
+                        throw new VMException($"invalid file member '{idxObj}'", instr.Line, instr.Col, instr.OriginFile);
+                    }
+
+                case ExceptionObject exo:
+                    {
+                        string key = idxObj?.ToString() ?? "";
+                        if (ExceptionProto.TryGetValue(key, out var im))
+                            return new IntrinsicBound(im, exo);
+                        // optional: bekannte kurz-Keys direkt als Werte erlauben
+                        if (string.Equals(key, "message$", StringComparison.Ordinal)) return exo.Message;
+                        if (string.Equals(key, "type$", StringComparison.Ordinal)) return exo.Type;
+                        throw new VMException($"invalid member '{key}' on Exception", instr.Line, instr.Col, instr.OriginFile);
+                    }
+
+
                 case string strv:
                     {
+                        if (idxObj is string mname && StringProto.TryGetValue(mname, out var im))
+                            return new IntrinsicBound(im, strv);
+
                         int index = Convert.ToInt32(idxObj);
                         if (index < 0 || index >= strv.Length)
                             throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);

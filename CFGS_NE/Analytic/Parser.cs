@@ -1,4 +1,6 @@
 ﻿using CFGS_VM.VMCore.Command;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace CFGS_VM.Analytic
 {
@@ -65,12 +67,104 @@ namespace CFGS_VM.Analytic
         private Token LookAhead => _next;
 
         /// <summary>
+        /// Defines the _importedHashes
+        /// </summary>
+        private readonly HashSet<string> _importedHashes = new();
+
+        /// <summary>
+        /// Defines the _astByHash
+        /// </summary>
+        private readonly Dictionary<string, List<Stmt>> _astByHash = new();
+
+        /// <summary>
+        /// Defines the _importStack
+        /// </summary>
+        private readonly Stack<string> _importStack = new();
+
+        /// <summary>
+        /// Defines the _seenFunctions
+        /// </summary>
+        private readonly HashSet<string> _seenFunctions = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Defines the _seenClasses
+        /// </summary>
+        private readonly HashSet<string> _seenClasses = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Defines the _seenEnums
+        /// </summary>
+        private readonly HashSet<string> _seenEnums = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The ComputeSha256
+        /// </summary>
+        /// <param name="path">The path<see cref="string"/></param>
+        /// <returns>The <see cref="string"/></returns>
+        private static string ComputeSha256(string path)
+        {
+            using var sha = SHA256.Create();
+            using var fs = File.OpenRead(path);
+            var hash = sha.ComputeHash(fs);
+            var sb = new StringBuilder(hash.Length * 2);
+            foreach (var b in hash) sb.Append(b.ToString("x2"));
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The IndexTopLevelSymbols
+        /// </summary>
+        /// <param name="stmts">The stmts<see cref="IEnumerable{Stmt}"/></param>
+        private void IndexTopLevelSymbols(IEnumerable<Stmt> stmts)
+        {
+            foreach (var s in stmts)
+            {
+                switch (s)
+                {
+                    case FuncDeclStmt f: _seenFunctions.Add(f.Name); break;
+                    case ClassDeclStmt c: _seenClasses.Add(c.Name); break;
+                    case EnumDeclStmt e: _seenEnums.Add(e.Name); break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The FilterDuplicateTopLevel
+        /// </summary>
+        /// <param name="stmts">The stmts<see cref="List{Stmt}"/></param>
+        /// <returns>The <see cref="List{Stmt}"/></returns>
+        private List<Stmt> FilterDuplicateTopLevel(List<Stmt> stmts)
+        {
+            var filtered = new List<Stmt>(stmts.Count);
+            foreach (var s in stmts)
+            {
+                switch (s)
+                {
+                    case FuncDeclStmt f when _seenFunctions.Contains(f.Name):
+                        Console.Error.WriteLine($"Import Warning: Skipping duplicate function '{f.Name}' in line {f.Line}, position {f.Col}.");
+                        break;
+                    case ClassDeclStmt c when _seenClasses.Contains(c.Name):
+                        Console.Error.WriteLine($"Import Warning: Skipping duplicate class '{c.Name}' in line {c.Line}, position {c.Col}.");
+                        break;
+                    case EnumDeclStmt e when _seenEnums.Contains(e.Name):
+                        Console.Error.WriteLine($"Import Warning: Skipping duplicate enum '{e.Name}' in line {e.Line}, position {e.Col}.");
+                        break;
+                    default:
+                        filtered.Add(s);
+                        break;
+                }
+            }
+            return filtered;
+        }
+
+        /// <summary>
         /// The Parse
         /// </summary>
         /// <returns>The <see cref="List{Stmt}"/></returns>
         public List<Stmt> Parse()
         {
             var stmts = new List<Stmt>();
+
             if (_current.Type == TokenType.Import)
             {
                 while (_current.Type == TokenType.Import)
@@ -78,25 +172,32 @@ namespace CFGS_VM.Analytic
                     Eat(TokenType.Import);
                     if (_current.Type == TokenType.String)
                     {
-                        string path = _current.Value.ToString() ?? "";
+                        string path = _current.Value?.ToString() ?? "";
                         Eat(TokenType.String);
-                        stmts.AddRange(GetImports(path, _current.Line, _current.Column, _current.Filename));
+                        var imported = GetImports(path, _current.Line, _current.Column, _current.Filename);
+                        stmts.AddRange(imported);
+                        IndexTopLevelSymbols(imported);
                     }
                     else if (_current.Type == TokenType.Ident)
                     {
-                        string clsName = _current.Value.ToString() ?? "";
-
+                        string clsName = _current.Value?.ToString() ?? "";
                         Eat(TokenType.Ident);
                         Eat(TokenType.From);
                         if (_current.Type != TokenType.String)
                             throw new ParserException("expected string after 'from' in import statement", _current.Line, _current.Column, _current.Filename);
-                        string path = _current.Value.ToString() ?? "";
-                        stmts.AddRange(GetImports(path, _current.Line, _current.Column, _current.Filename, clsName));
+                        string path = _current.Value?.ToString() ?? "";
+                        var imported = GetImports(path, _current.Line, _current.Column, _current.Filename, clsName);
                         Eat(TokenType.String);
+
+                        stmts.AddRange(imported);
+                        IndexTopLevelSymbols(imported);
+                    }
+                    else
+                    {
+                        throw new ParserException("invalid import statement", _current.Line, _current.Column, _current.Filename);
                     }
 
                     Eat(TokenType.Semi);
-
                 }
             }
 
@@ -104,8 +205,12 @@ namespace CFGS_VM.Analytic
             {
                 if (_current.Type == TokenType.Import)
                     throw new ParserException("Invalid import statement. Imports are only allowed in the header of the script", _current.Line, _current.Column, _current.Filename);
-                stmts.Add(Statement());
+                var st = Statement();
+                stmts.Add(st);
             }
+
+            IndexTopLevelSymbols(stmts);
+
             return stmts;
         }
 
@@ -120,46 +225,90 @@ namespace CFGS_VM.Analytic
         /// <returns>The <see cref="List{Stmt}"/></returns>
         private List<Stmt> GetImports(string path, int ln, int col, string fsname, string specClass = "")
         {
+            var result = new List<Stmt>();
+            if (!File.Exists(path)) return result;
 
-            List<Stmt> imports = new List<Stmt>();
-            if (File.Exists(path))
+            string fullPath = Path.GetFullPath(path);
+
+            if (_importStack.Contains(fullPath))
             {
-                try
-                {
-
-                    StreamReader lreader = new StreamReader(path, true);
-                    string nsrc = lreader.ReadToEnd();
-                    lreader.Close();
-                    var lex = new Lexer(path, nsrc);
-                    var prs = new Parser(lex);
-                    imports = prs.Parse();
-                    if (specClass.Trim() != "")
-                    {
-                        Stmt? clsImport = null;
-
-                        foreach (var stmt in imports)
-                        {
-
-                            if (stmt is ClassDeclStmt cls && cls.Name == specClass)
-                            {
-                                clsImport = cls;
-                                break;
-                            }
-                        }
-                        if (clsImport is null)
-                            throw new ParserException($"Could not find class '{specClass}' in import file '{path}'", ln, col, fsname);
-
-                        imports.Clear();
-                        imports.Add(clsImport);
-                    }
-                }
-                catch (Exception pex)
-                {
-
-                    throw new ParserException(pex.Message, _current.Line, _current.Column, _current.Filename);
-                }
+                var chain = string.Join(" -> ", _importStack.Reverse().Append(fullPath));
+                throw new ParserException($"Import cycle detected: {chain}", ln, col, fsname);
             }
-            return imports;
+
+            string h;
+            try
+            {
+                h = ComputeSha256(fullPath);
+            }
+            catch (Exception ex)
+            {
+                throw new ParserException($"failed to hash '{fullPath}': {ex.Message}", ln, col, fsname);
+            }
+
+            if (_astByHash.TryGetValue(h, out var cachedAst))
+            {
+                if (!string.IsNullOrWhiteSpace(specClass))
+                {
+                    var cls = cachedAst.FirstOrDefault(s => s is ClassDeclStmt c && c.Name == specClass);
+                    if (cls is null)
+                        throw new ParserException($"Could not find class '{specClass}' in import file '{path}'", ln, col, fsname);
+
+                    result.Add(cls);
+                }
+                else
+                {
+                    result.AddRange(cachedAst);
+                }
+
+                result = FilterDuplicateTopLevel(result);
+                IndexTopLevelSymbols(result);
+                return result;
+            }
+
+            _importStack.Push(fullPath);
+            try
+            {
+                using var sr = new StreamReader(fullPath, detectEncodingFromByteOrderMarks: true);
+                string nsrc = sr.ReadToEnd();
+
+                var lex = new Lexer(fullPath, nsrc);
+                var prs = new Parser(lex);
+
+                var importedAst = prs.Parse();
+
+                _astByHash[h] = importedAst;
+                _importedHashes.Add(h);
+
+                if (!string.IsNullOrWhiteSpace(specClass))
+                {
+                    var cls = importedAst.FirstOrDefault(s => s is ClassDeclStmt c && c.Name == specClass);
+                    if (cls is null)
+                        throw new ParserException($"Could not find class '{specClass}' in import file '{path}'", ln, col, fsname);
+                    result.Add(cls);
+                }
+                else
+                {
+                    result.AddRange(importedAst);
+                }
+
+                result = FilterDuplicateTopLevel(result);
+                IndexTopLevelSymbols(result);
+
+                return result;
+            }
+            catch (ParserException)
+            {
+                throw;
+            }
+            catch (Exception pex)
+            {
+                throw new ParserException(pex.Message, _current.Line, _current.Column, _current.Filename);
+            }
+            finally
+            {
+                _importStack.Pop();
+            }
         }
 
         /// <summary>
