@@ -135,14 +135,17 @@ public class Program
 
         var vm = new VM();
         vm.LoadFunctions(compiler._functions);
-        vm.Run(bytecode, debug);
-        if(debug)
+        vm.LoadInstructions(bytecode);
+        vm.Run(debug);
+        if (debug)
         {
             vm.DebugStream.Position = 0;
             using var file = File.Create("log_file.log");
             vm.DebugStream.CopyTo(file);
         }
     }
+
+
 
     /// <summary>
     /// The ReadMultilineInput
