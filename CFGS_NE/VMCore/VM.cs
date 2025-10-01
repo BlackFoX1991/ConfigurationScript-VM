@@ -12,6 +12,32 @@ namespace CFGS_VM.VMCore
     public class VM
     {
         /// <summary>
+        /// Defines the _program
+        /// </summary>
+        private List<Instruction>? _program;
+
+        /// <summary>
+        /// Defines the StepResult
+        /// </summary>
+        private enum StepResult
+        {
+            /// <summary>
+            /// Defines the Next
+            /// </summary>
+            Next,
+
+            /// <summary>
+            /// Defines the Continue
+            /// </summary>
+            Continue,
+
+            /// <summary>
+            /// Defines the Halt
+            /// </summary>
+            Halt
+        }
+
+        /// <summary>
         /// The IntrinsicInvoker
         /// </summary>
         /// <param name="receiver">The receiver<see cref="object"/></param>
@@ -1282,1430 +1308,1601 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The Run
+        /// The HandleInstruction
         /// </summary>
+        /// <param name="_ip">The _ip<see cref="int"/></param>
         /// <param name="_insns">The _insns<see cref="List{Instruction}"/></param>
-        /// <param name="debugging">The debugging<see cref="bool"/></param>
-        public void Run(List<Instruction> _insns, bool debugging = false)
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="StepResult"/></returns>
+        private StepResult HandleInstruction(ref int _ip, List<Instruction> _insns, Instruction instr)
         {
-            if (_insns is null || _insns.Count == 0) return;
-            bool routed = false;
-            DebugStream = new MemoryStream();
-            int _ip = 0;
-            while (_ip < _insns.Count)
+            switch (instr.Code)
             {
-                try
-                {
+                case OpCode.PUSH_INT:
+                    if (instr.Operand is null) _stack.Push(0);
+                    else _stack.Push((int)instr.Operand);
+                    break;
 
-                    if (debugging)
+                case OpCode.PUSH_LNG:
+                    if (instr.Operand is null) _stack.Push((long)0);
+                    else _stack.Push((long)instr.Operand);
+                    break;
+
+                case OpCode.PUSH_FLT:
+                    if (instr.Operand is null) _stack.Push((float)0);
+                    else _stack.Push((float)instr.Operand);
+                    break;
+
+                case OpCode.PUSH_DBL:
+                    if (instr.Operand is null) _stack.Push(0.0);
+                    else _stack.Push((double)instr.Operand);
+                    break;
+
+                case OpCode.PUSH_DEC:
+                    if (instr.Operand is null) _stack.Push((decimal)0);
+                    else _stack.Push((decimal)instr.Operand);
+                    break;
+
+                case OpCode.PUSH_STR:
+                    if (instr.Operand is null) _stack.Push("");
+                    else _stack.Push((string)instr.Operand);
+                    break;
+
+                case OpCode.PUSH_CHR:
+                    if (instr.Operand is null) _stack.Push((char)0);
+                    else _stack.Push((char)instr.Operand);
+                    break;
+
+                case OpCode.PUSH_BOOL:
+                    if (instr.Operand is null) _stack.Push(false);
+                    else _stack.Push((bool)instr.Operand);
+                    break;
+
+                case OpCode.PUSH_NULL:
+                    _stack.Push(null);
+                    break;
+
+                case OpCode.PUSH_SCOPE:
                     {
-
-                        DebugStream.Write(System.Text.Encoding.Default.GetBytes($"[DEBUG] {_insns[_ip].Line} ->  IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
-                        DebugStream.Write(System.Text.Encoding.Default.GetBytes($"[DEBUG] {_insns[_ip]} (Line {_insns[_ip].Line}, Col {_insns[_ip].Col})\n"));
+                        _scopes.Add(new Env(_scopes[^1]));
+                        if (_callStack.Count > 0)
+                        {
+                            var fr = _callStack.Pop();
+                            _callStack.Push(new CallFrame(fr.ReturnIp, fr.ScopesAdded + 1, fr.ThisRef));
+                        }
+                        break;
                     }
-                    var instr = _insns[_ip++];
 
-                    switch (instr.Code)
+                case OpCode.POP_SCOPE:
                     {
-                        case OpCode.PUSH_INT:
-                            if (instr.Operand is null)
-                                _stack.Push(0);
-                            else
-                                _stack.Push((int)instr.Operand);
-                            break;
-                        case OpCode.PUSH_LNG:
-                            if (instr.Operand is null)
-                                _stack.Push((long)0);
-                            else
-                                _stack.Push((long)instr.Operand);
-                            break;
-                        case OpCode.PUSH_FLT:
-                            if (instr.Operand is null)
-                                _stack.Push((float)0);
-                            else
-                                _stack.Push((float)instr.Operand);
-                            break;
-                        case OpCode.PUSH_DBL:
-                            if (instr.Operand is null)
-                                _stack.Push(0.0);
-                            else
-                                _stack.Push((double)instr.Operand);
-                            break;
-                        case OpCode.PUSH_DEC:
-                            if (instr.Operand is null)
-                                _stack.Push((decimal)0);
-                            else
-                                _stack.Push((decimal)instr.Operand);
-                            break;
-                        case OpCode.PUSH_STR:
-                            if (instr.Operand is null)
-                                _stack.Push("");
-                            else
-                                _stack.Push((string)instr.Operand);
-                            break;
-                        case OpCode.PUSH_CHR:
-                            if (instr.Operand is null)
-                                _stack.Push((char)0);
-                            else
-                                _stack.Push((char)instr.Operand);
-                            break;
-                        case OpCode.PUSH_BOOL:
-                            if (instr.Operand is null)
-                                _stack.Push(false);
-                            else
-                                _stack.Push((bool)instr.Operand);
-                            break;
-                        case OpCode.PUSH_NULL:
-                            _stack.Push(null);
-                            break;
+                        if (_scopes.Count <= 1)
+                            throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile);
 
-                        case OpCode.PUSH_SCOPE:
-                            {
-                                _scopes.Add(new Env(_scopes[^1]));
-                                if (_callStack.Count > 0)
+                        _scopes.RemoveAt(_scopes.Count - 1);
+
+                        if (_callStack.Count > 0)
+                        {
+                            var fr = _callStack.Pop();
+                            var newCount = Math.Max(0, fr.ScopesAdded - 1);
+                            _callStack.Push(new CallFrame(fr.ReturnIp, newCount, fr.ThisRef));
+                        }
+                        break;
+                    }
+
+                case OpCode.NEW_OBJECT:
+                    {
+                        string className = instr.Operand?.ToString() ?? "<anon>";
+                        var obj = new ClassInstance(className);
+                        _stack.Push(obj);
+                        break;
+                    }
+
+                case OpCode.NEW_ARRAY:
+                    {
+                        if (instr.Operand is null) break;
+                        int count = (int)instr.Operand;
+                        var temp = new object[count];
+                        for (int i = count - 1; i >= 0; i--) temp[i] = _stack.Pop();
+                        var list = new List<object>(temp);
+                        _stack.Push(list);
+                        break;
+                    }
+
+                case OpCode.SLICE_GET:
+                    {
+                        object endObj = _stack.Pop();
+                        object startObj = _stack.Pop();
+
+                        object target;
+                        if (instr.Operand is string name)
+                        {
+                            var owner = FindEnvWithLocal(name)
+                                ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                            target = owner.Vars[name];
+                        }
+                        else
+                        {
+                            target = _stack.Pop();
+                        }
+
+                        static void Normalize(int len, object startRaw, object endRaw, out int start, out int end)
+                        {
+                            start = startRaw == null ? 0 : Convert.ToInt32(startRaw);
+                            end = endRaw == null ? len : Convert.ToInt32(endRaw);
+
+                            if (start < 0) start += len;
+                            if (end < 0) end += len;
+
+                            start = Math.Clamp(start, 0, len);
+                            end = Math.Clamp(end, 0, len);
+
+                            if (end < start) end = start;
+                        }
+
+                        switch (target)
+                        {
+                            case List<object> arr:
                                 {
-                                    var fr = _callStack.Pop();
-                                    _callStack.Push(new CallFrame(fr.ReturnIp, fr.ScopesAdded + 1, fr.ThisRef));
-                                }
-                                break;
-                            }
-
-                        case OpCode.POP_SCOPE:
-                            {
-                                if (_scopes.Count <= 1)
-                                    throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile);
-
-                                _scopes.RemoveAt(_scopes.Count - 1);
-
-                                if (_callStack.Count > 0)
-                                {
-                                    var fr = _callStack.Pop();
-                                    var newCount = Math.Max(0, fr.ScopesAdded - 1);
-                                    _callStack.Push(new CallFrame(fr.ReturnIp, newCount, fr.ThisRef));
-                                }
-                                break;
-                            }
-
-                        case OpCode.NEW_OBJECT:
-                            {
-                                string className = instr.Operand?.ToString() ?? "<anon>";
-                                var obj = new ClassInstance(className);
-                                _stack.Push(obj);
-                                break;
-                            }
-
-                        case OpCode.NEW_ARRAY:
-                            {
-                                if (instr.Operand is null) break;
-                                int count = (int)instr.Operand;
-                                var temp = new object[count];
-                                for (int i = count - 1; i >= 0; i--) temp[i] = _stack.Pop();
-                                var list = new List<object>(temp);
-                                _stack.Push(list);
-                                break;
-                            }
-
-                        case OpCode.SLICE_GET:
-                            {
-                                object endObj = _stack.Pop();
-                                object startObj = _stack.Pop();
-
-                                object target;
-                                if (instr.Operand is string name)
-                                {
-                                    var owner = FindEnvWithLocal(name)
-                                        ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
-                                    target = owner.Vars[name];
-                                }
-                                else
-                                {
-                                    target = _stack.Pop();
-                                }
-
-                                static void Normalize(int len, object startRaw, object endRaw, out int start, out int end)
-                                {
-                                    start = startRaw == null ? 0 : Convert.ToInt32(startRaw);
-                                    end = endRaw == null ? len : Convert.ToInt32(endRaw);
-
-                                    if (start < 0) start += len;
-                                    if (end < 0) end += len;
-
-                                    start = Math.Clamp(start, 0, len);
-                                    end = Math.Clamp(end, 0, len);
-
-                                    if (end < start) end = start;
-                                }
-
-                                switch (target)
-                                {
-                                    case List<object> arr:
-                                        {
-                                            Normalize(arr.Count, startObj, endObj, out int start, out int end);
-                                            _stack.Push(arr.GetRange(start, end - start));
-                                            break;
-                                        }
-
-                                    case Dictionary<string, object> dict:
-                                        {
-                                            var keys = dict.Keys.ToList();
-                                            Normalize(keys.Count, startObj, endObj, out int start, out int end);
-
-                                            var slice = new Dictionary<string, object>();
-                                            for (int i = start; i < end; i++)
-                                                slice[keys[i]] = dict[keys[i]];
-
-                                            _stack.Push(slice);
-                                            break;
-                                        }
-
-                                    case string s:
-                                        {
-                                            Normalize(s.Length, startObj, endObj, out int start, out int end);
-                                            _stack.Push(s.Substring(start, end - start));
-                                            break;
-                                        }
-
-                                    default:
-                                        throw new VMException($"Runtime error: SLICE_GET target must be array, dictionary, or string",
-                                            instr.Line, instr.Col, instr.OriginFile);
-                                }
-                                break;
-                            }
-
-                        case OpCode.SLICE_SET:
-                            {
-                                object value = _stack.Pop();
-                                object endObj = _stack.Pop();
-                                object startObj = _stack.Pop();
-
-                                object target;
-
-                                if (instr.Operand is string name)
-                                {
-                                    var env = FindEnvWithLocal(name)
-                                        ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
-                                    target = env.Vars[name];
-
-                                    DoSliceSet(ref target, startObj, endObj, value, instr);
-                                    env.Vars[name] = target;
-                                }
-                                else
-                                {
-                                    target = _stack.Pop();
-
-                                    DoSliceSet(ref target, startObj, endObj, value, instr);
-                                }
-                                break;
-                            }
-
-                            void DoSliceSet(ref object target, object startObj, object endObj, object value, Instruction instr)
-                            {
-
-                                if (target is string)
-                                    throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
-                                static void Normalize(int len, object startRaw, object endRaw, out int start, out int end)
-                                {
-                                    start = startRaw == null ? 0 : Convert.ToInt32(startRaw);
-                                    end = endRaw == null ? len : Convert.ToInt32(endRaw);
-
-                                    if (start < 0) start += len;
-                                    if (end < 0) end += len;
-
-                                    start = Math.Clamp(start, 0, len);
-                                    end = Math.Clamp(end, 0, len);
-                                    if (end < start) end = start;
-                                }
-
-                                switch (target)
-                                {
-                                    case List<object> arr:
-                                        {
-                                            Normalize(arr.Count, startObj, endObj, out int start, out int end);
-
-                                            if (value is List<object> lst)
-                                            {
-                                                int count = Math.Min(end - start, lst.Count);
-                                                for (int i = 0; i < count; i++)
-                                                    arr[start + i] = lst[i];
-
-                                            }
-                                            else
-                                            {
-                                                throw new VMException($"Runtime error: trying to assign non-list to array slice",
-                                                    instr.Line, instr.Col, instr.OriginFile);
-                                            }
-                                            break;
-                                        }
-
-                                    case Dictionary<string, object> dict:
-                                        {
-                                            var keys = dict.Keys.ToList();
-                                            Normalize(keys.Count, startObj, endObj, out int start, out int end);
-
-                                            if (value is Dictionary<string, object> valDict)
-                                            {
-                                                int i = 0;
-                                                for (int k = start; k < end && i < valDict.Count; k++, i++)
-                                                {
-                                                    var kv = valDict.ElementAt(i);
-                                                    dict[keys[k]] = kv.Value;
-                                                }
-                                            }
-                                            else
-                                            {
-                                                throw new VMException($"Runtime error: trying to assign non-dictionary to dictionary slice",
-                                                    instr.Line, instr.Col, instr.OriginFile);
-                                            }
-                                            break;
-                                        }
-
-                                    case string s:
-                                        {
-                                            Normalize(s.Length, startObj, endObj, out int start, out int end);
-
-                                            var sb = new StringBuilder(s);
-                                            var replacement = (value?.ToString()) ?? "";
-
-                                            int count = Math.Min(end - start, replacement.Length);
-                                            for (int i = 0; i < count; i++)
-                                                sb[start + i] = replacement[i];
-
-                                            target = sb.ToString();
-                                            break;
-                                        }
-
-                                    default:
-                                        throw new VMException($"Runtime error: SLICE_SET target must be array, dictionary, or string",
-                                            instr.Line, instr.Col, instr.OriginFile);
-                                }
-                            }
-
-                        case OpCode.INDEX_GET:
-                            {
-                                object target;
-                                object idxObj = _stack.Pop();
-
-                                if (instr.Operand is string nameFromEnv)
-                                {
-                                    var owner = FindEnvWithLocal(nameFromEnv)
-                                        ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile);
-                                    target = owner.Vars[nameFromEnv];
-                                }
-                                else
-                                {
-                                    target = _stack.Pop();
-                                }
-
-                                _stack.Push(GetIndexedValue(target, idxObj, instr));
-                                break;
-                            }
-
-                        case OpCode.INDEX_SET:
-                            {
-                                object value = _stack.Pop();
-                                object idxObj = _stack.Pop();
-                                object target;
-
-                                if (instr.Operand is string nameFromEnv)
-                                {
-                                    var env = FindEnvWithLocal(nameFromEnv)
-                                        ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile);
-
-                                    target = env.Vars[nameFromEnv];
-                                    SetIndexedValue(ref target, idxObj, value, instr);
-                                    env.Vars[nameFromEnv] = target;
-                                }
-                                else
-                                {
-                                    target = _stack.Pop();
-                                    SetIndexedValue(ref target, idxObj, value, instr);
-                                }
-
-                                break;
-                            }
-
-                        case OpCode.NEW_DICT:
-                            {
-                                if (instr.Operand is null) break;
-                                int count = (int)instr.Operand;
-                                var dict = new Dictionary<string, object>();
-                                for (int i = 0; i < count; i++)
-                                {
-                                    var value = _stack.Pop();
-                                    var key = _stack.Pop();
-                                    dict[key?.ToString() ?? "null"] = value;
-                                }
-                                _stack.Push(dict);
-                                break;
-                            }
-
-                        case OpCode.ROT:
-                            {
-                                var a = _stack.Pop();
-                                var b = _stack.Pop();
-                                var c = _stack.Pop();
-                                _stack.Push(b);
-                                _stack.Push(a);
-                                _stack.Push(c);
-                                break;
-                            }
-
-                        case OpCode.ARRAY_PUSH:
-                            {
-                                if (instr.Operand == null)
-                                {
-                                    var arrObj = _stack.Pop();
-                                    var value = _stack.Pop();
-
-                                    if (arrObj is List<object> arr)
-                                    {
-                                        arr.Add(value);
-                                    }
-                                    else if (arrObj is Dictionary<string, object> dict)
-                                    {
-                                        if (value is Dictionary<string, object> literal && literal.Count == 1)
-                                        {
-                                            foreach (var kv in literal)
-                                            {
-                                                dict[kv.Key] = kv.Value;
-                                            }
-                                        }
-                                        else
-                                        {
-                                            int k = 0;
-                                            while (dict.ContainsKey(k.ToString(CultureInfo.InvariantCulture)))
-                                            {
-                                                k++;
-                                            }
-                                            dict[k.ToString(CultureInfo.InvariantCulture)] = value;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        throw new VMException($"Runtime error: ARRAY_PUSH target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
-                                    }
-                                }
-                                else
-                                {
-                                    var value = _stack.Pop();
-                                    string name = (string)instr.Operand;
-                                    var env = FindEnvWithLocal(name);
-                                    if (env == null || !env.Vars.TryGetValue(name, out object? obj))
-                                        throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
-                                    if (obj is List<object> arr)
-                                    {
-                                        arr.Add(value);
-                                    }
-                                    else if (obj is Dictionary<string, object> dict)
-                                    {
-                                        if (value is Dictionary<string, object> literal && literal.Count == 1)
-                                        {
-                                            foreach (var kv in literal)
-                                            {
-                                                dict[kv.Key] = kv.Value;
-                                            }
-                                        }
-                                        else
-                                        {
-                                            int k = 0;
-                                            while (dict.ContainsKey(k.ToString(CultureInfo.InvariantCulture)))
-                                            {
-                                                k++;
-                                            }
-                                            dict[k.ToString(CultureInfo.InvariantCulture)] = value;
-                                        }
-                                    }
-                                    else
-                                    {
-                                        throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
-                                    }
-                                }
-                                break;
-                            }
-                        case OpCode.ARRAY_DELETE_SLICE:
-                            {
-                                var endObj = _stack.Pop();
-                                var startObj = _stack.Pop();
-
-                                object target;
-                                if (instr.Operand is string name)
-                                {
-                                    var env = FindEnvWithLocal(name)
-                                        ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
-                                    target = env.Vars[name];
-
-                                    DeleteSliceOnTarget(ref target, startObj, endObj, instr);
-
-                                    env.Vars[name] = target;
-                                }
-                                else
-                                {
-                                    target = _stack.Pop();
-                                    DeleteSliceOnTarget(ref target, startObj, endObj, instr);
-                                }
-                                break;
-                            }
-
-                        case OpCode.ARRAY_DELETE_SLICE_ALL:
-                            {
-                                var endObj = _stack.Pop();
-                                var startObj = _stack.Pop();
-                                var target = _stack.Pop();
-
-                                if (target is string)
-                                    throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
-
-                                if (target is List<object> arr)
-                                {
-                                    (int start, int endEx) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
-                                    int count = endEx - start;
-                                    if (count > 0) arr.RemoveRange(start, count);
-                                }
-                                else if (target is Dictionary<string, object> dict)
-                                {
-                                    var keys = dict.Keys.ToList();
-                                    (int start, int endEx) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
-                                    for (int i = start; i < endEx; i++)
-                                        dict.Remove(keys[i]);
-                                }
-                                else
-                                {
-                                    throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
-                                }
-                                break;
-                            }
-
-                        case OpCode.ARRAY_DELETE_ELEM:
-                            {
-                                var idxObj = _stack.Pop();
-
-                                if (instr.Operand != null)
-                                {
-                                    string name = (string)instr.Operand;
-                                    var owner = FindEnvWithLocal(name);
-                                    if (owner == null)
-                                        throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile);
-
-                                    var target = owner.Vars[name];
-
-                                    if (target is string)
-                                        throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
-
-                                    if (target is List<object> arr)
-                                    {
-                                        int index = Convert.ToInt32(idxObj);
-                                        if (index >= 0 && index < arr.Count)
-                                            arr.RemoveAt(index);
-                                        else
-                                            throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
-                                    }
-                                    else if (target is Dictionary<string, object> dict)
-                                    {
-                                        string key = Convert.ToString(idxObj, CultureInfo.InvariantCulture) ?? "";
-                                        if (!dict.Remove(key))
-                                            throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile);
-                                    }
-                                    else
-                                    {
-                                        throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
-                                    }
-                                }
-                                else
-                                {
-                                    var target = _stack.Pop();
-
-                                    if (target is string)
-                                        throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
-
-                                    if (target is List<object> arr)
-                                    {
-                                        int index = Convert.ToInt32(idxObj);
-                                        if (index >= 0 && index < arr.Count)
-                                            arr.RemoveAt(index);
-                                        else
-                                            throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
-                                    }
-                                    else if (target is Dictionary<string, object> dict)
-                                    {
-                                        string key = Convert.ToString(idxObj, CultureInfo.InvariantCulture) ?? "";
-                                        if (!dict.Remove(key))
-                                            throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile);
-                                    }
-                                    else
-                                    {
-                                        throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
-                                    }
-                                }
-                                break;
-                            }
-
-                        case OpCode.ARRAY_DELETE_ALL:
-                            {
-                                if (instr.Operand is null) break;
-                                string name = (string)instr.Operand;
-                                var env = FindEnvWithLocal(name);
-                                if (env == null || !env.Vars.TryGetValue(name, out object? target))
-                                    throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile);
-                                if (target is List<object>)
-                                {
-                                    env.Vars[name] = new List<object>();
-                                }
-                                else if (target is Dictionary<string, object>)
-                                {
-                                    env.Vars[name] = new Dictionary<string, object>();
-                                }
-                                else
-                                {
-                                    throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
-                                }
-                                break;
-                            }
-
-                        case OpCode.ARRAY_DELETE_ELEM_ALL:
-                            {
-                                var idxObj = _stack.Pop();
-                                var target = _stack.Pop();
-                                if (target is string)
-                                    throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
-
-                                if (target is List<object> arr)
-                                {
-                                    int index = Convert.ToInt32(idxObj);
-                                    if (index < 0 || index >= arr.Count)
-                                        throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
-
-                                    arr.RemoveAt(index);
-                                }
-                                else if (target is Dictionary<string, object> dict)
-                                {
-                                    string key = idxObj?.ToString() ?? throw new VMException(
-                                        $"Runtime error: dictionary key cannot be null", instr.Line, instr.Col, instr.OriginFile);
-
-                                    if (!dict.Remove(key))
-                                        throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile);
-                                }
-                                else
-                                {
-                                    throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
-                                }
-                                break;
-                            }
-
-                        case OpCode.LOAD_VAR:
-                            {
-
-                                if (instr.Operand is null) break;
-                                string name = (string)instr.Operand;
-                                if (name == "this")
-                                {
-                                    var th = CurrentThis;
-                                    if (th == null) throw new VMException("Runtime error: 'this' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
-                                    _stack.Push(th);
+                                    Normalize(arr.Count, startObj, endObj, out int start, out int end);
+                                    _stack.Push(arr.GetRange(start, end - start));
                                     break;
                                 }
 
-                                var owner = FindEnvWithLocal(name);
-                                if (owner == null || !owner.Vars.TryGetValue(name, out var val))
-                                    throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
-
-                                _stack.Push(val);
-                                break;
-                            }
-
-                        case OpCode.VAR_DECL:
-                            {
-                                if (instr.Operand is null) break;
-                                string name = (string)instr.Operand;
-                                if (name == "this") throw new VMException("Runtime error: cannot declare 'this' as a variable", instr.Line, instr.Col, instr.OriginFile);
-                                var value = _stack.Pop();
-                                var scope = _scopes[^1];
-                                if (scope.HasLocal(name)) throw new VMException($"Runtime error: variable '{name}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile);
-                                scope.Define(name, value);
-                                break;
-                            }
-
-                        case OpCode.STORE_VAR:
-                            {
-                                if (instr.Operand is null) break;
-                                string name = (string)instr.Operand;
-
-                                if (name == "this") throw new VMException("Runtime error: cannot assign to 'this'", instr.Line, instr.Col, instr.OriginFile);
-                                var value = _stack.Pop();
-                                var env = FindEnvWithLocal(name);
-                                if (env == null) throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
-                                env.Vars[name] = value;
-                                break;
-                            }
-
-                        case OpCode.ADD:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-
-                                if (IsNumber(l) && IsNumber(r))
+                            case Dictionary<string, object> dict:
                                 {
-                                    var (A, B, K) = CoercePair(l, r);
-                                    object res = K switch
+                                    var keys = dict.Keys.ToList();
+                                    Normalize(keys.Count, startObj, endObj, out int start, out int end);
+
+                                    var slice = new Dictionary<string, object>();
+                                    for (int i = start; i < end; i++)
+                                        slice[keys[i]] = dict[keys[i]];
+
+                                    _stack.Push(slice);
+                                    break;
+                                }
+
+                            case string s:
+                                {
+                                    Normalize(s.Length, startObj, endObj, out int start, out int end);
+                                    _stack.Push(s.Substring(start, end - start));
+                                    break;
+                                }
+
+                            default:
+                                throw new VMException($"Runtime error: SLICE_GET target must be array, dictionary, or string",
+                                    instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        break;
+                    }
+
+                case OpCode.SLICE_SET:
+                    {
+                        object value = _stack.Pop();
+                        object endObj = _stack.Pop();
+                        object startObj = _stack.Pop();
+
+                        object target;
+
+                        if (instr.Operand is string name)
+                        {
+                            var env = FindEnvWithLocal(name)
+                                ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                            target = env.Vars[name];
+
+                            DoSliceSet(ref target, startObj, endObj, value, instr);
+                            env.Vars[name] = target;
+                        }
+                        else
+                        {
+                            target = _stack.Pop();
+                            DoSliceSet(ref target, startObj, endObj, value, instr);
+                        }
+                        break;
+
+                        static void DoSliceSet(ref object target, object startObj, object endObj, object value, Instruction instr)
+                        {
+                            if (target is string)
+                                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+                            static void Normalize(int len, object startRaw, object endRaw, out int start, out int end)
+                            {
+                                start = startRaw == null ? 0 : Convert.ToInt32(startRaw);
+                                end = endRaw == null ? len : Convert.ToInt32(endRaw);
+
+                                if (start < 0) start += len;
+                                if (end < 0) end += len;
+
+                                start = Math.Clamp(start, 0, len);
+                                end = Math.Clamp(end, 0, len);
+                                if (end < start) end = start;
+                            }
+
+                            switch (target)
+                            {
+                                case List<object> arr:
                                     {
-                                        NumKind.Decimal => (object)((decimal)A + (decimal)B),
-                                        NumKind.Double => (double)A + (double)B,
-                                        NumKind.UInt64 => (ulong)A + (ulong)B,
-                                        NumKind.Int64 => (long)A + (long)B,
-                                        _ => (int)A + (int)B,
-                                    };
-                                    _stack.Push(res);
-                                }
-                                else if (l is List<object> || r is List<object> ||
-                                         l is Dictionary<string, object> || r is Dictionary<string, object>)
-                                {
-                                    string ls, rs;
-                                    using (var lw = new StringWriter()) { PrintValue(l, lw); ls = lw.ToString(); }
-                                    using (var rw = new StringWriter()) { PrintValue(r, rw); rs = rw.ToString(); }
-                                    _stack.Push(ls + rs);
-                                }
-                                else
-                                {
-                                    _stack.Push((l?.ToString() ?? "null") + (r?.ToString() ?? "null"));
-                                }
-                                break;
-                            }
+                                        Normalize(arr.Count, startObj, endObj, out int start, out int end);
 
-                        case OpCode.SUB:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                if (!IsNumber(l) || !IsNumber(r))
-                                    throw new VMException("SUB on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
+                                        if (value is List<object> lst)
+                                        {
+                                            int count = Math.Min(end - start, lst.Count);
+                                            for (int i = 0; i < count; i++)
+                                                arr[start + i] = lst[i];
 
-                                var (A, B, K) = CoercePair(l, r);
-                                object res = K switch
-                                {
-                                    NumKind.Decimal => (object)((decimal)A - (decimal)B),
-                                    NumKind.Double => (double)A - (double)B,
-                                    NumKind.UInt64 => (ulong)A - (ulong)B,
-                                    NumKind.Int64 => (long)A - (long)B,
-                                    _ => (int)A - (int)B,
-                                };
-                                _stack.Push(res);
-                                break;
-                            }
+                                        }
+                                        else
+                                        {
+                                            throw new VMException($"Runtime error: trying to assign non-list to array slice",
+                                                instr.Line, instr.Col, instr.OriginFile);
+                                        }
+                                        break;
+                                    }
 
-                        case OpCode.MUL:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-
-                                if (IsNumber(l) && IsNumber(r))
-                                {
-                                    var (A, B, K) = CoercePair(l, r);
-                                    object res = K switch
+                                case Dictionary<string, object> dict:
                                     {
-                                        NumKind.Decimal => (object)((decimal)A * (decimal)B),
-                                        NumKind.Double => (double)A * (double)B,
-                                        NumKind.UInt64 => (ulong)A * (ulong)B,
-                                        NumKind.Int64 => (long)A * (long)B,
-                                        _ => (int)A * (int)B,
-                                    };
-                                    _stack.Push(res);
-                                }
-                                else if (l is string && IsNumber(r))
-                                {
-                                    _stack.Push(string.Concat(Enumerable.Repeat(l?.ToString() ?? "", Convert.ToInt32(r))));
-                                }
-                                else if (r is string && IsNumber(l))
-                                {
-                                    _stack.Push(string.Concat(Enumerable.Repeat(r?.ToString() ?? "", Convert.ToInt32(l))));
-                                }
-                                else
-                                {
-                                    throw new VMException("MUL on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
-                                }
-                                break;
-                            }
+                                        var keys = dict.Keys.ToList();
+                                        Normalize(keys.Count, startObj, endObj, out int start, out int end);
 
-                        case OpCode.MOD:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                if (!IsNumber(l) || !IsNumber(r))
-                                    throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
+                                        if (value is Dictionary<string, object> valDict)
+                                        {
+                                            int i = 0;
+                                            for (int k = start; k < end && i < valDict.Count; k++, i++)
+                                            {
+                                                var kv = valDict.ElementAt(i);
+                                                dict[keys[k]] = kv.Value;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            throw new VMException($"Runtime error: trying to assign non-dictionary to dictionary slice",
+                                                instr.Line, instr.Col, instr.OriginFile);
+                                        }
+                                        break;
+                                    }
 
-                                var (A, B, K) = CoercePair(l, r);
-                                if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
-                                 || K == NumKind.Int64 && Convert.ToInt64(r) == 0
-                                 || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
-                                 || K == NumKind.Decimal && Convert.ToDecimal(r) == 0m)
-                                    throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile);
+                                case string s:
+                                    {
+                                        Normalize(s.Length, startObj, endObj, out int start, out int end);
 
-                                object res = K switch
-                                {
-                                    NumKind.Decimal => (object)((decimal)A % (decimal)B),
-                                    NumKind.Double => (double)A % (double)B,
-                                    NumKind.UInt64 => (ulong)A % (ulong)B,
-                                    NumKind.Int64 => (long)A % (long)B,
-                                    _ => (int)A % (int)B,
-                                };
-                                _stack.Push(res);
-                                break;
-                            }
+                                        var sb = new StringBuilder(s);
+                                        var replacement = (value?.ToString()) ?? "";
 
-                        case OpCode.DIV:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                if (!IsNumber(l) || !IsNumber(r))
-                                    throw new VMException($"Runtime error: cannot DIV {l?.GetType()} and {r?.GetType()}",
+                                        int count = Math.Min(end - start, replacement.Length);
+                                        for (int i = 0; i < count; i++)
+                                            sb[start + i] = replacement[i];
+
+                                        target = sb.ToString();
+                                        break;
+                                    }
+
+                                default:
+                                    throw new VMException($"Runtime error: SLICE_SET target must be array, dictionary, or string",
                                         instr.Line, instr.Col, instr.OriginFile);
+                            }
+                        }
+                    }
 
-                                var (A, B, K) = CoercePair(l, r);
-                                if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
-                                 || K == NumKind.Int64 && Convert.ToInt64(r) == 0
-                                 || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
-                                 || K == NumKind.Decimal && Convert.ToDecimal(r) == 0m)
-                                    throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile);
+                case OpCode.INDEX_GET:
+                    {
+                        object target;
+                        object idxObj = _stack.Pop();
 
-                                object res = K switch
+                        if (instr.Operand is string nameFromEnv)
+                        {
+                            var owner = FindEnvWithLocal(nameFromEnv)
+                                ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile);
+                            target = owner.Vars[nameFromEnv];
+                        }
+                        else
+                        {
+                            target = _stack.Pop();
+                        }
+
+                        _stack.Push(GetIndexedValue(target, idxObj, instr));
+                        break;
+                    }
+
+                case OpCode.INDEX_SET:
+                    {
+                        object value = _stack.Pop();
+                        object idxObj = _stack.Pop();
+                        object target;
+
+                        if (instr.Operand is string nameFromEnv)
+                        {
+                            var env = FindEnvWithLocal(nameFromEnv)
+                                ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile);
+
+                            target = env.Vars[nameFromEnv];
+                            SetIndexedValue(ref target, idxObj, value, instr);
+                            env.Vars[nameFromEnv] = target;
+                        }
+                        else
+                        {
+                            target = _stack.Pop();
+                            SetIndexedValue(ref target, idxObj, value, instr);
+                        }
+
+                        break;
+                    }
+
+                case OpCode.NEW_DICT:
+                    {
+                        if (instr.Operand is null) break;
+                        int count = (int)instr.Operand;
+                        var dict = new Dictionary<string, object>();
+                        for (int i = 0; i < count; i++)
+                        {
+                            var value = _stack.Pop();
+                            var key = _stack.Pop();
+                            dict[key?.ToString() ?? "null"] = value;
+                        }
+                        _stack.Push(dict);
+                        break;
+                    }
+
+                case OpCode.ROT:
+                    {
+                        var a = _stack.Pop();
+                        var b = _stack.Pop();
+                        var c = _stack.Pop();
+                        _stack.Push(b);
+                        _stack.Push(a);
+                        _stack.Push(c);
+                        break;
+                    }
+
+                case OpCode.ARRAY_PUSH:
+                    {
+                        if (instr.Operand == null)
+                        {
+                            var arrObj = _stack.Pop();
+                            var value = _stack.Pop();
+
+                            if (arrObj is List<object> arr)
+                            {
+                                arr.Add(value);
+                            }
+                            else if (arrObj is Dictionary<string, object> dict)
+                            {
+                                if (value is Dictionary<string, object> literal && literal.Count == 1)
                                 {
-                                    NumKind.Decimal => (object)((decimal)A / (decimal)B),
-                                    NumKind.Double => (double)A / (double)B,
-                                    NumKind.UInt64 => (ulong)A / (ulong)B,
-                                    NumKind.Int64 => (long)A / (long)B,
-                                    _ => (int)A / (int)B,
-                                };
-                                _stack.Push(res);
-                                break;
-                            }
-
-                        case OpCode.EXPO:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                if (!IsNumber(l) || !IsNumber(r))
-                                    throw new VMException("EXPO on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
-
-                                var (A, B, K) = CoercePair(l, r);
-                                object res = K switch
-                                {
-                                    NumKind.Decimal => (object)((decimal)Math.Pow((double)(decimal)A, (double)(decimal)B)),
-                                    NumKind.Double => Math.Pow((double)A, (double)B),
-                                    NumKind.UInt64 => (ulong)Math.Pow((double)(ulong)A, (double)(ulong)B),
-                                    NumKind.Int64 => (long)Math.Pow((double)(long)A, (double)(long)B),
-                                    _ => (int)Math.Pow((double)(int)A, (double)(int)B),
-                                };
-                                _stack.Push(res);
-                                break;
-                            }
-
-                        case OpCode.BIT_AND:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
-                                    throw new VMException("BIT_AND requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
-
-                                if (l is ulong || r is ulong || l is long || r is long)
-                                    _stack.Push(Convert.ToInt64(l) & Convert.ToInt64(r));
-                                else
-                                    _stack.Push(Convert.ToInt32(l) & Convert.ToInt32(r));
-                                break;
-                            }
-
-                        case OpCode.BIT_OR:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
-                                    throw new VMException("BIT_OR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
-
-                                if (l is ulong || r is ulong || l is long || r is long)
-                                    _stack.Push(Convert.ToInt64(l) | Convert.ToInt64(r));
-                                else
-                                    _stack.Push(Convert.ToInt32(l) | Convert.ToInt32(r));
-                                break;
-                            }
-
-                        case OpCode.BIT_XOR:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
-                                    throw new VMException("BIT_XOR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
-
-                                if (l is ulong || r is ulong || l is long || r is long)
-                                    _stack.Push(Convert.ToInt64(l) ^ Convert.ToInt64(r));
-                                else
-                                    _stack.Push(Convert.ToInt32(l) ^ Convert.ToInt32(r));
-                                break;
-                            }
-
-                        case OpCode.SHL:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
-                                    throw new VMException("SHL requires (int|long|uint|ulong) << int", instr.Line, instr.Col, instr.OriginFile);
-
-                                int sh = Convert.ToInt32(r) & 0x3F;
-                                if (l is long or ulong)
-                                    _stack.Push(Convert.ToInt64(l) << sh);
-                                else
-                                    _stack.Push(Convert.ToInt32(l) << (sh & 0x1F));
-                                break;
-                            }
-
-                        case OpCode.SHR:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
-                                    throw new VMException("SHR requires (int|long|uint|ulong) >> int", instr.Line, instr.Col, instr.OriginFile);
-
-                                int sh = Convert.ToInt32(r) & 0x3F;
-                                if (l is long or ulong)
-                                    _stack.Push(Convert.ToInt64(l) >> sh);
-                                else
-                                    _stack.Push(Convert.ToInt32(l) >> (sh & 0x1F));
-                                break;
-                            }
-
-                        case OpCode.EQ:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                bool res;
-                                if (IsNumber(l) && IsNumber(r))
-                                    res = CompareAsDecimal(l) == CompareAsDecimal(r);
-                                else if (l is string ls && r is string rs)
-                                    res = string.Equals(ls, rs, StringComparison.Ordinal);
-                                else
-                                    res = Equals(l, r);
-                                _stack.Push(res);
-                                break;
-                            }
-
-                        case OpCode.NEQ:
-                            {
-                                var r = _stack.Pop();
-                                var l = _stack.Pop();
-                                bool res;
-                                if (IsNumber(l) && IsNumber(r))
-                                    res = CompareAsDecimal(l) != CompareAsDecimal(r);
-                                else if (l is string ls && r is string rs)
-                                    res = !string.Equals(ls, rs, StringComparison.Ordinal);
-                                else
-                                    res = !Equals(l, r);
-                                _stack.Push(res);
-                                break;
-                            }
-
-                        case OpCode.LT:
-                            {
-                                var r = _stack.Pop(); var l = _stack.Pop();
-
-                                if (IsNumber(l) && IsNumber(r))
-                                {
-                                    var (A, B, K) = CoercePair(l, r);
-                                    bool v = K switch
+                                    foreach (var kv in literal)
                                     {
-                                        NumKind.Decimal => (decimal)A < (decimal)B,
-                                        NumKind.Double => (double)A < (double)B,
-                                        NumKind.UInt64 => (ulong)A < (ulong)B,
-                                        NumKind.Int64 => (long)A < (long)B,
-                                        _ => (int)A < (int)B,
-                                    };
-                                    _stack.Push(v);
-                                }
-                                else if (l is string ls && r is string rs)
-                                {
-                                    _stack.Push(string.CompareOrdinal(ls, rs) < 0);
+                                        dict[kv.Key] = kv.Value;
+                                    }
                                 }
                                 else
                                 {
-                                    throw new VMException("Runtime error: LT on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
-                                }
-                                break;
-                            }
-
-                        case OpCode.GT:
-                            {
-                                var r = _stack.Pop(); var l = _stack.Pop();
-
-                                if (IsNumber(l) && IsNumber(r))
-                                {
-                                    var (A, B, K) = CoercePair(l, r);
-                                    bool v = K switch
+                                    int k = 0;
+                                    while (dict.ContainsKey(k.ToString(CultureInfo.InvariantCulture)))
                                     {
-                                        NumKind.Decimal => (decimal)A > (decimal)B,
-                                        NumKind.Double => (double)A > (double)B,
-                                        NumKind.UInt64 => (ulong)A > (ulong)B,
-                                        NumKind.Int64 => (long)A > (long)B,
-                                        _ => (int)A > (int)B,
-                                    };
-                                    _stack.Push(v);
+                                        k++;
+                                    }
+                                    dict[k.ToString(CultureInfo.InvariantCulture)] = value;
                                 }
-                                else if (l is string ls && r is string rs)
-                                {
-                                    _stack.Push(string.CompareOrdinal(ls, rs) > 0);
-                                }
-                                else
-                                {
-                                    throw new VMException("Runtime error: GT on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
-                                }
-                                break;
                             }
-
-                        case OpCode.LE:
+                            else
                             {
-                                var r = _stack.Pop(); var l = _stack.Pop();
-
-                                if (IsNumber(l) && IsNumber(r))
+                                throw new VMException($"Runtime error: ARRAY_PUSH target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                            }
+                        }
+                        else
+                        {
+                            var value = _stack.Pop();
+                            string name = (string)instr.Operand;
+                            var env = FindEnvWithLocal(name);
+                            if (env == null || !env.Vars.TryGetValue(name, out object? obj))
+                                throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                            if (obj is List<object> arr)
+                            {
+                                arr.Add(value);
+                            }
+                            else if (obj is Dictionary<string, object> dict)
+                            {
+                                if (value is Dictionary<string, object> literal && literal.Count == 1)
                                 {
-                                    var (A, B, K) = CoercePair(l, r);
-                                    bool v = K switch
+                                    foreach (var kv in literal)
                                     {
-                                        NumKind.Decimal => (decimal)A <= (decimal)B,
-                                        NumKind.Double => (double)A <= (double)B,
-                                        NumKind.UInt64 => (ulong)A <= (ulong)B,
-                                        NumKind.Int64 => (long)A <= (long)B,
-                                        _ => (int)A <= (int)B,
-                                    };
-                                    _stack.Push(v);
-                                }
-                                else if (l is string ls && r is string rs)
-                                {
-                                    _stack.Push(string.CompareOrdinal(ls, rs) <= 0);
+                                        dict[kv.Key] = kv.Value;
+                                    }
                                 }
                                 else
                                 {
-                                    throw new VMException("Runtime error: LE on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
-                                }
-                                break;
-                            }
-
-                        case OpCode.GE:
-                            {
-                                var r = _stack.Pop(); var l = _stack.Pop();
-
-                                if (IsNumber(l) && IsNumber(r))
-                                {
-                                    var (A, B, K) = CoercePair(l, r);
-                                    bool v = K switch
+                                    int k = 0;
+                                    while (dict.ContainsKey(k.ToString(CultureInfo.InvariantCulture)))
                                     {
-                                        NumKind.Decimal => (decimal)A >= (decimal)B,
-                                        NumKind.Double => (double)A >= (double)B,
-                                        NumKind.UInt64 => (ulong)A >= (ulong)B,
-                                        NumKind.Int64 => (long)A >= (long)B,
-                                        _ => (int)A >= (int)B,
-                                    };
-                                    _stack.Push(v);
+                                        k++;
+                                    }
+                                    dict[k.ToString(CultureInfo.InvariantCulture)] = value;
                                 }
-                                else if (l is string ls && r is string rs)
-                                {
-                                    _stack.Push(string.CompareOrdinal(ls, rs) >= 0);
-                                }
+                            }
+                            else
+                            {
+                                throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                            }
+                        }
+                        break;
+                    }
+
+                case OpCode.ARRAY_DELETE_SLICE:
+                    {
+                        var endObj = _stack.Pop();
+                        var startObj = _stack.Pop();
+
+                        object target;
+                        if (instr.Operand is string name)
+                        {
+                            var env = FindEnvWithLocal(name)
+                                ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                            target = env.Vars[name];
+
+                            DeleteSliceOnTarget(ref target, startObj, endObj, instr);
+
+                            env.Vars[name] = target;
+                        }
+                        else
+                        {
+                            target = _stack.Pop();
+                            DeleteSliceOnTarget(ref target, startObj, endObj, instr);
+                        }
+                        break;
+                    }
+
+                case OpCode.ARRAY_DELETE_SLICE_ALL:
+                    {
+                        var endObj = _stack.Pop();
+                        var startObj = _stack.Pop();
+                        var target = _stack.Pop();
+
+                        if (target is string)
+                            throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+
+                        if (target is List<object> arr)
+                        {
+                            (int start, int endEx) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
+                            int count = endEx - start;
+                            if (count > 0) arr.RemoveRange(start, count);
+                        }
+                        else if (target is Dictionary<string, object> dict)
+                        {
+                            var keys = dict.Keys.ToList();
+                            (int start, int endEx) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
+                            for (int i = start; i < endEx; i++)
+                                dict.Remove(keys[i]);
+                        }
+                        else
+                        {
+                            throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        break;
+                    }
+
+                case OpCode.ARRAY_DELETE_ELEM:
+                    {
+                        var idxObj = _stack.Pop();
+
+                        if (instr.Operand != null)
+                        {
+                            string name = (string)instr.Operand;
+                            var owner = FindEnvWithLocal(name);
+                            if (owner == null)
+                                throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile);
+
+                            var target = owner.Vars[name];
+
+                            if (target is string)
+                                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+
+                            if (target is List<object> arr)
+                            {
+                                int index = Convert.ToInt32(idxObj);
+                                if (index >= 0 && index < arr.Count)
+                                    arr.RemoveAt(index);
                                 else
-                                {
-                                    throw new VMException("Runtime error: GE on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
-                                }
+                                    throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
+                            }
+                            else if (target is Dictionary<string, object> dict)
+                            {
+                                string key = Convert.ToString(idxObj, CultureInfo.InvariantCulture) ?? "";
+                                if (!dict.Remove(key))
+                                    throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile);
+                            }
+                            else
+                            {
+                                throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                            }
+                        }
+                        else
+                        {
+                            var target = _stack.Pop();
+
+                            if (target is string)
+                                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+
+                            if (target is List<object> arr)
+                            {
+                                int index = Convert.ToInt32(idxObj);
+                                if (index >= 0 && index < arr.Count)
+                                    arr.RemoveAt(index);
+                                else
+                                    throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
+                            }
+                            else if (target is Dictionary<string, object> dict)
+                            {
+                                string key = Convert.ToString(idxObj, CultureInfo.InvariantCulture) ?? "";
+                                if (!dict.Remove(key))
+                                    throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile);
+                            }
+                            else
+                            {
+                                throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                            }
+                        }
+                        break;
+                    }
+
+                case OpCode.ARRAY_DELETE_ALL:
+                    {
+                        if (instr.Operand is null) break;
+                        string name = (string)instr.Operand;
+                        var env = FindEnvWithLocal(name);
+                        if (env == null || !env.Vars.TryGetValue(name, out object? target))
+                            throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile);
+                        if (target is List<object>)
+                        {
+                            env.Vars[name] = new List<object>();
+                        }
+                        else if (target is Dictionary<string, object>)
+                        {
+                            env.Vars[name] = new Dictionary<string, object>();
+                        }
+                        else
+                        {
+                            throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        break;
+                    }
+
+                case OpCode.ARRAY_DELETE_ELEM_ALL:
+                    {
+                        var idxObj = _stack.Pop();
+                        var target = _stack.Pop();
+                        if (target is string)
+                            throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+
+                        if (target is List<object> arr)
+                        {
+                            int index = Convert.ToInt32(idxObj);
+                            if (index < 0 || index >= arr.Count)
+                                throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
+
+                            arr.RemoveAt(index);
+                        }
+                        else if (target is Dictionary<string, object> dict)
+                        {
+                            string key = idxObj?.ToString() ?? throw new VMException(
+                                $"Runtime error: dictionary key cannot be null", instr.Line, instr.Col, instr.OriginFile);
+
+                            if (!dict.Remove(key))
+                                throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        else
+                        {
+                            throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        break;
+                    }
+
+                case OpCode.LOAD_VAR:
+                    {
+                        if (instr.Operand is null) break;
+                        string name = (string)instr.Operand;
+                        if (name == "this")
+                        {
+                            var th = CurrentThis;
+                            if (th == null) throw new VMException("Runtime error: 'this' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
+                            _stack.Push(th);
+                            break;
+                        }
+
+                        var owner = FindEnvWithLocal(name);
+                        if (owner == null || !owner.Vars.TryGetValue(name, out var val))
+                            throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+
+                        _stack.Push(val);
+                        break;
+                    }
+
+                case OpCode.VAR_DECL:
+                    {
+                        if (instr.Operand is null) break;
+                        string name = (string)instr.Operand;
+                        if (name == "this") throw new VMException("Runtime error: cannot declare 'this' as a variable", instr.Line, instr.Col, instr.OriginFile);
+                        var value = _stack.Pop();
+                        var scope = _scopes[^1];
+                        if (scope.HasLocal(name)) throw new VMException($"Runtime error: variable '{name}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile);
+                        scope.Define(name, value);
+                        break;
+                    }
+
+                case OpCode.STORE_VAR:
+                    {
+                        if (instr.Operand is null) break;
+                        string name = (string)instr.Operand;
+
+                        if (name == "this") throw new VMException("Runtime error: cannot assign to 'this'", instr.Line, instr.Col, instr.OriginFile);
+                        var value = _stack.Pop();
+                        var env = FindEnvWithLocal(name);
+                        if (env == null) throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                        env.Vars[name] = value;
+                        break;
+                    }
+
+                case OpCode.ADD:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+
+                        if (IsNumber(l) && IsNumber(r))
+                        {
+                            var (A, B, K) = CoercePair(l, r);
+                            object res = K switch
+                            {
+                                NumKind.Decimal => (object)((decimal)A + (decimal)B),
+                                NumKind.Double => (double)A + (double)B,
+                                NumKind.UInt64 => (ulong)A + (ulong)B,
+                                NumKind.Int64 => (long)A + (long)B,
+                                _ => (int)A + (int)B,
+                            };
+                            _stack.Push(res);
+                        }
+                        else if (l is List<object> || r is List<object> ||
+                                 l is Dictionary<string, object> || r is Dictionary<string, object>)
+                        {
+                            string ls, rs;
+                            using (var lw = new StringWriter()) { PrintValue(l, lw); ls = lw.ToString(); }
+                            using (var rw = new StringWriter()) { PrintValue(r, rw); rs = rw.ToString(); }
+                            _stack.Push(ls + rs);
+                        }
+                        else
+                        {
+                            _stack.Push((l?.ToString() ?? "null") + (r?.ToString() ?? "null"));
+                        }
+                        break;
+                    }
+
+                case OpCode.SUB:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        if (!IsNumber(l) || !IsNumber(r))
+                            throw new VMException("SUB on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
+
+                        var (A, B, K) = CoercePair(l, r);
+                        object res = K switch
+                        {
+                            NumKind.Decimal => (object)((decimal)A - (decimal)B),
+                            NumKind.Double => (double)A - (double)B,
+                            NumKind.UInt64 => (ulong)A - (ulong)B,
+                            NumKind.Int64 => (long)A - (long)B,
+                            _ => (int)A - (int)B,
+                        };
+                        _stack.Push(res);
+                        break;
+                    }
+
+                case OpCode.MUL:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+
+                        if (IsNumber(l) && IsNumber(r))
+                        {
+                            var (A, B, K) = CoercePair(l, r);
+                            object res = K switch
+                            {
+                                NumKind.Decimal => (object)((decimal)A * (decimal)B),
+                                NumKind.Double => (double)A * (double)B,
+                                NumKind.UInt64 => (ulong)A * (ulong)B,
+                                NumKind.Int64 => (long)A * (long)B,
+                                _ => (int)A * (int)B,
+                            };
+                            _stack.Push(res);
+                        }
+                        else if (l is string && IsNumber(r))
+                        {
+                            _stack.Push(string.Concat(Enumerable.Repeat(l?.ToString() ?? "", Convert.ToInt32(r))));
+                        }
+                        else if (r is string && IsNumber(l))
+                        {
+                            _stack.Push(string.Concat(Enumerable.Repeat(r?.ToString() ?? "", Convert.ToInt32(l))));
+                        }
+                        else
+                        {
+                            throw new VMException("MUL on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        break;
+                    }
+
+                case OpCode.MOD:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        if (!IsNumber(l) || !IsNumber(r))
+                            throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
+
+                        var (A, B, K) = CoercePair(l, r);
+                        if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
+                         || K == NumKind.Int64 && Convert.ToInt64(r) == 0
+                         || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
+                         || K == NumKind.Decimal && Convert.ToDecimal(r) == 0m)
+                            throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile);
+
+                        object res = K switch
+                        {
+                            NumKind.Decimal => (object)((decimal)A % (decimal)B),
+                            NumKind.Double => (double)A % (double)B,
+                            NumKind.UInt64 => (ulong)A % (ulong)B,
+                            NumKind.Int64 => (long)A % (long)B,
+                            _ => (int)A % (int)B,
+                        };
+                        _stack.Push(res);
+                        break;
+                    }
+
+                case OpCode.DIV:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        if (!IsNumber(l) || !IsNumber(r))
+                            throw new VMException($"Runtime error: cannot DIV {l?.GetType()} and {r?.GetType()}",
+                                instr.Line, instr.Col, instr.OriginFile);
+
+                        var (A, B, K) = CoercePair(l, r);
+                        if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
+                         || K == NumKind.Int64 && Convert.ToInt64(r) == 0
+                         || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
+                         || K == NumKind.Decimal && Convert.ToDecimal(r) == 0m)
+                            throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile);
+
+                        object res = K switch
+                        {
+                            NumKind.Decimal => (object)((decimal)A / (decimal)B),
+                            NumKind.Double => (double)A / (double)B,
+                            NumKind.UInt64 => (ulong)A / (ulong)B,
+                            NumKind.Int64 => (long)A / (long)B,
+                            _ => (int)A / (int)B,
+                        };
+                        _stack.Push(res);
+                        break;
+                    }
+
+                case OpCode.EXPO:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        if (!IsNumber(l) || !IsNumber(r))
+                            throw new VMException("EXPO on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
+
+                        var (A, B, K) = CoercePair(l, r);
+                        object res = K switch
+                        {
+                            NumKind.Decimal => (object)((decimal)Math.Pow((double)(decimal)A, (double)(decimal)B)),
+                            NumKind.Double => Math.Pow((double)A, (double)B),
+                            NumKind.UInt64 => (ulong)Math.Pow((double)(ulong)A, (double)(ulong)B),
+                            NumKind.Int64 => (long)Math.Pow((double)(long)A, (double)(long)B),
+                            _ => (int)Math.Pow((double)(int)A, (double)(int)B),
+                        };
+                        _stack.Push(res);
+                        break;
+                    }
+
+                case OpCode.BIT_AND:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
+                            throw new VMException("BIT_AND requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
+
+                        if (l is ulong || r is ulong || l is long || r is long)
+                            _stack.Push(Convert.ToInt64(l) & Convert.ToInt64(r));
+                        else
+                            _stack.Push(Convert.ToInt32(l) & Convert.ToInt32(r));
+                        break;
+                    }
+
+                case OpCode.BIT_OR:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
+                            throw new VMException("BIT_OR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
+
+                        if (l is ulong || r is ulong || l is long || r is long)
+                            _stack.Push(Convert.ToInt64(l) | Convert.ToInt64(r));
+                        else
+                            _stack.Push(Convert.ToInt32(l) | Convert.ToInt32(r));
+                        break;
+                    }
+
+                case OpCode.BIT_XOR:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
+                            throw new VMException("BIT_XOR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
+
+                        if (l is ulong || r is ulong || l is long || r is long)
+                            _stack.Push(Convert.ToInt64(l) ^ Convert.ToInt64(r));
+                        else
+                            _stack.Push(Convert.ToInt32(l) ^ Convert.ToInt32(r));
+                        break;
+                    }
+
+                case OpCode.SHL:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
+                            throw new VMException("SHL requires (int|long|uint|ulong) << int", instr.Line, instr.Col, instr.OriginFile);
+
+                        int sh = Convert.ToInt32(r) & 0x3F;
+                        if (l is long or ulong)
+                            _stack.Push(Convert.ToInt64(l) << sh);
+                        else
+                            _stack.Push(Convert.ToInt32(l) << (sh & 0x1F));
+                        break;
+                    }
+
+                case OpCode.SHR:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
+                            throw new VMException("SHR requires (int|long|uint|ulong) >> int", instr.Line, instr.Col, instr.OriginFile);
+
+                        int sh = Convert.ToInt32(r) & 0x3F;
+                        if (l is long or ulong)
+                            _stack.Push(Convert.ToInt64(l) >> sh);
+                        else
+                            _stack.Push(Convert.ToInt32(l) >> (sh & 0x1F));
+                        break;
+                    }
+
+                case OpCode.EQ:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        bool res;
+                        if (IsNumber(l) && IsNumber(r))
+                            res = CompareAsDecimal(l) == CompareAsDecimal(r);
+                        else if (l is string ls && r is string rs)
+                            res = string.Equals(ls, rs, StringComparison.Ordinal);
+                        else
+                            res = Equals(l, r);
+                        _stack.Push(res);
+                        break;
+                    }
+
+                case OpCode.NEQ:
+                    {
+                        var r = _stack.Pop();
+                        var l = _stack.Pop();
+                        bool res;
+                        if (IsNumber(l) && IsNumber(r))
+                            res = CompareAsDecimal(l) != CompareAsDecimal(r);
+                        else if (l is string ls && r is string rs)
+                            res = !string.Equals(ls, rs, StringComparison.Ordinal);
+                        else
+                            res = !Equals(l, r);
+                        _stack.Push(res);
+                        break;
+                    }
+
+                case OpCode.LT:
+                    {
+                        var r = _stack.Pop(); var l = _stack.Pop();
+
+                        if (IsNumber(l) && IsNumber(r))
+                        {
+                            var (A, B, K) = CoercePair(l, r);
+                            bool v = K switch
+                            {
+                                NumKind.Decimal => (decimal)A < (decimal)B,
+                                NumKind.Double => (double)A < (double)B,
+                                NumKind.UInt64 => (ulong)A < (ulong)B,
+                                NumKind.Int64 => (long)A < (long)B,
+                                _ => (int)A < (int)B,
+                            };
+                            _stack.Push(v);
+                        }
+                        else if (l is string ls && r is string rs)
+                        {
+                            _stack.Push(string.CompareOrdinal(ls, rs) < 0);
+                        }
+                        else
+                        {
+                            throw new VMException("Runtime error: LT on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        break;
+                    }
+
+                case OpCode.GT:
+                    {
+                        var r = _stack.Pop(); var l = _stack.Pop();
+
+                        if (IsNumber(l) && IsNumber(r))
+                        {
+                            var (A, B, K) = CoercePair(l, r);
+                            bool v = K switch
+                            {
+                                NumKind.Decimal => (decimal)A > (decimal)B,
+                                NumKind.Double => (double)A > (double)B,
+                                NumKind.UInt64 => (ulong)A > (ulong)B,
+                                NumKind.Int64 => (long)A > (long)B,
+                                _ => (int)A > (int)B,
+                            };
+                            _stack.Push(v);
+                        }
+                        else if (l is string ls && r is string rs)
+                        {
+                            _stack.Push(string.CompareOrdinal(ls, rs) > 0);
+                        }
+                        else
+                        {
+                            throw new VMException("Runtime error: GT on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        break;
+                    }
+
+                case OpCode.LE:
+                    {
+                        var r = _stack.Pop(); var l = _stack.Pop();
+
+                        if (IsNumber(l) && IsNumber(r))
+                        {
+                            var (A, B, K) = CoercePair(l, r);
+                            bool v = K switch
+                            {
+                                NumKind.Decimal => (decimal)A <= (decimal)B,
+                                NumKind.Double => (double)A <= (double)B,
+                                NumKind.UInt64 => (ulong)A <= (ulong)B,
+                                NumKind.Int64 => (long)A <= (long)B,
+                                _ => (int)A <= (int)B,
+                            };
+                            _stack.Push(v);
+                        }
+                        else if (l is string ls && r is string rs)
+                        {
+                            _stack.Push(string.CompareOrdinal(ls, rs) <= 0);
+                        }
+                        else
+                        {
+                            throw new VMException("Runtime error: LE on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        break;
+                    }
+
+                case OpCode.GE:
+                    {
+                        var r = _stack.Pop(); var l = _stack.Pop();
+
+                        if (IsNumber(l) && IsNumber(r))
+                        {
+                            var (A, B, K) = CoercePair(l, r);
+                            bool v = K switch
+                            {
+                                NumKind.Decimal => (decimal)A >= (decimal)B,
+                                NumKind.Double => (double)A >= (double)B,
+                                NumKind.UInt64 => (ulong)A >= (ulong)B,
+                                NumKind.Int64 => (long)A >= (long)B,
+                                _ => (int)A >= (int)B,
+                            };
+                            _stack.Push(v);
+                        }
+                        else if (l is string ls && r is string rs)
+                        {
+                            _stack.Push(string.CompareOrdinal(ls, rs) >= 0);
+                        }
+                        else
+                        {
+                            throw new VMException("Runtime error: GE on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        break;
+                    }
+
+                case OpCode.NEG:
+                    {
+                        var v = _stack.Pop();
+                        if (!IsNumber(v))
+                            throw new VMException(
+                                $"NEG only works on numeric types (got {v ?? "null"} of type {v?.GetType().Name ?? "null"})",
+                                instr.Line, instr.Col, instr.OriginFile
+                            );
+
+                        object res =
+                            v is decimal md ? (object)(-md) :
+                            v is double dd ? (object)(-dd) :
+                            v is float ff ? (object)(-ff) :
+                            v is long ll ? (object)(-ll) :
+                            v is ulong uu ? (object)unchecked((long)-(long)uu) :
+                            (object)(-Convert.ToInt32(v));
+
+                        _stack.Push(res);
+                        break;
+                    }
+
+                case OpCode.NOT:
+                    {
+                        var v = _stack.Pop();
+                        _stack.Push(!ToBool(v));
+                        break;
+                    }
+
+                case OpCode.DUP:
+                    {
+                        var v = _stack.Peek();
+                        _stack.Push(v);
+                        break;
+                    }
+
+                case OpCode.POP:
+                    {
+                        _stack.Pop();
+                        break;
+                    }
+
+                case OpCode.AND:
+                    {
+                        var r = _stack.Pop(); var l = _stack.Pop();
+                        bool lb = ToBool(l); bool rb = ToBool(r);
+                        _stack.Push(lb && rb);
+                        break;
+                    }
+
+                case OpCode.OR:
+                    {
+                        var r = _stack.Pop(); var l = _stack.Pop();
+                        bool lb = ToBool(l); bool rb = ToBool(r);
+                        _stack.Push(lb || rb);
+                        break;
+                    }
+
+                case OpCode.LABEL:
+                    return StepResult.Continue;
+
+                case OpCode.JMP:
+                    {
+                        if (instr.Operand is null)
+                            throw new VMException("Runtime error: JMP missing target", instr.Line, instr.Col, instr.OriginFile);
+                        _ip = (int)instr.Operand;
+                        return StepResult.Continue;
+                    }
+
+                case OpCode.JMP_IF_FALSE:
+                    {
+                        if (instr.Operand is null)
+                            throw new VMException("Runtime error: JMP_IF_FALSE missing target", instr.Line, instr.Col, instr.OriginFile);
+                        var v = _stack.Pop();
+                        if (!ToBool(v))
+                        {
+                            _ip = (int)instr.Operand;
+                            return StepResult.Continue;
+                        }
+                        break;
+                    }
+
+                case OpCode.JMP_IF_TRUE:
+                    {
+                        if (instr.Operand is null)
+                            throw new VMException("Runtime error: JMP_IF_TRUE missing target", instr.Line, instr.Col, instr.OriginFile);
+                        var v = _stack.Pop();
+                        if (ToBool(v))
+                        {
+                            _ip = (int)instr.Operand;
+                            return StepResult.Continue;
+                        }
+                        break;
+                    }
+
+                case OpCode.HALT:
+                    return StepResult.Halt;
+
+                case OpCode.PUSH_CLOSURE:
+                    {
+                        if (instr.Operand == null)
+                            throw new VMException($"Runtime error: PUSH_CLOSURE without operand", instr.Line, instr.Col, instr.OriginFile);
+
+                        int funcAddr;
+                        string? funcName = null;
+
+                        switch (instr.Operand)
+                        {
+                            case int i:
+                                funcAddr = i;
+                                break;
+                            case object[] arr when arr.Length >= 2:
+                                funcAddr = (int)arr[0];
+                                funcName = arr[1]?.ToString() ?? "";
+                                break;
+                            default:
+                                throw new VMException($"Runtime error: Invalid PUSH_CLOSURE operand type {instr.Operand.GetType().Name}", instr.Line, instr.Col, instr.OriginFile);
+                        }
+
+                        var funcInfo = _functions.Values.FirstOrDefault(f => f.Address == funcAddr);
+                        if (funcInfo == null)
+                            throw new VMException($"Runtime error: PUSH_CLOSURE unknown function address {funcAddr}", instr.Line, instr.Col, instr.OriginFile);
+
+                        var capturedEnv = _scopes[^1];
+                        _stack.Push(new Closure(funcAddr, funcInfo.Parameters, capturedEnv, funcName ?? throw new VMException("Invalid function-name", instr.Line, instr.Col, instr.OriginFile)));
+                        break;
+                    }
+
+                case OpCode.CALL:
+                    {
+                        if (instr.Operand is string funcName)
+                        {
+                            if (bInFunc.TryGetValue(funcName, out int expectedArgs))
+                            {
+                                var args = new List<object>();
+                                for (int i = expectedArgs - 1; i >= 0; i--) args.Insert(0, _stack.Pop());
+                                var result = CallBuiltin(funcName, args, instr);
+                                _stack.Push(result);
                                 break;
                             }
 
-                        case OpCode.NEG:
+                            if (!_functions.TryGetValue(funcName, out var func))
+                                throw new VMException($"Runtime error: unknown function {funcName}", instr.Line, instr.Col, instr.OriginFile);
+
+                            if (func.Parameters.Count > 0 && func.Parameters[0] == "this")
+                                throw new VMException(
+                                    $"Runtime error: cannot CALL method '{funcName}' without receiver. Use CALL_INDIRECT with a bound receiver.",
+                                    instr.Line, instr.Col, instr.OriginFile);
+
+                            _stack.Push(new Closure(func.Address, func.Parameters, _scopes[^1], funcName));
+                            goto case OpCode.CALL_INDIRECT;
+                        }
+                        else
+                        {
+                            goto case OpCode.CALL_INDIRECT;
+                        }
+                    }
+
+                case OpCode.CALL_INDIRECT:
+                    {
+                        if (instr.Operand is IConvertible)
+                        {
+                            int explicitArgCount = Convert.ToInt32(instr.Operand);
+                            var argsList = new List<object>();
+                            for (int i = 0; i < explicitArgCount; i++)
                             {
-                                var v = _stack.Pop();
-                                if (!IsNumber(v))
+                                if (_stack.Count == 0)
+                                    throw new VMException($"Runtime error: not enough arguments for CALL_INDIRECT (expected {explicitArgCount})", instr.Line, instr.Col, instr.OriginFile);
+                                argsList.Add(_stack.Pop());
+                            }
+
+                            if (_stack.Count == 0)
+                                throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile);
+
+                            var callee = _stack.Pop();
+                            Closure f;
+                            object? receiver = null;
+
+                            if (callee is IntrinsicBound ib_ex)
+                            {
+                                if (explicitArgCount < ib_ex.Method.ArityMin || explicitArgCount > ib_ex.Method.ArityMax)
                                     throw new VMException(
-                                        $"NEG only works on numeric types (got {v ?? "null"} of type {v?.GetType().Name ?? "null"})",
+                                        $"Runtime error: {ib_ex.Method.Name} expects {ib_ex.Method.ArityMin}..{ib_ex.Method.ArityMax} args, got {explicitArgCount}",
                                         instr.Line, instr.Col, instr.OriginFile
                                     );
 
-                                object res =
-                                    v is decimal md ? (object)(-md) :
-                                    v is double dd ? (object)(-dd) :
-                                    v is float ff ? (object)(-ff) :
-                                    v is long ll ? (object)(-ll) :
-                                    v is ulong uu ? (object)unchecked((long)-(long)uu) :
-                                    (object)(-Convert.ToInt32(v));
-
-                                _stack.Push(res);
-                                break;
+                                var result = ib_ex.Method.Invoke(ib_ex.Receiver, argsList, instr);
+                                _stack.Push(result);
+                                return StepResult.Continue;
                             }
-
-                        case OpCode.NOT:
+                            else if (callee is BoundMethod bm)
                             {
-                                var v = _stack.Pop();
-                                _stack.Push(!ToBool(v));
-                                break;
-                            }
+                                f = bm.Function;
+                                receiver = bm.Receiver;
 
-                        case OpCode.DUP:
-                            {
-                                var v = _stack.Peek();
-                                _stack.Push(v);
-                                break;
-                            }
-
-                        case OpCode.POP:
-                            {
-                                _stack.Pop();
-                                break;
-                            }
-
-                        case OpCode.AND:
-                            {
-                                var r = _stack.Pop(); var l = _stack.Pop();
-                                bool lb = ToBool(l); bool rb = ToBool(r);
-                                _stack.Push(lb && rb);
-                                break;
-                            }
-
-                        case OpCode.OR:
-                            {
-                                var r = _stack.Pop(); var l = _stack.Pop();
-                                bool lb = ToBool(l); bool rb = ToBool(r);
-                                _stack.Push(lb || rb);
-                                break;
-                            }
-                        case OpCode.LABEL: continue;
-
-                        case OpCode.JMP:
-                            {
-                                if (instr.Operand is null)
-                                    throw new VMException("Runtime error: JMP missing target", instr.Line, instr.Col, instr.OriginFile);
-                                _ip = (int)instr.Operand;
-                                continue;
-                            }
-
-                        case OpCode.JMP_IF_FALSE:
-                            {
-                                if (instr.Operand is null)
-                                    throw new VMException("Runtime error: JMP_IF_FALSE missing target", instr.Line, instr.Col, instr.OriginFile);
-                                var v = _stack.Pop();
-                                if (!ToBool(v))
+                                if (f.Parameters.Count > 0 && f.Parameters[0] == "this")
                                 {
-                                    _ip = (int)instr.Operand;
-                                    continue;
-                                }
-
-                                break;
-                            }
-
-                        case OpCode.JMP_IF_TRUE:
-                            {
-                                if (instr.Operand is null)
-                                    throw new VMException("Runtime error: JMP_IF_TRUE missing target", instr.Line, instr.Col, instr.OriginFile);
-                                var v = _stack.Pop();
-                                if (ToBool(v))
-                                {
-                                    _ip = (int)instr.Operand;
-                                    continue;
-                                }
-
-                                break;
-                            }
-
-                        case OpCode.HALT:
-                            return;
-
-                        case OpCode.PUSH_CLOSURE:
-                            {
-                                if (instr.Operand == null)
-                                    throw new VMException($"Runtime error: PUSH_CLOSURE without operand", instr.Line, instr.Col, instr.OriginFile);
-
-                                int funcAddr;
-                                string? funcName = null;
-
-                                switch (instr.Operand)
-                                {
-                                    case int i:
-                                        funcAddr = i;
-                                        break;
-                                    case object[] arr when arr.Length >= 2:
-                                        funcAddr = (int)arr[0];
-                                        funcName = arr[1]?.ToString() ?? "";
-                                        break;
-                                    default:
-                                        throw new VMException($"Runtime error: Invalid PUSH_CLOSURE operand type {instr.Operand.GetType().Name}", instr.Line, instr.Col, instr.OriginFile);
-                                }
-
-                                var funcInfo = _functions.Values.FirstOrDefault(f => f.Address == funcAddr);
-                                if (funcInfo == null)
-                                    throw new VMException($"Runtime error: PUSH_CLOSURE unknown function address {funcAddr}", instr.Line, instr.Col, instr.OriginFile);
-
-                                var capturedEnv = _scopes[^1];
-                                _stack.Push(new Closure(funcAddr, funcInfo.Parameters, capturedEnv, funcName ?? throw new VMException("Invalid function-name", instr.Line, instr.Col, instr.OriginFile)));
-                                break;
-                            }
-
-                        case OpCode.CALL:
-                            {
-
-                                if (instr.Operand is string funcName)
-                                {
-                                    if (bInFunc.TryGetValue(funcName, out int expectedArgs))
-                                    {
-                                        var args = new List<object>();
-                                        for (int i = expectedArgs - 1; i >= 0; i--) args.Insert(0, _stack.Pop());
-                                        var result = CallBuiltin(funcName, args, instr);
-                                        _stack.Push(result);
-                                        break;
-                                    }
-
-                                    if (!_functions.TryGetValue(funcName, out var func))
-                                        throw new VMException($"Runtime error: unknown function {funcName}", instr.Line, instr.Col, instr.OriginFile);
-
-                                    if (func.Parameters.Count > 0 && func.Parameters[0] == "this")
-                                        throw new VMException(
-                                            $"Runtime error: cannot CALL method '{funcName}' without receiver. Use CALL_INDIRECT with a bound receiver.",
-                                            instr.Line, instr.Col, instr.OriginFile);
-
-                                    _stack.Push(new Closure(func.Address, func.Parameters, _scopes[^1], funcName));
-                                    goto case OpCode.CALL_INDIRECT;
-                                }
-                                else
-                                {
-                                    goto case OpCode.CALL_INDIRECT;
+                                    if (argsList.Count > 0 && Equals(argsList[0], receiver))
+                                        throw new VMException("Runtime error: receiver provided twice (BoundMethod already has 'this').", instr.Line, instr.Col, instr.OriginFile);
                                 }
                             }
-
-                        case OpCode.CALL_INDIRECT:
+                            else if (callee is Closure clos)
                             {
-                                if (instr.Operand is IConvertible)
+                                f = clos;
+
+                                if (f.Parameters.Count > 0 && f.Parameters[0] == "this")
                                 {
-                                    int explicitArgCount = Convert.ToInt32(instr.Operand);
-                                    var argsList = new List<object>();
-                                    for (int i = 0; i < explicitArgCount; i++)
-                                    {
-                                        if (_stack.Count == 0)
-                                            throw new VMException($"Runtime error: not enough arguments for CALL_INDIRECT (expected {explicitArgCount})", instr.Line, instr.Col, instr.OriginFile);
-                                        argsList.Add(_stack.Pop());
-                                    }
-
-                                    if (_stack.Count == 0)
-                                        throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile);
-
-                                    var callee = _stack.Pop();
-                                    Closure f;
-                                    object? receiver = null;
-
-                                    if (callee is IntrinsicBound ib_ex)
-                                    {
-
-                                        if (explicitArgCount < ib_ex.Method.ArityMin || explicitArgCount > ib_ex.Method.ArityMax)
-                                            throw new VMException(
-                                                $"Runtime error: {ib_ex.Method.Name} expects {ib_ex.Method.ArityMin}..{ib_ex.Method.ArityMax} args, got {explicitArgCount}",
-                                                instr.Line, instr.Col, instr.OriginFile
-                                            );
-
-                                        var result = ib_ex.Method.Invoke(ib_ex.Receiver, argsList, instr);
-                                        _stack.Push(result);
-                                        continue;
-                                    }
-                                    else if (callee is BoundMethod bm)
-                                    {
-                                        f = bm.Function;
-                                        receiver = bm.Receiver;
-
-                                        if (f.Parameters.Count > 0 && f.Parameters[0] == "this")
-                                        {
-                                            if (argsList.Count > 0 && Equals(argsList[0], receiver))
-                                                throw new VMException("Runtime error: receiver provided twice (BoundMethod already has 'this').", instr.Line, instr.Col, instr.OriginFile);
-                                        }
-                                    }
-                                    else if (callee is Closure clos)
-                                    {
-                                        f = clos;
-
-                                        if (f.Parameters.Count > 0 && f.Parameters[0] == "this")
-                                        {
-                                            if (argsList.Count == 0)
-                                                throw new VMException("Runtime error: missing 'this' for method call.", instr.Line, instr.Col, instr.OriginFile);
-                                            receiver = argsList[0];
-                                            argsList.RemoveAt(0);
-                                        }
-                                    }
-                                    else
-                                    {
-                                        throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code} )", instr.Line, instr.Col, instr.OriginFile);
-                                    }
-
-                                    var callEnv = new Env(f.CapturedEnv);
-                                    int piStart = (f.Parameters.Count > 0 && f.Parameters[0] == "this") ? 1 : 0;
-                                    if (argsList.Count < f.Parameters.Count - piStart)
-                                        throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile);
-
-                                    for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
-                                        callEnv.Define(f.Parameters[pi], argsList[ai]);
-
-                                    _scopes.Add(callEnv);
-                                    _callStack.Push(new CallFrame(_ip, 1, receiver));
-
-                                    _ip = f.Address;
-                                    continue;
+                                    if (argsList.Count == 0)
+                                        throw new VMException("Runtime error: missing 'this' for method call.", instr.Line, instr.Col, instr.OriginFile);
+                                    receiver = argsList[0];
+                                    argsList.RemoveAt(0);
                                 }
-                                else
+                            }
+                            else
+                            {
+                                throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code} )", instr.Line, instr.Col, instr.OriginFile);
+                            }
+
+                            var callEnv = new Env(f.CapturedEnv);
+                            int piStart = (f.Parameters.Count > 0 && f.Parameters[0] == "this") ? 1 : 0;
+                            if (argsList.Count < f.Parameters.Count - piStart)
+                                throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile);
+
+                            for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
+                                callEnv.Define(f.Parameters[pi], argsList[ai]);
+
+                            _scopes.Add(callEnv);
+                            _callStack.Push(new CallFrame(_ip, 1, receiver));
+
+                            _ip = f.Address;
+                            return StepResult.Continue;
+                        }
+                        else
+                        {
+                            if (_stack.Count == 0)
+                                throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile);
+
+                            var callee = _stack.Pop();
+                            Closure f;
+                            object? receiver = null;
+
+                            if (callee is IntrinsicBound ib)
+                            {
+                                int need = ib.Method.ArityMin;
+                                var argsB = new List<object>();
+                                for (int i = 0; i < need; i++)
                                 {
                                     if (_stack.Count == 0)
-                                        throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile);
-
-                                    var callee = _stack.Pop();
-                                    Closure f;
-                                    object? receiver = null;
-
-                                    if (callee is IntrinsicBound ib)
-                                    {
-                                        int need = ib.Method.ArityMin;
-                                        var argsB = new List<object>();
-                                        for (int i = 0; i < need; i++)
-                                        {
-                                            if (_stack.Count == 0)
-                                                throw new VMException("Runtime error: insufficient args for intrinsic call", instr.Line, instr.Col, instr.OriginFile);
-                                            argsB.Add(_stack.Pop());
-                                        }
-                                        var result = ib.Method.Invoke(ib.Receiver, argsB, instr);
-                                        _stack.Push(result);
-                                        continue;
-                                    }
-
-                                    else if (callee is BoundMethod bm)
-                                    {
-                                        f = bm.Function;
-                                        receiver = bm.Receiver;
-                                    }
-                                    else if (callee is Closure clos)
-                                    {
-                                        f = clos;
-
-                                        if (f.Parameters.Count > 0 && f.Parameters[0] == "this")
-                                        {
-                                            if (_stack.Count == 0)
-                                                throw new VMException("Runtime error: missing 'this' for method call.", instr.Line, instr.Col, instr.OriginFile);
-                                            receiver = _stack.Pop();
-                                        }
-                                    }
-                                    else
-                                    {
-                                        throw new VMException($"Runtime error: attempt to call non-function value ( {instr.Code} )", instr.Line, instr.Col, instr.OriginFile);
-                                    }
-
-                                    int piStart = (f.Parameters.Count > 0 && f.Parameters[0] == "this") ? 1 : 0;
-                                    var argsList = new List<object>();
-                                    for (int pi = f.Parameters.Count - 1; pi >= piStart; pi--)
-                                    {
-                                        if (_stack.Count == 0)
-                                            throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile);
-                                        argsList.Insert(0, _stack.Pop());
-                                    }
-
-                                    var callEnv = new Env(f.CapturedEnv);
-                                    for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
-                                        callEnv.Define(f.Parameters[pi], argsList[ai]);
-
-                                    _scopes.Add(callEnv);
-                                    _callStack.Push(new CallFrame(_ip, 1, receiver));
-                                    _ip = f.Address;
-                                    continue;
+                                        throw new VMException("Runtime error: insufficient args for intrinsic call", instr.Line, instr.Col, instr.OriginFile);
+                                    argsB.Add(_stack.Pop());
                                 }
+                                var result = ib.Method.Invoke(ib.Receiver, argsB, instr);
+                                _stack.Push(result);
+                                return StepResult.Continue;
                             }
-
-                        case OpCode.RET:
+                            else if (callee is BoundMethod bm)
                             {
-                                var retVal = _stack.Pop();
-
-                                var fr = _callStack.Pop();
-
-                                for (int i = 0; i < fr.ScopesAdded; i++)
-                                    _scopes.RemoveAt(_scopes.Count - 1);
-
-                                _ip = fr.ReturnIp;
-
-                                _stack.Push(retVal);
-                                continue;
+                                f = bm.Function;
+                                receiver = bm.Receiver;
                             }
-
-                        case OpCode.TRY_PUSH:
+                            else if (callee is Closure clos)
                             {
-                                var arr = instr.Operand as int[] ?? new[] { -1, -1 };
-                                int catchAddr = arr.Length > 0 ? arr[0] : -1;
-                                int finallyAddr = arr.Length > 1 ? arr[1] : -1;
-                                _tryHandlers.Add(new TryHandler(catchAddr, finallyAddr));
-                                break;
-                            }
+                                f = clos;
 
-                        case OpCode.TRY_POP:
-                            {
-                                if (_tryHandlers.Count == 0)
-                                    throw new VMException("Runtime error: TRY_POP with empty try stack", instr.Line, instr.Col, instr.OriginFile);
-                                _tryHandlers.RemoveAt(_tryHandlers.Count - 1);
-                                break;
-                            }
-
-                        case OpCode.THROW:
-                            {
-                                var any = _stack.Pop();
-
-                                var payload = any as ExceptionObject
-                                    ?? new ExceptionObject(
-                                           type: "UserError",
-                                            message: any?.ToString() ?? "error",
-                                            file: instr.OriginFile,
-                                            line: instr.Line,
-                                            col: instr.Col,
-                                            stack: BuildStackString(_insns, instr)
-                                       );
-
-                                if (RouteExceptionToTryHandlers(payload, instr, out var nip))
-                                { _ip = nip; continue; }
-
-                                throw new VMException($"Uncaught exception: {payload}", instr.Line, instr.Col, instr.OriginFile);
-                            }
-
-                        case OpCode.END_FINALLY:
-                            {
-                                if (_tryHandlers.Count == 0) break;
-
-                                var h = _tryHandlers[^1];
-                                _tryHandlers.RemoveAt(_tryHandlers.Count - 1);
-
-                                if (h.Exception != null)
+                                if (f.Parameters.Count > 0 && f.Parameters[0] == "this")
                                 {
-                                    var any = h.Exception;
-                                    h.Exception = null;
-
-                                    var payload = any as ExceptionObject
-                                        ?? new ExceptionObject(
-                                               type: "UserError",
-                                               message: any?.ToString() ?? "error",
-                                               file: instr.OriginFile,
-                                               line: instr.Line,
-                                               col: instr.Col,
-                                               stack: BuildStackString(_insns, instr)
-                                           );
-
-                                    if (RouteExceptionToTryHandlers(payload, instr, out var nip))
-                                    { _ip = nip; continue; }
-
-                                    throw new VMException($"Uncaught exception: {payload}", instr.Line, instr.Col, instr.OriginFile);
+                                    if (_stack.Count == 0)
+                                        throw new VMException("Runtime error: missing 'this' for method call.", instr.Line, instr.Col, instr.OriginFile);
+                                    receiver = _stack.Pop();
                                 }
-                                break;
+                            }
+                            else
+                            {
+                                throw new VMException($"Runtime error: attempt to call non-function value ( {instr.Code} )", instr.Line, instr.Col, instr.OriginFile);
                             }
 
-                        default:
-                            throw new VMException($"Runtime error: unknown opcode {instr.Code}", instr.Line, instr.Col, instr.OriginFile);
+                            int piStart = (f.Parameters.Count > 0 && f.Parameters[0] == "this") ? 1 : 0;
+                            var argsList = new List<object>();
+                            for (int pi = f.Parameters.Count - 1; pi >= piStart; pi--)
+                            {
+                                if (_stack.Count == 0)
+                                    throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile);
+                                argsList.Insert(0, _stack.Pop());
+                            }
+
+                            var callEnv = new Env(f.CapturedEnv);
+                            for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
+                                callEnv.Define(f.Parameters[pi], argsList[ai]);
+
+                            _scopes.Add(callEnv);
+                            _callStack.Push(new CallFrame(_ip, 1, receiver));
+                            _ip = f.Address;
+                            return StepResult.Continue;
+                        }
                     }
+
+                case OpCode.RET:
+                    {
+                        var retVal = _stack.Pop();
+
+                        var fr = _callStack.Pop();
+
+                        for (int i = 0; i < fr.ScopesAdded; i++)
+                            _scopes.RemoveAt(_scopes.Count - 1);
+
+                        _ip = fr.ReturnIp;
+
+                        _stack.Push(retVal);
+                        return StepResult.Continue;
+                    }
+
+                case OpCode.TRY_PUSH:
+                    {
+                        var arr = instr.Operand as int[] ?? new[] { -1, -1 };
+                        int catchAddr = arr.Length > 0 ? arr[0] : -1;
+                        int finallyAddr = arr.Length > 1 ? arr[1] : -1;
+                        _tryHandlers.Add(new TryHandler(catchAddr, finallyAddr));
+                        break;
+                    }
+
+                case OpCode.TRY_POP:
+                    {
+                        if (_tryHandlers.Count == 0)
+                            throw new VMException("Runtime error: TRY_POP with empty try stack", instr.Line, instr.Col, instr.OriginFile);
+                        _tryHandlers.RemoveAt(_tryHandlers.Count - 1);
+                        break;
+                    }
+
+                case OpCode.THROW:
+                    {
+                        var any = _stack.Pop();
+
+                        var payload = any as ExceptionObject
+                            ?? new ExceptionObject(
+                                   type: "UserError",
+                                    message: any?.ToString() ?? "error",
+                                    file: instr.OriginFile,
+                                    line: instr.Line,
+                                    col: instr.Col,
+                                    stack: BuildStackString(_insns, instr)
+                               );
+
+                        if (RouteExceptionToTryHandlers(payload, instr, out var nip))
+                        { _ip = nip; return StepResult.Continue; }
+
+                        throw new VMException($"Uncaught exception: {payload}", instr.Line, instr.Col, instr.OriginFile);
+                    }
+
+                case OpCode.END_FINALLY:
+                    {
+                        if (_tryHandlers.Count == 0) break;
+
+                        var h = _tryHandlers[^1];
+                        _tryHandlers.RemoveAt(_tryHandlers.Count - 1);
+
+                        if (h.Exception != null)
+                        {
+                            var any = h.Exception;
+                            h.Exception = null;
+
+                            var payload = any as ExceptionObject
+                                ?? new ExceptionObject(
+                                       type: "UserError",
+                                       message: any?.ToString() ?? "error",
+                                       file: instr.OriginFile,
+                                       line: instr.Line,
+                                       col: instr.Col,
+                                       stack: BuildStackString(_insns, instr)
+                                   );
+
+                            if (RouteExceptionToTryHandlers(payload, instr, out var nip))
+                            { _ip = nip; return StepResult.Continue; }
+
+                            throw new VMException($"Uncaught exception: {payload}", instr.Line, instr.Col, instr.OriginFile);
+                        }
+                        break;
+                    }
+
+                default:
+                    throw new VMException($"Runtime error: unknown opcode {instr.Code}", instr.Line, instr.Col, instr.OriginFile);
+            }
+
+            return StepResult.Next;
+        }
+
+        /// <summary>
+        /// The LoadInstructions
+        /// </summary>
+        /// <param name="inst">The inst<see cref="List{Instruction}"/></param>
+        public void LoadInstructions(List<Instruction> inst)
+        {
+            _program = inst;
+        }
+
+        /// <summary>
+        /// The TryGetVar
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="value">The value<see cref="object?"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        public bool TryGetVar(string name, out object? value)
+        {
+            value = null;
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            var env = FindEnvWithLocal(name);
+            if (env == null) return false;
+
+            return env.Vars.TryGetValue(name, out value);
+        }
+
+        /// <summary>
+        /// The GetVar
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="object?"/></returns>
+        public object? GetVar(string name)
+        {
+            if (TryGetVar(name, out var v)) return v;
+            throw new VMException($"Runtime error: undefined variable '{name}'", 0, 0, "<host>");
+        }
+
+        /// <summary>
+        /// The GetVar
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="T"/></returns>
+        public T GetVar<T>(string name)
+        {
+            var v = GetVar(name);
+            if (v is T t) return t;
+            throw new VMException($"Runtime error: variable '{name}' is not of type {typeof(T).Name}", 0, 0, "<host>");
+        }
+
+        /// <summary>
+        /// The SetVar
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="value">The value<see cref="object?"/></param>
+        /// <param name="defineIfMissing">The defineIfMissing<see cref="bool"/></param>
+        /// <param name="toGlobal">The toGlobal<see cref="bool"/></param>
+        public void SetVar(string name, object? value, bool defineIfMissing = true, bool toGlobal = false)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Variable name must not be empty.", nameof(name));
+
+            if (string.Equals(name, "this", StringComparison.Ordinal))
+                throw new VMException("Runtime error: cannot assign/declare 'this'", 0, 0, "<host>");
+
+            var env = FindEnvWithLocal(name);
+            if (env != null)
+            {
+                env.Vars[name] = value!;
+                return;
+            }
+
+            if (!defineIfMissing)
+                throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", 0, 0, "<host>");
+
+            var target = toGlobal ? _scopes[0] : _scopes[^1];
+            if (target.HasLocal(name))
+                target.Vars[name] = value!;
+            else
+                target.Define(name, value!);
+        }
+
+        /// <summary>
+        /// The SetVars
+        /// </summary>
+        /// <param name="vars">The vars<see cref="IDictionary{string, object?}"/></param>
+        /// <param name="defineIfMissing">The defineIfMissing<see cref="bool"/></param>
+        /// <param name="toGlobal">The toGlobal<see cref="bool"/></param>
+        public void SetVars(IDictionary<string, object?> vars, bool defineIfMissing = true, bool toGlobal = false)
+        {
+            foreach (var kv in vars)
+                SetVar(kv.Key, kv.Value, defineIfMissing, toGlobal);
+        }
+
+        /// <summary>
+        /// The CallFunction
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="args">The args<see cref="object?[]"/></param>
+        /// <returns>The <see cref="object?"/></returns>
+        public object? CallFunction(string name, params object?[] args)
+        {
+            int _ip = 0;
+            if (_program == null || _program.Count == 0)
+                throw new InvalidOperationException("No program loaded. Call LoadProgram(...) first.");
+
+            if (!_functions.TryGetValue(name, out var fInfo))
+                throw new VMException($"Runtime error: function '{name}' not found.", 0, 0, "<host>");
+
+            if (fInfo.Parameters.Count > 0 && fInfo.Parameters[0] == "this")
+                throw new VMException(
+                    $"Runtime error: function '{name}' requires 'this'. Use CallFunctionWithThis(...).",
+                    0, 0, "<host>");
+
+            var clos = new Closure(fInfo.Address, fInfo.Parameters, _scopes[^1], name);
+
+            if (args.Length < clos.Parameters.Count)
+                throw new VMException(
+                    $"Runtime error: insufficient args for '{name}' (need {clos.Parameters.Count}, have {args.Length})",
+                    0, 0, "<host>");
+
+            var callEnv = new Env(clos.CapturedEnv);
+            for (int i = 0; i < clos.Parameters.Count; i++)
+                callEnv.Define(clos.Parameters[i], args[i]);
+
+            _scopes.Add(callEnv);
+            _callStack.Push(new CallFrame(-1, 1, null));
+
+            int savedIp = _ip;
+            _ip = clos.Address;
+
+            object? result = null;
+            bool finished = false;
+
+            try
+            {
+                while (true)
+                {
+                    if (_ip < 0)
+                    {
+                        result = _stack.Count > 0 ? _stack.Pop() : null;
+                        finished = true;
+                        break;
+                    }
+                    if (_ip >= _program.Count)
+                        throw new VMException("Runtime error: IP out of bounds during CallFunction", 0, 0, "<host>");
+
+                    var instr = _program[_ip++];
+                    var step = HandleInstruction(ref _ip, _program, instr);
+                    if (step == StepResult.Halt) { finished = true; break; }
+                }
+            }
+            finally
+            {
+                if (!finished)
+                {
+                    if (_scopes.Count > 0) _scopes.RemoveAt(_scopes.Count - 1);
+                    if (_callStack.Count > 0) _callStack.Pop();
+                }
+                _ip = savedIp;
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// The Run
+        /// </summary>
+        /// <param name="debugging">The debugging<see cref="bool"/></param>
+        /// <param name="lastPos">The lastPos<see cref="int"/></param>
+        public void Run(bool debugging = false, int lastPos = 0)
+        {
+            if (_program is null || _program.Count == 0) return;
+
+            bool routed = false;
+            DebugStream = new MemoryStream();
+            int _ip = lastPos;
+
+            while (_ip < _program.Count)
+            {
+                try
+                {
+                    if (debugging)
+                    {
+                        DebugStream.Write(System.Text.Encoding.Default.GetBytes(
+                            $"[DEBUG] {_program[_ip].Line} ->  IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
+                        DebugStream.Write(System.Text.Encoding.Default.GetBytes(
+                            $"[DEBUG] {_program[_ip]} (Line {_program[_ip].Line}, Col {_program[_ip].Col})\n"));
+                    }
+
+                    var instr = _program[_ip++];
+                    var res = HandleInstruction(ref _ip, _program, instr);
+
+                    if (res == StepResult.Halt) return;
+                    if (res == StepResult.Continue) continue;
                 }
                 catch (VMException ex)
                 {
                     var payload = new ExceptionObject(
                         type: "RuntimeError",
                         message: ex.Message,
-                        file: _insns[_ip].OriginFile,
-                        line: _insns[_ip].Line,
-                        col: _insns[_ip].Col,
-                        stack: BuildStackString(_insns, _insns[_ip])
+                        file: _program[_ip].OriginFile,
+                        line: _program[_ip].Line,
+                        col: _program[_ip].Col,
+                        stack: BuildStackString(_program, _program[_ip])
                     );
 
-                    if (RouteExceptionToTryHandlers(payload, _insns[_ip], out var nip))
+                    if (RouteExceptionToTryHandlers(payload, _program[_ip], out var nip))
                     {
                         _ip = nip;
                         routed = true;
@@ -2715,9 +2912,12 @@ namespace CFGS_VM.VMCore
                         throw;
                     }
                 }
-                if (routed)
-                    continue;
 
+                if (routed)
+                {
+                    routed = false;
+                    continue;
+                }
             }
         }
 
