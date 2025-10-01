@@ -198,12 +198,12 @@ namespace CFGS_VM.VMCore
                     if (sliceSet.Slice.Start is not null)
                         CompileExpr(sliceSet.Slice.Start);
                     else
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, 0, sliceSet.Line, sliceSet.Col, s.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, sliceSet.Line, sliceSet.Col, s.OriginFile));
 
                     if (sliceSet.Slice.End is not null)
                         CompileExpr(sliceSet.Slice.End);
                     else
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, null, sliceSet.Line, sliceSet.Col, s.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, sliceSet.Line, sliceSet.Col, s.OriginFile));
 
                     CompileExpr(sliceSet.Value);
 
@@ -783,7 +783,7 @@ namespace CFGS_VM.VMCore
                     if (slice.Start is not null)
                         CompileExpr(slice.Start);
                     else
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, 0, slice.Line, slice.Col, e.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, slice.Line, slice.Col, e.OriginFile));
 
                     if (slice.End is not null)
                         CompileExpr(slice.End);
