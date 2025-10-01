@@ -1,7 +1,7 @@
 ﻿using CFGS_VM.Analytic;
 using CFGS_VM.VMCore;
 using System.Globalization;
-using System.Runtime.CompilerServices;
+using System.Text;
 
 /// <summary>
 /// Defines the <see cref="Program" />
@@ -13,35 +13,18 @@ public class Program
     /// </summary>
     /// <param name="args">The args<see cref="string[]"/></param>
 
-
-    public static List<int> Breakpoints { get; private set; } = [];
     public static void Main(string[] args)
     {
-        Breakpoints = [];
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
         bool debug = false;
         var files = new List<string>();
 
-        bool setbp = false;
         foreach (var arg in args)
         {
-            if (setbp)
-            {
-                if (int.TryParse(arg, out int line))
-                {
-                    Breakpoints.Add(line);
-                }
-                setbp = false;
-                continue;
-            }
             switch (arg)
             {
-
-                case "-b":
-                    setbp = true;
-                    break;
                 case "-d":
                 case "--debug":
                     debug = true;
@@ -62,12 +45,12 @@ public class Program
                 {
                     if (!File.Exists(file))
                     {
-                        Console.WriteLine($"Datei nicht gefunden: {file}");
+                        Console.WriteLine($"Script-file not found '{file}'.");
                         continue;
                     }
 
                     string input = File.ReadAllText(file);
-                    RunSource(input, file, debug, Breakpoints);
+                    RunSource(input, file, debug);
                 }
             }
             else
@@ -102,7 +85,7 @@ public class Program
     /// <param name="source">The source<see cref="string"/></param>
     /// <param name="name">The name<see cref="string"/></param>
     /// <param name="debug">The debug<see cref="bool"/></param>
-    private static void RunSource(string source, string name, bool debug = false, List<int>? Breakpoints = null)
+    private static void RunSource(string source, string name, bool debug = false)
     {
         var lexer = new Lexer(name, source);
         var parser = new Parser(lexer);
@@ -111,7 +94,7 @@ public class Program
         var compiler = new Compiler(name);
         var bytecode = compiler.Compile(ast);
 
-        /*if (debug)
+        if (debug)
         {
             Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
 
@@ -148,12 +131,17 @@ public class Program
                     Console.WriteLine(f.Key + " -> " + f.Value);
                 Console.WriteLine();
             }
-        }*/
+        }
 
         var vm = new VM();
         vm.LoadFunctions(compiler._functions);
         vm.Run(bytecode, debug);
-        Breakpoints?.Clear();
+        if(debug)
+        {
+            vm.DebugStream.Position = 0;
+            using var file = File.Create("log_file.log");
+            vm.DebugStream.CopyTo(file);
+        }
     }
 
     /// <summary>

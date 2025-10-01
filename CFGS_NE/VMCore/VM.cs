@@ -243,6 +243,129 @@ namespace CFGS_VM.VMCore
         };
 
         /// <summary>
+        /// Defines the ArrayProto
+        /// </summary>
+        private static readonly Dictionary<string, IntrinsicMethod> ArrayProto = new(StringComparer.Ordinal)
+        {
+            ["len"] = new IntrinsicMethod("len", 0, 0, (recv, a, instr) =>
+            {
+                var arr = recv as List<object> ?? new List<object>();
+                return arr.Count;
+            }),
+
+            ["push"] = new IntrinsicMethod("push", 1, 1, (recv, a, instr) =>
+            {
+                var arr = recv as List<object> ?? throw new VMException("push on non-array", instr.Line, instr.Col, instr.OriginFile);
+                arr.Add(a[0]);
+                return arr.Count;
+            }),
+
+            ["pop"] = new IntrinsicMethod("pop", 0, 0, (recv, a, instr) =>
+            {
+                var arr = recv as List<object> ?? throw new VMException("pop on non-array", instr.Line, instr.Col, instr.OriginFile);
+                if (arr.Count == 0) return null;
+                var last = arr[^1];
+                arr.RemoveAt(arr.Count - 1);
+                return last;
+            }),
+
+            ["insert_at"] = new IntrinsicMethod("insert_at", 2, 2, (recv, a, instr) =>
+            {
+                var arr = recv as List<object> ?? throw new VMException("insert_at on non-array", instr.Line, instr.Col, instr.OriginFile);
+                int idx = ClampIndex(Convert.ToInt32(a[0]), arr.Count);
+                arr.Insert(idx, a[1]);
+                return arr;
+            }),
+
+            ["remove_range"] = new IntrinsicMethod("remove_range", 2, 2, (recv, a, instr) =>
+            {
+                var arr = recv as List<object> ?? throw new VMException("remove_range on non-array", instr.Line, instr.Col, instr.OriginFile);
+                var (st, ex) = NormalizeSliceBounds(a[0], a[1], arr.Count, instr);
+                arr.RemoveRange(st, ex - st);
+                return arr;
+            }),
+
+            ["replace_range"] = new IntrinsicMethod("replace_range", 3, 3, (recv, a, instr) =>
+            {
+                var arr = recv as List<object> ?? throw new VMException("replace_range on non-array", instr.Line, instr.Col, instr.OriginFile);
+                var (st, ex) = NormalizeSliceBounds(a[0], a[1], arr.Count, instr);
+                if (a[2] is List<object> replList)
+                {
+                    arr.RemoveRange(st, ex - st);
+                    arr.InsertRange(st, replList);
+                }
+                else
+                {
+                    arr.RemoveRange(st, ex - st);
+                    arr.Insert(st, a[2]);
+                }
+                return arr;
+            }),
+
+            ["slice"] = new IntrinsicMethod("slice", 0, 2, (recv, a, instr) =>
+            {
+                var arr = recv as List<object> ?? new List<object>();
+                object? startObj = a.Count > 0 ? a[0] : null;
+                object? endObj = a.Count > 1 ? a[1] : null;
+                var (st, ex) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
+                return arr.GetRange(st, ex - st);
+            }),
+        };
+
+        /// <summary>
+        /// Defines the DictProto
+        /// </summary>
+        private static readonly Dictionary<string, IntrinsicMethod> DictProto = new(StringComparer.Ordinal)
+        {
+            ["len"] = new IntrinsicMethod("len", 0, 0, (recv, a, instr) =>
+            {
+                var dict = recv as Dictionary<string, object> ?? new();
+                return dict.Count;
+            }),
+
+            ["has"] = new IntrinsicMethod("has", 1, 1, (recv, a, instr) =>
+            {
+                var dict = recv as Dictionary<string, object> ?? new();
+                string key = a[0]?.ToString() ?? "";
+                return dict.ContainsKey(key);
+            }),
+
+            ["remove"] = new IntrinsicMethod("remove", 1, 1, (recv, a, instr) =>
+            {
+                var dict = recv as Dictionary<string, object> ?? new();
+                string key = a[0]?.ToString() ?? "";
+                return dict.Remove(key);
+            }),
+
+            ["keys"] = new IntrinsicMethod("keys", 0, 0, (recv, a, instr) =>
+            {
+                var dict = recv as Dictionary<string, object> ?? new();
+                return dict.Keys.ToList<object>();
+            }),
+
+            ["values"] = new IntrinsicMethod("values", 0, 0, (recv, a, instr) =>
+            {
+                var dict = recv as Dictionary<string, object> ?? new();
+                return dict.Values.ToList();
+            }),
+
+            ["set"] = new IntrinsicMethod("set", 2, 2, (recv, a, instr) =>
+            {
+                var dict = recv as Dictionary<string, object> ?? throw new VMException("set on non-dict", instr.Line, instr.Col, instr.OriginFile);
+                string key = a[0]?.ToString() ?? "";
+                dict[key] = a[1];
+                return dict;
+            }),
+
+            ["get_or"] = new IntrinsicMethod("get_or", 2, 2, (recv, a, instr) =>
+            {
+                var dict = recv as Dictionary<string, object> ?? new();
+                string key = a[0]?.ToString() ?? "";
+                return dict.TryGetValue(key, out var v) ? v : a[1];
+            }),
+        };
+
+        /// <summary>
         /// Defines the <see cref="ExceptionObject" />
         /// </summary>
         public sealed class ExceptionObject
@@ -658,11 +781,29 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="(int start, int endEx)"/></returns>
         private static (int start, int endEx) NormalizeSliceBounds(object? startObj, object? endObj, int len, Instruction instr)
         {
-            int start = startObj == null ? 0 : Convert.ToInt32(startObj);
+            bool startIsNull = startObj == null;
+            int start = startIsNull ? 0 : Convert.ToInt32(startObj);
             if (start < 0) start += len;
 
-            int endEx = endObj == null ? len : Convert.ToInt32(endObj);
-            if (endEx < 0) endEx += len;
+            int endEx;
+            if (endObj == null)
+            {
+                endEx = len;
+            }
+            else
+            {
+                int rawEnd = Convert.ToInt32(endObj);
+
+                if (rawEnd == 0 && startIsNull)
+                {
+                    endEx = len;
+                }
+                else
+                {
+                    endEx = rawEnd;
+                    if (endEx < 0) endEx += len;
+                }
+            }
 
             start = Math.Clamp(start, 0, len);
             endEx = Math.Clamp(endEx, 0, len);
@@ -1095,16 +1236,19 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="Env?"/></returns>
         private Env? FindEnvWithLocal(string name)
         {
-            for (int i = _scopes.Count - 1; i >= 0; i--)
-                if (_scopes[i].Vars.ContainsKey(name))
-                    return _scopes[i];
-
-            var env = _scopes[^1];
-            while (env.Parent != null)
+            for (var env = _scopes.Count > 0 ? _scopes[^1] : null; env != null; env = env.Parent)
             {
-                env = env.Parent;
-                if (env.Vars.ContainsKey(name)) return env;
+                if (env.Vars.ContainsKey(name))
+                    return env;
             }
+
+            if (_scopes.Count > 0)
+            {
+                var root = _scopes[0];
+                if (root != null && root.Vars.ContainsKey(name))
+                    return root;
+            }
+
             return null;
         }
 
@@ -1141,38 +1285,23 @@ namespace CFGS_VM.VMCore
         /// The Run
         /// </summary>
         /// <param name="_insns">The _insns<see cref="List{Instruction}"/></param>
-        /// <param name="StepDbg">The StepDbg<see cref="bool"/></param>
-        /// <param name="Breakpoints">The Breakpoints<see cref="List{int}?"/></param>
-        public void Run(List<Instruction> _insns, bool StepDbg = false, List<int>? Breakpoints = null)
+        /// <param name="debugging">The debugging<see cref="bool"/></param>
+        public void Run(List<Instruction> _insns, bool debugging = false)
         {
-            int curLine = -1;
             if (_insns is null || _insns.Count == 0) return;
             bool routed = false;
+            DebugStream = new MemoryStream();
             int _ip = 0;
             while (_ip < _insns.Count)
             {
                 try
                 {
 
-                    if (StepDbg)
+                    if (debugging)
                     {
 
-                        Console.ForegroundColor = ConsoleColor.DarkGray;
-                        Console.WriteLine($"[DEBUG] {_insns[_ip].Line} ->  IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}");
-                        var instrDbg = _insns[_ip];
-                        Console.WriteLine($"[DEBUG] NEXT INSTR: {instrDbg} (Line {instrDbg.Line}, Col {instrDbg.Col})");
-                        Console.ResetColor();
-                        if (Breakpoints is not null)
-                        {
-                            if (Breakpoints.Contains(curLine))
-                            {
-                                Console.ForegroundColor = ConsoleColor.Red;
-                                Console.WriteLine($"[DEBUG] BREAKPOINT HIT at Line {instrDbg.Line}, Col {instrDbg.Col}");
-                                Console.ResetColor();
-                                Console.WriteLine("Press any Key to continue...");
-                                Console.ReadKey();
-                            }
-                        }
+                        DebugStream.Write(System.Text.Encoding.Default.GetBytes($"[DEBUG] {_insns[_ip].Line} ->  IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
+                        DebugStream.Write(System.Text.Encoding.Default.GetBytes($"[DEBUG] {_insns[_ip]} (Line {_insns[_ip].Line}, Col {_insns[_ip].Col})\n"));
                     }
                     var instr = _insns[_ip++];
 
@@ -2361,6 +2490,7 @@ namespace CFGS_VM.VMCore
 
                                     if (callee is IntrinsicBound ib_ex)
                                     {
+
                                         if (explicitArgCount < ib_ex.Method.ArityMin || explicitArgCount > ib_ex.Method.ArityMax)
                                             throw new VMException(
                                                 $"Runtime error: {ib_ex.Method.Name} expects {ib_ex.Method.ArityMin}..{ib_ex.Method.ArityMax} args, got {explicitArgCount}",
@@ -3019,6 +3149,10 @@ namespace CFGS_VM.VMCore
             {
                 case List<object> arr:
                     {
+
+                        if (idxObj is string mname && ArrayProto.TryGetValue(mname, out var imArr))
+                            return new IntrinsicBound(imArr, arr);
+
                         int index = Convert.ToInt32(idxObj);
                         if (index < 0 || index >= arr.Count)
                             throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
@@ -3055,6 +3189,8 @@ namespace CFGS_VM.VMCore
 
                 case Dictionary<string, object> dict:
                     {
+                        if (idxObj is string mname && DictProto.TryGetValue(mname, out var imDict))
+                            return new IntrinsicBound(imDict, dict);
                         string key = idxObj?.ToString() ?? "";
                         if (dict.TryGetValue(key, out var val))
                             return val;
@@ -3082,6 +3218,46 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// The RequireIntIndex
+        /// </summary>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="int"/></returns>
+        private static int RequireIntIndex(object idxObj, Instruction instr)
+        {
+            if (idxObj is int i) return i;
+            if (idxObj is long l)
+            {
+                if (l < int.MinValue || l > int.MaxValue)
+                    throw new VMException($"Runtime error: index {l} outside Int32 range", instr.Line, instr.Col, instr.OriginFile);
+                return (int)l;
+            }
+            if (idxObj is short s) return (int)s;
+            if (idxObj is byte b) return (int)b;
+
+            if (idxObj is string sVal && int.TryParse(sVal, out var parsed))
+                return parsed;
+
+            throw new VMException($"Runtime error: index must be an integer, got '{idxObj?.GetType().Name ?? "null"}'", instr.Line, instr.Col, instr.OriginFile);
+        }
+
+        /// <summary>
+        /// The IsReservedArrayMemberName
+        /// </summary>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsReservedArrayMemberName(object idxObj)
+            => idxObj is string name && ArrayProto.ContainsKey(name);
+
+        /// <summary>
+        /// The IsReservedDictMemberName
+        /// </summary>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsReservedDictMemberName(object idxObj)
+            => idxObj is string name && DictProto.ContainsKey(name);
+
+        /// <summary>
         /// The SetIndexedValue
         /// </summary>
         /// <param name="target">The target<see cref="object"/></param>
@@ -3094,22 +3270,32 @@ namespace CFGS_VM.VMCore
             {
                 case List<object> arr:
                     {
-                        int index = Convert.ToInt32(idxObj);
+                        if (IsReservedArrayMemberName(idxObj))
+                            throw new VMException($"Runtime error: cannot assign to array intrinsic '{idxObj}'", instr.Line, instr.Col, instr.OriginFile);
+
+                        int index = RequireIntIndex(idxObj, instr);
+
                         if (index < 0 || index >= arr.Count)
-                            throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: index {index} out of range (0..{arr.Count - 1})", instr.Line, instr.Col, instr.OriginFile);
+
                         arr[index] = value;
                         break;
                     }
 
-                case string strv:
+                case string _:
                     {
-
-                        throw new VMException("Runtime error: INDEX_SET with string. Strings are immutable", instr.Line, instr.Col, instr.OriginFile);
+                        throw new VMException("Runtime error: INDEX_SET on string. Strings are immutable.", instr.Line, instr.Col, instr.OriginFile);
                     }
 
                 case Dictionary<string, object> dict:
                     {
+                        if (IsReservedDictMemberName(idxObj))
+                            throw new VMException($"Runtime error: key '{idxObj}' is reserved for dictionary intrinsics", instr.Line, instr.Col, instr.OriginFile);
+
                         string key = idxObj?.ToString() ?? "";
+                        if (key.Length == 0)
+                            throw new VMException("Runtime error: dictionary key cannot be empty", instr.Line, instr.Col, instr.OriginFile);
+
                         dict[key] = value;
                         break;
                     }
@@ -3117,12 +3303,18 @@ namespace CFGS_VM.VMCore
                 case ClassInstance obj:
                     {
                         string key = idxObj?.ToString() ?? "";
+                        if (key.Length == 0)
+                            throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile);
+
                         obj.Fields[key] = value;
                         break;
                     }
 
+                case null:
+                    throw new VMException("Runtime error: INDEX_SET on null target", instr.Line, instr.Col, instr.OriginFile);
+
                 default:
-                    throw new VMException($"Runtime error: target is not index-assignable", instr.Line, instr.Col, instr.OriginFile);
+                    throw new VMException("Runtime error: target is not index-assignable", instr.Line, instr.Col, instr.OriginFile);
             }
         }
 
