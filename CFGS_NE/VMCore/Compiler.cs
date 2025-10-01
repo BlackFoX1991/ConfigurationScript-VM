@@ -401,8 +401,8 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.PUSH_STR, "init", cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, s.OriginFile));
 
-                            foreach (var p in ctorParams)
-                                _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, s.OriginFile));
+                            for (int i = ctorParams.Count - 1; i >= 0; i--)
+                                _insns.Add(new Instruction(OpCode.LOAD_VAR, ctorParams[i], cds.Line, cds.Col, s.OriginFile));
 
                             _insns.Add(new Instruction(OpCode.CALL_INDIRECT, ctorParams.Count, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.POP, null, cds.Line, cds.Col, s.OriginFile));
