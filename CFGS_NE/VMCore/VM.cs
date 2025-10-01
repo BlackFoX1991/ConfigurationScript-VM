@@ -1,7 +1,6 @@
 ﻿using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extension;
 using CFGS_VM.VMCore.Extention;
-using System;
 using System.Globalization;
 using System.Text;
 
@@ -243,15 +242,50 @@ namespace CFGS_VM.VMCore
             ["close"] = new IntrinsicMethod("close", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; fh.Close(); return 1; }),
         };
 
+        /// <summary>
+        /// Defines the <see cref="ExceptionObject" />
+        /// </summary>
         public sealed class ExceptionObject
         {
+            /// <summary>
+            /// Gets the Type
+            /// </summary>
             public string Type { get; }
-            public string Message { get; }
-            public string File { get; }
-            public int Line { get; }
-            public int Col { get; }
-            public string Stack { get; }  // optional, kann leer sein
 
+            /// <summary>
+            /// Gets the Message
+            /// </summary>
+            public string Message { get; }
+
+            /// <summary>
+            /// Gets the File
+            /// </summary>
+            public string File { get; }
+
+            /// <summary>
+            /// Gets the Line
+            /// </summary>
+            public int Line { get; }
+
+            /// <summary>
+            /// Gets the Col
+            /// </summary>
+            public int Col { get; }
+
+            /// <summary>
+            /// Gets the Stack
+            /// </summary>
+            public string Stack { get; }
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="ExceptionObject"/> class.
+            /// </summary>
+            /// <param name="type">The type<see cref="string"/></param>
+            /// <param name="message">The message<see cref="string"/></param>
+            /// <param name="file">The file<see cref="string"/></param>
+            /// <param name="line">The line<see cref="int"/></param>
+            /// <param name="col">The col<see cref="int"/></param>
+            /// <param name="stack">The stack<see cref="string"/></param>
             public ExceptionObject(string type, string message, string file, int line, int col, string stack = "")
             {
                 Type = type;
@@ -262,9 +296,16 @@ namespace CFGS_VM.VMCore
                 Stack = stack;
             }
 
+            /// <summary>
+            /// The ToString
+            /// </summary>
+            /// <returns>The <see cref="string"/></returns>
             public override string ToString() => $"{Type}: {Message}";
         }
 
+        /// <summary>
+        /// Defines the ExceptionProto
+        /// </summary>
         private static readonly Dictionary<string, IntrinsicMethod> ExceptionProto =
     new(StringComparer.Ordinal)
     {
@@ -276,7 +317,6 @@ namespace CFGS_VM.VMCore
         ["stack"] = new IntrinsicMethod("stack", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Stack),
         ["toString"] = new IntrinsicMethod("toString", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).ToString()),
     };
-
 
         /// <summary>
         /// Defines the <see cref="Env" />
@@ -2474,7 +2514,6 @@ namespace CFGS_VM.VMCore
                             {
                                 var any = _stack.Pop();
 
-                                // Immer ExceptionObject routen; jetzt MIT Stacktrace
                                 var payload = any as ExceptionObject
                                     ?? new ExceptionObject(
                                            type: "UserError",
@@ -2482,7 +2521,7 @@ namespace CFGS_VM.VMCore
                                             file: instr.OriginFile,
                                             line: instr.Line,
                                             col: instr.Col,
-                                            stack: BuildStackString(_insns, instr)   // ← NEU
+                                            stack: BuildStackString(_insns, instr)
                                        );
 
                                 if (RouteExceptionToTryHandlers(payload, instr, out var nip))
@@ -2510,7 +2549,7 @@ namespace CFGS_VM.VMCore
                                                file: instr.OriginFile,
                                                line: instr.Line,
                                                col: instr.Col,
-                                               stack: BuildStackString(_insns, instr)   // ← NEU
+                                               stack: BuildStackString(_insns, instr)
                                            );
 
                                     if (RouteExceptionToTryHandlers(payload, instr, out var nip))
@@ -2520,8 +2559,6 @@ namespace CFGS_VM.VMCore
                                 }
                                 break;
                             }
-
-
 
                         default:
                             throw new VMException($"Runtime error: unknown opcode {instr.Code}", instr.Line, instr.Col, instr.OriginFile);
@@ -2535,7 +2572,7 @@ namespace CFGS_VM.VMCore
                         file: _insns[_ip].OriginFile,
                         line: _insns[_ip].Line,
                         col: _insns[_ip].Col,
-                        stack: BuildStackString(_insns, _insns[_ip]) // ← NEU: Stacktrace
+                        stack: BuildStackString(_insns, _insns[_ip])
                     );
 
                     if (RouteExceptionToTryHandlers(payload, _insns[_ip], out var nip))
@@ -2551,21 +2588,24 @@ namespace CFGS_VM.VMCore
                 if (routed)
                     continue;
 
-
             }
         }
 
+        /// <summary>
+        /// The BuildStackString
+        /// </summary>
+        /// <param name="insns">The insns<see cref="List{Instruction}"/></param>
+        /// <param name="current">The current<see cref="Instruction"/></param>
+        /// <returns>The <see cref="string"/></returns>
         private string BuildStackString(List<Instruction> insns, Instruction current)
         {
             var sb = new StringBuilder();
 
-            // Frame 0: aktuelle Instruktion
             sb.Append("  at ")
               .Append(current.OriginFile).Append(':')
               .Append(current.Line).Append(':')
               .Append(current.Col).AppendLine();
 
-            // Rest: CallFrames (innen -> außen)
             foreach (var frame in _callStack.Reverse())
             {
                 int ip = Math.Clamp(frame.ReturnIp, 0, insns.Count - 1);
@@ -2578,7 +2618,6 @@ namespace CFGS_VM.VMCore
 
             return sb.ToString();
         }
-
 
         /// <summary>
         /// The SafeCurrentInstr
@@ -2724,10 +2763,9 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The EscapeJsonString
+        /// The JsonEscapeString
         /// </summary>
         /// <param name="s">The s<see cref="string"/></param>
-        /// <param name="escapeNewlines">The escapeNewlines<see cref="bool"/></param>
         /// <returns>The <see cref="string"/></returns>
         private static string JsonEscapeString(string s)
         {
@@ -2754,6 +2792,13 @@ namespace CFGS_VM.VMCore
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The WriteJsonValue
+        /// </summary>
+        /// <param name="v">The v<see cref="object?"/></param>
+        /// <param name="w">The w<see cref="TextWriter"/></param>
+        /// <param name="seen">The seen<see cref="HashSet{object}?"/></param>
+        /// <param name="mode">The mode<see cref="int"/></param>
         private static void WriteJsonValue(object? v, TextWriter w, HashSet<object>? seen = null, int mode = 2)
         {
             seen ??= new HashSet<object>(ReferenceEqualityComparer.Instance);
@@ -2831,16 +2876,20 @@ namespace CFGS_VM.VMCore
                     }
 
                 case Closure clos:
-                    // als String repräsentieren
                     w.Write('"'); w.Write(JsonEscapeString(clos.Name ?? "<closure>")); w.Write('"'); return;
 
                 default:
-                    // Fallback: ToString als String
                     w.Write('"'); w.Write(JsonEscapeString(Convert.ToString(v, CultureInfo.InvariantCulture) ?? "")); w.Write('"');
                     return;
             }
         }
 
+        /// <summary>
+        /// The JsonStringify
+        /// </summary>
+        /// <param name="v">The v<see cref="object?"/></param>
+        /// <param name="mode">The mode<see cref="int"/></param>
+        /// <returns>The <see cref="string"/></returns>
         public static string JsonStringify(object? v, int mode = 2)
         {
             var sb = new StringBuilder();
@@ -2849,13 +2898,18 @@ namespace CFGS_VM.VMCore
             return sb.ToString();
         }
 
-
+        /// <summary>
+        /// The PrintValue
+        /// </summary>
+        /// <param name="v">The v<see cref="object"/></param>
+        /// <param name="w">The w<see cref="TextWriter"/></param>
+        /// <param name="mode">The mode<see cref="int"/></param>
+        /// <param name="seen">The seen<see cref="HashSet{object}?"/></param>
+        /// <param name="escapeNewlines">The escapeNewlines<see cref="bool"/></param>
         private static void PrintValue(object v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = true)
         {
-            // 'escapeNewlines' bedeutet hier: \n,\r,\t usw. beim Drucken in echte Steuerzeichen umwandeln
             static string UnescapeForPrinting(string s)
             {
-                // nur die gängigen Shortcuts – bewusst kein volles JSON-Escaping
                 return s
                     .Replace("\\n", "\n")
                     .Replace("\\r", "\r")
@@ -2902,7 +2956,6 @@ namespace CFGS_VM.VMCore
                 for (int i = 0; i < entries.Count; i++)
                 {
                     var kv = entries[i];
-                    // Keys einfach roh ausgeben (kein JSON-Escaping mehr)
                     w.Write("\"");
                     w.Write(escapeNewlines ? UnescapeForPrinting(kv.Key) : kv.Key);
                     w.Write("\": ");
@@ -2925,7 +2978,6 @@ namespace CFGS_VM.VMCore
 
             if (v is ExceptionObject exo)
             {
-                // menschenlesbare Kurzform beim Print
                 if (mode == 2)
                     w.Write($"\"{exo.Type}: {exo.Message}\"");
                 else
@@ -2939,7 +2991,6 @@ namespace CFGS_VM.VMCore
             switch (v)
             {
                 case string s:
-                    // Strings roh; optional \n etc. in echte Steuerzeichen umwandeln
                     w.Write(escapeNewlines ? UnescapeForPrinting(s) : s);
                     break;
                 case double xd: w.Write(xd.ToString(CultureInfo.InvariantCulture)); break;
@@ -2986,12 +3037,10 @@ namespace CFGS_VM.VMCore
                         string key = idxObj?.ToString() ?? "";
                         if (ExceptionProto.TryGetValue(key, out var im))
                             return new IntrinsicBound(im, exo);
-                        // optional: bekannte kurz-Keys direkt als Werte erlauben
                         if (string.Equals(key, "message$", StringComparison.Ordinal)) return exo.Message;
                         if (string.Equals(key, "type$", StringComparison.Ordinal)) return exo.Type;
                         throw new VMException($"invalid member '{key}' on Exception", instr.Line, instr.Col, instr.OriginFile);
                     }
-
 
                 case string strv:
                     {
