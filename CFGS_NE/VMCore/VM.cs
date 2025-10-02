@@ -1073,157 +1073,230 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="object"/></returns>
         private static object CallBuiltin(string name, List<object> args, Instruction instr)
         {
-            switch (name)
+            // Hilfsfunktionen für detaillierte Fehlertexte
+            static string FormatArg(object? v)
             {
-
-                case "json":
-                    {
-                        return JsonStringify(args[0]);
-                    }
-
-                case "fopen":
-                    {
-                        if (args.Count < 2)
-                            throw new VMException("Runtime error: fopen(path, mode) expects 2 arguments",
-                                instr.Line, instr.Col, instr.OriginFile);
-
-                        object a0 = args[0];
-                        object a1 = args[1];
-
-                        string path;
-                        int mode;
-
-                        if (a0 is string || a0 is char)
-                        {
-                            path = a0.ToString() ?? "";
-                            mode = Convert.ToInt32(a1);
-                        }
-                        else if (a1 is string || a1 is char)
-                        {
-                            path = a1.ToString() ?? "";
-                            mode = Convert.ToInt32(a0);
-                        }
-                        else
-                        {
-                            throw new VMException("Runtime error: fopen needs a string path and a numeric mode",
-                                instr.Line, instr.Col, instr.OriginFile);
-                        }
-
-                        FileMode fmode; FileAccess facc; bool canRead = false, canWrite = false;
-                        switch (mode)
-                        {
-                            case 0: fmode = FileMode.Open; facc = FileAccess.Read; canRead = true; break;
-                            case 1: fmode = FileMode.OpenOrCreate; facc = FileAccess.ReadWrite; canRead = true; canWrite = true; break;
-                            case 2: fmode = FileMode.Create; facc = FileAccess.Write; canWrite = true; break;
-                            case 3: fmode = FileMode.Append; facc = FileAccess.Write; canWrite = true; break;
-                            case 4: fmode = FileMode.OpenOrCreate; facc = FileAccess.Write; canWrite = true; break;
-                            default:
-                                throw new VMException($"Runtime error: invalid fopen mode {mode}",
-                                    instr.Line, instr.Col, instr.OriginFile);
-                        }
-
-                        try
-                        {
-                            var fs = new FileStream(path, fmode, facc, FileShare.Read);
-                            if (mode == 3) fs.Seek(0, SeekOrigin.End);
-                            return new FileHandle(path, mode, fs, canRead, canWrite);
-                        }
-                        catch (Exception ex)
-                        {
-                            throw new VMException($"Runtime error: fopen failed for '{path}': {ex.Message}",
-                                instr.Line, instr.Col, instr.OriginFile);
-                        }
-                    }
-
-                case "typeof":
-                    {
-                        var val = args[0];
-                        if (val == null) return "Null";
-                        if (val is bool) return "Bool";
-                        if (val is int) return "Int";
-                        if (val is long) return "Long";
-                        if (val is double) return "Double";
-                        if (val is float) return "Float";
-                        if (val is decimal) return "Decimal";
-                        if (val is string) return "String";
-                        if (val is char) return "Char";
-                        if (val is List<object>) return "Array";
-                        if (val is FunctionInfo) return "Function";
-                        if (val is Closure) return "Closure";
-                        if (val is Dictionary<string, object>) return "Dictionary";
-                        if (val is ClassInstance) return (val as ClassInstance ?? new ClassInstance("null")).ClassName;
-                        return val.GetType().Name;
-                    }
-
-                case "getfields":
-                    if (args[0] is not Dictionary<string, object>)
-                        return new List<object>();
-                    var fld = args[0] as Dictionary<string, object>;
-                    return fld?.Keys.ToList<object>() ?? new List<object>();
-                case "isarray":
-                    return args[0] is List<object>;
-
-                case "isdict":
-                    return args[0] is Dictionary<string, object>;
-
-                case "len":
-                    if (args[0] is string s) return s.Length;
-                    if (args[0] is List<object> list) return list.Count;
-                    if (args[0] is Dictionary<string, object> dct) return dct.Count;
-                    return -1;
-
-                case "isdigit":
-                    if (args[0] is null) return false;
-                    return char.IsDigit(Convert.ToChar(args[0]));
-                case "isletter":
-                    if (args[0] is null) return false;
-                    return char.IsLetter(Convert.ToChar(args[0]));
-                case "isspace":
-                    if (args[0] is null) return false;
-                    return char.IsWhiteSpace(Convert.ToChar(args[0]));
-                case "isalnum":
-                    if (args[0] is null) return false;
-                    return char.IsLetterOrDigit(Convert.ToChar(args[0]));
-
-                case "str":
-                    return args[0].ToString() ?? "";
-                case "toi":
-                    return ToNumber(args[0]);
-
-                case "toi16":
-                    return Convert.ToInt16(args[0]);
-                case "toi32":
-                    return Convert.ToInt32(args[0]);
-                case "toi64":
-                    return Convert.ToInt64(args[0]);
-                case "abs":
-                    return Math.Abs((dynamic)args[0]);
-                case "rand":
-                    return new Random((int)args[0]).Next((int)args[1], (int)args[2]);
-
-                case "print":
-                    PrintValue(args[0], Console.Out, 1, escapeNewlines: true);
-                    Console.Out.WriteLine();
-                    Console.Out.Flush();
-                    return 1;
-
-                case "put":
-                    PrintValue(args[0], Console.Out, 1, escapeNewlines: false);
-                    return 1;
-
-                case "clear":
-                    Console.Clear();
-                    return 1;
-
-                case "getl":
-                    return Console.ReadLine() ?? "";
-                case "getc":
-                    return Console.Read();
-
+                if (v is null) return "null";
+                var t = v.GetType().Name;
+                // kurze Vorschau (max 40 Zeichen)
+                var s = v is string str ? str : v.ToString() ?? "";
+                if (s.Length > 40) s = s.Substring(0, 40) + "…";
+                return $"{t}({s})";
             }
 
-            throw new VMException($"Runtime error: unknown builtin function '{name}'", instr.Line, instr.Col, instr.OriginFile);
+            static string ArgsDebug(List<object> a)
+                => a is null ? "null" : "[" + string.Join(", ", a.Select(FormatArg)) + "]";
+
+            try
+            {
+                switch (name)
+                {
+                    case "json":
+                        {
+                            return JsonStringify(args[0]);
+                        }
+
+                    case "fopen":
+                        {
+                            if (args.Count < 2)
+                                throw new VMException(
+                                    "Runtime error: fopen(path, mode) expects 2 arguments",
+                                    instr.Line, instr.Col, instr.OriginFile);
+
+                            object a0 = args[0];
+                            object a1 = args[1];
+
+                            string path;
+                            int mode;
+
+                            if (a0 is string || a0 is char)
+                            {
+                                path = a0.ToString() ?? "";
+                                mode = Convert.ToInt32(a1);
+                            }
+                            else if (a1 is string || a1 is char)
+                            {
+                                path = a1.ToString() ?? "";
+                                mode = Convert.ToInt32(a0);
+                            }
+                            else
+                            {
+                                throw new VMException(
+                                    "Runtime error: fopen needs a string path and a numeric mode",
+                                    instr.Line, instr.Col, instr.OriginFile);
+                            }
+
+                            FileMode fmode; FileAccess facc; bool canRead = false, canWrite = false;
+                            switch (mode)
+                            {
+                                case 0: fmode = FileMode.Open; facc = FileAccess.Read; canRead = true; break;
+                                case 1: fmode = FileMode.OpenOrCreate; facc = FileAccess.ReadWrite; canRead = true; canWrite = true; break;
+                                case 2: fmode = FileMode.Create; facc = FileAccess.Write; canWrite = true; break;
+                                case 3: fmode = FileMode.Append; facc = FileAccess.Write; canWrite = true; break;
+                                case 4: fmode = FileMode.OpenOrCreate; facc = FileAccess.Write; canWrite = true; break;
+                                default:
+                                    throw new VMException(
+                                        $"Runtime error: invalid fopen mode {mode}",
+                                        instr.Line, instr.Col, instr.OriginFile);
+                            }
+
+                            try
+                            {
+                                var fs = new FileStream(path, fmode, facc, FileShare.Read);
+                                if (mode == 3) fs.Seek(0, SeekOrigin.End);
+                                return new FileHandle(path, mode, fs, canRead, canWrite);
+                            }
+                            catch (UnauthorizedAccessException ex)
+                            {
+                                throw new VMException(
+                                    $"Runtime error: fopen unauthorized for '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
+                                    instr.Line, instr.Col, instr.OriginFile);
+                            }
+                            catch (DirectoryNotFoundException ex)
+                            {
+                                throw new VMException(
+                                    $"Runtime error: fopen path not found '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
+                                    instr.Line, instr.Col, instr.OriginFile);
+                            }
+                            catch (FileNotFoundException ex)
+                            {
+                                // relevant vor allem bei FileMode.Open
+                                throw new VMException(
+                                    $"Runtime error: fopen file not found '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
+                                    instr.Line, instr.Col, instr.OriginFile);
+                            }
+                            catch (IOException ex)
+                            {
+                                throw new VMException(
+                                    $"Runtime error: fopen I/O error for '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
+                                    instr.Line, instr.Col, instr.OriginFile);
+                            }
+                            catch (Exception ex)
+                            {
+                                throw new VMException(
+                                    $"Runtime error: fopen failed for '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
+                                    instr.Line, instr.Col, instr.OriginFile);
+                            }
+                        }
+
+                    case "typeof":
+                        {
+                            var val = args[0];
+                            if (val == null) return "Null";
+                            if (val is bool) return "Bool";
+                            if (val is int) return "Int";
+                            if (val is long) return "Long";
+                            if (val is double) return "Double";
+                            if (val is float) return "Float";
+                            if (val is decimal) return "Decimal";
+                            if (val is string) return "String";
+                            if (val is char) return "Char";
+                            if (val is List<object>) return "Array";
+                            if (val is FunctionInfo) return "Function";
+                            if (val is Closure) return "Closure";
+                            if (val is Dictionary<string, object>) return "Dictionary";
+                            if (val is ClassInstance) return (val as ClassInstance ?? new ClassInstance("null")).ClassName;
+                            return val.GetType().Name;
+                        }
+
+                    case "getfields":
+                        if (args[0] is not Dictionary<string, object>)
+                            return new List<object>();
+                        var fld = args[0] as Dictionary<string, object>;
+                        return fld?.Keys.ToList<object>() ?? new List<object>();
+
+                    case "isarray":
+                        return args[0] is List<object>;
+
+                    case "isdict":
+                        return args[0] is Dictionary<string, object>;
+
+                    case "len":
+                        if (args[0] is string s) return s.Length;
+                        if (args[0] is List<object> list) return list.Count;
+                        if (args[0] is Dictionary<string, object> dct) return dct.Count;
+                        return -1;
+
+                    case "isdigit":
+                        if (args[0] is null) return false;
+                        return char.IsDigit(Convert.ToChar(args[0]));
+
+                    case "isletter":
+                        if (args[0] is null) return false;
+                        return char.IsLetter(Convert.ToChar(args[0]));
+
+                    case "isspace":
+                        if (args[0] is null) return false;
+                        return char.IsWhiteSpace(Convert.ToChar(args[0]));
+
+                    case "isalnum":
+                        if (args[0] is null) return false;
+                        return char.IsLetterOrDigit(Convert.ToChar(args[0]));
+
+                    case "str":
+                        if (args[0] is null) return null;
+                        return args[0].ToString() ?? "";
+
+                    case "toi":
+                        return ToNumber(args[0]);
+
+                    case "toi16":
+                        return Convert.ToInt16(args[0]);
+
+                    case "toi32":
+                        return Convert.ToInt32(args[0]);
+
+                    case "toi64":
+                        return Convert.ToInt64(args[0]);
+
+                    case "abs":
+                        return Math.Abs((dynamic)args[0]);
+
+                    case "rand":
+                        return new Random((int)args[0]).Next((int)args[1], (int)args[2]);
+
+                    case "print":
+                        PrintValue(args[0], Console.Out, 1, escapeNewlines: true);
+                        Console.Out.WriteLine();
+                        Console.Out.Flush();
+                        return 1;
+
+                    case "put":
+                        PrintValue(args[0], Console.Out, 1, escapeNewlines: false);
+                        return 1;
+
+                    case "clear":
+                        Console.Clear();
+                        return 1;
+
+                    case "getl":
+                        return Console.ReadLine() ?? "";
+
+                    case "getc":
+                        return Console.Read();
+                }
+
+                throw new VMException(
+                    $"Runtime error: unknown builtin function '{name}'",
+                    instr.Line, instr.Col, instr.OriginFile);
+            }
+            catch (VMException)
+            {
+                // Bereits mit guter Meldung versehen – nicht umbrechen.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Fängst ALLE unerwarteten Fehler im Builtin ab und reicherst sie an.
+                var argsInfo = ArgsDebug(args);
+                var msg =
+                    $"Runtime error in builtin '{name}': {ex.GetType().Name}: {ex.Message}\n" +
+                    $"Args: {argsInfo}\n" +
+                    $"Instruction: {instr.OriginFile}:{instr.Line}:{instr.Col}";
+                throw new VMException(msg, instr.Line, instr.Col, instr.OriginFile);
+            }
         }
+
 
         /// <summary>
         /// Defines the bInFunc

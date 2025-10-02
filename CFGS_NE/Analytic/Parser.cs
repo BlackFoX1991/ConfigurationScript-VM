@@ -1474,7 +1474,7 @@ namespace CFGS_VM.Analytic
                     break;
                 }
             }
-            return node is null ? throw new ParserException("Null Reference", _current.Line, _current.Column, _current.Filename) : node;
+            return node ?? new NullExpr(_current.Line,_current.Column,_current.Filename);
         }
 
         /// <summary>
