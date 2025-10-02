@@ -123,7 +123,7 @@ assert_eq("div_behavior", d, 2);  # ggf. 2.333... erwarten, je nach Implementier
 
 # Dict: fehlender Key -> 0/null? (hier: 0 wie in deinem Delete-Test)
 var tmp = {"a": 1};
-assert_eq("dict_missing_key", tmp["zzz"], 0);
+assert_eq("dict_missing_key", tmp["zzz"], null);
 
 # Booleans in if/JMP_IF_FALSE (True/False vs. 1/0)
 var tcount = 0;

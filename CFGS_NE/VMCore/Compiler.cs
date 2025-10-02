@@ -792,6 +792,9 @@ namespace CFGS_VM.VMCore
 
                     _insns.Add(new Instruction(OpCode.SLICE_GET, null, slice.Line, slice.Col, e.OriginFile));
                     break;
+                case NullExpr nil:
+                    _insns.Add(new Instruction(OpCode.PUSH_NULL, null, e.Line, e.Col, e.OriginFile));
+                    break;
 
                 case BinaryExpr b:
                     {

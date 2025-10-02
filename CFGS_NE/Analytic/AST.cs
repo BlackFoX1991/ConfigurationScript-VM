@@ -46,6 +46,10 @@
         public TokenType eType = tp;
     }
 
+    public class NullExpr(int line, int col, string fname) : Expr(line, col, fname)
+    {
+    }
+
     /// <summary>
     /// Defines the <see cref="NumberExpr" />
     /// </summary>
