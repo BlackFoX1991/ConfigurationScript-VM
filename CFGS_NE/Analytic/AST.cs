@@ -1,4 +1,6 @@
-﻿namespace CFGS_VM.Analytic
+﻿using CFGS_VM.Analytic.TTypes;
+
+namespace CFGS_VM.Analytic
 {
     /// <summary>
     /// Defines the <see cref="Node" />
@@ -46,6 +48,9 @@
         public TokenType eType = tp;
     }
 
+    /// <summary>
+    /// Defines the <see cref="NullExpr" />
+    /// </summary>
     public class NullExpr(int line, int col, string fname) : Expr(line, col, fname)
     {
     }
@@ -813,6 +818,26 @@
         public Dictionary<string, Expr?> Fields;
 
         /// <summary>
+        /// Defines the StaticFields
+        /// </summary>
+        public Dictionary<string, Expr?> StaticFields;
+
+        /// <summary>
+        /// Defines the StaticMethods
+        /// </summary>
+        public List<FuncDeclStmt> StaticMethods;
+
+        /// <summary>
+        /// Defines the BaseName
+        /// </summary>
+        public string? BaseName;
+
+        /// <summary>
+        /// Defines the BaseCtorArgs
+        /// </summary>
+        public List<Expr> BaseCtorArgs = new();
+
+        /// <summary>
         /// Defines the Parameters
         /// </summary>
         public List<string> Parameters;
@@ -824,19 +849,27 @@
         /// <param name="methods">The methods<see cref="List{FuncDeclStmt}"/></param>
         /// <param name="enums">The enums<see cref="List{EnumDeclStmt}"/></param>
         /// <param name="fields">The fields<see cref="Dictionary{string, Expr?}"/></param>
+        /// <param name="staticFields">The staticFields<see cref="Dictionary{string, Expr?}"/></param>
+        /// <param name="staticMethods">The staticMethods<see cref="List{FuncDeclStmt}"/></param>
         /// <param name="parameters">The parameters<see cref="List{string}"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
+        /// <param name="baseName">The baseName<see cref="string?"/></param>
+        /// <param name="baseArgs">The baseArgs<see cref="List{Expr}?"/></param>
         public ClassDeclStmt(
             string name,
             List<FuncDeclStmt> methods,
             List<EnumDeclStmt> enums,
             Dictionary<string, Expr?> fields,
+            Dictionary<string, Expr?> staticFields,
+            List<FuncDeclStmt> staticMethods,
             List<string> parameters,
             int line,
             int col,
-            string fname
+            string fname,
+            string? baseName = null,
+        List<Expr>? baseArgs = null
         ) : base(line, col, fname)
         {
             Name = name;
@@ -844,6 +877,10 @@
             Enums = enums;
             Fields = fields;
             Parameters = parameters;
+            StaticFields = staticFields;
+            StaticMethods = staticMethods;
+            BaseName = baseName;
+            if (baseArgs != null) BaseCtorArgs = baseArgs;
         }
     }
 

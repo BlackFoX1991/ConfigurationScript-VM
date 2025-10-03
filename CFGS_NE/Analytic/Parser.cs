@@ -1,4 +1,5 @@
-﻿using CFGS_VM.VMCore.Command;
+﻿using CFGS_VM.Analytic.TTypes;
+using CFGS_VM.VMCore.Command;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -103,11 +104,11 @@ namespace CFGS_VM.Analytic
         /// <returns>The <see cref="string"/></returns>
         private static string ComputeSha256(string path)
         {
-            using var sha = SHA256.Create();
-            using var fs = File.OpenRead(path);
-            var hash = sha.ComputeHash(fs);
-            var sb = new StringBuilder(hash.Length * 2);
-            foreach (var b in hash) sb.Append(b.ToString("x2"));
+            using SHA256 sha = SHA256.Create();
+            using FileStream fs = File.OpenRead(path);
+            byte[] hash = sha.ComputeHash(fs);
+            StringBuilder sb = new(hash.Length * 2);
+            foreach (byte b in hash) sb.Append(b.ToString("x2"));
             return sb.ToString();
         }
 
@@ -117,7 +118,7 @@ namespace CFGS_VM.Analytic
         /// <param name="stmts">The stmts<see cref="IEnumerable{Stmt}"/></param>
         private void IndexTopLevelSymbols(IEnumerable<Stmt> stmts)
         {
-            foreach (var s in stmts)
+            foreach (Stmt s in stmts)
             {
                 switch (s)
                 {
@@ -135,8 +136,8 @@ namespace CFGS_VM.Analytic
         /// <returns>The <see cref="List{Stmt}"/></returns>
         private List<Stmt> FilterDuplicateTopLevel(List<Stmt> stmts)
         {
-            var filtered = new List<Stmt>(stmts.Count);
-            foreach (var s in stmts)
+            List<Stmt> filtered = new(stmts.Count);
+            foreach (Stmt s in stmts)
             {
                 switch (s)
                 {
@@ -163,7 +164,7 @@ namespace CFGS_VM.Analytic
         /// <returns>The <see cref="List{Stmt}"/></returns>
         public List<Stmt> Parse()
         {
-            var stmts = new List<Stmt>();
+            List<Stmt> stmts = new();
 
             if (_current.Type == TokenType.Import)
             {
@@ -174,7 +175,7 @@ namespace CFGS_VM.Analytic
                     {
                         string path = _current.Value?.ToString() ?? "";
                         Eat(TokenType.String);
-                        var imported = GetImports(path, _current.Line, _current.Column, _current.Filename);
+                        List<Stmt> imported = GetImports(path, _current.Line, _current.Column, _current.Filename);
                         stmts.AddRange(imported);
                         IndexTopLevelSymbols(imported);
                     }
@@ -186,7 +187,7 @@ namespace CFGS_VM.Analytic
                         if (_current.Type != TokenType.String)
                             throw new ParserException("expected string after 'from' in import statement", _current.Line, _current.Column, _current.Filename);
                         string path = _current.Value?.ToString() ?? "";
-                        var imported = GetImports(path, _current.Line, _current.Column, _current.Filename, clsName);
+                        List<Stmt> imported = GetImports(path, _current.Line, _current.Column, _current.Filename, clsName);
                         Eat(TokenType.String);
 
                         stmts.AddRange(imported);
@@ -205,7 +206,7 @@ namespace CFGS_VM.Analytic
             {
                 if (_current.Type == TokenType.Import)
                     throw new ParserException("Invalid import statement. Imports are only allowed in the header of the script", _current.Line, _current.Column, _current.Filename);
-                var st = Statement();
+                Stmt st = Statement();
                 stmts.Add(st);
             }
 
@@ -225,14 +226,14 @@ namespace CFGS_VM.Analytic
         /// <returns>The <see cref="List{Stmt}"/></returns>
         private List<Stmt> GetImports(string path, int ln, int col, string fsname, string specClass = "")
         {
-            var result = new List<Stmt>();
+            List<Stmt> result = new();
             if (!File.Exists(path)) return result;
 
             string fullPath = Path.GetFullPath(path);
 
             if (_importStack.Contains(fullPath))
             {
-                var chain = string.Join(" -> ", _importStack.Reverse().Append(fullPath));
+                string chain = string.Join(" -> ", _importStack.Reverse().Append(fullPath));
                 throw new ParserException($"Import cycle detected: {chain}", ln, col, fsname);
             }
 
@@ -246,11 +247,11 @@ namespace CFGS_VM.Analytic
                 throw new ParserException($"failed to hash '{fullPath}': {ex.Message}", ln, col, fsname);
             }
 
-            if (_astByHash.TryGetValue(h, out var cachedAst))
+            if (_astByHash.TryGetValue(h, out List<Stmt>? cachedAst))
             {
                 if (!string.IsNullOrWhiteSpace(specClass))
                 {
-                    var cls = cachedAst.FirstOrDefault(s => s is ClassDeclStmt c && c.Name == specClass);
+                    Stmt? cls = cachedAst.FirstOrDefault(s => s is ClassDeclStmt c && c.Name == specClass);
                     if (cls is null)
                         throw new ParserException($"Could not find class '{specClass}' in import file '{path}'", ln, col, fsname);
 
@@ -269,20 +270,20 @@ namespace CFGS_VM.Analytic
             _importStack.Push(fullPath);
             try
             {
-                using var sr = new StreamReader(fullPath, detectEncodingFromByteOrderMarks: true);
+                using StreamReader sr = new(fullPath, detectEncodingFromByteOrderMarks: true);
                 string nsrc = sr.ReadToEnd();
 
-                var lex = new Lexer(fullPath, nsrc);
-                var prs = new Parser(lex);
+                Lexer lex = new(fullPath, nsrc);
+                Parser prs = new(lex);
 
-                var importedAst = prs.Parse();
+                List<Stmt> importedAst = prs.Parse();
 
                 _astByHash[h] = importedAst;
                 _importedHashes.Add(h);
 
                 if (!string.IsNullOrWhiteSpace(specClass))
                 {
-                    var cls = importedAst.FirstOrDefault(s => s is ClassDeclStmt c && c.Name == specClass);
+                    Stmt? cls = importedAst.FirstOrDefault(s => s is ClassDeclStmt c && c.Name == specClass);
                     if (cls is null)
                         throw new ParserException($"Could not find class '{specClass}' in import file '{path}'", ln, col, fsname);
                     result.Add(cls);
@@ -415,7 +416,7 @@ namespace CFGS_VM.Analytic
 
             Eat(TokenType.LBrace);
 
-            var members = new List<EnumMemberNode>();
+            List<EnumMemberNode> members = new();
             int currentValue = 0;
 
             while (_current.Type != TokenType.RBrace)
@@ -487,7 +488,7 @@ namespace CFGS_VM.Analytic
             string name = _current.Value.ToString() ?? "";
             Eat(TokenType.Ident);
 
-            var ctorParams = new List<string>();
+            List<string> ctorParams = new();
             if (_current.Type == TokenType.LParen)
             {
                 Eat(TokenType.LParen);
@@ -511,14 +512,59 @@ namespace CFGS_VM.Analytic
                 Eat(TokenType.RParen);
             }
 
+            string? baseName = null;
+            List<Expr> baseArgs = new();
+            if (_current.Type == TokenType.Colon)
+            {
+                Eat(TokenType.Colon);
+
+                if (_current.Type != TokenType.Ident)
+                    throw new ParserException("expected base class name after ':'", line, col, _current.Filename);
+
+                baseName = _current.Value.ToString() ?? "";
+                Eat(TokenType.Ident);
+
+                if (_current.Type == TokenType.LParen)
+                {
+                    Eat(TokenType.LParen);
+
+                    if (_current.Type != TokenType.RParen)
+                    {
+                        do
+                        {
+                            Expr argExpr = Expr();
+                            baseArgs.Add(argExpr);
+
+                            if (_current.Type == TokenType.Comma)
+                                Eat(TokenType.Comma);
+                            else
+                                break;
+                        }
+                        while (true);
+                    }
+
+                    Eat(TokenType.RParen);
+                }
+            }
+
             Eat(TokenType.LBrace);
 
-            var methods = new List<FuncDeclStmt>();
-            var enums = new List<EnumDeclStmt>();
-            var fields = new Dictionary<string, Expr?>();
+            List<FuncDeclStmt> methods = new();
+            Dictionary<string, Expr?> fields = new();
+
+            List<FuncDeclStmt> staticMethods = new();
+            Dictionary<string, Expr?> staticFields = new();
+            List<EnumDeclStmt> staticEnums = new();
 
             while (_current.Type != TokenType.RBrace)
             {
+                bool StaticSet = false;
+                if (_current.Type == TokenType.Static)
+                {
+                    StaticSet = true;
+                    Eat(TokenType.Static);
+                }
+
                 if (_current.Type == TokenType.Var)
                 {
                     Eat(TokenType.Var);
@@ -533,27 +579,49 @@ namespace CFGS_VM.Analytic
                     }
                     Eat(TokenType.Semi);
 
-                    fields[fieldName] = init ?? new NumberExpr(0, line, col, _current.Filename);
+                    if (StaticSet)
+                        staticFields[fieldName] = init ?? new NumberExpr(0, line, col, _current.Filename);
+                    else
+                        fields[fieldName] = init ?? new NumberExpr(0, line, col, _current.Filename);
                 }
                 else if (_current.Type == TokenType.Enum)
                 {
-                    var enm = ParseEnumDecl();
-                    enums.Add(enm);
+                    EnumDeclStmt enm = ParseEnumDecl();
+                    staticEnums.Add(enm);
                 }
                 else if (_current.Type == TokenType.Func)
                 {
-                    var func = ParseFuncDecl();
-                    methods.Add(func);
+                    FuncDeclStmt func = ParseFuncDecl();
+                    if (StaticSet)
+                        staticMethods.Add(func);
+                    else
+                        methods.Add(func);
                 }
                 else
                 {
-                    throw new ParserException($"unexpected token in class body: {_current.Type}", _current.Line, _current.Column, _current.Filename);
+                    throw new ParserException(
+                        $"unexpected token in class body: {_current.Type}",
+                        _current.Line, _current.Column, _current.Filename
+                    );
                 }
             }
 
             Eat(TokenType.RBrace);
 
-            return new ClassDeclStmt(name, methods, enums, fields, ctorParams, line, col, _current.Filename);
+            return new ClassDeclStmt(
+                name,
+                methods,
+                staticEnums,
+                fields,
+                staticFields,
+                staticMethods,
+                ctorParams,
+                line,
+                col,
+                _current.Filename,
+                baseName,
+                baseArgs
+            );
         }
 
         /// <summary>
@@ -574,7 +642,7 @@ namespace CFGS_VM.Analytic
                 string className = _current.Value.ToString() ?? "";
                 Eat(TokenType.Ident);
 
-                List<Expr> args = new List<Expr>();
+                List<Expr> args = new();
 
                 if (_current.Type == TokenType.LParen)
                 {
@@ -598,7 +666,7 @@ namespace CFGS_VM.Analytic
         /// <returns>The <see cref="List{Expr}"/></returns>
         private List<Expr> ParseExprList()
         {
-            var list = new List<Expr>();
+            List<Expr> list = new();
 
             list.Add(Expr());
 
@@ -678,7 +746,7 @@ namespace CFGS_VM.Analytic
             Eat(TokenType.RParen);
             Eat(TokenType.LBrace);
 
-            var cases = new List<CaseClause>();
+            List<CaseClause> cases = new();
             BlockStmt? defaultCase = null;
 
             while (_current.Type == TokenType.Case || _current.Type == TokenType.Default)
@@ -844,7 +912,7 @@ namespace CFGS_VM.Analytic
                 else if (_current.Type == TokenType.LParen)
                 {
                     Eat(TokenType.LParen);
-                    var args = new List<Expr>();
+                    List<Expr> args = new();
                     if (_current.Type != TokenType.RParen)
                     {
                         args.Add(Expr());
@@ -871,7 +939,7 @@ namespace CFGS_VM.Analytic
                 _current.Type == TokenType.SlashAssign ||
                 _current.Type == TokenType.ModAssign)
             {
-                var op = _current.Type;
+                TokenType op = _current.Type;
                 Eat(op);
                 Expr val = Expr();
                 Eat(TokenType.Semi);
@@ -891,7 +959,7 @@ namespace CFGS_VM.Analytic
 
             if (_current.Type == TokenType.PlusPlus || _current.Type == TokenType.MinusMinus)
             {
-                var op = _current.Type;
+                TokenType op = _current.Type;
                 Eat(op);
                 Eat(TokenType.Semi);
                 return new ExprStmt(new PostfixExpr(target, op, line, col, fsname), line, col, fsname);
@@ -997,7 +1065,7 @@ namespace CFGS_VM.Analytic
                 return ParseBlock();
             }
 
-            var one = Statement();
+            Stmt one = Statement();
             return new BlockStmt(new List<Stmt> { one }, one.Line, one.Col, one.OriginFile);
         }
 
@@ -1007,7 +1075,7 @@ namespace CFGS_VM.Analytic
         /// <returns>The <see cref="BlockStmt"/></returns>
         private BlockStmt ParseBlock()
         {
-            var stmts = new List<Stmt>();
+            List<Stmt> stmts = new();
 
             Eat(TokenType.LBrace);
             while (_current.Type != TokenType.RBrace)
@@ -1199,7 +1267,7 @@ namespace CFGS_VM.Analytic
         private Expr Shift()
         {
             Expr node = Additive();
-            while (_current.Type == TokenType.bShiftL || _current.Type == TokenType.BShiftR)
+            while (_current.Type == TokenType.bShiftL || _current.Type == TokenType.bShiftR)
             {
                 TokenType op = _current.Type;
                 Eat(op);
@@ -1332,7 +1400,7 @@ namespace CFGS_VM.Analytic
             else if (_current.Type == TokenType.LBracket)
             {
                 Eat(TokenType.LBracket);
-                var elems = new List<Expr>();
+                List<Expr> elems = new();
                 if (_current.Type != TokenType.RBracket)
                 {
                     elems.Add(Expr());
@@ -1348,7 +1416,7 @@ namespace CFGS_VM.Analytic
             else if (_current.Type == TokenType.LBrace)
             {
                 Eat(TokenType.LBrace);
-                var pairs = new List<(Expr, Expr)>();
+                List<(Expr, Expr)> pairs = new();
 
                 if (_current.Type != TokenType.RBrace)
                 {
@@ -1374,7 +1442,7 @@ namespace CFGS_VM.Analytic
                 Eat(TokenType.Func);
                 Eat(TokenType.LParen);
 
-                var parameters = new List<string>();
+                List<string> parameters = new();
                 if (_current.Type != TokenType.RParen)
                 {
                     do
@@ -1404,7 +1472,7 @@ namespace CFGS_VM.Analytic
                 if (_current.Type == TokenType.LParen)
                 {
                     Eat(TokenType.LParen);
-                    var args = new List<Expr>();
+                    List<Expr> args = new();
                     if (_current.Type != TokenType.RParen)
                     {
                         do
@@ -1474,7 +1542,7 @@ namespace CFGS_VM.Analytic
                     break;
                 }
             }
-            return node ?? new NullExpr(_current.Line,_current.Column,_current.Filename);
+            return node ?? new NullExpr(_current.Line, _current.Column, _current.Filename);
         }
 
         /// <summary>
@@ -1501,7 +1569,7 @@ namespace CFGS_VM.Analytic
 
             if (_current.Type == TokenType.PlusPlus || _current.Type == TokenType.MinusMinus)
             {
-                var op = _current.Type;
+                TokenType op = _current.Type;
                 Eat(op);
 
                 Expr? target = Unary();
@@ -1522,7 +1590,7 @@ namespace CFGS_VM.Analytic
             Eat(TokenType.Ident);
             Eat(TokenType.LParen);
 
-            var parameters = new List<string>();
+            List<string> parameters = new();
             if (_current.Type != TokenType.RParen)
             {
                 do
