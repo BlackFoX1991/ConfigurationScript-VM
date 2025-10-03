@@ -158,7 +158,7 @@ namespace CFGS_VM.VMCore
                 int len = s.Length;
                 object? startObj = a.Count > 0 ? a[0] : null;
                 object? endObj = a.Count > 1 ? a[1] : null;
-                var (st, ex) = NormalizeSliceBounds(startObj, endObj, len, instr);
+                (int st, int ex) = NormalizeSliceBounds(startObj, endObj, len, instr);
                 return s.Substring(st, ex - st);
             }),
 
@@ -166,7 +166,7 @@ namespace CFGS_VM.VMCore
             {
                 string s = recv?.ToString() ?? "";
                 int len = s.Length;
-                var (st, ex) = NormalizeSliceBounds(a[0], a[1], len, instr);
+                (int st, int ex) = NormalizeSliceBounds(a[0], a[1], len, instr);
                 string repl = a[2]?.ToString() ?? "";
                 return s.Substring(0, st) + repl + s.Substring(ex);
             }),
@@ -175,7 +175,7 @@ namespace CFGS_VM.VMCore
             {
                 string s = recv?.ToString() ?? "";
                 int len = s.Length;
-                var (st, ex) = NormalizeSliceBounds(a[0], a[1], len, instr);
+                (int st, int ex) = NormalizeSliceBounds(a[0], a[1], len, instr);
                 return s.Substring(0, st) + s.Substring(ex);
             }),
 
@@ -252,20 +252,20 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private static readonly Dictionary<string, IntrinsicMethod> FileProto = new(StringComparer.Ordinal)
         {
-            ["write"] = new IntrinsicMethod("write", 1, 1, (recv, a, instr) => { var fh = (FileHandle)recv; fh.Write(a[0]?.ToString() ?? ""); return fh; }),
-            ["writeln"] = new IntrinsicMethod("writeln", 1, 1, (recv, a, instr) => { var fh = (FileHandle)recv; fh.Writeln(a[0]?.ToString() ?? ""); return fh; }),
-            ["flush"] = new IntrinsicMethod("flush", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; fh.Flush(); return fh; }),
-            ["read"] = new IntrinsicMethod("read", 1, 1, (recv, a, instr) => { var fh = (FileHandle)recv; return fh.Read(Convert.ToInt32(a[0])); }),
-            ["readline"] = new IntrinsicMethod("readline", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; return fh.ReadLine(); }),
+            ["write"] = new IntrinsicMethod("write", 1, 1, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; fh.Write(a[0]?.ToString() ?? ""); return fh; }),
+            ["writeln"] = new IntrinsicMethod("writeln", 1, 1, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; fh.Writeln(a[0]?.ToString() ?? ""); return fh; }),
+            ["flush"] = new IntrinsicMethod("flush", 0, 0, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; fh.Flush(); return fh; }),
+            ["read"] = new IntrinsicMethod("read", 1, 1, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; return fh.Read(Convert.ToInt32(a[0])); }),
+            ["readline"] = new IntrinsicMethod("readline", 0, 0, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; return fh.ReadLine(); }),
             ["seek"] = new IntrinsicMethod("seek", 2, 2, (recv, a, instr) =>
             {
-                var fh = (FileHandle)recv; long off = Convert.ToInt64(a[0]); int org = Convert.ToInt32(a[1]);
-                var o = org switch { 0 => SeekOrigin.Begin, 1 => SeekOrigin.Current, 2 => SeekOrigin.End, _ => SeekOrigin.Begin };
+                FileHandle fh = (FileHandle)recv; long off = Convert.ToInt64(a[0]); int org = Convert.ToInt32(a[1]);
+                SeekOrigin o = org switch { 0 => SeekOrigin.Begin, 1 => SeekOrigin.Current, 2 => SeekOrigin.End, _ => SeekOrigin.Begin };
                 return fh.Seek(off, o);
             }),
-            ["tell"] = new IntrinsicMethod("tell", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; return fh.Tell(); }),
-            ["eof"] = new IntrinsicMethod("eof", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; return fh.Eof(); }),
-            ["close"] = new IntrinsicMethod("close", 0, 0, (recv, a, instr) => { var fh = (FileHandle)recv; fh.Close(); return 1; }),
+            ["tell"] = new IntrinsicMethod("tell", 0, 0, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; return fh.Tell(); }),
+            ["eof"] = new IntrinsicMethod("eof", 0, 0, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; return fh.Eof(); }),
+            ["close"] = new IntrinsicMethod("close", 0, 0, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; fh.Close(); return 1; }),
         };
 
         /// <summary>
@@ -275,29 +275,29 @@ namespace CFGS_VM.VMCore
         {
             ["len"] = new IntrinsicMethod("len", 0, 0, (recv, a, instr) =>
             {
-                var arr = recv as List<object> ?? new List<object>();
+                List<object> arr = recv as List<object> ?? new List<object>();
                 return arr.Count;
             }),
 
             ["push"] = new IntrinsicMethod("push", 1, 1, (recv, a, instr) =>
             {
-                var arr = recv as List<object> ?? throw new VMException("push on non-array", instr.Line, instr.Col, instr.OriginFile);
+                List<object> arr = recv as List<object> ?? throw new VMException("push on non-array", instr.Line, instr.Col, instr.OriginFile);
                 arr.Add(a[0]);
                 return arr.Count;
             }),
 
             ["pop"] = new IntrinsicMethod("pop", 0, 0, (recv, a, instr) =>
             {
-                var arr = recv as List<object> ?? throw new VMException("pop on non-array", instr.Line, instr.Col, instr.OriginFile);
+                List<object> arr = recv as List<object> ?? throw new VMException("pop on non-array", instr.Line, instr.Col, instr.OriginFile);
                 if (arr.Count == 0) return null;
-                var last = arr[^1];
+                object last = arr[^1];
                 arr.RemoveAt(arr.Count - 1);
                 return last;
             }),
 
             ["insert_at"] = new IntrinsicMethod("insert_at", 2, 2, (recv, a, instr) =>
             {
-                var arr = recv as List<object> ?? throw new VMException("insert_at on non-array", instr.Line, instr.Col, instr.OriginFile);
+                List<object> arr = recv as List<object> ?? throw new VMException("insert_at on non-array", instr.Line, instr.Col, instr.OriginFile);
                 int idx = ClampIndex(Convert.ToInt32(a[0]), arr.Count);
                 arr.Insert(idx, a[1]);
                 return arr;
@@ -305,16 +305,16 @@ namespace CFGS_VM.VMCore
 
             ["remove_range"] = new IntrinsicMethod("remove_range", 2, 2, (recv, a, instr) =>
             {
-                var arr = recv as List<object> ?? throw new VMException("remove_range on non-array", instr.Line, instr.Col, instr.OriginFile);
-                var (st, ex) = NormalizeSliceBounds(a[0], a[1], arr.Count, instr);
+                List<object> arr = recv as List<object> ?? throw new VMException("remove_range on non-array", instr.Line, instr.Col, instr.OriginFile);
+                (int st, int ex) = NormalizeSliceBounds(a[0], a[1], arr.Count, instr);
                 arr.RemoveRange(st, ex - st);
                 return arr;
             }),
 
             ["replace_range"] = new IntrinsicMethod("replace_range", 3, 3, (recv, a, instr) =>
             {
-                var arr = recv as List<object> ?? throw new VMException("replace_range on non-array", instr.Line, instr.Col, instr.OriginFile);
-                var (st, ex) = NormalizeSliceBounds(a[0], a[1], arr.Count, instr);
+                List<object> arr = recv as List<object> ?? throw new VMException("replace_range on non-array", instr.Line, instr.Col, instr.OriginFile);
+                (int st, int ex) = NormalizeSliceBounds(a[0], a[1], arr.Count, instr);
                 if (a[2] is List<object> replList)
                 {
                     arr.RemoveRange(st, ex - st);
@@ -330,10 +330,10 @@ namespace CFGS_VM.VMCore
 
             ["slice"] = new IntrinsicMethod("slice", 0, 2, (recv, a, instr) =>
             {
-                var arr = recv as List<object> ?? new List<object>();
+                List<object> arr = recv as List<object> ?? new List<object>();
                 object? startObj = a.Count > 0 ? a[0] : null;
                 object? endObj = a.Count > 1 ? a[1] : null;
-                var (st, ex) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
+                (int st, int ex) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
                 return arr.GetRange(st, ex - st);
             }),
         };
@@ -345,39 +345,39 @@ namespace CFGS_VM.VMCore
         {
             ["len"] = new IntrinsicMethod("len", 0, 0, (recv, a, instr) =>
             {
-                var dict = recv as Dictionary<string, object> ?? new();
+                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
                 return dict.Count;
             }),
 
             ["has"] = new IntrinsicMethod("has", 1, 1, (recv, a, instr) =>
             {
-                var dict = recv as Dictionary<string, object> ?? new();
+                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
                 string key = a[0]?.ToString() ?? "";
                 return dict.ContainsKey(key);
             }),
 
             ["remove"] = new IntrinsicMethod("remove", 1, 1, (recv, a, instr) =>
             {
-                var dict = recv as Dictionary<string, object> ?? new();
+                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
                 string key = a[0]?.ToString() ?? "";
                 return dict.Remove(key);
             }),
 
             ["keys"] = new IntrinsicMethod("keys", 0, 0, (recv, a, instr) =>
             {
-                var dict = recv as Dictionary<string, object> ?? new();
+                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
                 return dict.Keys.ToList<object>();
             }),
 
             ["values"] = new IntrinsicMethod("values", 0, 0, (recv, a, instr) =>
             {
-                var dict = recv as Dictionary<string, object> ?? new();
+                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
                 return dict.Values.ToList();
             }),
 
             ["set"] = new IntrinsicMethod("set", 2, 2, (recv, a, instr) =>
             {
-                var dict = recv as Dictionary<string, object> ?? throw new VMException("set on non-dict", instr.Line, instr.Col, instr.OriginFile);
+                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? throw new VMException("set on non-dict", instr.Line, instr.Col, instr.OriginFile);
                 string key = a[0]?.ToString() ?? "";
                 dict[key] = a[1];
                 return dict;
@@ -385,9 +385,9 @@ namespace CFGS_VM.VMCore
 
             ["get_or"] = new IntrinsicMethod("get_or", 2, 2, (recv, a, instr) =>
             {
-                var dict = recv as Dictionary<string, object> ?? new();
+                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
                 string key = a[0]?.ToString() ?? "";
-                return dict.TryGetValue(key, out var v) ? v : a[1];
+                return dict.TryGetValue(key, out object? v) ? v : a[1];
             }),
         };
 
@@ -475,7 +475,7 @@ namespace CFGS_VM.VMCore
             /// <summary>
             /// Defines the Vars
             /// </summary>
-            public Dictionary<string, object> Vars = new Dictionary<string, object>();
+            public Dictionary<string, object> Vars = new();
 
             /// <summary>
             /// Defines the Parent
@@ -666,7 +666,7 @@ namespace CFGS_VM.VMCore
                 string captured = "";
                 if (CapturedEnv != null && CapturedEnv.Vars.Count > 0)
                 {
-                    var pairs = CapturedEnv.Vars
+                    IEnumerable<string> pairs = CapturedEnv.Vars
                         .OrderBy(kv => kv.Key, StringComparer.Ordinal)
                         .Select(kvp =>
                         {
@@ -753,7 +753,7 @@ namespace CFGS_VM.VMCore
 
                 case Dictionary<string, object> dict:
                     {
-                        var keys = dict.Keys.ToList();
+                        List<string> keys = dict.Keys.ToList();
                         int len = keys.Count;
 
                         int start = startObj == null ? 0 : Convert.ToInt32(startObj);
@@ -901,7 +901,7 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="(object A, object B, NumKind K)"/></returns>
         private static (object A, object B, NumKind K) CoercePair(object a, object b)
         {
-            var k = PromoteKind(a, b);
+            NumKind k = PromoteKind(a, b);
             switch (k)
             {
                 case NumKind.Decimal:
@@ -944,7 +944,7 @@ namespace CFGS_VM.VMCore
         /// <param name="funcs">The funcs<see cref="Dictionary{string, FunctionInfo}"/></param>
         public void LoadFunctions(Dictionary<string, FunctionInfo> funcs)
         {
-            foreach (var kv in funcs)
+            foreach (KeyValuePair<string, FunctionInfo> kv in funcs)
             {
                 if (_functions.ContainsKey(kv.Key))
                     throw new Exception($"Runtime error : Multiple declarations for function '{kv.Key}'.");
@@ -972,7 +972,7 @@ namespace CFGS_VM.VMCore
                     return (int)ch;
             }
 
-            var s = val.ToString() ?? "";
+            string s = val.ToString() ?? "";
             s = s.Trim();
 
             if (s.Length == 0) return 0;
@@ -992,29 +992,29 @@ namespace CFGS_VM.VMCore
 
             if (!looksFloat)
             {
-                if (int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i32))
+                if (int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int i32))
                     return i32;
 
-                if (long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i64))
+                if (long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out long i64))
                     return i64;
 
-                if (decimal.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var decInt))
+                if (decimal.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out decimal decInt))
                     return decInt;
 
-                if (double.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var dblInt))
+                if (double.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out double dblInt))
                     return dblInt;
 
-                throw new FormatException($"toi: '{s}' ist keine gültige Ganzzahl.");
+                throw new FormatException($"toi: '{s}' invalid number.");
             }
             else
             {
-                if (decimal.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var dec))
+                if (decimal.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal dec))
                     return dec;
 
-                if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var dbl))
+                if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double dbl))
                     return dbl;
 
-                throw new FormatException($"toi: '{s}' ist keine gültige Fließkommazahl.");
+                throw new FormatException($"toi: '{s}' invalid floating point number.");
             }
         }
 
@@ -1073,13 +1073,11 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="object"/></returns>
         private static object CallBuiltin(string name, List<object> args, Instruction instr)
         {
-            // Hilfsfunktionen für detaillierte Fehlertexte
             static string FormatArg(object? v)
             {
                 if (v is null) return "null";
-                var t = v.GetType().Name;
-                // kurze Vorschau (max 40 Zeichen)
-                var s = v is string str ? str : v.ToString() ?? "";
+                string t = v.GetType().Name;
+                string s = v is string str ? str : v.ToString() ?? "";
                 if (s.Length > 40) s = s.Substring(0, 40) + "…";
                 return $"{t}({s})";
             }
@@ -1142,7 +1140,7 @@ namespace CFGS_VM.VMCore
 
                             try
                             {
-                                var fs = new FileStream(path, fmode, facc, FileShare.Read);
+                                FileStream fs = new(path, fmode, facc, FileShare.Read);
                                 if (mode == 3) fs.Seek(0, SeekOrigin.End);
                                 return new FileHandle(path, mode, fs, canRead, canWrite);
                             }
@@ -1160,7 +1158,6 @@ namespace CFGS_VM.VMCore
                             }
                             catch (FileNotFoundException ex)
                             {
-                                // relevant vor allem bei FileMode.Open
                                 throw new VMException(
                                     $"Runtime error: fopen file not found '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
                                     instr.Line, instr.Col, instr.OriginFile);
@@ -1181,7 +1178,7 @@ namespace CFGS_VM.VMCore
 
                     case "typeof":
                         {
-                            var val = args[0];
+                            object val = args[0];
                             if (val == null) return "Null";
                             if (val is bool) return "Bool";
                             if (val is int) return "Int";
@@ -1196,13 +1193,14 @@ namespace CFGS_VM.VMCore
                             if (val is Closure) return "Closure";
                             if (val is Dictionary<string, object>) return "Dictionary";
                             if (val is ClassInstance) return (val as ClassInstance ?? new ClassInstance("null")).ClassName;
+                            if (val is StaticInstance) return (val as StaticInstance ?? new StaticInstance("null")).ClassName;
                             return val.GetType().Name;
                         }
 
                     case "getfields":
                         if (args[0] is not Dictionary<string, object>)
                             return new List<object>();
-                        var fld = args[0] as Dictionary<string, object>;
+                        Dictionary<string, object>? fld = args[0] as Dictionary<string, object>;
                         return fld?.Keys.ToList<object>() ?? new List<object>();
 
                     case "isarray":
@@ -1282,14 +1280,12 @@ namespace CFGS_VM.VMCore
             }
             catch (VMException)
             {
-                // Bereits mit guter Meldung versehen – nicht umbrechen.
                 throw;
             }
             catch (Exception ex)
             {
-                // Fängst ALLE unerwarteten Fehler im Builtin ab und reicherst sie an.
-                var argsInfo = ArgsDebug(args);
-                var msg =
+                string argsInfo = ArgsDebug(args);
+                string msg =
                     $"Runtime error in builtin '{name}': {ex.GetType().Name}: {ex.Message}\n" +
                     $"Args: {argsInfo}\n" +
                     $"Instruction: {instr.OriginFile}:{instr.Line}:{instr.Col}";
@@ -1297,11 +1293,10 @@ namespace CFGS_VM.VMCore
             }
         }
 
-
         /// <summary>
         /// Defines the bInFunc
         /// </summary>
-        public static Dictionary<string, int> bInFunc = new Dictionary<string, int>()
+        public static Dictionary<string, int> bInFunc = new()
     {
         {"print",1 },
         {"len",1 },
@@ -1329,13 +1324,18 @@ namespace CFGS_VM.VMCore
     };
 
         /// <summary>
+        /// Gets the CurrentReceiver
+        /// </summary>
+        private object? CurrentReceiver => _callStack.Count > 0 ? _callStack.Peek().ThisRef : null;
+
+        /// <summary>
         /// The FindEnvWithLocal
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>
         /// <returns>The <see cref="Env?"/></returns>
         private Env? FindEnvWithLocal(string name)
         {
-            for (var env = _scopes.Count > 0 ? _scopes[^1] : null; env != null; env = env.Parent)
+            for (Env? env = _scopes.Count > 0 ? _scopes[^1] : null; env != null; env = env.Parent)
             {
                 if (env.Vars.ContainsKey(name))
                     return env;
@@ -1343,7 +1343,7 @@ namespace CFGS_VM.VMCore
 
             if (_scopes.Count > 0)
             {
-                var root = _scopes[0];
+                Env root = _scopes[0];
                 if (root != null && root.Vars.ContainsKey(name))
                     return root;
             }
@@ -1440,7 +1440,7 @@ namespace CFGS_VM.VMCore
                         _scopes.Add(new Env(_scopes[^1]));
                         if (_callStack.Count > 0)
                         {
-                            var fr = _callStack.Pop();
+                            CallFrame fr = _callStack.Pop();
                             _callStack.Push(new CallFrame(fr.ReturnIp, fr.ScopesAdded + 1, fr.ThisRef));
                         }
                         break;
@@ -1455,8 +1455,8 @@ namespace CFGS_VM.VMCore
 
                         if (_callStack.Count > 0)
                         {
-                            var fr = _callStack.Pop();
-                            var newCount = Math.Max(0, fr.ScopesAdded - 1);
+                            CallFrame fr = _callStack.Pop();
+                            int newCount = Math.Max(0, fr.ScopesAdded - 1);
                             _callStack.Push(new CallFrame(fr.ReturnIp, newCount, fr.ThisRef));
                         }
                         break;
@@ -1465,8 +1465,15 @@ namespace CFGS_VM.VMCore
                 case OpCode.NEW_OBJECT:
                     {
                         string className = instr.Operand?.ToString() ?? "<anon>";
-                        var obj = new ClassInstance(className);
+                        ClassInstance obj = new(className);
                         _stack.Push(obj);
+                        break;
+                    }
+                case OpCode.NEW_STATIC:
+                    {
+                        string className = instr.Operand?.ToString() ?? "<anon>";
+                        StaticInstance st = new(className);
+                        _stack.Push(st);
                         break;
                     }
 
@@ -1474,9 +1481,9 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null) break;
                         int count = (int)instr.Operand;
-                        var temp = new object[count];
+                        object[] temp = new object[count];
                         for (int i = count - 1; i >= 0; i--) temp[i] = _stack.Pop();
-                        var list = new List<object>(temp);
+                        List<object> list = new(temp);
                         _stack.Push(list);
                         break;
                     }
@@ -1489,7 +1496,7 @@ namespace CFGS_VM.VMCore
                         object target;
                         if (instr.Operand is string name)
                         {
-                            var owner = FindEnvWithLocal(name)
+                            Env owner = FindEnvWithLocal(name)
                                 ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
                             target = owner.Vars[name];
                         }
@@ -1523,10 +1530,10 @@ namespace CFGS_VM.VMCore
 
                             case Dictionary<string, object> dict:
                                 {
-                                    var keys = dict.Keys.ToList();
+                                    List<string> keys = dict.Keys.ToList();
                                     Normalize(keys.Count, startObj, endObj, out int start, out int end);
 
-                                    var slice = new Dictionary<string, object>();
+                                    Dictionary<string, object> slice = new();
                                     for (int i = start; i < end; i++)
                                         slice[keys[i]] = dict[keys[i]];
 
@@ -1558,7 +1565,7 @@ namespace CFGS_VM.VMCore
 
                         if (instr.Operand is string name)
                         {
-                            var env = FindEnvWithLocal(name)
+                            Env env = FindEnvWithLocal(name)
                                 ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
                             target = env.Vars[name];
 
@@ -1612,7 +1619,7 @@ namespace CFGS_VM.VMCore
 
                                 case Dictionary<string, object> dict:
                                     {
-                                        var keys = dict.Keys.ToList();
+                                        List<string> keys = dict.Keys.ToList();
                                         Normalize(keys.Count, startObj, endObj, out int start, out int end);
 
                                         if (value is Dictionary<string, object> valDict)
@@ -1620,7 +1627,7 @@ namespace CFGS_VM.VMCore
                                             int i = 0;
                                             for (int k = start; k < end && i < valDict.Count; k++, i++)
                                             {
-                                                var kv = valDict.ElementAt(i);
+                                                KeyValuePair<string, object> kv = valDict.ElementAt(i);
                                                 dict[keys[k]] = kv.Value;
                                             }
                                         }
@@ -1636,8 +1643,8 @@ namespace CFGS_VM.VMCore
                                     {
                                         Normalize(s.Length, startObj, endObj, out int start, out int end);
 
-                                        var sb = new StringBuilder(s);
-                                        var replacement = (value?.ToString()) ?? "";
+                                        StringBuilder sb = new(s);
+                                        string replacement = (value?.ToString()) ?? "";
 
                                         int count = Math.Min(end - start, replacement.Length);
                                         for (int i = 0; i < count; i++)
@@ -1661,7 +1668,7 @@ namespace CFGS_VM.VMCore
 
                         if (instr.Operand is string nameFromEnv)
                         {
-                            var owner = FindEnvWithLocal(nameFromEnv)
+                            Env owner = FindEnvWithLocal(nameFromEnv)
                                 ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile);
                             target = owner.Vars[nameFromEnv];
                         }
@@ -1682,7 +1689,7 @@ namespace CFGS_VM.VMCore
 
                         if (instr.Operand is string nameFromEnv)
                         {
-                            var env = FindEnvWithLocal(nameFromEnv)
+                            Env env = FindEnvWithLocal(nameFromEnv)
                                 ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile);
 
                             target = env.Vars[nameFromEnv];
@@ -1702,11 +1709,11 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null) break;
                         int count = (int)instr.Operand;
-                        var dict = new Dictionary<string, object>();
+                        Dictionary<string, object> dict = new();
                         for (int i = 0; i < count; i++)
                         {
-                            var value = _stack.Pop();
-                            var key = _stack.Pop();
+                            object value = _stack.Pop();
+                            object key = _stack.Pop();
                             dict[key?.ToString() ?? "null"] = value;
                         }
                         _stack.Push(dict);
@@ -1715,9 +1722,9 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ROT:
                     {
-                        var a = _stack.Pop();
-                        var b = _stack.Pop();
-                        var c = _stack.Pop();
+                        object a = _stack.Pop();
+                        object b = _stack.Pop();
+                        object c = _stack.Pop();
                         _stack.Push(b);
                         _stack.Push(a);
                         _stack.Push(c);
@@ -1728,8 +1735,8 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand == null)
                         {
-                            var arrObj = _stack.Pop();
-                            var value = _stack.Pop();
+                            object arrObj = _stack.Pop();
+                            object value = _stack.Pop();
 
                             if (arrObj is List<object> arr)
                             {
@@ -1739,7 +1746,7 @@ namespace CFGS_VM.VMCore
                             {
                                 if (value is Dictionary<string, object> literal && literal.Count == 1)
                                 {
-                                    foreach (var kv in literal)
+                                    foreach (KeyValuePair<string, object> kv in literal)
                                     {
                                         dict[kv.Key] = kv.Value;
                                     }
@@ -1761,9 +1768,9 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            var value = _stack.Pop();
+                            object value = _stack.Pop();
                             string name = (string)instr.Operand;
-                            var env = FindEnvWithLocal(name);
+                            Env? env = FindEnvWithLocal(name);
                             if (env == null || !env.Vars.TryGetValue(name, out object? obj))
                                 throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
                             if (obj is List<object> arr)
@@ -1774,7 +1781,7 @@ namespace CFGS_VM.VMCore
                             {
                                 if (value is Dictionary<string, object> literal && literal.Count == 1)
                                 {
-                                    foreach (var kv in literal)
+                                    foreach (KeyValuePair<string, object> kv in literal)
                                     {
                                         dict[kv.Key] = kv.Value;
                                     }
@@ -1799,13 +1806,13 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_SLICE:
                     {
-                        var endObj = _stack.Pop();
-                        var startObj = _stack.Pop();
+                        object endObj = _stack.Pop();
+                        object startObj = _stack.Pop();
 
                         object target;
                         if (instr.Operand is string name)
                         {
-                            var env = FindEnvWithLocal(name)
+                            Env env = FindEnvWithLocal(name)
                                 ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
                             target = env.Vars[name];
 
@@ -1823,9 +1830,9 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_SLICE_ALL:
                     {
-                        var endObj = _stack.Pop();
-                        var startObj = _stack.Pop();
-                        var target = _stack.Pop();
+                        object endObj = _stack.Pop();
+                        object startObj = _stack.Pop();
+                        object target = _stack.Pop();
 
                         if (target is string)
                             throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
@@ -1838,7 +1845,7 @@ namespace CFGS_VM.VMCore
                         }
                         else if (target is Dictionary<string, object> dict)
                         {
-                            var keys = dict.Keys.ToList();
+                            List<string> keys = dict.Keys.ToList();
                             (int start, int endEx) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
                             for (int i = start; i < endEx; i++)
                                 dict.Remove(keys[i]);
@@ -1852,16 +1859,16 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_ELEM:
                     {
-                        var idxObj = _stack.Pop();
+                        object idxObj = _stack.Pop();
 
                         if (instr.Operand != null)
                         {
                             string name = (string)instr.Operand;
-                            var owner = FindEnvWithLocal(name);
+                            Env? owner = FindEnvWithLocal(name);
                             if (owner == null)
                                 throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile);
 
-                            var target = owner.Vars[name];
+                            object target = owner.Vars[name];
 
                             if (target is string)
                                 throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
@@ -1887,7 +1894,7 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            var target = _stack.Pop();
+                            object target = _stack.Pop();
 
                             if (target is string)
                                 throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
@@ -1918,7 +1925,7 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null) break;
                         string name = (string)instr.Operand;
-                        var env = FindEnvWithLocal(name);
+                        Env? env = FindEnvWithLocal(name);
                         if (env == null || !env.Vars.TryGetValue(name, out object? target))
                             throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile);
                         if (target is List<object>)
@@ -1938,8 +1945,8 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_ELEM_ALL:
                     {
-                        var idxObj = _stack.Pop();
-                        var target = _stack.Pop();
+                        object idxObj = _stack.Pop();
+                        object target = _stack.Pop();
                         if (target is string)
                             throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
 
@@ -1970,16 +1977,65 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null) break;
                         string name = (string)instr.Operand;
+
                         if (name == "this")
                         {
-                            var th = CurrentThis;
-                            if (th == null) throw new VMException("Runtime error: 'this' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
+                            object? th = CurrentThis;
+                            if (th == null)
+                                throw new VMException("Runtime error: 'this' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
                             _stack.Push(th);
                             break;
                         }
 
-                        var owner = FindEnvWithLocal(name);
-                        if (owner == null || !owner.Vars.TryGetValue(name, out var val))
+                        if (name == "type")
+                        {
+                            object? recv = CurrentThis;
+                            if (recv is StaticInstance st)
+                            {
+                                _stack.Push(st);
+                                break;
+                            }
+                            if (recv is ClassInstance inst)
+                            {
+                                if (inst.Fields.TryGetValue("__type", out object? tObj) && tObj is StaticInstance st2)
+                                {
+                                    _stack.Push(st2);
+                                    break;
+                                }
+                                throw new VMException("Runtime error: missing '__type' on instance for 'type'", instr.Line, instr.Col, instr.OriginFile);
+                            }
+                            throw new VMException("Runtime error: 'type' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
+                        }
+
+                        if (name == "super")
+                        {
+                            object? recv = CurrentThis;
+
+                            if (recv is ClassInstance inst)
+                            {
+                                if (inst.Fields.TryGetValue("__base", out object? bObj) && bObj is ClassInstance baseInst)
+                                {
+                                    _stack.Push(baseInst);
+                                    break;
+                                }
+                                throw new VMException("Runtime error: missing '__base' on instance for 'super'", instr.Line, instr.Col, instr.OriginFile);
+                            }
+
+                            if (recv is StaticInstance st)
+                            {
+                                if (st.Fields.TryGetValue("__base", out object? sbObj) && sbObj is StaticInstance baseType)
+                                {
+                                    _stack.Push(baseType);
+                                    break;
+                                }
+                                throw new VMException("Runtime error: missing '__base' on static type for 'super'", instr.Line, instr.Col, instr.OriginFile);
+                            }
+
+                            throw new VMException("Runtime error: 'super' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
+                        }
+
+                        Env? owner = FindEnvWithLocal(name);
+                        if (owner == null || !owner.Vars.TryGetValue(name, out object? val))
                             throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
 
                         _stack.Push(val);
@@ -1990,10 +2046,15 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null) break;
                         string name = (string)instr.Operand;
-                        if (name == "this") throw new VMException("Runtime error: cannot declare 'this' as a variable", instr.Line, instr.Col, instr.OriginFile);
-                        var value = _stack.Pop();
-                        var scope = _scopes[^1];
-                        if (scope.HasLocal(name)) throw new VMException($"Runtime error: variable '{name}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile);
+
+                        if (name == "this" || name == "type" || name == "super")
+                            throw new VMException($"Runtime error: cannot declare '{name}' as a variable", instr.Line, instr.Col, instr.OriginFile);
+
+                        object value = _stack.Pop();
+                        Env scope = _scopes[^1];
+                        if (scope.HasLocal(name))
+                            throw new VMException($"Runtime error: variable '{name}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile);
+
                         scope.Define(name, value);
                         break;
                     }
@@ -2003,22 +2064,26 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is null) break;
                         string name = (string)instr.Operand;
 
-                        if (name == "this") throw new VMException("Runtime error: cannot assign to 'this'", instr.Line, instr.Col, instr.OriginFile);
-                        var value = _stack.Pop();
-                        var env = FindEnvWithLocal(name);
-                        if (env == null) throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                        if (name == "this" || name == "type" || name == "super")
+                            throw new VMException($"Runtime error: cannot assign to '{name}'", instr.Line, instr.Col, instr.OriginFile);
+
+                        object value = _stack.Pop();
+                        Env? env = FindEnvWithLocal(name);
+                        if (env == null)
+                            throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+
                         env.Vars[name] = value;
                         break;
                     }
 
                 case OpCode.ADD:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
 
                         if (IsNumber(l) && IsNumber(r))
                         {
-                            var (A, B, K) = CoercePair(l, r);
+                            (object A, object B, NumKind K) = CoercePair(l, r);
                             object res = K switch
                             {
                                 NumKind.Decimal => (object)((decimal)A + (decimal)B),
@@ -2033,8 +2098,8 @@ namespace CFGS_VM.VMCore
                                  l is Dictionary<string, object> || r is Dictionary<string, object>)
                         {
                             string ls, rs;
-                            using (var lw = new StringWriter()) { PrintValue(l, lw); ls = lw.ToString(); }
-                            using (var rw = new StringWriter()) { PrintValue(r, rw); rs = rw.ToString(); }
+                            using (StringWriter lw = new()) { PrintValue(l, lw); ls = lw.ToString(); }
+                            using (StringWriter rw = new()) { PrintValue(r, rw); rs = rw.ToString(); }
                             _stack.Push(ls + rs);
                         }
                         else
@@ -2046,12 +2111,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SUB:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         if (!IsNumber(l) || !IsNumber(r))
                             throw new VMException("SUB on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
 
-                        var (A, B, K) = CoercePair(l, r);
+                        (object A, object B, NumKind K) = CoercePair(l, r);
                         object res = K switch
                         {
                             NumKind.Decimal => (object)((decimal)A - (decimal)B),
@@ -2066,12 +2131,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.MUL:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
 
                         if (IsNumber(l) && IsNumber(r))
                         {
-                            var (A, B, K) = CoercePair(l, r);
+                            (object A, object B, NumKind K) = CoercePair(l, r);
                             object res = K switch
                             {
                                 NumKind.Decimal => (object)((decimal)A * (decimal)B),
@@ -2099,12 +2164,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.MOD:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         if (!IsNumber(l) || !IsNumber(r))
                             throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
 
-                        var (A, B, K) = CoercePair(l, r);
+                        (object A, object B, NumKind K) = CoercePair(l, r);
                         if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
                          || K == NumKind.Int64 && Convert.ToInt64(r) == 0
                          || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
@@ -2125,13 +2190,13 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.DIV:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         if (!IsNumber(l) || !IsNumber(r))
                             throw new VMException($"Runtime error: cannot DIV {l?.GetType()} and {r?.GetType()}",
                                 instr.Line, instr.Col, instr.OriginFile);
 
-                        var (A, B, K) = CoercePair(l, r);
+                        (object A, object B, NumKind K) = CoercePair(l, r);
                         if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
                          || K == NumKind.Int64 && Convert.ToInt64(r) == 0
                          || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
@@ -2152,12 +2217,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.EXPO:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         if (!IsNumber(l) || !IsNumber(r))
                             throw new VMException("EXPO on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
 
-                        var (A, B, K) = CoercePair(l, r);
+                        (object A, object B, NumKind K) = CoercePair(l, r);
                         object res = K switch
                         {
                             NumKind.Decimal => (object)((decimal)Math.Pow((double)(decimal)A, (double)(decimal)B)),
@@ -2172,8 +2237,8 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.BIT_AND:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
                             throw new VMException("BIT_AND requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2186,8 +2251,8 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.BIT_OR:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
                             throw new VMException("BIT_OR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2200,8 +2265,8 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.BIT_XOR:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
                             throw new VMException("BIT_XOR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2214,8 +2279,8 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SHL:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
                             throw new VMException("SHL requires (int|long|uint|ulong) << int", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2229,8 +2294,8 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SHR:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
                             throw new VMException("SHR requires (int|long|uint|ulong) >> int", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2244,8 +2309,8 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.EQ:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         bool res;
                         if (IsNumber(l) && IsNumber(r))
                             res = CompareAsDecimal(l) == CompareAsDecimal(r);
@@ -2259,8 +2324,8 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.NEQ:
                     {
-                        var r = _stack.Pop();
-                        var l = _stack.Pop();
+                        object r = _stack.Pop();
+                        object l = _stack.Pop();
                         bool res;
                         if (IsNumber(l) && IsNumber(r))
                             res = CompareAsDecimal(l) != CompareAsDecimal(r);
@@ -2274,11 +2339,11 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.LT:
                     {
-                        var r = _stack.Pop(); var l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
 
                         if (IsNumber(l) && IsNumber(r))
                         {
-                            var (A, B, K) = CoercePair(l, r);
+                            (object A, object B, NumKind K) = CoercePair(l, r);
                             bool v = K switch
                             {
                                 NumKind.Decimal => (decimal)A < (decimal)B,
@@ -2302,11 +2367,11 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.GT:
                     {
-                        var r = _stack.Pop(); var l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
 
                         if (IsNumber(l) && IsNumber(r))
                         {
-                            var (A, B, K) = CoercePair(l, r);
+                            (object A, object B, NumKind K) = CoercePair(l, r);
                             bool v = K switch
                             {
                                 NumKind.Decimal => (decimal)A > (decimal)B,
@@ -2330,11 +2395,11 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.LE:
                     {
-                        var r = _stack.Pop(); var l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
 
                         if (IsNumber(l) && IsNumber(r))
                         {
-                            var (A, B, K) = CoercePair(l, r);
+                            (object A, object B, NumKind K) = CoercePair(l, r);
                             bool v = K switch
                             {
                                 NumKind.Decimal => (decimal)A <= (decimal)B,
@@ -2358,11 +2423,11 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.GE:
                     {
-                        var r = _stack.Pop(); var l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
 
                         if (IsNumber(l) && IsNumber(r))
                         {
-                            var (A, B, K) = CoercePair(l, r);
+                            (object A, object B, NumKind K) = CoercePair(l, r);
                             bool v = K switch
                             {
                                 NumKind.Decimal => (decimal)A >= (decimal)B,
@@ -2386,7 +2451,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.NEG:
                     {
-                        var v = _stack.Pop();
+                        object? v = _stack.Pop();
                         if (!IsNumber(v))
                             throw new VMException(
                                 $"NEG only works on numeric types (got {v ?? "null"} of type {v?.GetType().Name ?? "null"})",
@@ -2407,14 +2472,14 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.NOT:
                     {
-                        var v = _stack.Pop();
+                        object v = _stack.Pop();
                         _stack.Push(!ToBool(v));
                         break;
                     }
 
                 case OpCode.DUP:
                     {
-                        var v = _stack.Peek();
+                        object v = _stack.Peek();
                         _stack.Push(v);
                         break;
                     }
@@ -2427,7 +2492,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.AND:
                     {
-                        var r = _stack.Pop(); var l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
                         bool lb = ToBool(l); bool rb = ToBool(r);
                         _stack.Push(lb && rb);
                         break;
@@ -2435,7 +2500,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.OR:
                     {
-                        var r = _stack.Pop(); var l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
                         bool lb = ToBool(l); bool rb = ToBool(r);
                         _stack.Push(lb || rb);
                         break;
@@ -2456,7 +2521,7 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null)
                             throw new VMException("Runtime error: JMP_IF_FALSE missing target", instr.Line, instr.Col, instr.OriginFile);
-                        var v = _stack.Pop();
+                        object v = _stack.Pop();
                         if (!ToBool(v))
                         {
                             _ip = (int)instr.Operand;
@@ -2469,7 +2534,7 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null)
                             throw new VMException("Runtime error: JMP_IF_TRUE missing target", instr.Line, instr.Col, instr.OriginFile);
-                        var v = _stack.Pop();
+                        object v = _stack.Pop();
                         if (ToBool(v))
                         {
                             _ip = (int)instr.Operand;
@@ -2502,11 +2567,11 @@ namespace CFGS_VM.VMCore
                                 throw new VMException($"Runtime error: Invalid PUSH_CLOSURE operand type {instr.Operand.GetType().Name}", instr.Line, instr.Col, instr.OriginFile);
                         }
 
-                        var funcInfo = _functions.Values.FirstOrDefault(f => f.Address == funcAddr);
+                        FunctionInfo? funcInfo = _functions.Values.FirstOrDefault(f => f.Address == funcAddr);
                         if (funcInfo == null)
                             throw new VMException($"Runtime error: PUSH_CLOSURE unknown function address {funcAddr}", instr.Line, instr.Col, instr.OriginFile);
 
-                        var capturedEnv = _scopes[^1];
+                        Env capturedEnv = _scopes[^1];
                         _stack.Push(new Closure(funcAddr, funcInfo.Parameters, capturedEnv, funcName ?? throw new VMException("Invalid function-name", instr.Line, instr.Col, instr.OriginFile)));
                         break;
                     }
@@ -2517,14 +2582,14 @@ namespace CFGS_VM.VMCore
                         {
                             if (bInFunc.TryGetValue(funcName, out int expectedArgs))
                             {
-                                var args = new List<object>();
+                                List<object> args = new();
                                 for (int i = expectedArgs - 1; i >= 0; i--) args.Insert(0, _stack.Pop());
-                                var result = CallBuiltin(funcName, args, instr);
+                                object result = CallBuiltin(funcName, args, instr);
                                 _stack.Push(result);
                                 break;
                             }
 
-                            if (!_functions.TryGetValue(funcName, out var func))
+                            if (!_functions.TryGetValue(funcName, out FunctionInfo? func))
                                 throw new VMException($"Runtime error: unknown function {funcName}", instr.Line, instr.Col, instr.OriginFile);
 
                             if (func.Parameters.Count > 0 && func.Parameters[0] == "this")
@@ -2543,10 +2608,13 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.CALL_INDIRECT:
                     {
+                        static bool IsReceiverName(string s) => s == "this" || s == "type";
+
                         if (instr.Operand is IConvertible)
                         {
                             int explicitArgCount = Convert.ToInt32(instr.Operand);
-                            var argsList = new List<object>();
+
+                            List<object> argsList = new();
                             for (int i = 0; i < explicitArgCount; i++)
                             {
                                 if (_stack.Count == 0)
@@ -2557,7 +2625,7 @@ namespace CFGS_VM.VMCore
                             if (_stack.Count == 0)
                                 throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile);
 
-                            var callee = _stack.Pop();
+                            object callee = _stack.Pop();
                             Closure f;
                             object? receiver = null;
 
@@ -2569,7 +2637,7 @@ namespace CFGS_VM.VMCore
                                         instr.Line, instr.Col, instr.OriginFile
                                     );
 
-                                var result = ib_ex.Method.Invoke(ib_ex.Receiver, argsList, instr);
+                                object result = ib_ex.Method.Invoke(ib_ex.Receiver, argsList, instr);
                                 _stack.Push(result);
                                 return StepResult.Continue;
                             }
@@ -2578,31 +2646,31 @@ namespace CFGS_VM.VMCore
                                 f = bm.Function;
                                 receiver = bm.Receiver;
 
-                                if (f.Parameters.Count > 0 && f.Parameters[0] == "this")
+                                if (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0]))
                                 {
                                     if (argsList.Count > 0 && Equals(argsList[0], receiver))
-                                        throw new VMException("Runtime error: receiver provided twice (BoundMethod already has 'this').", instr.Line, instr.Col, instr.OriginFile);
+                                        throw new VMException("Runtime error: receiver provided twice (BoundMethod already has implicit receiver).", instr.Line, instr.Col, instr.OriginFile);
                                 }
                             }
                             else if (callee is Closure clos)
                             {
                                 f = clos;
 
-                                if (f.Parameters.Count > 0 && f.Parameters[0] == "this")
+                                if (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0]))
                                 {
                                     if (argsList.Count == 0)
-                                        throw new VMException("Runtime error: missing 'this' for method call.", instr.Line, instr.Col, instr.OriginFile);
+                                        throw new VMException($"Runtime error: missing '{f.Parameters[0]}' for method call.", instr.Line, instr.Col, instr.OriginFile);
                                     receiver = argsList[0];
                                     argsList.RemoveAt(0);
                                 }
                             }
                             else
                             {
-                                throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code} )", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code})", instr.Line, instr.Col, instr.OriginFile);
                             }
 
-                            var callEnv = new Env(f.CapturedEnv);
-                            int piStart = (f.Parameters.Count > 0 && f.Parameters[0] == "this") ? 1 : 0;
+                            Env callEnv = new(f.CapturedEnv);
+                            int piStart = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
                             if (argsList.Count < f.Parameters.Count - piStart)
                                 throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2611,7 +2679,6 @@ namespace CFGS_VM.VMCore
 
                             _scopes.Add(callEnv);
                             _callStack.Push(new CallFrame(_ip, 1, receiver));
-
                             _ip = f.Address;
                             return StepResult.Continue;
                         }
@@ -2620,21 +2687,21 @@ namespace CFGS_VM.VMCore
                             if (_stack.Count == 0)
                                 throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile);
 
-                            var callee = _stack.Pop();
+                            object callee = _stack.Pop();
                             Closure f;
                             object? receiver = null;
 
                             if (callee is IntrinsicBound ib)
                             {
                                 int need = ib.Method.ArityMin;
-                                var argsB = new List<object>();
+                                List<object> argsB = new();
                                 for (int i = 0; i < need; i++)
                                 {
                                     if (_stack.Count == 0)
                                         throw new VMException("Runtime error: insufficient args for intrinsic call", instr.Line, instr.Col, instr.OriginFile);
                                     argsB.Add(_stack.Pop());
                                 }
-                                var result = ib.Method.Invoke(ib.Receiver, argsB, instr);
+                                object result = ib.Method.Invoke(ib.Receiver, argsB, instr);
                                 _stack.Push(result);
                                 return StepResult.Continue;
                             }
@@ -2647,20 +2714,21 @@ namespace CFGS_VM.VMCore
                             {
                                 f = clos;
 
-                                if (f.Parameters.Count > 0 && f.Parameters[0] == "this")
+                                if (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0]))
                                 {
                                     if (_stack.Count == 0)
-                                        throw new VMException("Runtime error: missing 'this' for method call.", instr.Line, instr.Col, instr.OriginFile);
+                                        throw new VMException($"Runtime error: missing '{f.Parameters[0]}' for method call.", instr.Line, instr.Col, instr.OriginFile);
                                     receiver = _stack.Pop();
                                 }
                             }
                             else
                             {
-                                throw new VMException($"Runtime error: attempt to call non-function value ( {instr.Code} )", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code})", instr.Line, instr.Col, instr.OriginFile);
                             }
 
-                            int piStart = (f.Parameters.Count > 0 && f.Parameters[0] == "this") ? 1 : 0;
-                            var argsList = new List<object>();
+                            int piStart = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
+
+                            List<object> argsList = new();
                             for (int pi = f.Parameters.Count - 1; pi >= piStart; pi--)
                             {
                                 if (_stack.Count == 0)
@@ -2668,7 +2736,7 @@ namespace CFGS_VM.VMCore
                                 argsList.Insert(0, _stack.Pop());
                             }
 
-                            var callEnv = new Env(f.CapturedEnv);
+                            Env callEnv = new(f.CapturedEnv);
                             for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
                                 callEnv.Define(f.Parameters[pi], argsList[ai]);
 
@@ -2681,9 +2749,9 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.RET:
                     {
-                        var retVal = _stack.Pop();
+                        object retVal = _stack.Pop();
 
-                        var fr = _callStack.Pop();
+                        CallFrame fr = _callStack.Pop();
 
                         for (int i = 0; i < fr.ScopesAdded; i++)
                             _scopes.RemoveAt(_scopes.Count - 1);
@@ -2696,7 +2764,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.TRY_PUSH:
                     {
-                        var arr = instr.Operand as int[] ?? new[] { -1, -1 };
+                        int[] arr = instr.Operand as int[] ?? new[] { -1, -1 };
                         int catchAddr = arr.Length > 0 ? arr[0] : -1;
                         int finallyAddr = arr.Length > 1 ? arr[1] : -1;
                         _tryHandlers.Add(new TryHandler(catchAddr, finallyAddr));
@@ -2713,9 +2781,9 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.THROW:
                     {
-                        var any = _stack.Pop();
+                        object any = _stack.Pop();
 
-                        var payload = any as ExceptionObject
+                        ExceptionObject payload = any as ExceptionObject
                             ?? new ExceptionObject(
                                    type: "UserError",
                                     message: any?.ToString() ?? "error",
@@ -2725,7 +2793,7 @@ namespace CFGS_VM.VMCore
                                     stack: BuildStackString(_insns, instr)
                                );
 
-                        if (RouteExceptionToTryHandlers(payload, instr, out var nip))
+                        if (RouteExceptionToTryHandlers(payload, instr, out int nip))
                         { _ip = nip; return StepResult.Continue; }
 
                         throw new VMException($"Uncaught exception: {payload}", instr.Line, instr.Col, instr.OriginFile);
@@ -2735,15 +2803,15 @@ namespace CFGS_VM.VMCore
                     {
                         if (_tryHandlers.Count == 0) break;
 
-                        var h = _tryHandlers[^1];
+                        TryHandler h = _tryHandlers[^1];
                         _tryHandlers.RemoveAt(_tryHandlers.Count - 1);
 
                         if (h.Exception != null)
                         {
-                            var any = h.Exception;
+                            object any = h.Exception;
                             h.Exception = null;
 
-                            var payload = any as ExceptionObject
+                            ExceptionObject payload = any as ExceptionObject
                                 ?? new ExceptionObject(
                                        type: "UserError",
                                        message: any?.ToString() ?? "error",
@@ -2753,7 +2821,7 @@ namespace CFGS_VM.VMCore
                                        stack: BuildStackString(_insns, instr)
                                    );
 
-                            if (RouteExceptionToTryHandlers(payload, instr, out var nip))
+                            if (RouteExceptionToTryHandlers(payload, instr, out int nip))
                             { _ip = nip; return StepResult.Continue; }
 
                             throw new VMException($"Uncaught exception: {payload}", instr.Line, instr.Col, instr.OriginFile);
@@ -2788,7 +2856,7 @@ namespace CFGS_VM.VMCore
             value = null;
             if (string.IsNullOrWhiteSpace(name)) return false;
 
-            var env = FindEnvWithLocal(name);
+            Env? env = FindEnvWithLocal(name);
             if (env == null) return false;
 
             return env.Vars.TryGetValue(name, out value);
@@ -2801,7 +2869,7 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="object?"/></returns>
         public object? GetVar(string name)
         {
-            if (TryGetVar(name, out var v)) return v;
+            if (TryGetVar(name, out object? v)) return v;
             throw new VMException($"Runtime error: undefined variable '{name}'", 0, 0, "<host>");
         }
 
@@ -2813,7 +2881,7 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="T"/></returns>
         public T GetVar<T>(string name)
         {
-            var v = GetVar(name);
+            object? v = GetVar(name);
             if (v is T t) return t;
             throw new VMException($"Runtime error: variable '{name}' is not of type {typeof(T).Name}", 0, 0, "<host>");
         }
@@ -2833,7 +2901,7 @@ namespace CFGS_VM.VMCore
             if (string.Equals(name, "this", StringComparison.Ordinal))
                 throw new VMException("Runtime error: cannot assign/declare 'this'", 0, 0, "<host>");
 
-            var env = FindEnvWithLocal(name);
+            Env? env = FindEnvWithLocal(name);
             if (env != null)
             {
                 env.Vars[name] = value!;
@@ -2843,7 +2911,7 @@ namespace CFGS_VM.VMCore
             if (!defineIfMissing)
                 throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", 0, 0, "<host>");
 
-            var target = toGlobal ? _scopes[0] : _scopes[^1];
+            Env target = toGlobal ? _scopes[0] : _scopes[^1];
             if (target.HasLocal(name))
                 target.Vars[name] = value!;
             else
@@ -2858,7 +2926,7 @@ namespace CFGS_VM.VMCore
         /// <param name="toGlobal">The toGlobal<see cref="bool"/></param>
         public void SetVars(IDictionary<string, object?> vars, bool defineIfMissing = true, bool toGlobal = false)
         {
-            foreach (var kv in vars)
+            foreach (KeyValuePair<string, object?> kv in vars)
                 SetVar(kv.Key, kv.Value, defineIfMissing, toGlobal);
         }
 
@@ -2874,7 +2942,7 @@ namespace CFGS_VM.VMCore
             if (_program == null || _program.Count == 0)
                 throw new InvalidOperationException("No program loaded. Call LoadProgram(...) first.");
 
-            if (!_functions.TryGetValue(name, out var fInfo))
+            if (!_functions.TryGetValue(name, out FunctionInfo? fInfo))
                 throw new VMException($"Runtime error: function '{name}' not found.", 0, 0, "<host>");
 
             if (fInfo.Parameters.Count > 0 && fInfo.Parameters[0] == "this")
@@ -2882,14 +2950,14 @@ namespace CFGS_VM.VMCore
                     $"Runtime error: function '{name}' requires 'this'. Use CallFunctionWithThis(...).",
                     0, 0, "<host>");
 
-            var clos = new Closure(fInfo.Address, fInfo.Parameters, _scopes[^1], name);
+            Closure clos = new(fInfo.Address, fInfo.Parameters, _scopes[^1], name);
 
             if (args.Length < clos.Parameters.Count)
                 throw new VMException(
                     $"Runtime error: insufficient args for '{name}' (need {clos.Parameters.Count}, have {args.Length})",
                     0, 0, "<host>");
 
-            var callEnv = new Env(clos.CapturedEnv);
+            Env callEnv = new(clos.CapturedEnv);
             for (int i = 0; i < clos.Parameters.Count; i++)
                 callEnv.Define(clos.Parameters[i], args[i]);
 
@@ -2915,8 +2983,8 @@ namespace CFGS_VM.VMCore
                     if (_ip >= _program.Count)
                         throw new VMException("Runtime error: IP out of bounds during CallFunction", 0, 0, "<host>");
 
-                    var instr = _program[_ip++];
-                    var step = HandleInstruction(ref _ip, _program, instr);
+                    Instruction instr = _program[_ip++];
+                    StepResult step = HandleInstruction(ref _ip, _program, instr);
                     if (step == StepResult.Halt) { finished = true; break; }
                 }
             }
@@ -2958,15 +3026,15 @@ namespace CFGS_VM.VMCore
                             $"[DEBUG] {_program[_ip]} (Line {_program[_ip].Line}, Col {_program[_ip].Col})\n"));
                     }
 
-                    var instr = _program[_ip++];
-                    var res = HandleInstruction(ref _ip, _program, instr);
+                    Instruction instr = _program[_ip++];
+                    StepResult res = HandleInstruction(ref _ip, _program, instr);
 
                     if (res == StepResult.Halt) return;
                     if (res == StepResult.Continue) continue;
                 }
                 catch (VMException ex)
                 {
-                    var payload = new ExceptionObject(
+                    ExceptionObject payload = new(
                         type: "RuntimeError",
                         message: ex.Message,
                         file: _program[_ip].OriginFile,
@@ -2975,7 +3043,7 @@ namespace CFGS_VM.VMCore
                         stack: BuildStackString(_program, _program[_ip])
                     );
 
-                    if (RouteExceptionToTryHandlers(payload, _program[_ip], out var nip))
+                    if (RouteExceptionToTryHandlers(payload, _program[_ip], out int nip))
                     {
                         _ip = nip;
                         routed = true;
@@ -3002,17 +3070,17 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="string"/></returns>
         private string BuildStackString(List<Instruction> insns, Instruction current)
         {
-            var sb = new StringBuilder();
+            StringBuilder sb = new();
 
             sb.Append("  at ")
               .Append(current.OriginFile).Append(':')
               .Append(current.Line).Append(':')
               .Append(current.Col).AppendLine();
 
-            foreach (var frame in _callStack.Reverse())
+            foreach (CallFrame? frame in _callStack.Reverse())
             {
                 int ip = Math.Clamp(frame.ReturnIp, 0, insns.Count - 1);
-                var i = insns[ip];
+                Instruction i = insns[ip];
                 sb.Append("  at ")
                   .Append(i.OriginFile).Append(':')
                   .Append(i.Line).Append(':')
@@ -3049,7 +3117,7 @@ namespace CFGS_VM.VMCore
         {
             for (int i = _tryHandlers.Count - 1; i >= 0; i--)
             {
-                var h = _tryHandlers[i];
+                TryHandler h = _tryHandlers[i];
                 if (h.CatchAddr >= 0)
                 {
                     _stack.Push(exPayload);
@@ -3082,7 +3150,7 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="string"/></returns>
         private string BuildCrashReport(string scriptname, Instruction? instr, int ipAfterFetch, Exception ex)
         {
-            var sb = new StringBuilder();
+            StringBuilder sb = new();
             int ipAtFault = Math.Max(0, ipAfterFetch - 1);
 
             sb.AppendLine($"  at IP={ipAtFault} {(instr != null ? instr.Code.ToString() : "<no-op>")}");
@@ -3120,8 +3188,8 @@ namespace CFGS_VM.VMCore
         private string DumpStack()
         {
             if (_stack == null || _stack.Count == 0) return "<empty>";
-            var arr = _stack.ToArray();
-            var parts = arr.Select(FormatVal);
+            object[] arr = _stack.ToArray();
+            IEnumerable<string> parts = arr.Select(FormatVal);
             return string.Join(" | ", parts);
         }
 
@@ -3132,8 +3200,8 @@ namespace CFGS_VM.VMCore
         private string DumpCallStack()
         {
             if (_callStack == null || _callStack.Count == 0) return "<empty>";
-            var arr = _callStack.ToArray();
-            var parts = arr.Select((fr, i) =>
+            CallFrame[] arr = _callStack.ToArray();
+            IEnumerable<string> parts = arr.Select((fr, i) =>
                 $"#{i}: ret={fr.ReturnIp}, scopes+={fr.ScopesAdded}, this={(fr.ThisRef != null ? FormatVal(fr.ThisRef) : "null")}");
             return string.Join(" ; ", parts);
         }
@@ -3172,8 +3240,8 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="string"/></returns>
         private static string JsonEscapeString(string s)
         {
-            var sb = new StringBuilder(s.Length + 8);
-            foreach (var ch in s)
+            StringBuilder sb = new(s.Length + 8);
+            foreach (char ch in s)
             {
                 switch (ch)
                 {
@@ -3255,7 +3323,7 @@ namespace CFGS_VM.VMCore
                         if (seen.Contains(v)) { w.Write("{}"); return; }
                         seen.Add(v);
 
-                        var entries = dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList();
+                        List<KeyValuePair<string, object>> entries = dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList();
                         if (mode == 2)
                         {
                             entries = [.. entries
@@ -3268,7 +3336,7 @@ namespace CFGS_VM.VMCore
                         w.Write('{');
                         for (int i = 0; i < entries.Count; i++)
                         {
-                            var kv = entries[i];
+                            KeyValuePair<string, object> kv = entries[i];
                             w.Write('"'); w.Write(JsonEscapeString(kv.Key)); w.Write("\":");
                             WriteJsonValue(kv.Value, w, seen, mode);
                             if (i + 1 < entries.Count) w.Write(',');
@@ -3295,8 +3363,8 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="string"/></returns>
         public static string JsonStringify(object? v, int mode = 2)
         {
-            var sb = new StringBuilder();
-            using var sw = new StringWriter(sb, CultureInfo.InvariantCulture);
+            StringBuilder sb = new();
+            using StringWriter sw = new(sb, CultureInfo.InvariantCulture);
             WriteJsonValue(v, sw, null, mode);
             return sb.ToString();
         }
@@ -3345,7 +3413,7 @@ namespace CFGS_VM.VMCore
                 if (seen.Contains(v)) { w.Write("{...}"); return; }
                 seen.Add(v);
 
-                var entries = dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList();
+                List<KeyValuePair<string, object>> entries = dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList();
                 if (mode == 2)
                 {
                     entries = [.. entries
@@ -3358,7 +3426,7 @@ namespace CFGS_VM.VMCore
                 w.Write("{");
                 for (int i = 0; i < entries.Count; i++)
                 {
-                    var kv = entries[i];
+                    KeyValuePair<string, object> kv = entries[i];
                     w.Write("\"");
                     w.Write(escapeNewlines ? UnescapeForPrinting(kv.Key) : kv.Key);
                     w.Write("\": ");
@@ -3422,8 +3490,7 @@ namespace CFGS_VM.VMCore
             {
                 case List<object> arr:
                     {
-
-                        if (idxObj is string mname && ArrayProto.TryGetValue(mname, out var imArr))
+                        if (idxObj is string mname && ArrayProto.TryGetValue(mname, out IntrinsicMethod? imArr))
                             return new IntrinsicBound(imArr, arr);
 
                         int index = Convert.ToInt32(idxObj);
@@ -3434,7 +3501,7 @@ namespace CFGS_VM.VMCore
 
                 case FileHandle fh:
                     {
-                        if (idxObj is string mname && FileProto.TryGetValue(mname, out var im))
+                        if (idxObj is string mname && FileProto.TryGetValue(mname, out IntrinsicMethod? im))
                             return new IntrinsicBound(im, fh);
                         throw new VMException($"invalid file member '{idxObj}'", instr.Line, instr.Col, instr.OriginFile);
                     }
@@ -3442,7 +3509,7 @@ namespace CFGS_VM.VMCore
                 case ExceptionObject exo:
                     {
                         string key = idxObj?.ToString() ?? "";
-                        if (ExceptionProto.TryGetValue(key, out var im))
+                        if (ExceptionProto.TryGetValue(key, out IntrinsicMethod? im))
                             return new IntrinsicBound(im, exo);
                         if (string.Equals(key, "message$", StringComparison.Ordinal)) return exo.Message;
                         if (string.Equals(key, "type$", StringComparison.Ordinal)) return exo.Type;
@@ -3451,7 +3518,7 @@ namespace CFGS_VM.VMCore
 
                 case string strv:
                     {
-                        if (idxObj is string mname && StringProto.TryGetValue(mname, out var im))
+                        if (idxObj is string mname && StringProto.TryGetValue(mname, out IntrinsicMethod? im))
                             return new IntrinsicBound(im, strv);
 
                         int index = Convert.ToInt32(idxObj);
@@ -3462,10 +3529,10 @@ namespace CFGS_VM.VMCore
 
                 case Dictionary<string, object> dict:
                     {
-                        if (idxObj is string mname && DictProto.TryGetValue(mname, out var imDict))
+                        if (idxObj is string mname && DictProto.TryGetValue(mname, out IntrinsicMethod? imDict))
                             return new IntrinsicBound(imDict, dict);
                         string key = idxObj?.ToString() ?? "";
-                        if (dict.TryGetValue(key, out var val))
+                        if (dict.TryGetValue(key, out object? val))
                             return val;
                         return null;
                     }
@@ -3473,7 +3540,8 @@ namespace CFGS_VM.VMCore
                 case ClassInstance obj:
                     {
                         string key = idxObj?.ToString() ?? "";
-                        if (obj.Fields.TryGetValue(key, out var fval))
+
+                        if (obj.Fields.TryGetValue(key, out object? fval))
                         {
                             if (fval is Closure clos &&
                                 clos.Parameters.Count > 0 && clos.Parameters[0] == "this")
@@ -3482,53 +3550,90 @@ namespace CFGS_VM.VMCore
                             }
                             return fval;
                         }
+
+                        ClassInstance curInst = obj;
+                        while (curInst.Fields.TryGetValue("__base", out object? bObj) && bObj is ClassInstance baseInst)
+                        {
+                            if (baseInst.Fields.TryGetValue(key, out object? bval))
+                            {
+                                if (bval is Closure bclos &&
+                                    bclos.Parameters.Count > 0 && bclos.Parameters[0] == "this")
+                                {
+                                    return new BoundMethod(bclos, obj);
+                                }
+                                return bval;
+                            }
+                            curInst = baseInst;
+                        }
+
+                        if (obj.Fields.TryGetValue("__type", out object? tObj) && tObj is StaticInstance st2)
+                        {
+                            if (st2.Fields.TryGetValue(key, out object? sval))
+                            {
+                                if (sval is Closure sClos &&
+                                    sClos.Parameters.Count > 0 && sClos.Parameters[0] == "type")
+                                {
+                                    return new BoundMethod(sClos, st2);
+                                }
+                                return sval;
+                            }
+
+                            StaticInstance curType = st2;
+                            while (curType.Fields.TryGetValue("__base", out object? sbObj) && sbObj is StaticInstance baseType)
+                            {
+                                if (baseType.Fields.TryGetValue(key, out object? sv2))
+                                {
+                                    if (sv2 is Closure sClos2 &&
+                                        sClos2.Parameters.Count > 0 && sClos2.Parameters[0] == "type")
+                                    {
+                                        return new BoundMethod(sClos2, st2);
+                                    }
+                                    return sv2;
+                                }
+                                curType = baseType;
+                            }
+                        }
+
                         throw new VMException($"invalid field '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile);
+                    }
+
+                case StaticInstance st:
+                    {
+                        string key = idxObj?.ToString() ?? "";
+
+                        if (st.Fields.TryGetValue(key, out object? fval))
+                        {
+                            if (fval is Closure clos &&
+                                clos.Parameters.Count > 0 && clos.Parameters[0] == "type")
+                            {
+                                return new BoundMethod(clos, st);
+                            }
+                            return fval;
+                        }
+
+                        StaticInstance curType = st;
+                        while (curType.Fields.TryGetValue("__base", out object? sbObj) && sbObj is StaticInstance baseType)
+                        {
+                            if (baseType.Fields.TryGetValue(key, out object? bval))
+                            {
+                                if (bval is Closure bclos &&
+                                    bclos.Parameters.Count > 0 && bclos.Parameters[0] == "type")
+                                {
+                                    return new BoundMethod(bclos, st);
+                                }
+                                return bval;
+                            }
+                            curType = baseType;
+                        }
+
+                        throw new VMException($"invalid static member '{key}' in class '{st.ClassName}'",
+                            instr.Line, instr.Col, instr.OriginFile);
                     }
 
                 default:
                     throw CreateIndexException(target, idxObj, instr);
             }
         }
-
-        /// <summary>
-        /// The RequireIntIndex
-        /// </summary>
-        /// <param name="idxObj">The idxObj<see cref="object"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="int"/></returns>
-        private static int RequireIntIndex(object idxObj, Instruction instr)
-        {
-            if (idxObj is int i) return i;
-            if (idxObj is long l)
-            {
-                if (l < int.MinValue || l > int.MaxValue)
-                    throw new VMException($"Runtime error: index {l} outside Int32 range", instr.Line, instr.Col, instr.OriginFile);
-                return (int)l;
-            }
-            if (idxObj is short s) return (int)s;
-            if (idxObj is byte b) return (int)b;
-
-            if (idxObj is string sVal && int.TryParse(sVal, out var parsed))
-                return parsed;
-
-            throw new VMException($"Runtime error: index must be an integer, got '{idxObj?.GetType().Name ?? "null"}'", instr.Line, instr.Col, instr.OriginFile);
-        }
-
-        /// <summary>
-        /// The IsReservedArrayMemberName
-        /// </summary>
-        /// <param name="idxObj">The idxObj<see cref="object"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        private static bool IsReservedArrayMemberName(object idxObj)
-            => idxObj is string name && ArrayProto.ContainsKey(name);
-
-        /// <summary>
-        /// The IsReservedDictMemberName
-        /// </summary>
-        /// <param name="idxObj">The idxObj<see cref="object"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        private static bool IsReservedDictMemberName(object idxObj)
-            => idxObj is string name && DictProto.ContainsKey(name);
 
         /// <summary>
         /// The SetIndexedValue
@@ -3547,18 +3652,14 @@ namespace CFGS_VM.VMCore
                             throw new VMException($"Runtime error: cannot assign to array intrinsic '{idxObj}'", instr.Line, instr.Col, instr.OriginFile);
 
                         int index = RequireIntIndex(idxObj, instr);
-
                         if (index < 0 || index >= arr.Count)
                             throw new VMException($"Runtime error: index {index} out of range (0..{arr.Count - 1})", instr.Line, instr.Col, instr.OriginFile);
-
                         arr[index] = value;
                         break;
                     }
 
                 case string _:
-                    {
-                        throw new VMException("Runtime error: INDEX_SET on string. Strings are immutable.", instr.Line, instr.Col, instr.OriginFile);
-                    }
+                    throw new VMException("Runtime error: INDEX_SET on string. Strings are immutable.", instr.Line, instr.Col, instr.OriginFile);
 
                 case Dictionary<string, object> dict:
                     {
@@ -3583,6 +3684,16 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case StaticInstance st:
+                    {
+                        string key = idxObj?.ToString() ?? "";
+                        if (key.Length == 0)
+                            throw new VMException("Runtime error: static member name cannot be empty", instr.Line, instr.Col, instr.OriginFile);
+
+                        st.Fields[key] = value;
+                        break;
+                    }
+
                 case null:
                     throw new VMException("Runtime error: INDEX_SET on null target", instr.Line, instr.Col, instr.OriginFile);
 
@@ -3590,6 +3701,46 @@ namespace CFGS_VM.VMCore
                     throw new VMException("Runtime error: target is not index-assignable", instr.Line, instr.Col, instr.OriginFile);
             }
         }
+
+        /// <summary>
+        /// The RequireIntIndex
+        /// </summary>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="int"/></returns>
+        private static int RequireIntIndex(object idxObj, Instruction instr)
+        {
+            if (idxObj is int i) return i;
+            if (idxObj is long l)
+            {
+                if (l < int.MinValue || l > int.MaxValue)
+                    throw new VMException($"Runtime error: index {l} outside Int32 range", instr.Line, instr.Col, instr.OriginFile);
+                return (int)l;
+            }
+            if (idxObj is short s) return (int)s;
+            if (idxObj is byte b) return (int)b;
+
+            if (idxObj is string sVal && int.TryParse(sVal, out int parsed))
+                return parsed;
+
+            throw new VMException($"Runtime error: index must be an integer, got '{idxObj?.GetType().Name ?? "null"}'", instr.Line, instr.Col, instr.OriginFile);
+        }
+
+        /// <summary>
+        /// The IsReservedArrayMemberName
+        /// </summary>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsReservedArrayMemberName(object idxObj)
+            => idxObj is string name && ArrayProto.ContainsKey(name);
+
+        /// <summary>
+        /// The IsReservedDictMemberName
+        /// </summary>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsReservedDictMemberName(object idxObj)
+            => idxObj is string name && DictProto.ContainsKey(name);
 
         /// <summary>
         /// The CreateIndexException

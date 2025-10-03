@@ -1,31 +1,16 @@
-﻿using System.Globalization;
+﻿using CFGS_VM.Analytic.TTypes;
+using System.Globalization;
 using System.Text;
 
-/// <summary>
-/// Defines the <see cref="Lexer" />
-/// </summary>
 public class Lexer
 {
-    /// <summary>
-    /// Gets or sets the FileName
-    /// </summary>
     public string FileName { get; set; }
 
-    /// <summary>
-    /// The MakeToken
-    /// </summary>
-    /// <param name="type">The type<see cref="TokenType"/></param>
-    /// <param name="value">The value<see cref="string"/></param>
-    /// <returns>The <see cref="Token"/></returns>
     private Token MakeToken(TokenType type, string value)
     {
         return new Token(type, value, _line, _col, FileName);
     }
 
-    /// <summary>
-    /// The SyncPos
-    /// </summary>
-    /// <param name="offset">The offset<see cref="int"/></param>
     private void SyncPos(int offset = 1)
     {
         for (int i = 0; i < offset; i++)
@@ -46,31 +31,14 @@ public class Lexer
         }
     }
 
-    /// <summary>
-    /// Defines the _text
-    /// </summary>
     public readonly string _text;
 
-    /// <summary>
-    /// Defines the _pos
-    /// </summary>
     private int _pos;
 
-    /// <summary>
-    /// Defines the _col
-    /// </summary>
     private int _col = 1;
 
-    /// <summary>
-    /// Defines the _line
-    /// </summary>
     private int _line = 1;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="Lexer"/> class.
-    /// </summary>
-    /// <param name="name">The name<see cref="string"/></param>
-    /// <param name="text">The text<see cref="string"/></param>
     public Lexer(string name, string text)
     {
         FileName = name;
@@ -79,20 +47,10 @@ public class Lexer
         _text = text;
     }
 
-    /// <summary>
-    /// Gets the Current
-    /// </summary>
     private char Current => _pos < _text.Length ? _text[_pos] : '\0';
 
-    /// <summary>
-    /// Gets the Peek
-    /// </summary>
     private char Peek => _pos + 1 < _text.Length ? _text[_pos + 1] : '\0';
 
-    /// <summary>
-    /// The GetNextToken
-    /// </summary>
-    /// <returns>The <see cref="Token"/></returns>
     public Token GetNextToken()
     {
         while (_pos < _text.Length)
@@ -257,6 +215,7 @@ public class Lexer
                     "enum" => MakeToken(TokenType.Enum, id),
                     "from" => MakeToken(TokenType.From, id),
                     "emit" => MakeToken(TokenType.Emit, id),
+                    "static" => MakeToken(TokenType.Static, id),
                     _ => MakeToken(TokenType.Ident, id)
                 };
             }
@@ -266,7 +225,7 @@ public class Lexer
             if (c == '<' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.Le, "<="); }
             if (c == '>' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.Ge, ">="); }
             if (c == '<' && Peek == '<') { SyncPos(2); return MakeToken(TokenType.bShiftL, "<<"); }
-            if (c == '>' && Peek == '>') { SyncPos(2); return MakeToken(TokenType.BShiftR, ">>"); }
+            if (c == '>' && Peek == '>') { SyncPos(2); return MakeToken(TokenType.bShiftR, ">>"); }
             if (c == '&' && Peek == '&') { SyncPos(2); return MakeToken(TokenType.AndAnd, "&&"); }
             if (c == '|' && Peek == '|') { SyncPos(2); return MakeToken(TokenType.OrOr, "||"); }
 
@@ -279,7 +238,7 @@ public class Lexer
             if (c == '*' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.StarAssign, "*="); }
             if (c == '/' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.SlashAssign, "/="); }
 
-            if (c == '%' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.ModuloAssign, "%="); }
+            if (c == '%' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.ModAssign, "%="); }
             if (c == '*' && Peek == '*') { SyncPos(2); return MakeToken(TokenType.Expo, "**"); }
 
             SyncPos();
@@ -316,37 +275,16 @@ public class Lexer
     }
 }
 
-/// <summary>
-/// Defines the <see cref="LexerException" />
-/// </summary>
 public sealed class LexerException(string message, int line, int column, string filename) : Exception($"{message}. ( Line : {line}, Column : {column} ) : [Source : '{filename}']");
 
-/// <summary>
-/// Defines the <see cref="SourceLocation" />
-/// </summary>
 public class SourceLocation
 {
-    /// <summary>
-    /// Gets the FileName
-    /// </summary>
     public string FileName { get; }
 
-    /// <summary>
-    /// Gets the Line
-    /// </summary>
     public int Line { get; }
 
-    /// <summary>
-    /// Gets the Column
-    /// </summary>
     public int Column { get; }
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SourceLocation"/> class.
-    /// </summary>
-    /// <param name="file">The file<see cref="string"/></param>
-    /// <param name="line">The line<see cref="int"/></param>
-    /// <param name="column">The column<see cref="int"/></param>
     public SourceLocation(string file, int line, int column)
     {
         FileName = file;

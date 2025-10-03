@@ -121,6 +121,11 @@
         NEW_OBJECT,
 
         /// <summary>
+        /// Defines the NEW_STATIC
+        /// </summary>
+        NEW_STATIC,
+
+        /// <summary>
         /// Defines the ARRAY_PUSH
         /// </summary>
         ARRAY_PUSH,

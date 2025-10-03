@@ -1,4 +1,6 @@
-﻿public class Token
+﻿using CFGS_VM.Analytic.TTypes;
+
+public class Token
 {
     /// <summary>
     /// Gets the Type
