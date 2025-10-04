@@ -1,54 +1,56 @@
-# ConfigurationScript(VM) Features
+# ConfigurationScript (CFGS) – Bytecode VM Edition
 
 CFGS has been **completely redesigned**.  
-While the previous version was a **prototype relying on a direct AST interpreter**, the new version runs on a **stack-based bytecode virtual machine** with its own VM code.  
-The **syntax has been intentionally revised** to ensure smooth collaboration between the **lexer, parser, compiler, and VM**.  
-This project also served to **expand and solidify my knowledge in compiler development**.  
+The old prototype (a direct AST interpreter) has been replaced by a **stack-based bytecode Virtual Machine** with its own compiler and runtime.  
+The **syntax was refined** so the **lexer, parser, compiler, and VM** work together cleanly.  
+This project also served to **deepen my compiler engineering knowledge**.
 
-⚠️ **Important notes:**  
-- The old project will **no longer be actively developed**, but the repository remains available to **track the evolution of CFGS**, even though the foundation has now changed completely.  
-- **CFGS is still under development** and may contain bugs.
+> **Note**
+> - The old project is archived for historical reasons but is no longer developed.
+> - CFGS is **work in progress** and may still contain bugs.
 
+---
 
-## 💻 First Steps
+## 🚀 Getting Started
 
-You can execute code in two ways:
+You can run code in two ways:
 
-1. **Built-in REPL:**  
-   - If no command-line arguments are provided, CFGS will launch an **interactive REPL**.  
-   - The REPL is designed to **detect open blocks** and will only execute the code **once all blocks are properly closed**, preventing incomplete code execution.
+1. **Interactive REPL**  
+   Starts automatically if you run without arguments.  
+   The REPL detects open blocks and only executes when all blocks are closed.
 
-2. **Command-line mode:**  
-   You can run a script directly from the command line:
-   - `cfcs [-d] <script-path>`  
-     - `-d` (optional) enables **debug mode**.  
-     - `<script-path>` is the path to your script.  
-   - The script **file extension does not matter** at this stage.
-
-This setup allows flexible testing and experimentation, either interactively or by running complete scripts.
+2. **Command-line script**
+   ```bash
+   cfcs [-d] <script-path>
+   ```
+   - `-d` enables **debug mode**
+   - the file extension does not matter
 
 ---
 
 ## Table of Contents
-1. [Variables](#variables)
-2. [Arrays](#arrays)
-3. [Dictionaries (Objects)](#dictionaries-objects)
-4. [Slicing](#Slicing)
-5. [Functions](#functions)
-6. [For Loops](#for-loops)
-7. [While Loops](#while-loops)
-8. [If / Else](#if--else)
-9. [Match-Case](#match-case)
-10. [Break and Continue](#break-and-continue)
-11. [Closures / Functions as Values](#closures--functions-as-values)
-12. [Classes / Objects](#classes--objects)
-13. [Enums](#Enums)
-14. [Import](#Import)
+
+1. [Variables](#variables)  
+2. [Arrays](#arrays)  
+3. [Dictionaries (Objects)](#dictionaries-objects)  
+4. [Slicing](#slicing)  
+5. [Strings (Intrinsics)](#strings-intrinsics)  
+6. [Functions](#functions)  
+7. [While Loops](#while-loops)  
+8. [For Loops](#for-loops)  
+9. [If / Else](#if--else)  
+10. [Match / Case](#match--case)  
+11. [Break & Continue](#break--continue)  
+12. [Closures / Functions as Values](#closures--functions-as-values)  
+13. [Classes (Instances, Statics, Inheritance)](#classes-instances-statics-inheritance)  
+14. [Enums](#enums)  
+15. [File I/O](#file-io)  
+16. [Built-ins (selected)](#built-ins-selected)  
+17. [Examples](#examples)
 
 ---
 
 ## Variables
-💡 Variables store values (numbers, strings, etc.)
 
 ```cfs
 var score = 100;
@@ -61,136 +63,163 @@ print(playerName); # Alex
 ---
 
 ## Arrays
-📚 Arrays store ordered lists. Nested arrays are possible. You can push and delete items.
+
+Arrays are ordered, dynamic lists. You can use both **operators** and **intrinsics**.
+
+### Intrinsics (methods)
+
+- `arr.len()` → number of items  
+- `arr.push(value)` → appends; returns new length  
+- `arr.pop()` → removes & returns last element or `null` if empty  
+- `arr.insert_at(index, value)` → inserts at index  
+- `arr.remove_range(start, end)` → remove half-open range `[start, end)`  
+- `arr.replace_range(start, end, valueOrArray)` → replace range with a value or list  
+- `arr.slice(start?, end?)` → returns a new subarray (half-open)
+
+### Examples
 
 ```cfs
-var numbers = [5, 10, 15, [20, 25], 30];
-for(var i = 0; i < len(numbers); i++;) {
-    print(numbers[i]);
-}
-
-var nestedArray = ["A", "B", ["C", "D"]];
-print(nestedArray);
-print(nestedArray[2][1]); # D
-
-# Push new item to array
-numbers[] = 99;
-print(numbers);
-
-# Delete an item from array
-delete numbers[1];
-print(numbers);
+var nums = [10, 20, 30];
+print(nums.len());      # 3
+nums.push(40);          # [10,20,30,40]
+print(nums.pop());      # 40, nums -> [10,20,30]
+nums.insert_at(1, 99);  # [10,99,20,30]
+print(nums.slice(1, 3));# [99,20]
+nums.remove_range(0, 2);# [20,30]
+nums.replace_range(1, 2, [7,8,9]); # [20,7,8,9]
 ```
+
+You can also push with the **append operator**:
+
+```cfs
+var a = [];
+a[] = 1; a[] = 2; a[] = 3;  # same as push
+```
+
 ---
 
-
 ## Dictionaries (Objects)
-🗂 Key-value pairs, accessed via dot notation or `[]`. You can push new keys or delete them.
+
+Dictionaries map string keys to values.
+
+### Intrinsics (methods)
+
+- `d.len()` → number of keys  
+- `d.has(key)` → boolean existence  
+- `d.remove(key)` → remove by key, returns true/false  
+- `d.keys()` → array of keys  
+- `d.values()` → array of values  
+- `d.set(key, value)` → set/replace value (also works with `d["k"] = v`)  
+- `d.get_or(key, default)` → get value or the provided default
+
+### Examples
 
 ```cfs
 var settings = {"volume": 70, "theme": "dark"};
-print(settings.volume);
-print(settings["theme"]);
 
-settings.volume = 90;
-settings["theme"] = "light";
-print(settings);
+print(settings.has("volume"));  # true
+print(settings.len());          # 2
 
-# Push new key-value pair
-settings[] = {"language": "EN"};
-print(settings);
+settings.set("theme", "light");
+settings["lang"] = "EN";        # equivalent to set
+print(settings.keys());         # e.g. ["volume","theme","lang"]
 
-# Delete a key
-delete settings["volume"];
-print(settings);
+print(settings.get_or("fpsLimit", 60)); # 60
+settings.remove("volume");
 ```
+
+You can also **append entries** with the push operator using a single-entry dict:
+
+```cfs
+settings[] = {"newKey": 123};
+```
+
 ---
 
-# Slicing 
+## Slicing
 
-## Array
+Slicing works for **arrays**, **dictionaries** (by current key order), and **strings**.  
+Syntax: `target[start~end]` (end is exclusive). Negative indices are supported.
+
+### Array Slicing
+
 ```cfs
-# Get values example
-var a = [];
-a[] = 1; a[] = 2; a[] = 3; a[] = 4; a[] = 5;
-print(a[0~2]);
-print(a[1~4]);
-print(a[~3]);
-print(a[2~]);
+var a = [1,2,3,4,5];
+print(a[0~2]);  # [1,2]
+print(a[1~4]);  # [2,3,4]
+print(a[~3]);   # from start, 3 items -> [1,2,3]
+print(a[2~]);   # from index 2 to end -> [3,4,5]
 ```
 
+### Dictionary Slicing
+
 ```cfs
-# Set values example
-var a = [];
-a[] = 1; a[] = 2; a[] = 3; a[] = 4; a[] = 5;
-a[1] = 99;
-print(a[~]);
-delete a[1~3];
-print(a[~]);
+var d = {"a":1, "b":2, "c":3, "d":4};
+print(d[0~2].len());   # 2
+print(d["b"]);         # 2
 ```
 
-## Dictionary
+### String Slicing (immutable)
 
 ```cfs
-# Get values example
-var d = { "a": 1, "b": 2, "c": 3, "d": 4 };
-print(len(d[0~2]));
-print(d["b"]);
-```
-
-```cfs
-# Set values example
-var d = { "a": 1, "b": 2 };
-d["b"] = 99;
-d["x"] = 7;
-print(len(d));
-delete d[0~1];
-print(len(d));
-```
-
-## String
-
-```cfs
-# Get values example
 var s = "abcdef";
-print(s[0~2]);
-print(s[2~5]);
-print(s[~3]);
-print(s[3~]);
+print(s[0~2]); # "ab"
+print(s[2~5]); # "cde"
+print(s[~3]);  # "abc"
+print(s[3~]);  # "def"
 ```
 
+**Deleting a slice**
+
+For arrays and dictionaries, `delete target[i~j];` removes that slice.  
+For strings, build a new one:
+
 ```cfs
-# Set values example ( Please note : strings are immutable, you have to initialize new string and assign the new slice )
 var s = "abcdef";
-s = s[~1] + s[3~];
-print(s);
+s = s[~1] + s[3~];  # drop index 1..2 -> "adef"
+```
+
+---
+
+## Strings (Intrinsics)
+
+- `s.substr(start, length)` → substring by count  
+- `s.slice(start?, end?)` → half-open range (like array slice)  
+- `s.replace_range(start, end, text)` → returns new string  
+- `s.remove_range(start, end)` → returns new string with range removed  
+- `s.insert_at(index, text)` → returns new string with text inserted  
+- `s.len()` → string length
+
+Example:
+
+```cfs
+var s = "hello world";
+print(s.substr(0, 5));              # "hello"
+print(s.slice(6));                  # "world"
+print(s.insert_at(5, ","));         # "hello, world"
+print(s.replace_range(6, 11, "CFG"))# "hello CFG"
+print(s.len());                     # 11
 ```
 
 ---
 
 ## Functions
-🔧 Reusable logic (Closures) with parameters and return values.
 
 ```cfs
-func addNumbers(a, b) {
-    return a + b;
-}
-print(addNumbers(15, 25)); # 40
+func add(a, b) { return a + b; }
+print(add(15, 25)); # 40
 
-func greet(name) {
-    return "Hello, " + name + "!";
-}
+func greet(name) { return "Hello, " + name + "!"; }
 print(greet("Sam")); # Hello, Sam!
 ```
 
 ---
 
 ## While Loops
-🔁 Repeats code as long as the condition is true.
 
 ```cfs
 var counter = 1;
-while(counter <= 5) {
+while (counter <= 5) {
     print(counter);
     counter++;
 }
@@ -201,22 +230,21 @@ while(counter <= 5) {
 ## For Loops
 
 ```cfs
-var arr = [10, 20, 30, 40, 50];
-for(var x = 0; x < len(arr); x++;) {
-    print("Element at index " + x + ": " + arr[x]);
+var arr = [10, 20, 30];
+for (var i = 0; i < arr.len(); i++;) {
+    print("Index " + i + ": " + arr[i]);
 }
 ```
 
 ---
 
 ## If / Else
-⚡ Conditional code execution.
 
 ```cfs
 var health = 80;
-if(health >= 90) {
+if (health >= 90) {
     print("Very healthy!");
-} else if(health >= 50) {
+} else if (health >= 50) {
     print("Okay.");
 } else {
     print("Low health!");
@@ -225,8 +253,7 @@ if(health >= 90) {
 
 ---
 
-## Match-Case
-🔹 Alternative to multiple `if/else if` statements.
+## Match / Case
 
 ```cfs
 var level = 3;
@@ -239,34 +266,28 @@ match(level) {
 
 ---
 
-## Break and Continue
-⏹ `break` exits loops, `continue` skips the current iteration.
+## Break & Continue
 
 ```cfs
 var n = 10;
-while(true) {
+while (true) {
     n--;
-    if(n % 2 == 0) { continue; }
+    if (n % 2 == 0) { continue; }
     print(n);
-    if(n <= 1) { break; }
+    if (n <= 1) { break; }
 }
 ```
 
 ---
 
 ## Closures / Functions as Values
-🔒 Functions can be assigned to variables or returned.
 
 ```cfs
-var multiply = func(a, b) {
-    return a * b;
-};
-print(multiply(5, 6)); // 30
+var mul = func(a, b) { return a * b; };
+print(mul(5, 6)); # 30
 
 func makeAdder(x) {
-    return func(y) {
-        return x + y;
-    };
+    return func(y) { return x + y; };
 }
 var addFive = makeAdder(5);
 print(addFive(10)); # 15
@@ -274,55 +295,193 @@ print(addFive(10)); # 15
 
 ---
 
-## Classes / Objects
-🏛 Objects with properties and methods. `this` refers to the instance.
+## Classes (Instances, Statics, Inheritance)
+
+Classes are dictionaries with attached behavior. Instances get `this`.  
+There is also a **static container** (`type`) per class.
+
+### Basic class
 
 ```cfs
 class Player(name, score) {
-    var level;
-    func setLevel(lvl) {
-        this.level = lvl;
-    }
+    var level = 0;
+
+    func setLevel(lvl) { this.level = lvl; }
+
     func getInfo() {
         return name + ":" + score + ":" + level;
     }
 }
+
 var hero = new Player("Lara", 250);
 hero.setLevel(3);
-print(hero.getInfo());
+print(hero.getInfo());  # Lara:250:3
 ```
+
+### Statics
+
+- Declare with `static var` / `static func`.
+- From a **static method**, `type` refers to the class static object.
+- From an **instance method**, `type` also refers to that static object (e.g., shared counters).
+
+```cfs
+class BuildInfo {
+    static var version = "1.2.3";
+    static func tag() { return "Build(" + type.version + ")"; }
+}
+
+print(BuildInfo.version);  # "1.2.3"
+print(BuildInfo.tag());    # "Build(1.2.3)"
+```
+
+### Inheritance
+
+Supports **single inheritance** with base-constructor forwarding, `super`, and shadowing/overriding.
+
+```cfs
+class Animal(name) {
+    var Name = "";
+    func init(name) { this.Name = name; }
+
+    static var ver = "1.0";
+    static func who() { return "Animal(" + type.ver + ")"; }
+
+    func speak() { return "???"; }
+    func tag()   { return "[A:" + this.Name + "]"; }
+}
+
+class Cat(name) : Animal(name) {
+    var damage = 30;
+
+    func speak() { return "meow"; }         # shadows Animal.speak()
+    func superSpeak() { return super.speak(); }
+    func both() { return this.speak() + "/" + super.speak(); }
+
+    func label() { return this.tag(); }
+    func superTag() { return super.tag(); }
+
+    static var ver = "2.0";
+    static func who() { return "Cat(" + type.ver + ")"; }
+    static func whoBase() { return super.who(); }
+}
+
+var a = new Animal("Milo");
+var c = new Cat("Nya");
+
+print(c.speak());       # "meow"
+print(c.superSpeak());  # "???"
+print(c.both());        # "meow/???"
+print(c.label());       # "[A:Nya]"
+print(c.superTag());    # "[A:Nya]"
+
+print(Animal.who());    # "Animal(1.0)"
+print(Cat.who());       # "Cat(2.0)"
+print(Cat.whoBase());   # "Animal(1.0)"
+```
+
+> **Notes**
+> - “Override” is **shadowing**: if you reuse the same name in the child, it wins via `this`.  
+>   You can still reach the base via `super`.
+> - Inside instance methods, `this` is the instance; `type` is the static container; `super` calls the base implementation (instance or static).
 
 ---
 
 ## Enums
-```cfs
 
-enum colors
-{
+```cfs
+enum Colors {
    red = 5,
    green,
    blue
 }
 
-print(colors.green); # Output 6
-
+print(Colors.green);  # 6
 ```
 
 ---
 
-## Import
+## File I/O
 
-Use the `import` statement to include external scripts or individual classes.
+Open files with the builtin `fopen(path, mode)` and then call **file intrinsics**:
+
+- `fh.write(text)`  
+- `fh.writeln(text)`  
+- `fh.flush()`  
+- `fh.read(nBytes)`  
+- `fh.readline()`  
+- `fh.seek(offset, origin)` → origin: `0=Begin, 1=Current, 2=End`  
+- `fh.tell()`  
+- `fh.eof()`  
+- `fh.close()`
+
+Example:
 
 ```cfs
-import "yourpath.ext";
-import class_name from "yourpath.ext";
+var f = fopen("out.txt", "w");
+f.writeln("Hello");
+f.flush();
+f.close();
+
+var r = fopen("out.txt", "r");
+print(r.readline()); # Hello
+r.close();
 ```
-Please note: import statements must appear at the top of the script.
 
 ---
 
-[Examples](CFGS_NE/Samples/)
+## Built-ins (selected)
 
-[Built-In Functions](builtin.md)
+Common built-ins include `print`, `str`, numeric conversions, `len`, random utilities, etc.
 
+```cfs
+print("score=" + str(123));
+print(abs(-5));          # 5
+print(len([1,2,3]));     # 3   (works for arrays/strings/dicts)
+```
+
+> You can prefer the **method style** as well:  
+> `arr.len()`, `strVal.len()`, `dict.len()`.
+
+---
+
+## Examples
+
+### Array & String methods together
+
+```cfs
+var a = [ "cfgs", "vm", "rocks" ];
+print(a.len());             # 3
+a.push("!");
+print(a.slice(0, 3));       # ["cfgs","vm","rocks"]
+
+var s = "abcde";
+print(s.slice(1, 4));       # "bcd"
+print(s.insert_at(3, "_")); # "abc_de"
+```
+
+### Dictionary workflow
+
+```cfs
+var d = {"a": 1};
+d.set("b", 2);
+d[] = {"c": 3};             # append entry
+print(d.get_or("x", 0));    # 0
+print(d.keys());            # ["a","b","c"] (order by creation)
+```
+
+---
+
+**Imports**
+
+Use `import` to include external scripts or individual classes.
+
+```cfs
+import "path/to/file.ext";
+import ClassName from "path/to/file.ext";
+```
+
+> Import statements must appear **at the top** of the script.
+
+---
+
+[Samples](CFGS_NE/Samples/) · [Built-in Functions](builtin.md)
