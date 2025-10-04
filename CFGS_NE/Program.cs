@@ -16,7 +16,7 @@ public class Program
 
     public static bool IsDebug { get; private set; } = false;
 
-    private static string logo = @"
+    private static string logo = @"                         
                       #####                    
             ####     ##:::::+#####             
            ############......::::=###          
