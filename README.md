@@ -1,4 +1,5 @@
-![Configuration Language Logo](CFGS_NE/assets/cfgs_logo.svg)
+<img src="CFGS_NE/assets/logo_cfgs.png" width="128" alt="Configuration Language Logo">
+
 # ConfigurationScript (CFGS) – Bytecode VM Edition
 
 CFGS has been **completely redesigned**.  
