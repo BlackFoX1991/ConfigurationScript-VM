@@ -12,10 +12,12 @@ public class Program
     /// </summary>
     public static bool IsDebug { get; private set; } = false;
 
+
+    public static readonly string Version = "v1.5.0";
     /// <summary>
     /// Defines the logo
     /// </summary>
-    private static readonly string logo = @"                         
+    private static readonly string logo = $@"                         
                       #####                    
             ####     ##:::::+#####             
            ############......::::=###          
@@ -29,7 +31,7 @@ public class Program
       #####        ####++++++++*.......::-##   
       ######        *##++++++**........::##    
     ##########        #******........:::##     
-     ############     #.:...........::###   [ Configuration-Language ]   
+     ############     #.:...........::###   [ Configuration-Language ] [ Version {Version} ]  
            ############..........:::###     [ REPL - Enter your code or use exit/quit to leave ]   
             ###########......::::####          
             *###     ##:::::#####              
