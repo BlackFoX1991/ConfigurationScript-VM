@@ -1,26 +1,25 @@
-# ==== Basis + abgeleitet, super-Methodenaufruf, Feld-/Methoden-Shadowing
 class Animal(name) {
     var Name = "";
     func init(name) { this.Name = name; }
-    func speak() { return "???"; }
-    func tag()   { return "[A:" + this.Name + "]"; }
 
     static var ver = "1.0";
     static func who() { return "Animal(" + type.ver + ")"; }
+
+    func speak() { return "???"; }
+    func tag()   { return "[A:" + this.Name + "]"; }
 }
 
 class Cat(name) : Animal(name) {
-    var Name = "shadow";     # shadowt Basisfeld
     var damage = 30;
 
-    func speak() { return "meow"; }
-    func superSpeak() { return super.speak(); }  # ruft Basis-Implementierung
+    func speak() { return "meow"; }         # shadows Animal.speak()
+    func superSpeak() { return super.speak(); }
     func both() { return this.speak() + "/" + super.speak(); }
 
-    func label()    { return this.tag(); }       # geerbte Methode nutzt this=Cat
-    func superTag() { return super.tag(); }      # this ist die Base-Instanz
+    func label() { return this.tag(); }
+    func superTag() { return super.tag(); }
 
-    static var ver = "2.0";                      # shadowt Basis-static
+    static var ver = "2.0";
     static func who() { return "Cat(" + type.ver + ")"; }
     static func whoBase() { return super.who(); }
 }
@@ -28,13 +27,11 @@ class Cat(name) : Animal(name) {
 var a = new Animal("Milo");
 var c = new Cat("Nya");
 
-print(a.speak());       # "???"
 print(c.speak());       # "meow"
-print(c.superSpeak());  # "???"   (Base-Implementierung)
+print(c.superSpeak());  # "???"
 print(c.both());        # "meow/???"
-
-print(c.label());       # nutzt abgeleitete this: "[A:Nya]" (Base.tag liest this.Name -> Cat.Name = "shadow"? Wenn du Base-Feld wolltest: nenn Cat-Feld anders)
-print(c.superTag());    # this = Base-Instanz: "[A:Nya]"
+print(c.label());       # "[A:Nya]"
+print(c.superTag());    # "[A:Nya]"
 
 print(Animal.who());    # "Animal(1.0)"
 print(Cat.who());       # "Cat(2.0)"

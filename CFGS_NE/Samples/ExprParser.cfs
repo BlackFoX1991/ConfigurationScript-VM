@@ -1,0 +1,612 @@
+# ===== Tokens / AST / Nodes =====
+
+enum TType
+{
+    NONE,
+    NUMBER,
+    ADD,
+    SUB,
+    MUL,
+    DIV,
+    AND,     # &&
+    OR,      # ||
+    LT,      # <
+    GT,      # >
+    LTE,     # <=
+    GTE,     # >=
+    LPAREN,
+    RPAREN,
+    NOT,     # !
+    EOF
+}
+
+class node {}
+
+class NumberNode(value) : node()
+{
+    var Value = value;
+
+    func eval()
+    {
+        return this.Value;
+    }
+}
+
+# truthiness helper used by logical ops
+func truthy(v)
+{
+    var t = typeof(v);
+
+    if (t == "Null") return false;
+    if (t == "Bool") return v;
+
+    if (t == "Int" || t == "Long" || t == "Double" || t == "Float" || t == "Decimal")
+        return v != 0;
+
+    if (t == "String" || t == "Char")
+        return len(str(v)) > 0;
+
+    if (t == "Array" || t == "Dictionary")
+        return len(v) > 0;
+
+    # class instances / anything else -> truthy
+    return true;
+}
+
+class UnaryNode(op, expr) : node()
+{
+    var Op = op;     # "+", "-", "!"
+    var Expr = expr;
+
+    func eval()
+    {
+        var v = this.Expr.eval();
+
+        if (this.Op == "+") { return v; }               # unary plus: no-op
+        if (this.Op == "-") { return 0 - v; }           # unary minus
+        if (this.Op == "!") { return !truthy(v); }      # logical NOT on truthiness
+
+        throw "Unknown unary op: " + this.Op;
+    }
+}
+
+class BinaryNode(left, op, right) : node()
+{
+    var Left = left;
+    var Op = op;       # "+", "-", "*", "/", "&&", "||", "<", ">", "<=", ">="
+    var Right = right;
+
+    func eval()
+    {
+        # short-circuit for logical ops
+        if (this.Op == "&&")
+        {
+            var ltv = truthy(this.Left.eval());
+            if (!ltv) return false;
+            return truthy(this.Right.eval());
+        }
+        if (this.Op == "||")
+        {
+            var ltv = truthy(this.Left.eval());
+            if (ltv) return true;
+            return truthy(this.Right.eval());
+        }
+
+        var lf = this.Left.eval();
+        var rg = this.Right.eval();
+
+        # comparisons -> boolean
+        if (this.Op == "<")  { return lf <  rg; }
+        if (this.Op == ">")  { return lf >  rg; }
+        if (this.Op == "<=") { return lf <= rg; }
+        if (this.Op == ">=") { return lf >= rg; }
+
+        # arithmetic
+        match (this.Op)
+        {
+            case "+": { return lf + rg; }
+            case "-": { return lf - rg; }
+            case "*": { return lf * rg; }
+            case "/": { return lf / rg; }
+            default:  { throw "Unknown operator: " + this.Op; }
+        }
+    }
+}
+
+class Token(val, tokenType)
+{
+    var Value = val;          # string or int (for numbers)
+    var TokType = tokenType;  # TType
+}
+
+# ===== Lexer =====
+
+class Lexer
+{
+    var _src = "";
+    var _pos = 0;
+    var _len = 0;
+
+    func init(source)
+    {
+        this._src = source;
+        this._pos = 0;
+        this._len = len(source);
+    }
+
+    func atEnd()
+    {
+        return this._pos >= this._len;
+    }
+
+    func curr()
+    {
+        if (this._pos >= this._len) { return '0'; }
+        return this._src[this._pos];
+    }
+
+    func peek()
+    {
+        var i = this._pos + 1;
+        if (i >= this._len) return '0';
+        return this._src[i];
+    }
+
+    func advance()
+    {
+        if (this._pos < this._len) { this._pos = this._pos + 1; }
+    }
+
+    func skipSpaces()
+    {
+        while (!this.atEnd())
+        {
+            var ch = this.curr();
+            if (!isspace(ch)) { break; }
+            this.advance();
+        }
+    }
+
+    func readNumberToken()
+    {
+        # simple integer scan
+        var start = this._pos;
+        while (!this.atEnd() && isdigit(this.curr()))
+        {
+            this.advance();
+        }
+
+        # substring: since strings are immutable, build manually
+        var i = start;
+        var acc = "";
+        while (i < this._pos)
+        {
+            acc = acc + str(this._src[i]);
+            i = i + 1;
+        }
+
+        # parse int using toi on each digit (safe because we validated with isdigit)
+        var n = 0;
+        i = 0;
+        while (i < len(acc))
+        {
+            var d = toi(acc[i]) - toi('0');
+            n = (n * 10) + d;
+            i = i + 1;
+        }
+
+        return new Token(n, TType.NUMBER);
+    }
+
+    func lex()
+    {
+        var toks = [];
+        this.skipSpaces();
+
+        while (!this.atEnd())
+        {
+            var ch = this.curr();
+
+            if (isdigit(ch))
+            {
+                toks[] = this.readNumberToken();
+                this.skipSpaces();
+                continue;
+            }
+
+            # && and ||
+            if (ch == '&' && this.peek() == '&')
+            {
+                toks[] = new Token("&&", TType.AND);
+                this.advance(); this.advance();
+                this.skipSpaces();
+                continue;
+            }
+            if (ch == '|' && this.peek() == '|')
+            {
+                toks[] = new Token("||", TType.OR);
+                this.advance(); this.advance();
+                this.skipSpaces();
+                continue;
+            }
+
+            # <= >= must be checked before < >
+            if (ch == '<' && this.peek() == '=')
+            {
+                toks[] = new Token("<=", TType.LTE);
+                this.advance(); this.advance();
+                this.skipSpaces();
+                continue;
+            }
+            if (ch == '>' && this.peek() == '=')
+            {
+                toks[] = new Token(">=", TType.GTE);
+                this.advance(); this.advance();
+                this.skipSpaces();
+                continue;
+            }
+            if (ch == '<')
+            {
+                toks[] = new Token("<", TType.LT);
+                this.advance();
+                this.skipSpaces();
+                continue;
+            }
+            if (ch == '>')
+            {
+                toks[] = new Token(">", TType.GT);
+                this.advance();
+                this.skipSpaces();
+                continue;
+            }
+
+            if (ch == '+')
+            {
+                toks[] = new Token("+", TType.ADD);
+                this.advance();
+                this.skipSpaces();
+                continue;
+            }
+
+            if (ch == '-')
+            {
+                toks[] = new Token("-", TType.SUB);
+                this.advance();
+                this.skipSpaces();
+                continue;
+            }
+
+            if (ch == '*')
+            {
+                toks[] = new Token("*", TType.MUL);
+                this.advance();
+                this.skipSpaces();
+                continue;
+            }
+
+            if (ch == '/')
+            {
+                toks[] = new Token("/", TType.DIV);
+                this.advance();
+                this.skipSpaces();
+                continue;
+            }
+
+            if (ch == '(')
+            {
+                toks[] = new Token("(", TType.LPAREN);
+                this.advance();
+                this.skipSpaces();
+                continue;
+            }
+
+            if (ch == ')')
+            {
+                toks[] = new Token(")", TType.RPAREN);
+                this.advance();
+                this.skipSpaces();
+                continue;
+            }
+
+            if (ch == '!')
+            {
+                toks[] = new Token("!", TType.NOT);
+                this.advance();
+                this.skipSpaces();
+                continue;
+            }
+
+            throw "Lexer error: unexpected char '" + str(ch) + "' at pos " + str(this._pos);
+        }
+
+        toks[] = new Token("", TType.EOF);
+        return toks;
+    }
+}
+
+# ===== Parser (recursive descent)
+# Precedence (low → high):
+#   OR (||)
+#   AND (&&)
+#   COMP (< <= > >=)
+#   ADD/SUB (+ -)
+#   MUL/DIV (* /)
+#   UNARY (+ - !)
+
+class Parser
+{
+    var _toks = [];
+    var _pos = 0;
+
+    func init(tokens)
+    {
+        this._toks = tokens;
+        this._pos = 0;
+    }
+
+    func curr()
+    {
+        if (this._pos >= len(this._toks)) { return new Token("", TType.EOF); }
+        return this._toks[this._pos];
+    }
+
+    func advance()
+    {
+        if (this._pos < len(this._toks)) { this._pos = this._pos + 1; }
+    }
+
+    func expect(tt)
+    {
+        var t = this.curr();
+        if (t.TokType != tt) { throw "Parse error: expected token type " + str(tt); }
+        this.advance();
+        return t;
+    }
+
+    # Top-level
+    func parseExpr()
+    {
+        return this.parseOr();
+    }
+
+    # or := and ( '||' and )*
+    func parseOr()
+    {
+        var node = this.parseAnd();
+        while (true)
+        {
+            var t = this.curr();
+            if (t.TokType == TType.OR)
+            {
+                this.advance();
+                var rhs = this.parseAnd();
+                node = new BinaryNode(node, "||", rhs);
+                continue;
+            }
+            break;
+        }
+        return node;
+    }
+
+    # and := compare ( '&&' compare )*
+    func parseAnd()
+    {
+        var node = this.parseCompare();
+        while (true)
+        {
+            var t = this.curr();
+            if (t.TokType == TType.AND)
+            {
+                this.advance();
+                var rhs = this.parseCompare();
+                node = new BinaryNode(node, "&&", rhs);
+                continue;
+            }
+            break;
+        }
+        return node;
+    }
+
+    # compare := addsub ( ('<' | '>' | '<=' | '>=') addsub )*
+    func parseCompare()
+    {
+        var node = this.parseAddSub();
+        while (true)
+        {
+            var t = this.curr();
+            if (t.TokType == TType.LT)
+            {
+                this.advance();
+                var rhs = this.parseAddSub();
+                node = new BinaryNode(node, "<", rhs);
+                continue;
+            }
+            if (t.TokType == TType.GT)
+            {
+                this.advance();
+                var rhs2 = this.parseAddSub();
+                node = new BinaryNode(node, ">", rhs2);
+                continue;
+            }
+            if (t.TokType == TType.LTE)
+            {
+                this.advance();
+                var rhs3 = this.parseAddSub();
+                node = new BinaryNode(node, "<=", rhs3);
+                continue;
+            }
+            if (t.TokType == TType.GTE)
+            {
+                this.advance();
+                var rhs4 = this.parseAddSub();
+                node = new BinaryNode(node, ">=", rhs4);
+                continue;
+            }
+            break;
+        }
+        return node;
+    }
+
+    # addsub := term (('+'|'-') term)*
+    func parseAddSub()
+    {
+        var node = this.parseTerm();
+        while (true)
+        {
+            var t = this.curr();
+            if (t.TokType == TType.ADD)
+            {
+                this.advance();
+                var rhs = this.parseTerm();
+                node = new BinaryNode(node, "+", rhs);
+                continue;
+            }
+            if (t.TokType == TType.SUB)
+            {
+                this.advance();
+                var rhs2 = this.parseTerm();
+                node = new BinaryNode(node, "-", rhs2);
+                continue;
+            }
+            break;
+        }
+        return node;
+    }
+
+    # term := factor (('*'|'/') factor)*
+    func parseTerm()
+    {
+        var node = this.parseFactor();
+        while (true)
+        {
+            var t = this.curr();
+            if (t.TokType == TType.MUL)
+            {
+                this.advance();
+                var rhs = this.parseFactor();
+                node = new BinaryNode(node, "*", rhs);
+                continue;
+            }
+            if (t.TokType == TType.DIV)
+            {
+                this.advance();
+                var rhs2 = this.parseFactor();
+                node = new BinaryNode(node, "/", rhs2);
+                continue;
+            }
+            break;
+        }
+        return node;
+    }
+
+    # factor := ('+'|'-'|'!') factor | NUMBER | '(' expr ')'
+    func parseFactor()
+    {
+        var t = this.curr();
+
+        # unary + / - / !
+        if (t.TokType == TType.ADD)
+        {
+            this.advance();
+            return new UnaryNode("+", this.parseFactor());
+        }
+        if (t.TokType == TType.SUB)
+        {
+            this.advance();
+            return new UnaryNode("-", this.parseFactor());
+        }
+        if (t.TokType == TType.NOT)
+        {
+            this.advance();
+            return new UnaryNode("!", this.parseFactor());
+        }
+
+        if (t.TokType == TType.NUMBER)
+        {
+            this.advance();
+            return new NumberNode(t.Value);
+        }
+
+        if (t.TokType == TType.LPAREN)
+        {
+            this.advance();
+            var node = this.parseExpr();
+            this.expect(TType.RPAREN);
+            return node;
+        }
+
+        throw "Parse error: unexpected token in factor: " + str(t.TokType);
+    }
+
+    func parse()
+    {
+        var root = this.parseExpr();
+        var endTok = this.curr();
+        if (endTok.TokType != TType.EOF)
+        {
+            throw "Parse error: trailing tokens after expression";
+        }
+        return root;
+    }
+}
+
+# ===== Demo =====
+
+func eval_expr(src)
+{
+    var lex = new Lexer(src);
+    var toks = lex.lex();
+
+    var p = new Parser(toks);
+    var ast = p.parse();
+    return ast.eval();
+}
+
+# --- Test helpers ---
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+# --- Tests using eval_expr ---
+assert_eq("42",                  eval_expr("42"),                  42);
+assert_eq("-3 + 5",              eval_expr("-3 + 5"),              2);
+assert_eq("(-3 + 5) * 2 - 4/2",  eval_expr("(-3 + 5) * 2 - 4/2"),  2);
+assert_eq("1 + 2 * 3 + 4",       eval_expr("1 + 2 * 3 + 4"),       11);
+assert_eq("2*(3+4)",             eval_expr("2*(3+4)"),             14);
+
+# Comparisons
+assert_eq("1 < 2",               eval_expr("1 < 2"),               true);
+assert_eq("2 < 2",               eval_expr("2 < 2"),               false);
+assert_eq("2 <= 2",              eval_expr("2 <= 2"),              true);
+assert_eq("3 > 1",               eval_expr("3 > 1"),               true);
+assert_eq("3 >= 4",              eval_expr("3 >= 4"),              false);
+
+# Logical precedence:  || < && < comparisons
+assert_eq("1 < 2 && 2 < 3",                  eval_expr("1 < 2 && 2 < 3"),                  true);
+assert_eq("1 < 2 && 3 < 2",                  eval_expr("1 < 2 && 3 < 2"),                  false);
+assert_eq("1 < 2 || 3 < 2",                  eval_expr("1 < 2 || 3 < 2"),                  true);
+assert_eq("(1 < 2 || 0) && (2 >= 2)",        eval_expr("(1 < 2 || 0) && (2 >= 2)"),        true);
+assert_eq("1 + 2 * 3 > 0 || 0",              eval_expr("1 + 2 * 3 > 0 || 0"),              true);
+
+# Unary tests
+assert_eq("-(3)",                eval_expr("-(3)"),                -3);
+assert_eq("+(-4)",               eval_expr("+(-4)"),               -4);
+assert_eq("!0",                  eval_expr("!0"),                  true);
+assert_eq("!1",                  eval_expr("!1"),                  false);
+assert_eq("!!0",                 eval_expr("!!0"),                 false);
+assert_eq("!(1 < 2 && 0)",       eval_expr("!(1 < 2 && 0)"),       true);
+assert_eq("-(-3) + +(+5)",       eval_expr("-(-3) + +(+5)"),       8);
+
+# Summary
+if (failed == 0) {
+    print("All tests passed.");
+} else {
+    print("Failed tests: " + str(failed));
+}
