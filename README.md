@@ -1,4 +1,4 @@
-<img src="CFGS_NE/assets/logo_cfgs.png" width="128" alt="Configuration Language Logo">
+<center><img src="CFGS_NE/assets/logo_cfgs.png" width="256" alt="Configuration Language Logo"></center>
 
 # ConfigurationScript (CFGS) – Bytecode VM Edition
 
