@@ -1,7 +1,6 @@
 ﻿using CFGS_VM.Analytic;
 using CFGS_VM.VMCore;
 using System.Globalization;
-using System.Text;
 
 /// <summary>
 /// Defines the <see cref="Program" />
@@ -9,14 +8,14 @@ using System.Text;
 public class Program
 {
     /// <summary>
-    /// The Main
+    /// Gets a value indicating whether IsDebug
     /// </summary>
-    /// <param name="args">The args<see cref="string[]"/></param>
-    /// 
-
     public static bool IsDebug { get; private set; } = false;
 
-    private static string logo = @"                         
+    /// <summary>
+    /// Defines the logo
+    /// </summary>
+    private static readonly string logo = @"                         
                       #####                    
             ####     ##:::::+#####             
            ############......::::=###          
@@ -36,14 +35,19 @@ public class Program
             *###     ##:::::#####              
                       #####                    
 ";
+
+    /// <summary>
+    /// The Main
+    /// </summary>
+    /// <param name="args">The args<see cref="string[]"/></param>
     public static void Main(string[] args)
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
-        var files = new List<string>();
+        List<string> files = new();
 
-        foreach (var arg in args)
+        foreach (string arg in args)
         {
             switch (arg)
             {
@@ -63,7 +67,7 @@ public class Program
         {
             if (files.Count > 0)
             {
-                foreach (var file in files)
+                foreach (string file in files)
                 {
                     if (!File.Exists(file))
                     {
@@ -109,12 +113,12 @@ public class Program
     /// <param name="debug">The debug<see cref="bool"/></param>
     private static void RunSource(string source, string name, bool debug = false)
     {
-        var lexer = new Lexer(name, source);
-        var parser = new Parser(lexer);
-        var ast = parser.Parse();
+        Lexer lexer = new(name, source);
+        Parser parser = new(lexer);
+        List<Stmt> ast = parser.Parse();
 
-        var compiler = new Compiler(name);
-        var bytecode = compiler.Compile(ast);
+        Compiler compiler = new(name);
+        List<Instruction> bytecode = compiler.Compile(ast);
 
         if (debug)
         {
@@ -134,7 +138,7 @@ public class Program
 
             for (int idx = 0; idx < bytecode.Count; idx++)
             {
-                var ins = bytecode[idx];
+                Instruction ins = bytecode[idx];
 
                 string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
                 string instrNum = $"[{idx + 1:00000}]";
@@ -149,25 +153,23 @@ public class Program
             if (compiler._functions.Count > 0)
             {
                 Console.WriteLine("=== Functions ===");
-                foreach (var f in compiler._functions)
+                foreach (KeyValuePair<string, CFGS_VM.VMCore.Extension.FunctionInfo> f in compiler._functions)
                     Console.WriteLine(f.Key + " -> " + f.Value);
                 Console.WriteLine();
             }
         }
 
-        var vm = new VM();
+        VM vm = new();
         vm.LoadFunctions(compiler._functions);
         vm.LoadInstructions(bytecode);
         vm.Run(debug);
         if (debug)
         {
             vm.DebugStream.Position = 0;
-            using var file = File.Create("log_file.log");
+            using FileStream file = File.Create("log_file.log");
             vm.DebugStream.CopyTo(file);
         }
     }
-
-
 
     /// <summary>
     /// The ReadMultilineInput
@@ -175,7 +177,7 @@ public class Program
     /// <returns>The <see cref="string?"/></returns>
     private static string? ReadMultilineInput()
     {
-        var buffer = new List<string>();
+        List<string> buffer = new();
         string prompt = "> ";
 
         while (true)
@@ -186,7 +188,6 @@ public class Program
 
             string trimmed = line.Trim();
 
-            // Single-word commands nur wenn noch kein Block begonnen hat
             if (buffer.Count == 0)
             {
                 if (trimmed.Equals("exit", StringComparison.OrdinalIgnoreCase) ||
@@ -198,24 +199,21 @@ public class Program
                 {
                     Console.Clear();
                     Console.WriteLine(logo);
-                    continue; // neuer Prompt, kein Buffer gestartet
+                    continue;
                 }
 
                 if (trimmed.Equals("debug", StringComparison.OrdinalIgnoreCase))
                 {
                     IsDebug = !IsDebug;
                     Console.WriteLine($"Debug mode is now {(IsDebug ? "Enabled" : "Disabled")}");
-                    continue; // noch kein Buffer gestartet
+                    continue;
                 }
             }
 
-            // Ab hier gehört die Zeile zum aktuellen Block
             buffer.Add(line);
 
-            // Mit der aktuellen Zeile prüfen
             string joined = string.Join("\n", buffer);
 
-            // Abschlussregeln: Klammern balanciert + heuristische Endung ODER Leerzeile
             bool looksTerminated =
                 trimmed.EndsWith(";") ||
                 trimmed.EndsWith("}") ||
@@ -224,11 +222,9 @@ public class Program
             if (BracketsBalanced(joined) && looksTerminated)
                 return joined;
 
-            // Sonst: wir sind mitten im Block → Folgeprompt anzeigen
             prompt = "... ";
         }
     }
-
 
     /// <summary>
     /// The BracketsBalanced
