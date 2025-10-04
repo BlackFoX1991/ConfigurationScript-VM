@@ -12,13 +12,35 @@ public class Program
     /// The Main
     /// </summary>
     /// <param name="args">The args<see cref="string[]"/></param>
+    /// 
 
+    public static bool IsDebug { get; private set; } = false;
+
+    private static string logo = @"                         
+                      #####                    
+            ####     ##:::::+#####             
+           ############......::::=###          
+           ############..........:::*##        
+     ############     #.............:::##      
+    ##########        #...............::##     
+      ######         %#+++.............::##    
+      #####        ####+++++++.........:::##   
+  ########        #####++++++++.........::##   
+  ########        #####+++++++++........::##   
+      #####        ####++++++++*.......::-##   
+      ######        *##++++++**........::##    
+    ##########        #******........:::##     
+     ############     #.:...........::###   [ Configuration-Language ]   
+           ############..........:::###     [ REPL - Enter your code or use exit/quit to leave ]   
+            ###########......::::####          
+            *###     ##:::::#####              
+                      #####                    
+";
     public static void Main(string[] args)
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
-        bool debug = false;
         var files = new List<string>();
 
         foreach (var arg in args)
@@ -27,7 +49,7 @@ public class Program
             {
                 case "-d":
                 case "--debug":
-                    debug = true;
+                    IsDebug = true;
                     break;
 
                 default:
@@ -50,12 +72,12 @@ public class Program
                     }
 
                     string input = File.ReadAllText(file);
-                    RunSource(input, file, debug);
+                    RunSource(input, file, IsDebug);
                 }
             }
             else
             {
-                Console.WriteLine("CFGS VM REPL ( exit or quit to close the Application )");
+                Console.WriteLine(logo);
                 while (true)
                 {
                     string? code = ReadMultilineInput();
@@ -64,7 +86,7 @@ public class Program
 
                     try
                     {
-                        RunSource(code, "<repl>", debug);
+                        RunSource(code, "<repl>", IsDebug);
                     }
                     catch (Exception ex)
                     {
@@ -161,20 +183,52 @@ public class Program
             Console.Write(prompt);
             string? line = Console.ReadLine();
             if (line == null) return null;
+
             string trimmed = line.Trim();
 
-            if (buffer.Count == 0 && (trimmed == "exit" || trimmed == "quit"))
-                return null;
+            // Single-word commands nur wenn noch kein Block begonnen hat
+            if (buffer.Count == 0)
+            {
+                if (trimmed.Equals("exit", StringComparison.OrdinalIgnoreCase) ||
+                    trimmed.Equals("quit", StringComparison.OrdinalIgnoreCase))
+                    return null;
 
+                if (trimmed.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
+                    trimmed.Equals("cls", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.Clear();
+                    Console.WriteLine(logo);
+                    continue; // neuer Prompt, kein Buffer gestartet
+                }
+
+                if (trimmed.Equals("debug", StringComparison.OrdinalIgnoreCase))
+                {
+                    IsDebug = !IsDebug;
+                    Console.WriteLine($"Debug mode is now {(IsDebug ? "Enabled" : "Disabled")}");
+                    continue; // noch kein Buffer gestartet
+                }
+            }
+
+            // Ab hier gehört die Zeile zum aktuellen Block
             buffer.Add(line);
 
+            // Mit der aktuellen Zeile prüfen
             string joined = string.Join("\n", buffer);
-            if (BracketsBalanced(joined) && (trimmed.EndsWith(";") || trimmed.EndsWith("}") || trimmed == ""))
+
+            // Abschlussregeln: Klammern balanciert + heuristische Endung ODER Leerzeile
+            bool looksTerminated =
+                trimmed.EndsWith(";") ||
+                trimmed.EndsWith("}") ||
+                trimmed.Length == 0;
+
+            if (BracketsBalanced(joined) && looksTerminated)
                 return joined;
 
+            // Sonst: wir sind mitten im Block → Folgeprompt anzeigen
             prompt = "... ";
         }
     }
+
 
     /// <summary>
     /// The BracketsBalanced
