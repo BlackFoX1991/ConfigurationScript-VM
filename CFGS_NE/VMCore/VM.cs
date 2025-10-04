@@ -3437,6 +3437,11 @@ namespace CFGS_VM.VMCore
                 seen.Remove(v);
                 return;
             }
+            if (v is ClassInstance ci)
+            {
+                w.Write(ci.ClassName);
+                return;
+            }
 
             if (v is Closure clos)
             {

@@ -2,7 +2,7 @@
   "profiles": {
     "CFGS_NE": {
       "commandName": "Project",
-      "commandLineArgs": "-d deri.cfs",
+      "commandLineArgs": "-d ExprParser.cfs",
       "workingDirectory": ".\\Samples"
     }
   }
