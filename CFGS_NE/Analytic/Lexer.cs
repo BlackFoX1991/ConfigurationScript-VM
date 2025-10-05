@@ -234,6 +234,9 @@ public class Lexer
 
                 System.Text.StringBuilder raw = new();
                 bool isFloat = false;
+                bool seenDot = false;
+                bool seenExp = false;
+                bool expectExpSign = false;
 
                 if (Current == '0')
                 {
@@ -249,14 +252,8 @@ public class Lexer
                         }
                         if (hex.Length == 0) throw new LexerException("invalid hex literal", startLine, startCol, FileName);
                         object nval;
-                        try
-                        {
-                            nval = Convert.ToInt64(hex, 16);
-                        }
-                        catch
-                        {
-                            nval = decimal.Parse(Convert.ToUInt64(hex, 16).ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture);
-                        }
+                        try { nval = Convert.ToInt64(hex, 16); }
+                        catch { nval = decimal.Parse(Convert.ToUInt64(hex, 16).ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture); }
                         return new Token(TokenType.Number, nval, startLine, startCol, FileName);
                     }
                     else if (Current == 'b' || Current == 'B')
@@ -285,19 +282,49 @@ public class Lexer
                     }
                     else
                     {
+                        raw.Clear();
+                        raw.Append('0');
                     }
                 }
 
-                while (char.IsDigit(Current) || Current == '_' || Current == '.'
-                       || Current == 'e' || Current == 'E' || Current == '+' || Current == '-')
+                while (true)
                 {
-                    if (Current == '.')
+                    char ch = Current;
+                    if (char.IsDigit(ch))
                     {
-                        if (isFloat) break;
-                        isFloat = true;
+                        raw.Append(ch);
+                        SyncPos();
+                        expectExpSign = false;
                     }
-                    raw.Append(Current);
-                    SyncPos();
+                    else if (ch == '_')
+                    {
+                        SyncPos();
+                    }
+                    else if (ch == '.' && !seenDot && !seenExp)
+                    {
+                        seenDot = true;
+                        isFloat = true;
+                        raw.Append(ch);
+                        SyncPos();
+                    }
+                    else if ((ch == 'e' || ch == 'E') && !seenExp)
+                    {
+                        seenExp = true;
+                        isFloat = true;
+                        raw.Append(ch);
+                        SyncPos();
+                        expectExpSign = true;
+                    }
+                    else if ((ch == '+' || ch == '-') && expectExpSign)
+                    {
+                        raw.Append(ch);
+                        SyncPos();
+                        expectExpSign = false;
+                    }
+                    else
+                    {
+                        break;
+                    }
                 }
 
                 string num = raw.ToString().Replace("_", "");

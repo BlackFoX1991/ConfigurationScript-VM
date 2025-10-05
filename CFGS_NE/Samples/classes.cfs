@@ -1,0 +1,108 @@
+# ===== Basisklasse =====
+class Auto(pwr)
+{
+    # Felder
+    var basePower;
+    var brand;
+
+    # Statisches Feld + Methode
+    static var family = "AutoFamily";
+    static func tag() { return "AUTO"; }
+
+    # ctor
+    func init(pwr) {
+        this.basePower = pwr;
+        this.brand     = "AUTO";
+    }
+
+    # Instanzmethode
+    func info() { return "Auto"; }
+
+    # Verschachtelte Klasse: nutzt outer
+    class Engine(boost)
+    {
+        var boost;
+        func init(boost) { this.boost = boost; }
+        func power() { return outer.basePower + this.boost; }
+    }
+}
+
+# ===== Marken (Vererbung von Auto) =====
+class BMW(pwr) : Auto(pwr)
+{
+    func init(pwr) {
+        super.init(pwr);
+        this.brand = "BMW";
+    }
+
+    static func tag() { return "BMW"; }
+
+    func info() { return super.info() + "-" + type.tag(); }   # "Auto-BMW"
+    func mix()  { return type.tag() + ":" + super.info(); }   # "BMW:Auto"
+
+    class Badge(txt)
+    {
+        var txt;
+        func init(txt) { this.txt = txt; }
+        func show() { return outer.brand + "-" + this.txt; }  # "BMW-SPORT"
+    }
+}
+
+class Audi(pwr) : Auto(pwr)
+{
+    func init(pwr) { super.init(pwr); this.brand = "AUDI"; }
+    static func tag() { return "AUDI"; }
+    func info() { return super.info() + "-" + type.tag(); }   # "Auto-AUDI"
+}
+
+class Opel(pwr) : Auto(pwr)
+{
+    func init(pwr) { super.init(pwr); this.brand = "OPEL"; }
+    static func tag() { return "OPEL"; }
+    func info() { return super.info() + "-" + type.tag(); }   # "Auto-OPEL"
+}
+
+class Bugatti(pwr) : Auto(pwr)
+{
+    func init(pwr) { super.init(pwr); this.brand = "BUGATTI"; }
+    static func tag() { return "BUG"; }
+    func info() { return super.info() + "-" + type.tag(); }   # "Auto-BUG"
+}
+
+# ===== Tests =====
+
+# Instanzen
+var bmw  = BMW(220);
+var audi = Audi(200);
+var opel = Opel(130);
+var bug  = Bugatti(150);
+
+# 1) Overrides mit super./type.
+print("T1=" + bmw.info());
+print("T2=" + audi.info());
+print("T3=" + opel.info());
+print("T4=" + bug.info());
+
+# 2) Statische Zugriffe
+print("S1=" + Auto.tag());
+print("S2=" + BMW.tag());
+print("S3=" + Audi.tag());
+
+# 3) Instanzmethode, die statisch + super kombiniert
+print("M1=" + bmw.mix());
+
+# 4) Nested class auf Instanz: outer.
+var eng = bmw.Engine(30);         # __outer wird an Engine gebunden
+print("E1=" + eng.power());       # 220 + 30 = 250
+
+# 5) Nested in Subklasse: outer.
+var badge = bmw.Badge("SPORT");
+print("N1=" + badge.show());      # "BMW-SPORT"
+
+# 6) Nested-Typ über die Basisklasse + Instanz
+var base = Auto(100);
+var e2   = base.Engine(25);
+print("E2=" + e2.power());        # 125
+
+# 7) Statisches Feld der Basis
+print("SF=" + Auto.family);
