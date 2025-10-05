@@ -21,12 +21,61 @@ You can run code in two ways:
    Starts automatically if you run without arguments.  
    The REPL detects open blocks and only executes when all blocks are closed.
 
-2. **Command-line script**
-   ```bash
-   cfcs [-d] <script-path>
-   ```
-   - `-d` enables **debug mode**
-   - the file extension does not matter
+2. # CFS Command-Line Guide
+
+> Quick reference for compiling and running CFS scripts from the terminal.
+
+---
+
+## 🚀 Usage
+
+```bash
+cfcs [-d | -c | -b] <script-path>
+```
+
+- `<script-path>` can be a `.cfs` source file or a compiled `.cfb` bytecode file.
+
+---
+
+## 🧭 Options
+
+| Flag | Description |
+|-----:|-------------|
+| `-d` | Enable **debug mode**. |
+| `-c` | Compile a `.cfs` script to a `.cfb` bytecode file. The output is written next to the input script, using the same filename with a `.cfb` extension. |
+| `-b` | Run a compiled `.cfb` file. |
+
+> **Tip:** You don't need `-b` when passing a `.cfb` file—CFS detects the extension automatically and runs it as bytecode.
+
+---
+
+## 📌 Examples
+
+Compile a script:
+```bash
+cfcs -c ./scripts/example.cfs
+# → creates ./scripts/example.cfb
+```
+
+Run a compiled bytecode file:
+```bash
+cfcs ./scripts/example.cfb
+# or explicitly:
+cfcs -b ./scripts/example.cfb
+```
+
+Debug while running a source script:
+```bash
+cfcs -d ./scripts/example.cfs
+```
+
+---
+
+## ❓ Notes
+
+- If you provide a `.cfb` file, CFS treats it as **bytecode** automatically.  
+- If you provide a `.cfs` file with `-c`, the compiler writes the `.cfb` next to the source.  
+- You can combine `-d` with `-b` to debug a compiled program.
 
 ---
 
