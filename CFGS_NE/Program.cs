@@ -25,7 +25,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v1.5.0";
+    public static readonly string Version = "v1.6.1";
 
     /// <summary>
     /// Defines the logo
