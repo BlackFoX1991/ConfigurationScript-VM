@@ -12,8 +12,21 @@ public class Program
     /// </summary>
     public static bool IsDebug { get; private set; } = false;
 
+    /// <summary>
+    /// Gets a value indicating whether SetCompile
+    /// </summary>
+    public static bool SetCompile { get; private set; } = false;
 
+    /// <summary>
+    /// Gets a value indicating whether BinaryRun
+    /// </summary>
+    public static bool BinaryRun { get; private set; } = false;
+
+    /// <summary>
+    /// Defines the Version
+    /// </summary>
     public static readonly string Version = "v1.5.0";
+
     /// <summary>
     /// Defines the logo
     /// </summary>
@@ -57,6 +70,13 @@ public class Program
                 case "--debug":
                     IsDebug = true;
                     break;
+                case "-c":
+                    SetCompile = true;
+                    break;
+
+                case "-b":
+                    BinaryRun = true;
+                    break;
 
                 default:
                     files.Add(arg);
@@ -78,7 +98,17 @@ public class Program
                     }
 
                     string input = File.ReadAllText(file);
-                    RunSource(input, file, IsDebug);
+
+                    if (file.EndsWith(".cfb", StringComparison.OrdinalIgnoreCase))
+                    {
+                        BinaryRun = true;
+                        SetCompile = false;
+                    }
+                    else
+                        BinaryRun = false;
+
+                    RunSource(input, file, IsDebug, BinaryRun);
+
                 }
             }
             else
@@ -92,7 +122,8 @@ public class Program
 
                     try
                     {
-                        RunSource(code, "<repl>", IsDebug);
+                        SetCompile = false;
+                        RunSource(code, "<repl>", IsDebug, false);
                     }
                     catch (Exception ex)
                     {
@@ -114,63 +145,126 @@ public class Program
     /// <param name="source">The source<see cref="string"/></param>
     /// <param name="name">The name<see cref="string"/></param>
     /// <param name="debug">The debug<see cref="bool"/></param>
-    private static void RunSource(string source, string name, bool debug = false)
+    /// <param name="binaryRun">The binaryRun<see cref="bool"/></param>
+    private static void RunSource(string source, string name, bool debug = false, bool binaryRun = false)
     {
-        Lexer lexer = new(name, source);
-        Parser parser = new(lexer);
-        List<Stmt> ast = parser.Parse();
+        Lexer? lexer = null;
+        Parser? parser = null;
+        List<Stmt> ast = new();
+        List<Instruction> bytecode = new();
+        Compiler? compiler = null;
+        VM vm = new();
 
-        Compiler compiler = new(name);
-        List<Instruction> bytecode = compiler.Compile(ast);
-
-        if (debug)
+        if (!binaryRun)
         {
-            Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
+            lexer = new(name, source);
+            parser = new(lexer);
+            ast = parser.Parse();
+            compiler = new(name);
+            bytecode = compiler.Compile(ast);
 
-            int opCodeWidth = Math.Max(bytecode.Max(i => i.Code.ToString().Length), "OpCode".Length);
-            int operandWidth = Math.Max(bytecode.Max(i => i.Operand?.ToString()?.Length ?? 4), "Operand".Length);
-
-            string header = "| " + "Line,Col".PadRight(15)
-                          + " | " + "Instr#".PadRight(8)
-                          + " | " + "OpCode".PadRight(opCodeWidth)
-                          + " | " + "Operand".PadRight(operandWidth)
-                          + " |";
-            Console.WriteLine(header);
-
-            Console.WriteLine(new string('-', header.Length));
-
-            for (int idx = 0; idx < bytecode.Count; idx++)
+            vm.LoadFunctions(compiler._functions);
+            vm.LoadInstructions(bytecode);
+            if (debug)
             {
-                Instruction ins = bytecode[idx];
+                Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
 
-                string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
-                string instrNum = $"[{idx + 1:00000}]";
-                string opCode = ins.Code.ToString().PadRight(opCodeWidth);
-                string operand = (ins.Operand?.ToString() ?? "null").PadRight(operandWidth);
+                int opCodeWidth = Math.Max(bytecode.Max(i => i.Code.ToString().Length), "OpCode".Length);
+                int operandWidth = Math.Max(bytecode.Max(i => i.Operand?.ToString()?.Length ?? 4), "Operand".Length);
 
-                Console.WriteLine($"| {lineCol} | {instrNum} | {opCode} | {operand} |");
+                string header = "| " + "Line,Col".PadRight(15)
+                              + " | " + "Instr#".PadRight(8)
+                              + " | " + "OpCode".PadRight(opCodeWidth)
+                              + " | " + "Operand".PadRight(operandWidth)
+                              + " |";
+                Console.WriteLine(header);
+
+                Console.WriteLine(new string('-', header.Length));
+
+                for (int idx = 0; idx < bytecode.Count; idx++)
+                {
+                    Instruction ins = bytecode[idx];
+
+                    string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
+                    string instrNum = $"[{idx + 1:00000}]";
+                    string opCode = ins.Code.ToString().PadRight(opCodeWidth);
+                    string operand = (ins.Operand?.ToString() ?? "null").PadRight(operandWidth);
+
+                    Console.WriteLine($"| {lineCol} | {instrNum} | {opCode} | {operand} |");
+                }
+
+                Console.WriteLine("=== END ===");
+
+                if (compiler._functions.Count > 0)
+                {
+                    Console.WriteLine("=== Functions ===");
+                    foreach (KeyValuePair<string, CFGS_VM.VMCore.Extension.FunctionInfo> f in compiler._functions)
+                        Console.WriteLine(f.Key + " -> " + f.Value);
+                    Console.WriteLine();
+                }
             }
-
-            Console.WriteLine("=== END ===");
-
-            if (compiler._functions.Count > 0)
+            vm.Run(debug);
+            if (SetCompile)
+                CFGS_VM.VMCore.IO.CFSBinary.Save(name + ".cfb", bytecode, compiler._functions);
+            if (debug)
             {
-                Console.WriteLine("=== Functions ===");
-                foreach (KeyValuePair<string, CFGS_VM.VMCore.Extension.FunctionInfo> f in compiler._functions)
-                    Console.WriteLine(f.Key + " -> " + f.Value);
-                Console.WriteLine();
+                vm.DebugStream.Position = 0;
+                using FileStream file = File.Create("log_file.log");
+                vm.DebugStream.CopyTo(file);
             }
         }
-
-        VM vm = new();
-        vm.LoadFunctions(compiler._functions);
-        vm.LoadInstructions(bytecode);
-        vm.Run(debug);
-        if (debug)
+        else
         {
-            vm.DebugStream.Position = 0;
-            using FileStream file = File.Create("log_file.log");
-            vm.DebugStream.CopyTo(file);
+            (bytecode, Dictionary<string, CFGS_VM.VMCore.Extension.FunctionInfo>? funcs) = CFGS_VM.VMCore.IO.CFSBinary.Load(name);
+            vm.LoadInstructions(bytecode);
+            vm.LoadFunctions(funcs);
+
+            if (debug)
+            {
+                Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
+
+                int opCodeWidth = Math.Max(bytecode.Max(i => i.Code.ToString().Length), "OpCode".Length);
+                int operandWidth = Math.Max(bytecode.Max(i => i.Operand?.ToString()?.Length ?? 4), "Operand".Length);
+
+                string header = "| " + "Line,Col".PadRight(15)
+                              + " | " + "Instr#".PadRight(8)
+                              + " | " + "OpCode".PadRight(opCodeWidth)
+                              + " | " + "Operand".PadRight(operandWidth)
+                              + " |";
+                Console.WriteLine(header);
+
+                Console.WriteLine(new string('-', header.Length));
+
+                for (int idx = 0; idx < bytecode.Count; idx++)
+                {
+                    Instruction ins = bytecode[idx];
+
+                    string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
+                    string instrNum = $"[{idx + 1:00000}]";
+                    string opCode = ins.Code.ToString().PadRight(opCodeWidth);
+                    string operand = (ins.Operand?.ToString() ?? "null").PadRight(operandWidth);
+
+                    Console.WriteLine($"| {lineCol} | {instrNum} | {opCode} | {operand} |");
+                }
+
+                Console.WriteLine("=== END ===");
+
+                if (vm._functions.Count > 0)
+                {
+                    Console.WriteLine("=== Functions ===");
+                    foreach (KeyValuePair<string, CFGS_VM.VMCore.Extension.FunctionInfo> f in vm._functions)
+                        Console.WriteLine(f.Key + " -> " + f.Value);
+                    Console.WriteLine();
+                }
+            }
+            vm.Run(debug);
+            if (debug)
+            {
+                vm.DebugStream.Position = 0;
+                using FileStream file = File.Create("log_file.log");
+                vm.DebugStream.CopyTo(file);
+            }
+
         }
     }
 

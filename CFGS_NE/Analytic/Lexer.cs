@@ -1,16 +1,31 @@
 ﻿using CFGS_VM.Analytic.TTypes;
 using System.Globalization;
-using System.Text;
 
+/// <summary>
+/// Defines the <see cref="Lexer" />
+/// </summary>
 public class Lexer
 {
+    /// <summary>
+    /// Gets or sets the FileName
+    /// </summary>
     public string FileName { get; set; }
 
+    /// <summary>
+    /// The MakeToken
+    /// </summary>
+    /// <param name="type">The type<see cref="TokenType"/></param>
+    /// <param name="value">The value<see cref="string"/></param>
+    /// <returns>The <see cref="Token"/></returns>
     private Token MakeToken(TokenType type, string value)
     {
         return new Token(type, value, _line, _col, FileName);
     }
 
+    /// <summary>
+    /// The SyncPos
+    /// </summary>
+    /// <param name="offset">The offset<see cref="int"/></param>
     private void SyncPos(int offset = 1)
     {
         for (int i = 0; i < offset; i++)
@@ -31,14 +46,31 @@ public class Lexer
         }
     }
 
+    /// <summary>
+    /// Defines the _text
+    /// </summary>
     public readonly string _text;
 
+    /// <summary>
+    /// Defines the _pos
+    /// </summary>
     private int _pos;
 
+    /// <summary>
+    /// Defines the _col
+    /// </summary>
     private int _col = 1;
 
+    /// <summary>
+    /// Defines the _line
+    /// </summary>
     private int _line = 1;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="Lexer"/> class.
+    /// </summary>
+    /// <param name="name">The name<see cref="string"/></param>
+    /// <param name="text">The text<see cref="string"/></param>
     public Lexer(string name, string text)
     {
         FileName = name;
@@ -47,10 +79,20 @@ public class Lexer
         _text = text;
     }
 
+    /// <summary>
+    /// Gets the Current
+    /// </summary>
     private char Current => _pos < _text.Length ? _text[_pos] : '\0';
 
+    /// <summary>
+    /// Gets the Peek
+    /// </summary>
     private char Peek => _pos + 1 < _text.Length ? _text[_pos + 1] : '\0';
 
+    /// <summary>
+    /// The GetNextToken
+    /// </summary>
+    /// <returns>The <see cref="Token"/></returns>
     public Token GetNextToken()
     {
         while (_pos < _text.Length)
@@ -94,8 +136,8 @@ public class Lexer
             if (Current == '\"')
             {
                 int startLine = _line, startCol = _col;
-                SyncPos(); // skip opening "
-                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                SyncPos();
+                System.Text.StringBuilder sb = new();
 
                 while (Current != '\"' && Current != '\0')
                 {
@@ -135,15 +177,14 @@ public class Lexer
                 if (Current != '\"')
                     throw new LexerException("unterminated string literal", startLine, startCol, FileName);
 
-                SyncPos(); // closing "
+                SyncPos();
                 return new Token(TokenType.String, sb.ToString(), startLine, startCol, FileName);
             }
-
 
             if (Current == '\'')
             {
                 int startLine = _line, startCol = _col;
-                SyncPos(); // skip opening '
+                SyncPos();
 
                 if (Current == '\0')
                     throw new LexerException("unterminated char literal", startLine, startCol, FileName);
@@ -151,7 +192,7 @@ public class Lexer
                 char ch;
                 if (Current == '\\')
                 {
-                    SyncPos(); // consume '\'
+                    SyncPos();
                     char esc = Current;
                     if (esc == 'n') ch = '\n';
                     else if (esc == 't') ch = '\t';
@@ -161,7 +202,6 @@ public class Lexer
                     else if (esc == '\"') ch = '\"';
                     else if (esc == 'u')
                     {
-                        // \uXXXX (4 hex)
                         string hex = "";
                         for (int i = 0; i < 4; i++)
                         {
@@ -173,7 +213,7 @@ public class Lexer
                     }
                     else
                         throw new LexerException($"unknown escape '\\{esc}' in char literal", startLine, startCol, FileName);
-                    SyncPos(); // move past escape char last digit/letter
+                    SyncPos();
                 }
                 else
                 {
@@ -184,27 +224,23 @@ public class Lexer
                 if (Current != '\'')
                     throw new LexerException("char literal must contain exactly one character", startLine, startCol, FileName);
 
-                SyncPos(); // closing '
+                SyncPos();
                 return new Token(TokenType.Char, ch.ToString(), startLine, startCol, FileName);
             }
-
 
             if (char.IsDigit(Current))
             {
                 int startLine = _line, startCol = _col;
 
-                // Collect raw literal (digits, letters for bases, underscores, dot, exponent markers)
-                System.Text.StringBuilder raw = new System.Text.StringBuilder();
+                System.Text.StringBuilder raw = new();
                 bool isFloat = false;
 
-                // handle base prefixes 0x, 0b, 0o
                 if (Current == '0')
                 {
                     raw.Append(Current); SyncPos();
                     if (Current == 'x' || Current == 'X')
                     {
                         SyncPos();
-                        // hex digits + underscores
                         string hex = "";
                         while (Uri.IsHexDigit(Current) || Current == '_')
                         {
@@ -212,7 +248,6 @@ public class Lexer
                             SyncPos();
                         }
                         if (hex.Length == 0) throw new LexerException("invalid hex literal", startLine, startCol, FileName);
-                        // parse as long if fits, else decimal
                         object nval;
                         try
                         {
@@ -250,17 +285,15 @@ public class Lexer
                     }
                     else
                     {
-                        // fallthrough to decimal/float: we already consumed the '0'
                     }
                 }
 
-                // decimal / float with underscores and exponent
                 while (char.IsDigit(Current) || Current == '_' || Current == '.'
                        || Current == 'e' || Current == 'E' || Current == '+' || Current == '-')
                 {
                     if (Current == '.')
                     {
-                        if (isFloat) break; // second dot -> stop
+                        if (isFloat) break;
                         isFloat = true;
                     }
                     raw.Append(Current);
@@ -269,25 +302,24 @@ public class Lexer
 
                 string num = raw.ToString().Replace("_", "");
                 object val;
-                var ci = System.Globalization.CultureInfo.InvariantCulture;
+                CultureInfo ci = System.Globalization.CultureInfo.InvariantCulture;
 
                 if (isFloat || num.Contains("e") || num.Contains("E") || num.Contains("."))
                 {
-                    if (double.TryParse(num, System.Globalization.NumberStyles.Float, ci, out var d)) val = d;
-                    else if (decimal.TryParse(num, System.Globalization.NumberStyles.Float, ci, out var m)) val = m;
+                    if (double.TryParse(num, System.Globalization.NumberStyles.Float, ci, out double d)) val = d;
+                    else if (decimal.TryParse(num, System.Globalization.NumberStyles.Float, ci, out decimal m)) val = m;
                     else throw new LexerException($"invalid number literal '{num}'", startLine, startCol, FileName);
                 }
                 else
                 {
-                    if (int.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out var i)) val = i;
-                    else if (long.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out var l)) val = l;
-                    else if (decimal.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out var m)) val = m;
+                    if (int.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out int i)) val = i;
+                    else if (long.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out long l)) val = l;
+                    else if (decimal.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out decimal m)) val = m;
                     else throw new LexerException($"invalid number literal '{num}'", startLine, startCol, FileName);
                 }
 
                 return new Token(TokenType.Number, val, startLine, startCol, FileName);
             }
-
 
             if (char.IsLetter(c) || c == '_')
             {
@@ -381,16 +413,37 @@ public class Lexer
     }
 }
 
+/// <summary>
+/// Defines the <see cref="LexerException" />
+/// </summary>
 public sealed class LexerException(string message, int line, int column, string filename) : Exception($"{message}. ( Line : {line}, Column : {column} ) : [Source : '{filename}']");
 
+/// <summary>
+/// Defines the <see cref="SourceLocation" />
+/// </summary>
 public class SourceLocation
 {
+    /// <summary>
+    /// Gets the FileName
+    /// </summary>
     public string FileName { get; }
 
+    /// <summary>
+    /// Gets the Line
+    /// </summary>
     public int Line { get; }
 
+    /// <summary>
+    /// Gets the Column
+    /// </summary>
     public int Column { get; }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SourceLocation"/> class.
+    /// </summary>
+    /// <param name="file">The file<see cref="string"/></param>
+    /// <param name="line">The line<see cref="int"/></param>
+    /// <param name="column">The column<see cref="int"/></param>
     public SourceLocation(string file, int line, int column)
     {
         FileName = file;
