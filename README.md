@@ -435,6 +435,77 @@ print(Cat.whoBase());   # "Animal(1.0)"
 >   You can still reach the base via `super`.
 > - Inside instance methods, `this` is the instance; `type` is the static container; `super` calls the base implementation (instance or static).
 
+# Nested classes
+
+Nested (inner) classes are declared **inside** another class.  
+They support *lexical binding* of the outer instance via the keyword `outer`.
+
+## Key points
+
+- Declare an inner class with `class Inner(...) { ... }` **inside** an outer class body.
+- Creating an inner instance **through an outer instance** (e.g., `car.Engine(30)`) binds `outer` inside the inner object.
+- Accessing the inner **through the static container** (e.g., `Auto.Engine`) exposes the type but **does not** bind `outer`.  
+  Calling inner methods that reference `outer` in that case will error.
+
+```cfs
+# Outer class with an inner class that uses `outer`
+class Auto(pwr) {
+    var basePower = 0;
+    func init(pwr) { this.basePower = pwr; }
+
+    class Engine(boost) {
+        var boost = 0;
+        func init(boost) { this.boost = boost; }
+
+        func power() {
+            # `outer` refers to the enclosing Auto instance,
+            # but only if Engine was created via an Auto instance.
+            return outer.basePower + this.boost;
+        }
+    }
+}
+
+var car = Auto(100);              # create an Auto instance
+var e1  = car.Engine(25);         # inner via instance -> `outer` is bound
+print(e1.power());                # 125
+
+# Accessing the nested type via the static container:
+var EType = Auto.Engine;          # type reference only, no `outer` bound
+var e2    = EType(25);            # constructing without an outer instance
+# print(e2.power());              # would error: 'outer' not available
+```
+
+## Nested classes in derived types
+
+Inner classes in subclasses can freely reference the subclass’s fields via `outer`.  
+They also compose with `super`/`type` as usual (from the enclosing instance methods).
+
+```cfs
+class BMW(pwr) : Auto(pwr) {
+    var brand = "BMW";
+    func init(pwr) { super.init(pwr); }
+
+    class Badge(txt) {
+        var txt = "";
+        func init(txt) { this.txt = txt; }
+
+        func show() {
+            # Uses state from the enclosing BMW instance
+            return outer.brand + "-" + this.txt;   # e.g., "BMW-SPORT"
+        }
+    }
+}
+
+var bmw   = BMW(220);
+var badge = bmw.Badge("SPORT");
+print(badge.show());              # "BMW-SPORT"
+```
+
+### Notes
+
+- `outer` is only available **inside inner-class methods** and only when the inner was created via an **outer instance**.
+- You can still access the nested **type** through `Outer.Inner` on the static container, but any use of `outer` inside that inner will fail unless it was instantiated through an outer instance.
+
 ---
 
 ## Enums
