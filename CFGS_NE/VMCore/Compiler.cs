@@ -321,6 +321,9 @@ namespace CFGS_VM.VMCore
                             ? new List<string>(initMethod.Parameters)
                             : new List<string>(cds.Parameters);
 
+                        if (cds.IsNested && (ctorParams.Count == 0 || ctorParams[0] != "__outer"))
+                            ctorParams.Insert(0, "__outer");
+
                         int ctorStart = _insns.Count;
                         _functions[$"__ctor_{cds.Name}"] = new FunctionInfo(ctorParams, ctorStart);
 
@@ -350,6 +353,14 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
                         }
 
+                        if (cds.IsNested)
+                        {
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__outer", cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, "__outer", cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
+                        }
+
                         foreach (KeyValuePair<string, Expr?> kv in cds.Fields)
                         {
                             string fieldName = kv.Key;
@@ -368,6 +379,7 @@ namespace CFGS_VM.VMCore
 
                         foreach (string p in ctorParams)
                         {
+                            if (p == "__outer") continue;
                             _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, p, cds.Line, cds.Col, s.OriginFile));
@@ -377,8 +389,8 @@ namespace CFGS_VM.VMCore
 
                         foreach (FuncDeclStmt func in cds.Methods)
                         {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, func.Name, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, func.Line, func.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, func.Name, func.Line, func.Col, s.OriginFile));
 
                             List<string> methodParams = new(func.Parameters);
                             methodParams.Insert(0, "this");
@@ -386,7 +398,7 @@ namespace CFGS_VM.VMCore
                             FuncExpr methodFuncExpr = new(methodParams, func.Body, func.Line, func.Col, s.OriginFile);
                             CompileExpr(methodFuncExpr);
 
-                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, func.Line, func.Col, s.OriginFile));
                         }
 
                         if (initMethod != null)
@@ -396,9 +408,14 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, s.OriginFile));
 
                             for (int i = ctorParams.Count - 1; i >= 0; i--)
-                                _insns.Add(new Instruction(OpCode.LOAD_VAR, ctorParams[i], cds.Line, cds.Col, s.OriginFile));
+                            {
+                                string p = ctorParams[i];
+                                if (p == "__outer") continue;
+                                _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, s.OriginFile));
+                            }
 
-                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, ctorParams.Count, cds.Line, cds.Col, s.OriginFile));
+                            int argCountForInit = ctorParams.Count(p => p != "__outer");
+                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, argCountForInit, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.POP, null, cds.Line, cds.Col, s.OriginFile));
                         }
 
@@ -477,6 +494,15 @@ namespace CFGS_VM.VMCore
                             }
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
+                        }
+
+                        foreach (ClassDeclStmt inner in cds.NestedClasses)
+                        {
+                            CompileStmt(inner, insideFunction: false);
+                            _insns.Add(new Instruction(OpCode.DUP, null, inner.Line, inner.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, inner.Name, inner.Line, inner.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, inner.Name, inner.Line, inner.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, inner.Line, inner.Col, s.OriginFile));
                         }
 
                         _insns.Add(new Instruction(OpCode.VAR_DECL, cds.Name, cds.Line, cds.Col, s.OriginFile));
@@ -992,10 +1018,14 @@ namespace CFGS_VM.VMCore
 
                 case NewExpr ne:
                     {
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, ne.ClassName, ne.Line, ne.Col, e.OriginFile));
+                        string[] parts = ne.ClassName.Split('.');
 
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "new", ne.Line, ne.Col, e.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, e.OriginFile));
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, parts[0], ne.Line, ne.Col, e.OriginFile));
+                        for (int i = 1; i < parts.Length; i++)
+                        {
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], ne.Line, ne.Col, e.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, e.OriginFile));
+                        }
 
                         for (int i = ne.Args.Count - 1; i >= 0; i--)
                             CompileExpr(ne.Args[i]);

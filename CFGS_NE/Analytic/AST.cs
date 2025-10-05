@@ -843,6 +843,16 @@ namespace CFGS_VM.Analytic
         public List<string> Parameters;
 
         /// <summary>
+        /// Gets the NestedClasses
+        /// </summary>
+        public List<ClassDeclStmt> NestedClasses { get; } = new();
+
+        /// <summary>
+        /// Gets a value indicating whether IsNested
+        /// </summary>
+        public bool IsNested { get; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="ClassDeclStmt"/> class.
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>
@@ -857,6 +867,8 @@ namespace CFGS_VM.Analytic
         /// <param name="fname">The fname<see cref="string"/></param>
         /// <param name="baseName">The baseName<see cref="string?"/></param>
         /// <param name="baseArgs">The baseArgs<see cref="List{Expr}?"/></param>
+        /// <param name="nestedClasses">The nestedClasses<see cref="List{ClassDeclStmt}?"/></param>
+        /// <param name="isNested">The isNested<see cref="bool"/></param>
         public ClassDeclStmt(
             string name,
             List<FuncDeclStmt> methods,
@@ -869,7 +881,9 @@ namespace CFGS_VM.Analytic
             int col,
             string fname,
             string? baseName = null,
-        List<Expr>? baseArgs = null
+        List<Expr>? baseArgs = null,
+            List<ClassDeclStmt>? nestedClasses = null,
+    bool isNested = false
         ) : base(line, col, fname)
         {
             Name = name;
@@ -881,6 +895,8 @@ namespace CFGS_VM.Analytic
             StaticMethods = staticMethods;
             BaseName = baseName;
             if (baseArgs != null) BaseCtorArgs = baseArgs;
+            NestedClasses = nestedClasses ?? new List<ClassDeclStmt>();
+            IsNested = isNested;
         }
     }
 

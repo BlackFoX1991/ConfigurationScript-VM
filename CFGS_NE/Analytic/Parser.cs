@@ -557,6 +557,8 @@ namespace CFGS_VM.Analytic
             Dictionary<string, Expr?> staticFields = new();
             List<EnumDeclStmt> staticEnums = new();
 
+            List<ClassDeclStmt> nestedClasses = new();
+
             while (_current.Type != TokenType.RBrace)
             {
                 bool StaticSet = false;
@@ -585,6 +587,20 @@ namespace CFGS_VM.Analytic
                     else
                         fields[fieldName] = init ?? new NumberExpr(0, line, col, _current.Filename);
                 }
+                else if (_current.Type == TokenType.Class)
+                {
+                    if (StaticSet)
+                        throw new ParserException("nested classes cannot be static", _current.Line, _current.Column, _current.Filename);
+                    ClassDeclStmt inner = ParseClassDecl();
+                    inner = new ClassDeclStmt(
+                        inner.Name, inner.Methods, inner.Enums,
+                        inner.Fields, inner.StaticFields, inner.StaticMethods,
+                        inner.Parameters, inner.Line, inner.Col, inner.OriginFile,
+                        inner.BaseName, inner.BaseCtorArgs, inner.NestedClasses, isNested: true
+                    );
+                    nestedClasses.Add(inner);
+                }
+
                 else if (_current.Type == TokenType.Enum)
                 {
                     EnumDeclStmt enm = ParseEnumDecl();
@@ -621,7 +637,9 @@ namespace CFGS_VM.Analytic
                 col,
                 _current.Filename,
                 baseName,
-                baseArgs
+                baseArgs,
+                nestedClasses,
+                false
             );
         }
 
@@ -640,8 +658,20 @@ namespace CFGS_VM.Analytic
                 if (_current.Type != TokenType.Ident)
                     throw new ParserException("expected class name after 'new'", line, col, _current.Filename);
 
-                string className = _current.Value.ToString() ?? "";
+                StringBuilder qn = new();
+                qn.Append(_current.Value.ToString());
                 Eat(TokenType.Ident);
+
+                while (_current.Type == TokenType.Dot)
+                {
+                    Eat(TokenType.Dot);
+                    if (_current.Type != TokenType.Ident)
+                        throw new ParserException("expected identifier after '.' in qualified class name",
+                                                  _current.Line, _current.Column, _current.Filename);
+                    qn.Append('.');
+                    qn.Append(_current.Value.ToString());
+                    Eat(TokenType.Ident);
+                }
 
                 List<Expr> args = new();
 
@@ -650,14 +680,12 @@ namespace CFGS_VM.Analytic
                     Eat(TokenType.LParen);
 
                     if (_current.Type != TokenType.RParen)
-                    {
                         args = ParseExprList();
-                    }
 
                     Eat(TokenType.RParen);
                 }
 
-                return new NewExpr(className, args, line, col, _current.Filename);
+                return new NewExpr(qn.ToString(), args, line, col, _current.Filename);
             }
         }
 

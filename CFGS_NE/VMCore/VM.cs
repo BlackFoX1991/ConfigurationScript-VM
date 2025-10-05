@@ -12,6 +12,39 @@ namespace CFGS_VM.VMCore
     public class VM
     {
         /// <summary>
+        /// Defines the <see cref="BoundType" />
+        /// </summary>
+        private sealed class BoundType
+        {
+            /// <summary>
+            /// Gets the Type
+            /// </summary>
+            public StaticInstance Type { get; }
+
+            /// <summary>
+            /// Gets the Outer
+            /// </summary>
+            public object Outer { get; }
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="BoundType"/> class.
+            /// </summary>
+            /// <param name="type">The type<see cref="StaticInstance"/></param>
+            /// <param name="outer">The outer<see cref="object"/></param>
+            public BoundType(StaticInstance type, object outer)
+            {
+                Type = type ?? throw new ArgumentNullException(nameof(type));
+                Outer = outer ?? throw new ArgumentNullException(nameof(outer));
+            }
+
+            /// <summary>
+            /// The ToString
+            /// </summary>
+            /// <returns>The <see cref="string"/></returns>
+            public override string ToString() => $"<boundtype {Type.ClassName}>";
+        }
+
+        /// <summary>
         /// Defines the _program
         /// </summary>
         private List<Instruction>? _program;
@@ -2094,6 +2127,27 @@ namespace CFGS_VM.VMCore
 
                             throw new VMException("Runtime error: 'super' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
                         }
+                        if (name == "outer")
+                        {
+                            object? recv = CurrentThis;
+
+                            if (recv is ClassInstance inst)
+                            {
+                                if (inst.Fields.TryGetValue("__outer", out object? oObj) && oObj is ClassInstance outerInst)
+                                {
+                                    _stack.Push(outerInst);
+                                    break;
+                                }
+                                throw new VMException("Runtime error: missing '__outer' on instance for 'outer'", instr.Line, instr.Col, instr.OriginFile);
+                            }
+
+                            if (recv is StaticInstance)
+                            {
+                                throw new VMException("Runtime error: 'outer' not available in static context", instr.Line, instr.Col, instr.OriginFile);
+                            }
+
+                            throw new VMException("Runtime error: 'outer' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
+                        }
 
                         Env? owner = FindEnvWithLocal(name);
                         if (owner == null || !owner.Vars.TryGetValue(name, out object? val))
@@ -2108,7 +2162,7 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is null) break;
                         string name = (string)instr.Operand;
 
-                        if (name == "this" || name == "type" || name == "super")
+                        if (name == "this" || name == "type" || name == "super" || name == "outer")
                             throw new VMException($"Runtime error: cannot declare '{name}' as a variable", instr.Line, instr.Col, instr.OriginFile);
 
                         RequireStack(1, instr, "VAR_DECL");
@@ -2126,7 +2180,7 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is null) break;
                         string name = (string)instr.Operand;
 
-                        if (name == "this" || name == "type" || name == "super")
+                        if (name == "this" || name == "type" || name == "super" || name == "outer")
                             throw new VMException($"Runtime error: cannot assign to '{name}'", instr.Line, instr.Col, instr.OriginFile);
 
                         RequireStack(1, instr, "STORE_VAR");
@@ -2711,7 +2765,10 @@ namespace CFGS_VM.VMCore
                             for (int i = 0; i < explicitArgCount; i++)
                             {
                                 if (_stack.Count == 0)
-                                    throw new VMException($"Runtime error: not enough arguments for CALL_INDIRECT (expected {explicitArgCount})", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException(
+                                        $"Runtime error: not enough arguments for CALL_INDIRECT (expected {explicitArgCount})",
+                                        instr.Line, instr.Col, instr.OriginFile
+                                    );
                                 argsList.Add(_stack.Pop());
                             }
 
@@ -2742,8 +2799,22 @@ namespace CFGS_VM.VMCore
                                 if (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0]))
                                 {
                                     if (argsList.Count > 0 && Equals(argsList[0], receiver))
-                                        throw new VMException("Runtime error: receiver provided twice (BoundMethod already has implicit receiver).", instr.Line, instr.Col, instr.OriginFile);
+                                        throw new VMException(
+                                            "Runtime error: receiver provided twice (BoundMethod already has implicit receiver).",
+                                            instr.Line, instr.Col, instr.OriginFile
+                                        );
                                 }
+                            }
+                            else if (callee is BoundType bt)
+                            {
+                                object ctorVal = GetIndexedValue(bt.Type, "new", instr);
+                                if (ctorVal is not Closure ctorClos)
+                                    throw new VMException("Runtime error: nested type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile);
+
+                                f = ctorClos;
+                                receiver = null;
+
+                                argsList.Insert(0, bt.Outer);
                             }
                             else if (callee is Closure clos)
                             {
@@ -2752,10 +2823,22 @@ namespace CFGS_VM.VMCore
                                 if (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0]))
                                 {
                                     if (argsList.Count == 0)
-                                        throw new VMException($"Runtime error: missing '{f.Parameters[0]}' for method call.", instr.Line, instr.Col, instr.OriginFile);
+                                        throw new VMException(
+                                            $"Runtime error: missing '{f.Parameters[0]}' for method call.",
+                                            instr.Line, instr.Col, instr.OriginFile
+                                        );
                                     receiver = argsList[0];
                                     argsList.RemoveAt(0);
                                 }
+                            }
+                            else if (callee is StaticInstance st)
+                            {
+                                object ctorVal = GetIndexedValue(st, "new", instr);
+                                if (ctorVal is not Closure ctorClos)
+                                    throw new VMException("Runtime error: type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile);
+
+                                f = ctorClos;
+                                receiver = null;
                             }
                             else
                             {
@@ -2764,8 +2847,19 @@ namespace CFGS_VM.VMCore
 
                             Env callEnv = new(f.CapturedEnv);
                             int piStart = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
-                            if (argsList.Count < f.Parameters.Count - piStart)
-                                throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile);
+                            int expected = f.Parameters.Count - piStart;
+
+                            if (argsList.Count < expected)
+                                throw new VMException(
+                                    $"Runtime error: insufficient args for call (expected {expected}, got {argsList.Count})",
+                                    instr.Line, instr.Col, instr.OriginFile
+                                );
+
+                            if (argsList.Count > expected)
+                                throw new VMException(
+                                    $"Runtime error: too many args for call (expected {expected}, got {argsList.Count})",
+                                    instr.Line, instr.Col, instr.OriginFile
+                                );
 
                             for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
                                 callEnv.Define(f.Parameters[pi], argsList[ai]);
@@ -2775,6 +2869,7 @@ namespace CFGS_VM.VMCore
                             _ip = f.Address;
                             return StepResult.Continue;
                         }
+
                         else
                         {
                             if (_stack.Count == 0)
@@ -2803,6 +2898,45 @@ namespace CFGS_VM.VMCore
                                 f = bm.Function;
                                 receiver = bm.Receiver;
                             }
+                            else if (callee is BoundType bt)
+                            {
+                                object ctorVal = GetIndexedValue(bt.Type, "new", instr);
+                                if (ctorVal is not Closure ctorClos)
+                                    throw new VMException("Runtime error: nested type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile);
+
+                                f = ctorClos;
+                                receiver = null;
+
+                                int total = f.Parameters.Count;
+
+                                List<object> argsTmp = new();
+                                for (int i = 0; i < total - 1; i++)
+                                {
+                                    if (_stack.Count == 0)
+                                        throw new VMException("Runtime error: insufficient args for constructor call", instr.Line, instr.Col, instr.OriginFile);
+                                    argsTmp.Add(_stack.Pop());
+                                }
+                                argsTmp.Reverse();
+                                argsTmp.Insert(0, bt.Outer);
+
+                                Env callEnv2 = new(f.CapturedEnv);
+                                int piStart2 = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
+                                int expected2 = f.Parameters.Count - piStart2;
+
+                                if (argsTmp.Count != expected2)
+                                    throw new VMException(
+                                        $"Runtime error: argument count mismatch (expected {expected2}, got {argsTmp.Count})",
+                                        instr.Line, instr.Col, instr.OriginFile
+                                    );
+
+                                for (int pi = piStart2, ai = 0; pi < f.Parameters.Count; pi++, ai++)
+                                    callEnv2.Define(f.Parameters[pi], argsTmp[ai]);
+
+                                _scopes.Add(callEnv2);
+                                _callStack.Push(new CallFrame(_ip, 1, receiver));
+                                _ip = f.Address;
+                                return StepResult.Continue;
+                            }
                             else if (callee is Closure clos)
                             {
                                 f = clos;
@@ -2810,9 +2944,21 @@ namespace CFGS_VM.VMCore
                                 if (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0]))
                                 {
                                     if (_stack.Count == 0)
-                                        throw new VMException($"Runtime error: missing '{f.Parameters[0]}' for method call.", instr.Line, instr.Col, instr.OriginFile);
+                                        throw new VMException(
+                                            $"Runtime error: missing '{f.Parameters[0]}' for method call.",
+                                            instr.Line, instr.Col, instr.OriginFile
+                                        );
                                     receiver = _stack.Pop();
                                 }
+                            }
+                            else if (callee is StaticInstance st)
+                            {
+                                object ctorVal = GetIndexedValue(st, "new", instr);
+                                if (ctorVal is not Closure ctorClos)
+                                    throw new VMException("Runtime error: type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile);
+
+                                f = ctorClos;
+                                receiver = null;
                             }
                             else
                             {
@@ -2821,17 +2967,24 @@ namespace CFGS_VM.VMCore
 
                             int piStart = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
 
-                            List<object> argsList = new();
+                            List<object> argsList2 = new();
                             for (int pi = f.Parameters.Count - 1; pi >= piStart; pi--)
                             {
                                 if (_stack.Count == 0)
                                     throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile);
-                                argsList.Insert(0, _stack.Pop());
+                                argsList2.Insert(0, _stack.Pop());
                             }
+
+                            int expected = f.Parameters.Count - piStart;
+                            if (argsList2.Count != expected)
+                                throw new VMException(
+                                    $"Runtime error: argument count mismatch (expected {expected}, got {argsList2.Count})",
+                                    instr.Line, instr.Col, instr.OriginFile
+                                );
 
                             Env callEnv = new(f.CapturedEnv);
                             for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
-                                callEnv.Define(f.Parameters[pi], argsList[ai]);
+                                callEnv.Define(f.Parameters[pi], argsList2[ai]);
 
                             _scopes.Add(callEnv);
                             _callStack.Push(new CallFrame(_ip, 1, receiver));
@@ -3641,6 +3794,16 @@ namespace CFGS_VM.VMCore
                     {
                         string key = idxObj?.ToString() ?? "";
 
+                        if (key == "outer")
+                        {
+                            if (obj.Fields.TryGetValue("__outer", out object? outerVal))
+                                return outerVal;
+
+                            throw new VMException(
+                                "Runtime error: missing '__outer' on instance for 'outer'.",
+                                instr.Line, instr.Col, instr.OriginFile
+                            );
+                        }
                         if (obj.Fields.TryGetValue(key, out object? fval))
                         {
                             if (fval is Closure clos &&
@@ -3675,6 +3838,10 @@ namespace CFGS_VM.VMCore
                                 {
                                     return new BoundMethod(sClos, st2);
                                 }
+                                if (sval is StaticInstance nestedType)
+                                {
+                                    return new BoundType(nestedType, obj);
+                                }
                                 return sval;
                             }
 
@@ -3687,6 +3854,10 @@ namespace CFGS_VM.VMCore
                                         sClos2.Parameters.Count > 0 && sClos2.Parameters[0] == "type")
                                     {
                                         return new BoundMethod(sClos2, st2);
+                                    }
+                                    if (sv2 is StaticInstance nestedType2)
+                                    {
+                                        return new BoundType(nestedType2, obj);
                                     }
                                     return sv2;
                                 }
@@ -3701,6 +3872,13 @@ namespace CFGS_VM.VMCore
                     {
                         string key = idxObj?.ToString() ?? "";
 
+                        if (key == "outer")
+                        {
+                            throw new VMException(
+                                $"Runtime error: invalid static member 'outer' in class '{st.ClassName}'.",
+                                instr.Line, instr.Col, instr.OriginFile
+                            );
+                        }
                         if (st.Fields.TryGetValue(key, out object? fval))
                         {
                             if (fval is Closure clos &&
@@ -3726,8 +3904,10 @@ namespace CFGS_VM.VMCore
                             curType = baseType;
                         }
 
-                        throw new VMException($"invalid static member '{key}' in class '{st.ClassName}'",
-                            instr.Line, instr.Col, instr.OriginFile);
+                        throw new VMException(
+                            $"Runtime error: invalid static member '{key}' in class '{st.ClassName}'.",
+                            instr.Line, instr.Col, instr.OriginFile
+                        );
                     }
 
                 default:
@@ -3780,6 +3960,13 @@ namespace CFGS_VM.VMCore
                         if (key.Length == 0)
                             throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile);
 
+                        if (key == "outer")
+                        {
+                            throw new VMException(
+                                "Runtime error: cannot assign to 'outer' (read-only).",
+                                instr.Line, instr.Col, instr.OriginFile
+                            );
+                        }
                         obj.Fields[key] = value;
                         break;
                     }
@@ -3790,6 +3977,13 @@ namespace CFGS_VM.VMCore
                         if (key.Length == 0)
                             throw new VMException("Runtime error: static member name cannot be empty", instr.Line, instr.Col, instr.OriginFile);
 
+                        if (key == "outer")
+                        {
+                            throw new VMException(
+                                "Runtime error: cannot assign to 'outer' on static type.",
+                                instr.Line, instr.Col, instr.OriginFile
+                            );
+                        }
                         st.Fields[key] = value;
                         break;
                     }
@@ -3872,13 +4066,32 @@ namespace CFGS_VM.VMCore
     public sealed class VMException(string message, int line, int column, string? fileSource)
     : Exception(BuildMessage(message, line, column, fileSource))
     {
+        /// <summary>
+        /// Gets the Line
+        /// </summary>
         public int Line { get; } = line;
+
+        /// <summary>
+        /// Gets the Column
+        /// </summary>
         public int Column { get; } = column;
+
+        /// <summary>
+        /// Gets the FileSource
+        /// </summary>
         public string? FileSource { get; } = fileSource;
 
+        /// <summary>
+        /// The BuildMessage
+        /// </summary>
+        /// <param name="message">The message<see cref="string"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="column">The column<see cref="int"/></param>
+        /// <param name="fileSource">The fileSource<see cref="string?"/></param>
+        /// <returns>The <see cref="string"/></returns>
         private static string BuildMessage(string message, int line, int column, string? fileSource)
         {
-            var sb = new System.Text.StringBuilder();
+            StringBuilder sb = new();
             if (!string.IsNullOrEmpty(message))
             {
                 sb.Append(message.TrimEnd());
