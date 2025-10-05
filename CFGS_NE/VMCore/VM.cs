@@ -16,7 +16,9 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private List<Instruction>? _program;
 
-
+        /// <summary>
+        /// Gets or sets a value indicating whether AllowFileIO
+        /// </summary>
         public static bool AllowFileIO { get; set; } = true;
 
         /// <summary>
@@ -695,6 +697,12 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private readonly Stack<object> _stack = new();
 
+        /// <summary>
+        /// The RequireStack
+        /// </summary>
+        /// <param name="needed">The needed<see cref="int"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <param name="opName">The opName<see cref="string?"/></param>
         private void RequireStack(int needed, Instruction instr, string? opName = null)
         {
             if (_stack.Count < needed)
@@ -711,7 +719,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Defines the _functions
         /// </summary>
-        private readonly Dictionary<string, FunctionInfo> _functions = new();
+        public Dictionary<string, FunctionInfo> _functions = new();
 
         /// <summary>
         /// Defines the _callStack
@@ -1506,7 +1514,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SLICE_GET:
                     {
-                        // start + end (+ ggf. target)
                         if (instr.Operand is string)
                             RequireStack(2, instr, "SLICE_GET");
                         else
@@ -1579,7 +1586,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SLICE_SET:
                     {
-                        // value + start + end (+ ggf. target)
                         if (instr.Operand is string)
                             RequireStack(3, instr, "SLICE_SET");
                         else
@@ -1691,7 +1697,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.INDEX_GET:
                     {
-                        // idx (+ ggf. target)
                         if (instr.Operand is string)
                             RequireStack(1, instr, "INDEX_GET");
                         else
@@ -1717,7 +1722,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.INDEX_SET:
                     {
-                        // value + idx (+ ggf. target)
                         if (instr.Operand is string)
                             RequireStack(2, instr, "INDEX_SET");
                         else
@@ -1749,7 +1753,6 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null) break;
                         int count = (int)instr.Operand;
-                        // pro Eintrag: key + value
                         RequireStack(count * 2, instr, "NEW_DICT");
                         Dictionary<string, object> dict = new();
                         for (int i = 0; i < count; i++)
@@ -1778,7 +1781,6 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand == null)
                         {
-                            // arrObj + value
                             RequireStack(2, instr, "ARRAY_PUSH");
                             object arrObj = _stack.Pop();
                             object value = _stack.Pop();
@@ -1813,7 +1815,6 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            // nur value; target aus Env
                             RequireStack(1, instr, "ARRAY_PUSH");
                             object value = _stack.Pop();
                             string name = (string)instr.Operand;
@@ -1853,7 +1854,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_SLICE:
                     {
-                        // start + end (+ ggf. target)
                         if (instr.Operand is string)
                             RequireStack(2, instr, "ARRAY_DELETE_SLICE");
                         else
@@ -1883,7 +1883,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_SLICE_ALL:
                     {
-                        // target + start + end
                         RequireStack(3, instr, "ARRAY_DELETE_SLICE_ALL");
                         object endObj = _stack.Pop();
                         object startObj = _stack.Pop();
@@ -1914,7 +1913,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_ELEM:
                     {
-                        // idx (+ ggf. target)
                         if (instr.Operand != null)
                             RequireStack(1, instr, "ARRAY_DELETE_ELEM");
                         else
@@ -2006,7 +2004,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_ELEM_ALL:
                     {
-                        // idx + target
                         RequireStack(2, instr, "ARRAY_DELETE_ELEM_ALL");
 
                         object idxObj = _stack.Pop();
@@ -2669,7 +2666,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.CALL:
                     {
-                        // (hier bleiben deine bestehenden Laufzeit-Checks; RequireStack ist wegen variabler Arity komplex)
                         if (instr.Operand is string funcName)
                         {
                             if (bInFunc.TryGetValue(funcName, out int expectedArgs))
@@ -2705,7 +2701,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.CALL_INDIRECT:
                     {
-                        // (deine vorhandenen Checks lassen wir, da die Arity dynamisch ist)
                         static bool IsReceiverName(string s) => s == "this" || s == "type";
 
                         if (instr.Operand is IConvertible)
@@ -2935,7 +2930,6 @@ namespace CFGS_VM.VMCore
 
             return StepResult.Next;
         }
-
 
         /// <summary>
         /// The LoadInstructions
@@ -3875,6 +3869,33 @@ namespace CFGS_VM.VMCore
     /// <summary>
     /// Defines the <see cref="VMException" />
     /// </summary>
-    public sealed class VMException(string message, int line, int column, string fileSource) : Exception($"{message}. ( Line : {line}, Column : {column} ) [Source : '{fileSource}']");
+    public sealed class VMException(string message, int line, int column, string? fileSource)
+    : Exception(BuildMessage(message, line, column, fileSource))
+    {
+        public int Line { get; } = line;
+        public int Column { get; } = column;
+        public string? FileSource { get; } = fileSource;
 
+        private static string BuildMessage(string message, int line, int column, string? fileSource)
+        {
+            var sb = new System.Text.StringBuilder();
+            if (!string.IsNullOrEmpty(message))
+            {
+                sb.Append(message.TrimEnd());
+                if (!message.TrimEnd().EndsWith(".")) sb.Append('.');
+            }
+
+            bool hasLine = line >= 0;
+            bool hasCol = column >= 0;
+
+            if (hasLine && hasCol) sb.Append($" ( Line : {line}, Column : {column} )");
+            else if (hasLine) sb.Append($" ( Line : {line} )");
+            else if (hasCol) sb.Append($" ( Column : {column} )");
+
+            if (!string.IsNullOrWhiteSpace(fileSource))
+                sb.Append($" [Source : '{fileSource}']");
+
+            return sb.ToString();
+        }
+    }
 }

@@ -5,22 +5,53 @@ using CFGS_VM.VMCore.Extension;
 
 namespace CFGS_VM.VMCore
 {
+    /// <summary>
+    /// Defines the <see cref="Compiler" />
+    /// </summary>
     public class Compiler(string fname)
     {
+        /// <summary>
+        /// Defines the _anonCounter
+        /// </summary>
         private int _anonCounter = 0;
 
+        /// <summary>
+        /// Gets or sets the FileName
+        /// </summary>
         public string FileName { get; set; } = fname;
 
+        /// <summary>
+        /// The IsBuiltinFunction
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
         private static bool IsBuiltinFunction(string name) => VM.bInFunc.ContainsKey(name);
 
+        /// <summary>
+        /// Defines the _insns
+        /// </summary>
         private readonly List<Instruction> _insns = [];
 
+        /// <summary>
+        /// Defines the _breakLists
+        /// </summary>
         private readonly Stack<List<int>> _breakLists = new();
 
+        /// <summary>
+        /// Defines the _continueLists
+        /// </summary>
         private readonly Stack<List<int>> _continueLists = new();
 
+        /// <summary>
+        /// Defines the _functions
+        /// </summary>
         public Dictionary<string, FunctionInfo> _functions = [];
 
+        /// <summary>
+        /// The Compile
+        /// </summary>
+        /// <param name="program">The program<see cref="List{Stmt}"/></param>
+        /// <returns>The <see cref="List{Instruction}"/></returns>
         public List<Instruction> Compile(List<Stmt> program)
         {
             try
@@ -28,8 +59,8 @@ namespace CFGS_VM.VMCore
                 _insns.Clear();
                 _functions.Clear();
 
-                var funcDecls = new List<FuncDeclStmt>();
-                foreach (var s in program)
+                List<FuncDeclStmt> funcDecls = new();
+                foreach (Stmt s in program)
                 {
                     if (s is FuncDeclStmt f)
                     {
@@ -44,8 +75,8 @@ namespace CFGS_VM.VMCore
                 int jmpOverAllFuncsIdx = _insns.Count;
                 _insns.Add(new Instruction(OpCode.JMP, null, 0, 0));
 
-                var orderedFuncs = new List<(FuncDeclStmt fd, int funcStart)>();
-                foreach (var fd in funcDecls)
+                List<(FuncDeclStmt fd, int funcStart)> orderedFuncs = new();
+                foreach (FuncDeclStmt fd in funcDecls)
                 {
                     try
                     {
@@ -78,14 +109,14 @@ namespace CFGS_VM.VMCore
 
                 _insns[jmpOverAllFuncsIdx] = new Instruction(OpCode.JMP, _insns.Count, 0, 0);
 
-                foreach (var (fd, funcStart) in orderedFuncs)
+                foreach ((FuncDeclStmt fd, int funcStart) in orderedFuncs)
                 {
                     _insns.Add(new Instruction(
                         OpCode.PUSH_CLOSURE, new object[] { funcStart, fd.Name }, fd.Line, fd.Col, fd.OriginFile));
                     _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, fd.Line, fd.Col, fd.OriginFile));
                 }
 
-                foreach (var s in program)
+                foreach (Stmt s in program)
                 {
                     if (s is FuncDeclStmt) continue;
 
@@ -120,6 +151,11 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The CompileStmt
+        /// </summary>
+        /// <param name="s">The s<see cref="Stmt"/></param>
+        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileStmt(Stmt s, bool insideFunction)
         {
             switch (s)
@@ -280,8 +316,8 @@ namespace CFGS_VM.VMCore
                         int jmpOverCtorIdx = _insns.Count;
                         _insns.Add(new Instruction(OpCode.JMP, null, cds.Line, cds.Col, s.OriginFile));
 
-                        var initMethod = cds.Methods.FirstOrDefault(m => m.Name == "init");
-                        var ctorParams = initMethod != null
+                        FuncDeclStmt? initMethod = cds.Methods.FirstOrDefault(m => m.Name == "init");
+                        List<string> ctorParams = initMethod != null
                             ? new List<string>(initMethod.Parameters)
                             : new List<string>(cds.Parameters);
 
@@ -314,7 +350,7 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
                         }
 
-                        foreach (var kv in cds.Fields)
+                        foreach (KeyValuePair<string, Expr?> kv in cds.Fields)
                         {
                             string fieldName = kv.Key;
                             Expr? initExpr = kv.Value;
@@ -330,7 +366,7 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
                         }
 
-                        foreach (var p in ctorParams)
+                        foreach (string p in ctorParams)
                         {
                             _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
@@ -339,15 +375,15 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
                         }
 
-                        foreach (var func in cds.Methods)
+                        foreach (FuncDeclStmt func in cds.Methods)
                         {
                             _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, func.Name, cds.Line, cds.Col, s.OriginFile));
 
-                            var methodParams = new List<string>(func.Parameters);
+                            List<string> methodParams = new(func.Parameters);
                             methodParams.Insert(0, "this");
 
-                            var methodFuncExpr = new FuncExpr(methodParams, func.Body, func.Line, func.Col, s.OriginFile);
+                            FuncExpr methodFuncExpr = new(methodParams, func.Body, func.Line, func.Col, s.OriginFile);
                             CompileExpr(methodFuncExpr);
 
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
@@ -390,7 +426,7 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
                         }
 
-                        foreach (var kv in cds.StaticFields)
+                        foreach (KeyValuePair<string, Expr?> kv in cds.StaticFields)
                         {
                             _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, kv.Key, cds.Line, cds.Col, s.OriginFile));
@@ -399,28 +435,28 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, cds.Line, cds.Col, s.OriginFile));
                         }
 
-                        foreach (var func in cds.StaticMethods)
+                        foreach (FuncDeclStmt func in cds.StaticMethods)
                         {
                             _insns.Add(new Instruction(OpCode.DUP, null, func.Line, func.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, func.Name, func.Line, func.Col, s.OriginFile));
 
-                            var methodParams = new List<string>(func.Parameters);
+                            List<string> methodParams = new(func.Parameters);
                             methodParams.Insert(0, "type");
 
-                            var methodFuncExpr = new FuncExpr(methodParams, func.Body, func.Line, func.Col, s.OriginFile);
+                            FuncExpr methodFuncExpr = new(methodParams, func.Body, func.Line, func.Col, s.OriginFile);
                             CompileExpr(methodFuncExpr);
 
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, func.Line, func.Col, s.OriginFile));
                         }
 
-                        foreach (var en in cds.Enums)
+                        foreach (EnumDeclStmt en in cds.Enums)
                         {
                             _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, en.Name, en.Line, en.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.NEW_DICT, 0, en.Line, en.Col, s.OriginFile));
 
-                            var reverseDict = new Dictionary<int, string>();
-                            foreach (var member in en.Members)
+                            Dictionary<int, string> reverseDict = new();
+                            foreach (EnumMemberNode member in en.Members)
                             {
                                 _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
                                 _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, en.Line, en.Col, s.OriginFile));
@@ -432,7 +468,7 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, "Name", en.Line, en.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.NEW_DICT, 0, en.Line, en.Col, s.OriginFile));
-                            foreach (var kv2 in reverseDict)
+                            foreach (KeyValuePair<int, string> kv2 in reverseDict)
                             {
                                 _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
                                 _insns.Add(new Instruction(OpCode.PUSH_INT, kv2.Key, en.Line, en.Col, s.OriginFile));
@@ -447,15 +483,13 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
-
-
                 case EnumDeclStmt eds:
                     {
                         _insns.Add(new Instruction(OpCode.NEW_DICT, 0, eds.Line, eds.Col));
 
-                        var reverseDict = new Dictionary<int, string>();
+                        Dictionary<int, string> reverseDict = new();
 
-                        foreach (var member in eds.Members)
+                        foreach (EnumMemberNode member in eds.Members)
                         {
                             _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col, eds.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, eds.Line, eds.Col, eds.OriginFile));
@@ -469,7 +503,7 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(OpCode.PUSH_STR, "__name", eds.Line, eds.Col, eds.OriginFile));
                         _insns.Add(new Instruction(OpCode.NEW_DICT, 0, eds.Line, eds.Col, eds.OriginFile));
 
-                        foreach (var kv in reverseDict)
+                        foreach (KeyValuePair<int, string> kv in reverseDict)
                         {
                             _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col, eds.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_INT, kv.Key, eds.Line, eds.Col, eds.OriginFile));
@@ -487,13 +521,13 @@ namespace CFGS_VM.VMCore
                 case BlockStmt b:
                     if (insideFunction && b.IsFunctionBody)
                     {
-                        foreach (var sub in b.Statements)
+                        foreach (Stmt sub in b.Statements)
                             CompileStmt(sub, insideFunction: true);
                     }
                     else
                     {
                         _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col, s.OriginFile));
-                        foreach (var sub in b.Statements)
+                        foreach (Stmt sub in b.Statements)
                             CompileStmt(sub, insideFunction);
                         _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
                     }
@@ -534,13 +568,13 @@ namespace CFGS_VM.VMCore
 
                         CompileStmt(ws.Body, insideFunction);
 
-                        foreach (var idx in _continueLists.Peek())
+                        foreach (int idx in _continueLists.Peek())
                             _insns[idx] = new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile);
 
                         _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
                         _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col, s.OriginFile);
 
-                        foreach (var idx in _breakLists.Peek())
+                        foreach (int idx in _breakLists.Peek())
                             _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col, s.OriginFile);
 
                         _breakLists.Pop();
@@ -564,14 +598,14 @@ namespace CFGS_VM.VMCore
                             CompileStmt(fs.Body, insideFunction);
 
                             int incStart = _insns.Count;
-                            foreach (var idx in _continueLists.Peek())
+                            foreach (int idx in _continueLists.Peek())
                                 _insns[idx] = new Instruction(OpCode.JMP, incStart, s.Line, s.Col, s.OriginFile);
 
                             if (fs.Increment != null) CompileStmt(fs.Increment, insideFunction);
                             _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
                             _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col, s.OriginFile);
 
-                            foreach (var idx in _breakLists.Peek())
+                            foreach (int idx in _breakLists.Peek())
                                 _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col, s.OriginFile);
                         }
                         else
@@ -579,13 +613,13 @@ namespace CFGS_VM.VMCore
                             CompileStmt(fs.Body, insideFunction);
 
                             int incStart = _insns.Count;
-                            foreach (var idx in _continueLists.Peek())
+                            foreach (int idx in _continueLists.Peek())
                                 _insns[idx] = new Instruction(OpCode.JMP, incStart, s.Line, s.Col, s.OriginFile);
 
                             if (fs.Increment != null) CompileStmt(fs.Increment, insideFunction);
                             _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
 
-                            foreach (var idx in _breakLists.Peek())
+                            foreach (int idx in _breakLists.Peek())
                                 _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col, s.OriginFile);
                         }
 
@@ -598,9 +632,9 @@ namespace CFGS_VM.VMCore
                     {
                         CompileExpr(ms.Expression);
 
-                        var endJumps = new List<int>();
+                        List<int> endJumps = new();
 
-                        foreach (var c in ms.Cases)
+                        foreach (CaseClause c in ms.Cases)
                         {
                             _insns.Add(new Instruction(OpCode.DUP, null, ms.Line, ms.Col, s.OriginFile));
                             CompileExpr(c.Pattern);
@@ -662,7 +696,7 @@ namespace CFGS_VM.VMCore
                                 _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col, s.OriginFile));
                                 if (!string.IsNullOrEmpty(tcf.CatchVar))
                                     _insns.Add(new Instruction(OpCode.VAR_DECL, tcf.CatchVar, s.Line, s.Col, s.OriginFile));
-                                foreach (var st in tcf.CatchBlock.Statements) CompileStmt(st, insideFunction);
+                                foreach (Stmt st in tcf.CatchBlock.Statements) CompileStmt(st, insideFunction);
                                 _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
                                 jmpAfterCatchIdx = _insns.Count;
                                 _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
@@ -693,7 +727,7 @@ namespace CFGS_VM.VMCore
                                 _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col, s.OriginFile));
                                 if (!string.IsNullOrEmpty(tcf.CatchVar))
                                     _insns.Add(new Instruction(OpCode.VAR_DECL, tcf.CatchVar, s.Line, s.Col, s.OriginFile));
-                                foreach (var st in tcf.CatchBlock.Statements) CompileStmt(st, insideFunction);
+                                foreach (Stmt st in tcf.CatchBlock.Statements) CompileStmt(st, insideFunction);
                                 _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
                                 _insns.Add(new Instruction(OpCode.TRY_POP, null, s.Line, s.Col, s.OriginFile));
                             }
@@ -752,6 +786,10 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The CompileExpr
+        /// </summary>
+        /// <param name="e">The e<see cref="Expr?"/></param>
         private void CompileExpr(Expr? e)
         {
             switch (e)
@@ -787,7 +825,7 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case ArrayExpr a:
-                    foreach (var elem in a.Elements) CompileExpr(elem);
+                    foreach (Expr elem in a.Elements) CompileExpr(elem);
                     _insns.Add(new Instruction(OpCode.NEW_ARRAY, a.Elements.Count, e.Line, e.Col, e.OriginFile));
                     break;
 
@@ -872,7 +910,7 @@ namespace CFGS_VM.VMCore
                             break;
                         }
 
-                        var op = OpFromToken(b.Op, b, FileName);
+                        OpCode op = OpFromToken(b.Op, b, FileName);
                         CompileExpr(b.Left);
                         CompileExpr(b.Right);
                         _insns.Add(new Instruction(op, null, b.Line, b.Col, b.OriginFile));
@@ -891,7 +929,7 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case DictExpr d:
-                    foreach (var (k, v) in d.Pairs)
+                    foreach ((Expr k, Expr v) in d.Pairs)
                     {
                         CompileExpr(k);
                         CompileExpr(v);
@@ -966,7 +1004,6 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
-
                 case MethodCallExpr mce:
                     {
                         CompileExpr(mce.Target);
@@ -1009,6 +1046,13 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The OpFromToken
+        /// </summary>
+        /// <param name="t">The t<see cref="TokenType"/></param>
+        /// <param name="tp">The tp<see cref="Node"/></param>
+        /// <param name="outOfFile">The outOfFile<see cref="string"/></param>
+        /// <returns>The <see cref="OpCode"/></returns>
         private static OpCode OpFromToken(TokenType t, Node tp, string outOfFile) => t switch
         {
             TokenType.Plus => OpCode.ADD,
@@ -1039,6 +1083,11 @@ namespace CFGS_VM.VMCore
             _ => throw new CompilerException($"unsupported operator token for bytecode: {t}", tp.Line, tp.Col, outOfFile)
         };
 
+        /// <summary>
+        /// The CompileLValue
+        /// </summary>
+        /// <param name="target">The target<see cref="Expr?"/></param>
+        /// <param name="load">The load<see cref="bool"/></param>
         private void CompileLValue(Expr? target, bool load)
         {
             if (target is VarExpr v)
@@ -1061,6 +1110,10 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The CompileLValueStore
+        /// </summary>
+        /// <param name="target">The target<see cref="Expr?"/></param>
         private void CompileLValueStore(Expr? target)
         {
             if (target is VarExpr v)
@@ -1089,5 +1142,8 @@ namespace CFGS_VM.VMCore
         }
     }
 
+    /// <summary>
+    /// Defines the <see cref="CompilerException" />
+    /// </summary>
     public sealed class CompilerException(string message, int line, int column, string fileSource) : Exception($"{message}. ( Line : {line}, Column : {column} ) : [Source : '{fileSource}']");
 }

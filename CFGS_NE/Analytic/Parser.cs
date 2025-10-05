@@ -1369,7 +1369,7 @@ namespace CFGS_VM.Analytic
             else if (_current.Type == TokenType.Char)
             {
 
-                if (!char.TryParse(_current.Value.ToString(), out var vlc))
+                if (!char.TryParse(_current.Value.ToString(), out char vlc))
                     throw new ParserException($"invalid char value '{_current.Value.ToString()}'", _current.Line, _current.Column, _current.Filename);
                 Eat(TokenType.Char);
                 node = new CharExpr(vlc, _current.Line, _current.Column, _current.Filename);
