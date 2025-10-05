@@ -97,6 +97,7 @@ public class Program
                     catch (Exception ex)
                     {
                         Console.WriteLine($"{ex.GetType().Name} : {ex.Message}");
+
                     }
                 }
             }

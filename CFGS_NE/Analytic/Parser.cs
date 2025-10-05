@@ -227,9 +227,10 @@ namespace CFGS_VM.Analytic
         private List<Stmt> GetImports(string path, int ln, int col, string fsname, string specClass = "")
         {
             List<Stmt> result = new();
-            if (!File.Exists(path)) return result;
-
-            string fullPath = Path.GetFullPath(path);
+            string baseDir = string.IsNullOrWhiteSpace(fsname) ? Directory.GetCurrentDirectory() : Path.GetDirectoryName(Path.GetFullPath(fsname)) ?? Directory.GetCurrentDirectory();
+            string candidate = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(baseDir, path));
+            if (!File.Exists(candidate)) return result;
+            string fullPath = Path.GetFullPath(candidate);
 
             if (_importStack.Contains(fullPath))
             {
@@ -1367,20 +1368,8 @@ namespace CFGS_VM.Analytic
             }
             else if (_current.Type == TokenType.Char)
             {
-                char vlc;
-                if (_current.Value.ToString() == "\\n")
-                    vlc = (char)13;
-                else if (_current.Value.ToString() == "\\r")
-                    vlc = (char)10;
-                else if (_current.Value.ToString() == "\\t")
-                    vlc = (char)9;
-                else if (_current.Value.ToString() == "\\\"")
-                    vlc = (char)34;
-                else if (_current.Value.ToString() == "\\\\")
-                    vlc = (char)47;
-                else if (_current.Value.ToString() == "\\\'")
-                    vlc = (char)39;
-                else if (!char.TryParse(_current.Value.ToString(), out vlc))
+
+                if (!char.TryParse(_current.Value.ToString(), out var vlc))
                     throw new ParserException($"invalid char value '{_current.Value.ToString()}'", _current.Line, _current.Column, _current.Filename);
                 Eat(TokenType.Char);
                 node = new CharExpr(vlc, _current.Line, _current.Column, _current.Filename);
@@ -1554,7 +1543,7 @@ namespace CFGS_VM.Analytic
             if (_current.Type == TokenType.Minus)
             {
                 Eat(TokenType.Minus);
-                return new UnaryExpr(TokenType.Minus, Unary(), _current.Line, _current.Column, _current.Filename);
+                return new UnaryExpr(TokenType.Minus, Power(), _current.Line, _current.Column, _current.Filename);
             }
             if (_current.Type == TokenType.Plus)
             {

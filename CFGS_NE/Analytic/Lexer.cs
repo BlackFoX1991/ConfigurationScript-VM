@@ -91,97 +91,203 @@ public class Lexer
                 }
             }
 
-            if (c == '"')
+            if (Current == '\"')
             {
-                SyncPos();
-                string s = "";
-                while (Current != '"' && Current != '\0') { s += Current; SyncPos(); }
-                if (Current != '"') throw new LexerException("unterminated string literal", _line, _col, FileName);
-                SyncPos();
-                return MakeToken(TokenType.String, s);
+                int startLine = _line, startCol = _col;
+                SyncPos(); // skip opening "
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+
+                while (Current != '\"' && Current != '\0')
+                {
+                    if (Current == '\\')
+                    {
+                        SyncPos();
+                        char esc = Current;
+                        if (esc == 'n') { sb.Append('\n'); }
+                        else if (esc == 't') { sb.Append('\t'); }
+                        else if (esc == 'r') { sb.Append('\r'); }
+                        else if (esc == '\\') { sb.Append('\\'); }
+                        else if (esc == '\"') { sb.Append('\"'); }
+                        else if (esc == 'u')
+                        {
+                            string hex = "";
+                            for (int i = 0; i < 4; i++)
+                            {
+                                SyncPos();
+                                if (!Uri.IsHexDigit(Current)) throw new LexerException("invalid \\u escape in string", startLine, startCol, FileName);
+                                hex += Current;
+                            }
+                            sb.Append((char)Convert.ToInt32(hex, 16));
+                        }
+                        else
+                        {
+                            throw new LexerException($"unknown escape '\\{esc}' in string", startLine, startCol, FileName);
+                        }
+                        SyncPos();
+                    }
+                    else
+                    {
+                        sb.Append(Current);
+                        SyncPos();
+                    }
+                }
+
+                if (Current != '\"')
+                    throw new LexerException("unterminated string literal", startLine, startCol, FileName);
+
+                SyncPos(); // closing "
+                return new Token(TokenType.String, sb.ToString(), startLine, startCol, FileName);
             }
 
-            if (c == '\'')
+
+            if (Current == '\'')
             {
-                SyncPos();
-                string s = "";
-                while (Current != '\'' && Current != '\0') { s += Current; SyncPos(); }
-                if (Current != '\'') throw new LexerException("unterminated char literal", _line, _col, FileName);
-                SyncPos();
-                return MakeToken(TokenType.Char, s);
+                int startLine = _line, startCol = _col;
+                SyncPos(); // skip opening '
+
+                if (Current == '\0')
+                    throw new LexerException("unterminated char literal", startLine, startCol, FileName);
+
+                char ch;
+                if (Current == '\\')
+                {
+                    SyncPos(); // consume '\'
+                    char esc = Current;
+                    if (esc == 'n') ch = '\n';
+                    else if (esc == 't') ch = '\t';
+                    else if (esc == 'r') ch = '\r';
+                    else if (esc == '\\') ch = '\\';
+                    else if (esc == '\'') ch = '\'';
+                    else if (esc == '\"') ch = '\"';
+                    else if (esc == 'u')
+                    {
+                        // \uXXXX (4 hex)
+                        string hex = "";
+                        for (int i = 0; i < 4; i++)
+                        {
+                            SyncPos();
+                            if (!Uri.IsHexDigit(Current)) throw new LexerException("invalid \\u escape in char literal", startLine, startCol, FileName);
+                            hex += Current;
+                        }
+                        ch = (char)Convert.ToInt32(hex, 16);
+                    }
+                    else
+                        throw new LexerException($"unknown escape '\\{esc}' in char literal", startLine, startCol, FileName);
+                    SyncPos(); // move past escape char last digit/letter
+                }
+                else
+                {
+                    ch = Current;
+                    SyncPos();
+                }
+
+                if (Current != '\'')
+                    throw new LexerException("char literal must contain exactly one character", startLine, startCol, FileName);
+
+                SyncPos(); // closing '
+                return new Token(TokenType.Char, ch.ToString(), startLine, startCol, FileName);
             }
+
 
             if (char.IsDigit(Current))
             {
                 int startLine = _line, startCol = _col;
-                var sb = new StringBuilder();
-                bool hasDot = false;
-                bool hasExp = false;
 
-                while (char.IsDigit(Current))
-                {
-                    sb.Append(Current);
-                    SyncPos();
-                }
+                // Collect raw literal (digits, letters for bases, underscores, dot, exponent markers)
+                System.Text.StringBuilder raw = new System.Text.StringBuilder();
+                bool isFloat = false;
 
-                if (Current == '.' && char.IsDigit(Peek))
+                // handle base prefixes 0x, 0b, 0o
+                if (Current == '0')
                 {
-                    hasDot = true;
-                    sb.Append(Current);
-                    SyncPos();
-                    while (char.IsDigit(Current))
+                    raw.Append(Current); SyncPos();
+                    if (Current == 'x' || Current == 'X')
                     {
-                        sb.Append(Current);
                         SyncPos();
+                        // hex digits + underscores
+                        string hex = "";
+                        while (Uri.IsHexDigit(Current) || Current == '_')
+                        {
+                            if (Current != '_') hex += Current;
+                            SyncPos();
+                        }
+                        if (hex.Length == 0) throw new LexerException("invalid hex literal", startLine, startCol, FileName);
+                        // parse as long if fits, else decimal
+                        object nval;
+                        try
+                        {
+                            nval = Convert.ToInt64(hex, 16);
+                        }
+                        catch
+                        {
+                            nval = decimal.Parse(Convert.ToUInt64(hex, 16).ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture);
+                        }
+                        return new Token(TokenType.Number, nval, startLine, startCol, FileName);
                     }
-                }
-
-                if (Current == 'e' || Current == 'E')
-                {
-                    hasExp = true;
-                    sb.Append(Current);
-                    SyncPos();
-
-                    if (Current == '+' || Current == '-')
+                    else if (Current == 'b' || Current == 'B')
                     {
-                        sb.Append(Current);
                         SyncPos();
+                        string bin = "";
+                        while (Current == '0' || Current == '1' || Current == '_')
+                        {
+                            if (Current != '_') bin += Current;
+                            SyncPos();
+                        }
+                        if (bin.Length == 0) throw new LexerException("invalid binary literal", startLine, startCol, FileName);
+                        return new Token(TokenType.Number, Convert.ToInt64(bin, 2), startLine, startCol, FileName);
                     }
-
-                    if (!char.IsDigit(Current))
-                        throw new LexerException("invalid float exponent (missing digits)", _line, _col, FileName);
-
-                    while (char.IsDigit(Current))
+                    else if (Current == 'o' || Current == 'O')
                     {
-                        sb.Append(Current);
                         SyncPos();
+                        string oct = "";
+                        while ((Current >= '0' && Current <= '7') || Current == '_')
+                        {
+                            if (Current != '_') oct += Current;
+                            SyncPos();
+                        }
+                        if (oct.Length == 0) throw new LexerException("invalid octal literal", startLine, startCol, FileName);
+                        return new Token(TokenType.Number, Convert.ToInt64(oct, 8), startLine, startCol, FileName);
                     }
-                }
-
-                var num = sb.ToString();
-                object value;
-
-                if (hasDot || hasExp)
-                {
-                    if (double.TryParse(num, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
-                        value = d;
                     else
-                        throw new LexerException($"invalid float literal '{num}'", startLine, startCol, FileName);
+                    {
+                        // fallthrough to decimal/float: we already consumed the '0'
+                    }
+                }
+
+                // decimal / float with underscores and exponent
+                while (char.IsDigit(Current) || Current == '_' || Current == '.'
+                       || Current == 'e' || Current == 'E' || Current == '+' || Current == '-')
+                {
+                    if (Current == '.')
+                    {
+                        if (isFloat) break; // second dot -> stop
+                        isFloat = true;
+                    }
+                    raw.Append(Current);
+                    SyncPos();
+                }
+
+                string num = raw.ToString().Replace("_", "");
+                object val;
+                var ci = System.Globalization.CultureInfo.InvariantCulture;
+
+                if (isFloat || num.Contains("e") || num.Contains("E") || num.Contains("."))
+                {
+                    if (double.TryParse(num, System.Globalization.NumberStyles.Float, ci, out var d)) val = d;
+                    else if (decimal.TryParse(num, System.Globalization.NumberStyles.Float, ci, out var m)) val = m;
+                    else throw new LexerException($"invalid number literal '{num}'", startLine, startCol, FileName);
                 }
                 else
                 {
-                    if (int.TryParse(num, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i))
-                        value = i;
-                    else if (long.TryParse(num, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l))
-                        value = l;
-                    else if (decimal.TryParse(num, NumberStyles.Number, CultureInfo.InvariantCulture, out var m))
-                        value = m;
-                    else
-                        throw new LexerException($"invalid number literal '{num}'", startLine, startCol, FileName);
+                    if (int.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out var i)) val = i;
+                    else if (long.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out var l)) val = l;
+                    else if (decimal.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out var m)) val = m;
+                    else throw new LexerException($"invalid number literal '{num}'", startLine, startCol, FileName);
                 }
 
-                return new Token(TokenType.Number, value, startLine, startCol, FileName);
+                return new Token(TokenType.Number, val, startLine, startCol, FileName);
             }
+
 
             if (char.IsLetter(c) || c == '_')
             {
