@@ -16,6 +16,9 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private List<Instruction>? _program;
 
+
+        public static bool AllowFileIO { get; set; } = true;
+
         /// <summary>
         /// Defines the StepResult
         /// </summary>
@@ -692,6 +695,14 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private readonly Stack<object> _stack = new();
 
+        private void RequireStack(int needed, Instruction instr, string? opName = null)
+        {
+            if (_stack.Count < needed)
+                throw new VMException(
+                    $"Runtime error: {(opName ?? instr.Code.ToString())} needs {needed} stack values (have {_stack.Count})",
+                    instr.Line, instr.Col, instr.OriginFile);
+        }
+
         /// <summary>
         /// Defines the _scopes
         /// </summary>
@@ -1096,6 +1107,10 @@ namespace CFGS_VM.VMCore
 
                     case "fopen":
                         {
+
+                            if (!AllowFileIO)
+                                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+
                             if (args.Count < 2)
                                 throw new VMException(
                                     "Runtime error: fopen(path, mode) expects 2 arguments",
@@ -1481,6 +1496,7 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null) break;
                         int count = (int)instr.Operand;
+                        RequireStack(count, instr, "NEW_ARRAY");
                         object[] temp = new object[count];
                         for (int i = count - 1; i >= 0; i--) temp[i] = _stack.Pop();
                         List<object> list = new(temp);
@@ -1490,6 +1506,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SLICE_GET:
                     {
+                        // start + end (+ ggf. target)
+                        if (instr.Operand is string)
+                            RequireStack(2, instr, "SLICE_GET");
+                        else
+                            RequireStack(3, instr, "SLICE_GET");
+
                         object endObj = _stack.Pop();
                         object startObj = _stack.Pop();
 
@@ -1557,6 +1579,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SLICE_SET:
                     {
+                        // value + start + end (+ ggf. target)
+                        if (instr.Operand is string)
+                            RequireStack(3, instr, "SLICE_SET");
+                        else
+                            RequireStack(4, instr, "SLICE_SET");
+
                         object value = _stack.Pop();
                         object endObj = _stack.Pop();
                         object startObj = _stack.Pop();
@@ -1627,7 +1655,7 @@ namespace CFGS_VM.VMCore
                                             int i = 0;
                                             for (int k = start; k < end && i < valDict.Count; k++, i++)
                                             {
-                                                KeyValuePair<string, object> kv = valDict.ElementAt(i);
+                                                KeyValuePair<String, object> kv = valDict.ElementAt(i);
                                                 dict[keys[k]] = kv.Value;
                                             }
                                         }
@@ -1663,6 +1691,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.INDEX_GET:
                     {
+                        // idx (+ ggf. target)
+                        if (instr.Operand is string)
+                            RequireStack(1, instr, "INDEX_GET");
+                        else
+                            RequireStack(2, instr, "INDEX_GET");
+
                         object target;
                         object idxObj = _stack.Pop();
 
@@ -1683,6 +1717,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.INDEX_SET:
                     {
+                        // value + idx (+ ggf. target)
+                        if (instr.Operand is string)
+                            RequireStack(2, instr, "INDEX_SET");
+                        else
+                            RequireStack(3, instr, "INDEX_SET");
+
                         object value = _stack.Pop();
                         object idxObj = _stack.Pop();
                         object target;
@@ -1709,6 +1749,8 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null) break;
                         int count = (int)instr.Operand;
+                        // pro Eintrag: key + value
+                        RequireStack(count * 2, instr, "NEW_DICT");
                         Dictionary<string, object> dict = new();
                         for (int i = 0; i < count; i++)
                         {
@@ -1722,6 +1764,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ROT:
                     {
+                        RequireStack(3, instr, "ROT");
                         object a = _stack.Pop();
                         object b = _stack.Pop();
                         object c = _stack.Pop();
@@ -1735,6 +1778,8 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand == null)
                         {
+                            // arrObj + value
+                            RequireStack(2, instr, "ARRAY_PUSH");
                             object arrObj = _stack.Pop();
                             object value = _stack.Pop();
 
@@ -1768,6 +1813,8 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
+                            // nur value; target aus Env
+                            RequireStack(1, instr, "ARRAY_PUSH");
                             object value = _stack.Pop();
                             string name = (string)instr.Operand;
                             Env? env = FindEnvWithLocal(name);
@@ -1806,6 +1853,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_SLICE:
                     {
+                        // start + end (+ ggf. target)
+                        if (instr.Operand is string)
+                            RequireStack(2, instr, "ARRAY_DELETE_SLICE");
+                        else
+                            RequireStack(3, instr, "ARRAY_DELETE_SLICE");
+
                         object endObj = _stack.Pop();
                         object startObj = _stack.Pop();
 
@@ -1830,6 +1883,8 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_SLICE_ALL:
                     {
+                        // target + start + end
+                        RequireStack(3, instr, "ARRAY_DELETE_SLICE_ALL");
                         object endObj = _stack.Pop();
                         object startObj = _stack.Pop();
                         object target = _stack.Pop();
@@ -1859,6 +1914,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_ELEM:
                     {
+                        // idx (+ ggf. target)
+                        if (instr.Operand != null)
+                            RequireStack(1, instr, "ARRAY_DELETE_ELEM");
+                        else
+                            RequireStack(2, instr, "ARRAY_DELETE_ELEM");
+
                         object idxObj = _stack.Pop();
 
                         if (instr.Operand != null)
@@ -1945,6 +2006,9 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ARRAY_DELETE_ELEM_ALL:
                     {
+                        // idx + target
+                        RequireStack(2, instr, "ARRAY_DELETE_ELEM_ALL");
+
                         object idxObj = _stack.Pop();
                         object target = _stack.Pop();
                         if (target is string)
@@ -2050,6 +2114,7 @@ namespace CFGS_VM.VMCore
                         if (name == "this" || name == "type" || name == "super")
                             throw new VMException($"Runtime error: cannot declare '{name}' as a variable", instr.Line, instr.Col, instr.OriginFile);
 
+                        RequireStack(1, instr, "VAR_DECL");
                         object value = _stack.Pop();
                         Env scope = _scopes[^1];
                         if (scope.HasLocal(name))
@@ -2067,6 +2132,7 @@ namespace CFGS_VM.VMCore
                         if (name == "this" || name == "type" || name == "super")
                             throw new VMException($"Runtime error: cannot assign to '{name}'", instr.Line, instr.Col, instr.OriginFile);
 
+                        RequireStack(1, instr, "STORE_VAR");
                         object value = _stack.Pop();
                         Env? env = FindEnvWithLocal(name);
                         if (env == null)
@@ -2078,6 +2144,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.ADD:
                     {
+                        RequireStack(2, instr, "ADD");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
 
@@ -2111,6 +2178,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SUB:
                     {
+                        RequireStack(2, instr, "SUB");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         if (!IsNumber(l) || !IsNumber(r))
@@ -2131,6 +2199,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.MUL:
                     {
+                        RequireStack(2, instr, "MUL");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
 
@@ -2164,6 +2233,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.MOD:
                     {
+                        RequireStack(2, instr, "MOD");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         if (!IsNumber(l) || !IsNumber(r))
@@ -2190,6 +2260,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.DIV:
                     {
+                        RequireStack(2, instr, "DIV");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         if (!IsNumber(l) || !IsNumber(r))
@@ -2217,6 +2288,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.EXPO:
                     {
+                        RequireStack(2, instr, "EXPO");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         if (!IsNumber(l) || !IsNumber(r))
@@ -2237,6 +2309,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.BIT_AND:
                     {
+                        RequireStack(2, instr, "BIT_AND");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
@@ -2251,6 +2324,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.BIT_OR:
                     {
+                        RequireStack(2, instr, "BIT_OR");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
@@ -2265,6 +2339,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.BIT_XOR:
                     {
+                        RequireStack(2, instr, "BIT_XOR");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
@@ -2279,6 +2354,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SHL:
                     {
+                        RequireStack(2, instr, "SHL");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
@@ -2294,6 +2370,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SHR:
                     {
+                        RequireStack(2, instr, "SHR");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
@@ -2309,6 +2386,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.EQ:
                     {
+                        RequireStack(2, instr, "EQ");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         bool res;
@@ -2324,6 +2402,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.NEQ:
                     {
+                        RequireStack(2, instr, "NEQ");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
                         bool res;
@@ -2339,6 +2418,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.LT:
                     {
+                        RequireStack(2, instr, "LT");
                         object r = _stack.Pop(); object l = _stack.Pop();
 
                         if (IsNumber(l) && IsNumber(r))
@@ -2367,6 +2447,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.GT:
                     {
+                        RequireStack(2, instr, "GT");
                         object r = _stack.Pop(); object l = _stack.Pop();
 
                         if (IsNumber(l) && IsNumber(r))
@@ -2395,6 +2476,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.LE:
                     {
+                        RequireStack(2, instr, "LE");
                         object r = _stack.Pop(); object l = _stack.Pop();
 
                         if (IsNumber(l) && IsNumber(r))
@@ -2423,6 +2505,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.GE:
                     {
+                        RequireStack(2, instr, "GE");
                         object r = _stack.Pop(); object l = _stack.Pop();
 
                         if (IsNumber(l) && IsNumber(r))
@@ -2451,6 +2534,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.NEG:
                     {
+                        RequireStack(1, instr, "NEG");
                         object? v = _stack.Pop();
                         if (!IsNumber(v))
                             throw new VMException(
@@ -2472,6 +2556,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.NOT:
                     {
+                        RequireStack(1, instr, "NOT");
                         object v = _stack.Pop();
                         _stack.Push(!ToBool(v));
                         break;
@@ -2479,6 +2564,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.DUP:
                     {
+                        RequireStack(1, instr, "DUP");
                         object v = _stack.Peek();
                         _stack.Push(v);
                         break;
@@ -2486,12 +2572,14 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.POP:
                     {
+                        RequireStack(1, instr, "POP");
                         _stack.Pop();
                         break;
                     }
 
                 case OpCode.AND:
                     {
+                        RequireStack(2, instr, "AND");
                         object r = _stack.Pop(); object l = _stack.Pop();
                         bool lb = ToBool(l); bool rb = ToBool(r);
                         _stack.Push(lb && rb);
@@ -2500,6 +2588,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.OR:
                     {
+                        RequireStack(2, instr, "OR");
                         object r = _stack.Pop(); object l = _stack.Pop();
                         bool lb = ToBool(l); bool rb = ToBool(r);
                         _stack.Push(lb || rb);
@@ -2521,6 +2610,7 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null)
                             throw new VMException("Runtime error: JMP_IF_FALSE missing target", instr.Line, instr.Col, instr.OriginFile);
+                        RequireStack(1, instr, "JMP_IF_FALSE");
                         object v = _stack.Pop();
                         if (!ToBool(v))
                         {
@@ -2534,6 +2624,7 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null)
                             throw new VMException("Runtime error: JMP_IF_TRUE missing target", instr.Line, instr.Col, instr.OriginFile);
+                        RequireStack(1, instr, "JMP_IF_TRUE");
                         object v = _stack.Pop();
                         if (ToBool(v))
                         {
@@ -2578,12 +2669,18 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.CALL:
                     {
+                        // (hier bleiben deine bestehenden Laufzeit-Checks; RequireStack ist wegen variabler Arity komplex)
                         if (instr.Operand is string funcName)
                         {
                             if (bInFunc.TryGetValue(funcName, out int expectedArgs))
                             {
                                 List<object> args = new();
-                                for (int i = expectedArgs - 1; i >= 0; i--) args.Insert(0, _stack.Pop());
+                                for (int i = expectedArgs - 1; i >= 0; i--)
+                                {
+                                    if (_stack.Count == 0)
+                                        throw new VMException($"Runtime error: insufficient args for {funcName}()", instr.Line, instr.Col, instr.OriginFile);
+                                    args.Insert(0, _stack.Pop());
+                                }
                                 object result = CallBuiltin(funcName, args, instr);
                                 _stack.Push(result);
                                 break;
@@ -2608,6 +2705,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.CALL_INDIRECT:
                     {
+                        // (deine vorhandenen Checks lassen wir, da die Arity dynamisch ist)
                         static bool IsReceiverName(string s) => s == "this" || s == "type";
 
                         if (instr.Operand is IConvertible)
@@ -2749,6 +2847,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.RET:
                     {
+                        RequireStack(1, instr, "RET");
                         object retVal = _stack.Pop();
 
                         CallFrame fr = _callStack.Pop();
@@ -2781,6 +2880,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.THROW:
                     {
+                        RequireStack(1, instr, "THROW");
                         object any = _stack.Pop();
 
                         ExceptionObject payload = any as ExceptionObject
@@ -2835,6 +2935,7 @@ namespace CFGS_VM.VMCore
 
             return StepResult.Next;
         }
+
 
         /// <summary>
         /// The LoadInstructions
@@ -3377,7 +3478,7 @@ namespace CFGS_VM.VMCore
         /// <param name="mode">The mode<see cref="int"/></param>
         /// <param name="seen">The seen<see cref="HashSet{object}?"/></param>
         /// <param name="escapeNewlines">The escapeNewlines<see cref="bool"/></param>
-        private static void PrintValue(object v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = true)
+        private static void PrintValue(object v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false)
         {
             static string UnescapeForPrinting(string s)
             {

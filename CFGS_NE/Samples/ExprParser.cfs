@@ -8,6 +8,7 @@ enum TType
     SUB,
     MUL,
     DIV,
+    POW,
     AND,     # &&
     OR,      # ||
     LT,      # <
@@ -108,6 +109,7 @@ class BinaryNode(left, op, right) : node()
             case "-": { return lf - rg; }
             case "*": { return lf * rg; }
             case "/": { return lf / rg; }
+            case "^": { return lf ** rg; }
             default:  { throw "Unknown operator: " + this.Op; }
         }
     }
@@ -287,6 +289,14 @@ class Lexer
             if (ch == '/')
             {
                 toks[] = new Token("/", TType.DIV);
+                this.advance();
+                this.skipSpaces();
+                continue;
+            }
+            
+            if (ch == '^')
+            {
+                toks[] = new Token("^", TType.POW);
                 this.advance();
                 this.skipSpaces();
                 continue;
@@ -472,25 +482,41 @@ class Parser
         }
         return node;
     }
+    
+    
+    # power := primary ( '^' power )?
+    func parsePow()
+    {
+        var node = this.parsePrimary();
+        var t = this.curr();
+        if (t.TokType == TType.POW)
+        {
+            this.advance();
+            var rhs = this.parsePow();  # rechtsassoziativ
+            node = new BinaryNode(node, "^", rhs);
+        }
+        return node;
+    }
 
-    # term := factor (('*'|'/') factor)*
+
+    # term := unary (('*'|'/') unary)*
     func parseTerm()
     {
-        var node = this.parseFactor();
+        var node = this.parseUnary();
         while (true)
         {
             var t = this.curr();
             if (t.TokType == TType.MUL)
             {
                 this.advance();
-                var rhs = this.parseFactor();
+                var rhs = this.parseUnary();
                 node = new BinaryNode(node, "*", rhs);
                 continue;
             }
             if (t.TokType == TType.DIV)
             {
                 this.advance();
-                var rhs2 = this.parseFactor();
+                var rhs2 = this.parseUnary();
                 node = new BinaryNode(node, "/", rhs2);
                 continue;
             }
@@ -499,44 +525,52 @@ class Parser
         return node;
     }
 
-    # factor := ('+'|'-'|'!') factor | NUMBER | '(' expr ')'
-    func parseFactor()
+
+   # primary := NUMBER | '(' expr ')'
+    func parsePrimary()
     {
         var t = this.curr();
-
-        # unary + / - / !
-        if (t.TokType == TType.ADD)
-        {
-            this.advance();
-            return new UnaryNode("+", this.parseFactor());
-        }
-        if (t.TokType == TType.SUB)
-        {
-            this.advance();
-            return new UnaryNode("-", this.parseFactor());
-        }
-        if (t.TokType == TType.NOT)
-        {
-            this.advance();
-            return new UnaryNode("!", this.parseFactor());
-        }
-
-        if (t.TokType == TType.NUMBER)
-        {
-            this.advance();
-            return new NumberNode(t.Value);
-        }
-
-        if (t.TokType == TType.LPAREN)
-        {
-            this.advance();
-            var node = this.parseExpr();
-            this.expect(TType.RPAREN);
-            return node;
-        }
-
-        throw "Parse error: unexpected token in factor: " + str(t.TokType);
+        if (t.TokType == TType.NUMBER) { this.advance(); return new NumberNode(t.Value); }
+        if (t.TokType == TType.LPAREN) { this.advance(); var n = this.parseExpr(); this.expect(TType.RPAREN); return n; }
+        throw "Parse error: unexpected token in primary: " + str(t.TokType);
     }
+
+
+
+# unary := (('+'|'-'|'!')* power)
+    func parseUnary()
+    {
+        var ops = [];
+        while (true)
+        {
+            var t = this.curr();
+            if (t.TokType == TType.ADD || t.TokType == TType.SUB || t.TokType == TType.NOT)
+            {
+                ops[] = t; this.advance();
+                continue;
+            }
+            break;
+        }
+
+        var node = this.parsePow();   # statt this.parsePower()
+
+        var i = len(ops) - 1;
+        while (i >= 0)
+        {
+            var opTok = ops[i];
+            var sym;
+            if(opTok.TokType == TType.ADD)      sym = "+";
+            else if(opTok.TokType == TType.SUB) sym = "-";
+            else                                sym = "!";
+            node = new UnaryNode(sym, node);
+            i = i - 1;
+        }
+        return node;
+    }
+
+    
+
+
 
     func parse()
     {
@@ -603,10 +637,27 @@ assert_eq("!1",                  eval_expr("!1"),                  false);
 assert_eq("!!0",                 eval_expr("!!0"),                 false);
 assert_eq("!(1 < 2 && 0)",       eval_expr("!(1 < 2 && 0)"),       true);
 assert_eq("-(-3) + +(+5)",       eval_expr("-(-3) + +(+5)"),       8);
+assert_eq("2 ^ 3",         eval_expr("2 ^ 3"),         8);
+assert_eq("2 ^ 3 ^ 2",     eval_expr("2 ^ 3 ^ 2"),     512);   # rechtsassoziativ: 2^(3^2)
+assert_eq("2 + 3 ^ 2 * 2", eval_expr("2 + 3 ^ 2 * 2"), 20);    # 2 + (9*2)
+assert_eq("-3^2",     eval_expr("-3^2"),    -9);   # nur wenn ^ über unär
+assert_eq("(-3)^2",   eval_expr("(-3)^2"),   9);
+assert_eq("2^(3^2)",  eval_expr("2^(3^2)"), 512);
 
-# Summary
-if (failed == 0) {
-    print("All tests passed.");
-} else {
-    print("Failed tests: " + str(failed));
+
+print("Math Evaluator - Supporting + - * / ^ and Parenthesis ( use exit to close the Application )");
+while(true)
+{
+    try
+    {
+        put("> ");
+        var gtl = getl();
+        if(gtl == "exit")break;
+        print("Result : " + eval_expr(gtl));
+    }
+    catch(e)
+    {
+        print(e);
+    }
+
 }

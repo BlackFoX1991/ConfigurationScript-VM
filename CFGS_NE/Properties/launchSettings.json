@@ -2,7 +2,6 @@
   "profiles": {
     "CFGS_NE": {
       "commandName": "Project",
-      "commandLineArgs": "-d",
       "workingDirectory": ".\\Samples"
     }
   }

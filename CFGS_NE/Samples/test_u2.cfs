@@ -1,0 +1,186 @@
+# ===== Test Helper =====
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+# ===== 1) Literale =====
+# Integers (dezimal / hex / bin / oktal) + underscores
+assert_eq("int_dec_42",         42,            42);
+assert_eq("int_zero",           0,             0);
+assert_eq("int_underscores",    1_000_000,     1000000);
+assert_eq("int_hex",            0xFF,          255);
+assert_eq("int_hex_mixed",      0xAa_Bb,       0xAABB);
+assert_eq("int_bin",            0b1010_0011,   163);
+assert_eq("int_oct",            0o755,         493);
+
+# Floats (falls aktiv: . und e/E; underscores werden ignoriert)
+assert_eq("float_simple",       1.5,           1.5);
+assert_eq("float_exp",          2.0e-3,        0.002);
+assert_eq("float_underscores",  1_234.5_6,     1234.56);
+
+# Strings mit Escapes (\" \\ \n \t \r \uXXXX)
+assert_eq("str_basic",          "abc",         "abc");
+assert_eq("str_quotes",         "a\"b",        "a\"b");
+assert_eq("str_backslash",      "a\\b",        "a\\b");
+assert_eq("str_newline",        "A\nB",        "A\nB");
+assert_eq("str_tab",            "A\tB",        "A\tB");
+assert_eq("str_unicode_u0041",  "\u0041",      "A");
+
+# Chars mit Escapes (ein Zeichen)
+assert_eq("chr_A",              'A',           'A');
+assert_eq("chr_nl",             '\n',          '\n');
+assert_eq("chr_unicode_A",      '\u0041',      'A');
+
+# Bool + Null
+assert_eq("bool_true",          true,          true);
+assert_eq("bool_false",         false,         false);
+assert_eq("null_is_null",       null,          null);
+
+# ===== 2) Arrays / Dictionaries / Index & Slice =====
+var arr = [10, 20, 30];
+assert_eq("arr_idx_1",          arr[1],        20);
+arr[1] = arr[1] + 5;
+assert_eq("arr_set_plus5",      arr[1],        25);
+
+# Push-Syntax
+arr[] = 99;
+assert_eq("arr_push_tail",      arr[3],        99);
+
+# Slice get mit ~
+var s1 = arr[1~3];      # erwartet [25,30]
+assert_eq("slice_len",          len(s1),       2);
+assert_eq("slice_el0",          s1[0],         25);
+assert_eq("slice_el1",          s1[1],         30);
+
+# Slice set mit ~ (ersetze Mittelteil durch Liste)
+arr[1~3] = [111, 222];
+assert_eq("slice_set_len",      len(arr),      4);
+assert_eq("slice_set_el1",      arr[1],        111);
+assert_eq("slice_set_el2",      arr[2],        222);
+
+# Dictionary
+var d = {"a": 1};
+assert_eq("dict_get_a",         d["a"],        1);
+d["b"] = 2;
+assert_eq("dict_set_b",         d["b"],        2);
+
+# Dict-Push mit 1-Key-Literal
+d[] = {"c": 3};
+assert_eq("dict_push_c",        d["c"],        3);
+
+# String-Slice read ok, write verboten → read mit ~, write via try/catch
+var strx = "hello";
+assert_eq("string_slice_read",  strx[1~4],     "ell");
+
+var string_write_failed = 0;
+try {
+    strx[0~2] = "XY";   # sollte Fehler werfen
+} catch(e) {
+    string_write_failed = 1;
+}
+assert_eq("string_slice_write_forbidden", string_write_failed, 1);
+
+# ===== 3) Operatoren / Kurzschluss / Vergleich =====
+assert_eq("arith_prec",         2 + 3 * 4,     14);
+assert_eq("pow_right_assoc",    2 ** 3 ** 2,     512);
+assert_eq("unary_vs_pow",       -3**2,          -9);      # -(3^2)
+assert_eq("paren_pow",          (-3)**2,        9);
+
+assert_eq("cmp_lt",             1 < 2,         true);
+assert_eq("cmp_ge",             3 >= 4,        false);
+
+# Kurzschluss: rechts wird nur bei Bedarf evaluiert
+func side_effect() { failed = failed + 1000; return true; }
+assert_eq("short_or_true_left", (1 < 2) || side_effect(), true);
+assert_eq("short_and_false_left", (1 > 2) && side_effect(), false);
+
+# ===== 4) Klassen / static(type) / Instanz(this) / Enums =====
+class Point(x, y)
+{
+    var X = x;
+    var Y = y;
+
+    static var Count = 0;
+
+    func inc() { this.X = this.X + 1; type.Count = type.Count + 1; }
+    func sum() { return this.X + this.Y; }
+
+    static func origin() { return new Point(0,0); }
+
+    enum Color {
+        Red = 1,
+        Green = 2,
+        Blue = 3
+    }
+}
+
+var p = new Point(1,2);
+p.inc();  # X=2, Count=1
+assert_eq("inst_sum",           p.sum(),       4);
+assert_eq("static_count_1",     Point.Count,   1);
+
+var q = Point.origin();
+assert_eq("origin_sum",         q.sum(),       0);
+assert_eq("static_count_still1",Point.Count,   1);
+
+# Zugriff auf static in Instanzmethode via 'type'
+p.inc();
+assert_eq("static_count_2",     Point.Count,   2);
+
+# Enum (statisch)
+assert_eq("enum_red",           Point.Color["Red"], 1);
+assert_eq("enum_name_back",     Point.Color["Name"][1], "Red");
+
+# ===== 5) Closures (capturing) =====
+func make_adder(base) {
+    var add = func (x) { return base + x; };
+    return add;
+}
+var add10 = make_adder(10);
+assert_eq("closure_add",        add10(5),      15);
+
+# ===== 6) try/catch/finally/throw =====
+var tc = 0;
+try
+{
+    tc = tc + 1;       # 1
+    throw "boom";
+    tc = tc + 100;     # nicht erreicht
+}
+catch(e)
+{
+    tc = tc + 10;      # 11
+}
+finally
+{
+    tc = tc + 100;     # 111
+}
+assert_eq("try_catch_finally",  tc,            111);
+
+# ===== 7) Truthiness quick sanity =====
+assert_eq("truthy_zero",        !0,            true);
+assert_eq("truthy_one",         !1,            false);
+assert_eq("truthy_empty_str",   !"",           true);
+assert_eq("truthy_nonempty",    !"x",          false);
+assert_eq("truthy_empty_arr",   ![],           true);
+assert_eq("truthy_nonempty_arr",![1],          false);
+assert_eq("truthy_null",        !null,         true);
+
+# ===== 8) Snapshot/Containers mit statics =====
+var snap = {};
+snap["cnt"] = Point.Count;
+assert_eq("snapshot_cnt",       snap["cnt"],   2);
+
+# ===== Abschluss =====
+if (failed == 0) {
+    print("ALL TESTS PASSED");
+} else {
+    print("TESTS FAILED: " + str(failed));
+}
