@@ -471,7 +471,7 @@ print(e1.power());                # 125
 
 # Accessing the nested type via the static container:
 var EType = Auto.Engine;          # type reference only, no `outer` bound
-var e2    = EType(25);            # constructing without an outer instance
+var e2    = EType(null, 25);      # constructing without an outer instance ( first Parameter is the instance , in our case null since we dont use any )
 # print(e2.power());              # would error: 'outer' not available
 ```
 
