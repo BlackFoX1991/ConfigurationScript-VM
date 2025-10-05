@@ -21,13 +21,13 @@ You can run code in two ways:
    Starts automatically if you run without arguments.  
    The REPL detects open blocks and only executes when all blocks are closed.
 
-2. # CFS Command-Line Guide
+2. ## CFS Command-Line Guide
 
 > Quick reference for compiling and running CFS scripts from the terminal.
 
 ---
 
-## 🚀 Usage
+### 🚀 Usage
 
 ```bash
 cfcs [-d | -c | -b] <script-path>
@@ -37,7 +37,7 @@ cfcs [-d | -c | -b] <script-path>
 
 ---
 
-## 🧭 Options
+### 🧭 Options
 
 | Flag | Description |
 |-----:|-------------|
@@ -49,7 +49,7 @@ cfcs [-d | -c | -b] <script-path>
 
 ---
 
-## 📌 Examples
+### 📌 Examples
 
 Compile a script:
 ```bash
@@ -71,7 +71,7 @@ cfcs -d ./scripts/example.cfs
 
 ---
 
-## ❓ Notes
+### ❓ Notes
 
 - If you provide a `.cfb` file, CFS treats it as **bytecode** automatically.  
 - If you provide a `.cfs` file with `-c`, the compiler writes the `.cfb` next to the source.  
