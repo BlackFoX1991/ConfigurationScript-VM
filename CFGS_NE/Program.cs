@@ -28,6 +28,11 @@ public class Program
     public static readonly string Version = "v1.6.1";
 
     /// <summary>
+    /// Defines the PluginsFolder
+    /// </summary>
+    public static readonly string PluginsFolder = "plugins";
+
+    /// <summary>
     /// Defines the logo
     /// </summary>
     private static readonly string logo = $@"                         
@@ -163,6 +168,9 @@ public class Program
             compiler = new(name);
             bytecode = compiler.Compile(ast);
 
+            string baseDir = AppContext.BaseDirectory;
+            string pluginDir = Path.Combine(baseDir, PluginsFolder);
+            vm.LoadPluginsFrom(pluginDir);
             vm.LoadFunctions(compiler._functions);
             vm.LoadInstructions(bytecode);
             if (debug)
@@ -218,7 +226,9 @@ public class Program
             (bytecode, Dictionary<string, CFGS_VM.VMCore.Extension.FunctionInfo>? funcs) = CFGS_VM.VMCore.IO.CFSBinary.Load(name);
             vm.LoadInstructions(bytecode);
             vm.LoadFunctions(funcs);
-
+            string baseDir = AppContext.BaseDirectory;
+            string pluginDir = Path.Combine(baseDir, PluginsFolder);
+            vm.LoadPluginsFrom(pluginDir);
             if (debug)
             {
                 Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
