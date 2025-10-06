@@ -13,6 +13,44 @@ namespace CFGS_VM.VMCore
     public class VM
     {
         /// <summary>
+        /// Defines the <see cref="BuiltinCallable" />
+        /// </summary>
+        public sealed class BuiltinCallable
+        {
+            /// <summary>
+            /// Gets the Name
+            /// </summary>
+            public string Name { get; }
+
+            /// <summary>
+            /// Gets the ArityMin
+            /// </summary>
+            public int ArityMin { get; }
+
+            /// <summary>
+            /// Gets the ArityMax
+            /// </summary>
+            public int ArityMax { get; }
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="BuiltinCallable"/> class.
+            /// </summary>
+            /// <param name="name">The name<see cref="string"/></param>
+            /// <param name="min">The min<see cref="int"/></param>
+            /// <param name="max">The max<see cref="int"/></param>
+            public BuiltinCallable(string name, int min, int max)
+            {
+                Name = name; ArityMin = min; ArityMax = max;
+            }
+
+            /// <summary>
+            /// The ToString
+            /// </summary>
+            /// <returns>The <see cref="string"/></returns>
+            public override string ToString() => $"<builtin {Name}/{ArityMin}..{ArityMax}>";
+        }
+
+        /// <summary>
         /// Gets the Builtins
         /// </summary>
         public BuiltinRegistry Builtins { get; } = new();
@@ -945,36 +983,6 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// Defines the bInFunc
-        /// </summary>
-        public static Dictionary<string, int> bInFunc = new()
-    {
-        {"print",1 },
-        {"len",1 },
-        {"isarray",1 },
-        {"isdict",1 },
-        {"typeof",1 },
-        {"str",1 },
-        {"toi16",1 },
-        {"toi32",1 },
-        {"toi64",1 },
-        {"abs",1 },
-        {"rand",3 },
-        {"getfields",1 },
-            {"getl",0 },
-            {"getc",0 },
-            {"put",1 },
-            {"clear",0 },
-            {"isdigit",1 },
-            {"isletter",1 },
-            {"isspace",1 },
-            {"isalnum",1 },
-            {"toi",1 },
-            { "fopen", 2 },
-            {"json",1 }
-    };
-
-        /// <summary>
         /// Gets the CurrentReceiver
         /// </summary>
         private object? CurrentReceiver => _callStack.Count > 0 ? _callStack.Peek().ThisRef : null;
@@ -1745,11 +1753,20 @@ namespace CFGS_VM.VMCore
                         }
 
                         Env? owner = FindEnvWithLocal(name);
-                        if (owner == null || !owner.Vars.TryGetValue(name, out object? val))
-                            throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                        if (owner != null && owner.Vars.TryGetValue(name, out object? val))
+                        {
+                            _stack.Push(val);
+                            break;
+                        }
 
-                        _stack.Push(val);
-                        break;
+                        if (Builtins.TryGet(name, out BuiltinDescriptor? d))
+                        {
+                            _stack.Push(new BuiltinCallable(d.Name, d.ArityMin, d.ArityMax));
+                            break;
+                        }
+
+                        throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+
                     }
 
                 case OpCode.VAR_DECL:
@@ -2317,16 +2334,16 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is string funcName)
                         {
-                            if (bInFunc.TryGetValue(funcName, out int expectedArgs))
+                            if (Builtins.TryGet(funcName, out BuiltinDescriptor? desc))
                             {
                                 List<object> args = new();
-                                for (int i = expectedArgs - 1; i >= 0; i--)
+                                for (int i = desc.ArityMin - 1; i >= 0; i--)
                                 {
                                     if (_stack.Count == 0)
                                         throw new VMException($"Runtime error: insufficient args for {funcName}()", instr.Line, instr.Col, instr.OriginFile);
                                     args.Insert(0, _stack.Pop());
                                 }
-                                object result = CallBuiltin(funcName, args, instr);
+                                object result = desc.Invoke(args, instr);
                                 _stack.Push(result);
                                 break;
                             }
@@ -2383,6 +2400,20 @@ namespace CFGS_VM.VMCore
                                     );
 
                                 object result = ib_ex.Method.Invoke(ib_ex.Receiver, argsList, instr);
+                                _stack.Push(result);
+                                return StepResult.Continue;
+                            }
+                            else if (callee is BuiltinCallable bc)
+                            {
+                                if (!Builtins.TryGet(bc.Name, out BuiltinDescriptor? desc))
+                                    throw new VMException($"Runtime error: unknown builtin '{bc.Name}'", instr.Line, instr.Col, instr.OriginFile);
+
+                                if (explicitArgCount < desc.ArityMin || explicitArgCount > desc.ArityMax)
+                                    throw new VMException(
+                                        $"Runtime error: builtin '{bc.Name}' expects {desc.ArityMin}..{desc.ArityMax} args, got {explicitArgCount}",
+                                        instr.Line, instr.Col, instr.OriginFile);
+
+                                object result = desc.Invoke(argsList, instr);
                                 _stack.Push(result);
                                 return StepResult.Continue;
                             }
@@ -2488,6 +2519,26 @@ namespace CFGS_VM.VMCore
                                 _stack.Push(result);
                                 return StepResult.Continue;
                             }
+                            else if (callee is BuiltinCallable bc2)
+                            {
+                                if (!Builtins.TryGet(bc2.Name, out BuiltinDescriptor? desc))
+                                    throw new VMException($"Runtime error: unknown builtin '{bc2.Name}'", instr.Line, instr.Col, instr.OriginFile);
+
+                                int need = desc.ArityMin;
+                                List<object> argsB = new();
+                                for (int i = 0; i < need; i++)
+                                {
+                                    if (_stack.Count == 0)
+                                        throw new VMException("Runtime error: insufficient args for builtin call", instr.Line, instr.Col, instr.OriginFile);
+                                    argsB.Add(_stack.Pop());
+                                }
+                                argsB.Reverse();
+
+                                object result = desc.Invoke(argsB, instr);
+                                _stack.Push(result);
+                                return StepResult.Continue;
+                            }
+
                             else if (callee is BoundMethod bm)
                             {
                                 f = bm.Function;
