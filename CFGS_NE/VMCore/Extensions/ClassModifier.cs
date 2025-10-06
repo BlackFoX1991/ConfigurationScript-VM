@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace CFGS_VM.VMCore.Extention
+namespace CFGS_VM.VMCore.Extensions
 {
     [Flags]
     public enum Modifiers { None = 0, Public = 1, Private = 2, Protected = 4, Internal = 8, Static = 16 }

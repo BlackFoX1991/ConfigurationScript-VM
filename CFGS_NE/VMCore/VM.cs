@@ -1,6 +1,7 @@
 ﻿using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extension;
-using CFGS_VM.VMCore.Extention;
+using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Plugin;
 using System.Globalization;
 using System.Text;
 
@@ -11,6 +12,16 @@ namespace CFGS_VM.VMCore
     /// </summary>
     public class VM
     {
+        /// <summary>
+        /// Gets the Builtins
+        /// </summary>
+        public BuiltinRegistry Builtins { get; } = new();
+
+        /// <summary>
+        /// Gets the Intrinsics
+        /// </summary>
+        public IntrinsicRegistry Intrinsics { get; } = new();
+
         /// <summary>
         /// Defines the <see cref="BoundType" />
         /// </summary>
@@ -174,66 +185,7 @@ namespace CFGS_VM.VMCore
             return idx;
         }
 
-        /// <summary>
-        /// Defines the StringProto
-        /// </summary>
-        private static readonly Dictionary<string, IntrinsicMethod> StringProto = new(StringComparer.Ordinal)
-        {
-            ["substr"] = new IntrinsicMethod("substr", 2, 2, (recv, a, instr) =>
-            {
-                string s = recv?.ToString() ?? "";
-                int len = s.Length;
-                int start = ClampIndex(Convert.ToInt32(a[0]), len);
-                int length = Math.Max(0, Convert.ToInt32(a[1]));
-                if (start > len) start = len;
-                if (start + length > len) length = len - start;
-                return s.Substring(start, length);
-            }),
-
-            ["slice"] = new IntrinsicMethod("slice", 0, 2, (recv, a, instr) =>
-            {
-                string s = recv?.ToString() ?? "";
-                int len = s.Length;
-                object? startObj = a.Count > 0 ? a[0] : null;
-                object? endObj = a.Count > 1 ? a[1] : null;
-                (int st, int ex) = NormalizeSliceBounds(startObj, endObj, len, instr);
-                return s.Substring(st, ex - st);
-            }),
-
-            ["replace_range"] = new IntrinsicMethod("replace_range", 3, 3, (recv, a, instr) =>
-            {
-                string s = recv?.ToString() ?? "";
-                int len = s.Length;
-                (int st, int ex) = NormalizeSliceBounds(a[0], a[1], len, instr);
-                string repl = a[2]?.ToString() ?? "";
-                return s.Substring(0, st) + repl + s.Substring(ex);
-            }),
-
-            ["remove_range"] = new IntrinsicMethod("remove_range", 2, 2, (recv, a, instr) =>
-            {
-                string s = recv?.ToString() ?? "";
-                int len = s.Length;
-                (int st, int ex) = NormalizeSliceBounds(a[0], a[1], len, instr);
-                return s.Substring(0, st) + s.Substring(ex);
-            }),
-
-            ["insert_at"] = new IntrinsicMethod("insert_at", 2, 2, (recv, a, instr) =>
-            {
-                string s = recv?.ToString() ?? "";
-                int len = s.Length;
-                int idx = ClampIndex(Convert.ToInt32(a[0]), len);
-                string repl = a[1]?.ToString() ?? "";
-                return s.Substring(0, idx) + repl + s.Substring(idx);
-            }),
-
-            ["len"] = new IntrinsicMethod("len", 0, 0, (recv, a, instr) =>
-            {
-                string s = recv?.ToString() ?? "";
-                return s.Length;
-            }),
-        };
-
-        private sealed class FileHandle : IDisposable
+        public sealed class FileHandle : IDisposable
         {
             public string Path { get; }
             public int Mode { get; }
@@ -285,150 +237,6 @@ namespace CFGS_VM.VMCore
             public long Seek(long offset, SeekOrigin origin) => FS.Seek(offset, origin);
             public void Close() => Dispose();
         }
-        /// <summary>
-        /// Defines the FileProto
-        /// </summary>
-        private static readonly Dictionary<string, IntrinsicMethod> FileProto = new(StringComparer.Ordinal)
-        {
-            ["write"] = new IntrinsicMethod("write", 1, 1, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; fh.Write(a[0]?.ToString() ?? ""); return fh; }),
-            ["writeln"] = new IntrinsicMethod("writeln", 1, 1, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; fh.Writeln(a[0]?.ToString() ?? ""); return fh; }),
-            ["flush"] = new IntrinsicMethod("flush", 0, 0, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; fh.Flush(); return fh; }),
-            ["read"] = new IntrinsicMethod("read", 1, 1, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; return fh.Read(Convert.ToInt32(a[0])); }),
-            ["readline"] = new IntrinsicMethod("readline", 0, 0, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; return fh.ReadLine(); }),
-            ["seek"] = new IntrinsicMethod("seek", 2, 2, (recv, a, instr) =>
-            {
-                FileHandle fh = (FileHandle)recv; long off = Convert.ToInt64(a[0]); int org = Convert.ToInt32(a[1]);
-                SeekOrigin o = org switch { 0 => SeekOrigin.Begin, 1 => SeekOrigin.Current, 2 => SeekOrigin.End, _ => SeekOrigin.Begin };
-                return fh.Seek(off, o);
-            }),
-            ["tell"] = new IntrinsicMethod("tell", 0, 0, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; return fh.Tell(); }),
-            ["eof"] = new IntrinsicMethod("eof", 0, 0, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; return fh.Eof(); }),
-            ["close"] = new IntrinsicMethod("close", 0, 0, (recv, a, instr) => { FileHandle fh = (FileHandle)recv; fh.Close(); return 1; }),
-        };
-
-        /// <summary>
-        /// Defines the ArrayProto
-        /// </summary>
-        private static readonly Dictionary<string, IntrinsicMethod> ArrayProto = new(StringComparer.Ordinal)
-        {
-            ["len"] = new IntrinsicMethod("len", 0, 0, (recv, a, instr) =>
-            {
-                List<object> arr = recv as List<object> ?? new List<object>();
-                return arr.Count;
-            }),
-
-            ["push"] = new IntrinsicMethod("push", 1, 1, (recv, a, instr) =>
-            {
-                List<object> arr = recv as List<object> ?? throw new VMException("push on non-array", instr.Line, instr.Col, instr.OriginFile);
-                arr.Add(a[0]);
-                return arr.Count;
-            }),
-
-            ["pop"] = new IntrinsicMethod("pop", 0, 0, (recv, a, instr) =>
-            {
-                List<object> arr = recv as List<object> ?? throw new VMException("pop on non-array", instr.Line, instr.Col, instr.OriginFile);
-                if (arr.Count == 0) return null;
-                object last = arr[^1];
-                arr.RemoveAt(arr.Count - 1);
-                return last;
-            }),
-
-            ["insert_at"] = new IntrinsicMethod("insert_at", 2, 2, (recv, a, instr) =>
-            {
-                List<object> arr = recv as List<object> ?? throw new VMException("insert_at on non-array", instr.Line, instr.Col, instr.OriginFile);
-                int idx = ClampIndex(Convert.ToInt32(a[0]), arr.Count);
-                arr.Insert(idx, a[1]);
-                return arr;
-            }),
-
-            ["remove_range"] = new IntrinsicMethod("remove_range", 2, 2, (recv, a, instr) =>
-            {
-                List<object> arr = recv as List<object> ?? throw new VMException("remove_range on non-array", instr.Line, instr.Col, instr.OriginFile);
-                (int st, int ex) = NormalizeSliceBounds(a[0], a[1], arr.Count, instr);
-                arr.RemoveRange(st, ex - st);
-                return arr;
-            }),
-
-            ["replace_range"] = new IntrinsicMethod("replace_range", 3, 3, (recv, a, instr) =>
-            {
-                List<object> arr = recv as List<object> ?? throw new VMException("replace_range on non-array", instr.Line, instr.Col, instr.OriginFile);
-                (int st, int ex) = NormalizeSliceBounds(a[0], a[1], arr.Count, instr);
-                if (a[2] is List<object> replList)
-                {
-                    arr.RemoveRange(st, ex - st);
-                    arr.InsertRange(st, replList);
-                }
-                else
-                {
-                    arr.RemoveRange(st, ex - st);
-                    arr.Insert(st, a[2]);
-                }
-                return arr;
-            }),
-
-            ["slice"] = new IntrinsicMethod("slice", 0, 2, (recv, a, instr) =>
-            {
-                List<object> arr = recv as List<object> ?? new List<object>();
-                object? startObj = a.Count > 0 ? a[0] : null;
-                object? endObj = a.Count > 1 ? a[1] : null;
-                (int st, int ex) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
-                return arr.GetRange(st, ex - st);
-            }),
-        };
-
-        /// <summary>
-        /// Defines the DictProto
-        /// </summary>
-        private static readonly Dictionary<string, IntrinsicMethod> DictProto = new(StringComparer.Ordinal)
-        {
-            ["len"] = new IntrinsicMethod("len", 0, 0, (recv, a, instr) =>
-            {
-                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
-                return dict.Count;
-            }),
-
-            ["has"] = new IntrinsicMethod("has", 1, 1, (recv, a, instr) =>
-            {
-                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
-                string key = a[0]?.ToString() ?? "";
-                return dict.ContainsKey(key);
-            }),
-
-            ["remove"] = new IntrinsicMethod("remove", 1, 1, (recv, a, instr) =>
-            {
-                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
-                string key = a[0]?.ToString() ?? "";
-                return dict.Remove(key);
-            }),
-
-            ["keys"] = new IntrinsicMethod("keys", 0, 0, (recv, a, instr) =>
-            {
-                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
-                return dict.Keys.ToList<object>();
-            }),
-
-            ["values"] = new IntrinsicMethod("values", 0, 0, (recv, a, instr) =>
-            {
-                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
-                return dict.Values.ToList();
-            }),
-
-            ["set"] = new IntrinsicMethod("set", 2, 2, (recv, a, instr) =>
-            {
-                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? throw new VMException("set on non-dict", instr.Line, instr.Col, instr.OriginFile);
-                string key = a[0]?.ToString() ?? "";
-                dict[key] = a[1];
-                return dict;
-            }),
-
-            ["get_or"] = new IntrinsicMethod("get_or", 2, 2, (recv, a, instr) =>
-            {
-                Dictionary<string, object> dict = recv as Dictionary<string, object> ?? new();
-                string key = a[0]?.ToString() ?? "";
-                return dict.TryGetValue(key, out object? v) ? v : a[1];
-            }),
-        };
-
         /// <summary>
         /// Defines the <see cref="ExceptionObject" />
         /// </summary>
@@ -489,21 +297,6 @@ namespace CFGS_VM.VMCore
             /// <returns>The <see cref="string"/></returns>
             public override string ToString() => $"{Type}: {Message}";
         }
-
-        /// <summary>
-        /// Defines the ExceptionProto
-        /// </summary>
-        private static readonly Dictionary<string, IntrinsicMethod> ExceptionProto =
-    new(StringComparer.Ordinal)
-    {
-        ["message"] = new IntrinsicMethod("message", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Message),
-        ["type"] = new IntrinsicMethod("type", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Type),
-        ["file"] = new IntrinsicMethod("file", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).File),
-        ["line"] = new IntrinsicMethod("line", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Line),
-        ["col"] = new IntrinsicMethod("col", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Col),
-        ["stack"] = new IntrinsicMethod("stack", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).Stack),
-        ["toString"] = new IntrinsicMethod("toString", 0, 0, (recv, a, instr) => ((ExceptionObject)recv).ToString()),
-    };
 
         /// <summary>
         /// Defines the <see cref="Env" />
@@ -770,6 +563,15 @@ namespace CFGS_VM.VMCore
         public VM()
         {
             DebugStream = new MemoryStream();
+        }
+
+        /// <summary>
+        /// The LoadPluginsFrom
+        /// </summary>
+        /// <param name="directory">The directory<see cref="string"/></param>
+        public void LoadPluginsFrom(string directory)
+        {
+            PluginLoader.LoadDirectory(directory, Builtins, Intrinsics);
         }
 
         /// <summary>
@@ -1123,229 +925,22 @@ namespace CFGS_VM.VMCore
         /// <param name="args">The args<see cref="List{object}"/></param>
         /// <param name="instr">The instr<see cref="Instruction"/></param>
         /// <returns>The <see cref="object"/></returns>
-        private static object CallBuiltin(string name, List<object> args, Instruction instr)
+        private object CallBuiltin(string name, List<object> args, Instruction instr)
         {
-            static string FormatArg(object? v)
-            {
-                if (v is null) return "null";
-                string t = v.GetType().Name;
-                string s = v is string str ? str : v.ToString() ?? "";
-                if (s.Length > 40) s = s.Substring(0, 40) + "…";
-                return $"{t}({s})";
-            }
+            if (!Builtins.TryGet(name, out BuiltinDescriptor? d))
+                throw new VMException($"Runtime error: unknown builtin function '{name}'", instr.Line, instr.Col, instr.OriginFile);
 
-            static string ArgsDebug(List<object> a)
-                => a is null ? "null" : "[" + string.Join(", ", a.Select(FormatArg)) + "]";
+            if (args.Count < d.ArityMin || args.Count > d.ArityMax)
+                throw new VMException($"Runtime error: builtin '{name}' expects {d.ArityMin}..{d.ArityMax} args (got {args.Count})", instr.Line, instr.Col, instr.OriginFile);
 
             try
             {
-                switch (name)
-                {
-                    case "json":
-                        {
-                            return JsonStringify(args[0]);
-                        }
-
-                    case "fopen":
-                        {
-
-                            if (!AllowFileIO)
-                                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
-
-                            if (args.Count < 2)
-                                throw new VMException(
-                                    "Runtime error: fopen(path, mode) expects 2 arguments",
-                                    instr.Line, instr.Col, instr.OriginFile);
-
-                            object a0 = args[0];
-                            object a1 = args[1];
-
-                            string path;
-                            int mode;
-
-                            if (a0 is string || a0 is char)
-                            {
-                                path = a0.ToString() ?? "";
-                                mode = Convert.ToInt32(a1);
-                            }
-                            else if (a1 is string || a1 is char)
-                            {
-                                path = a1.ToString() ?? "";
-                                mode = Convert.ToInt32(a0);
-                            }
-                            else
-                            {
-                                throw new VMException(
-                                    "Runtime error: fopen needs a string path and a numeric mode",
-                                    instr.Line, instr.Col, instr.OriginFile);
-                            }
-
-                            FileMode fmode; FileAccess facc; bool canRead = false, canWrite = false;
-                            switch (mode)
-                            {
-                                case 0: fmode = FileMode.Open; facc = FileAccess.Read; canRead = true; break;
-                                case 1: fmode = FileMode.OpenOrCreate; facc = FileAccess.ReadWrite; canRead = true; canWrite = true; break;
-                                case 2: fmode = FileMode.Create; facc = FileAccess.Write; canWrite = true; break;
-                                case 3: fmode = FileMode.Append; facc = FileAccess.Write; canWrite = true; break;
-                                case 4: fmode = FileMode.OpenOrCreate; facc = FileAccess.Write; canWrite = true; break;
-                                default:
-                                    throw new VMException(
-                                        $"Runtime error: invalid fopen mode {mode}",
-                                        instr.Line, instr.Col, instr.OriginFile);
-                            }
-
-                            try
-                            {
-                                FileStream fs = new(path, fmode, facc, FileShare.Read);
-                                if (mode == 3) fs.Seek(0, SeekOrigin.End);
-                                return new FileHandle(path, mode, fs, canRead, canWrite);
-                            }
-                            catch (UnauthorizedAccessException ex)
-                            {
-                                throw new VMException(
-                                    $"Runtime error: fopen unauthorized for '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
-                                    instr.Line, instr.Col, instr.OriginFile);
-                            }
-                            catch (DirectoryNotFoundException ex)
-                            {
-                                throw new VMException(
-                                    $"Runtime error: fopen path not found '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
-                                    instr.Line, instr.Col, instr.OriginFile);
-                            }
-                            catch (FileNotFoundException ex)
-                            {
-                                throw new VMException(
-                                    $"Runtime error: fopen file not found '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
-                                    instr.Line, instr.Col, instr.OriginFile);
-                            }
-                            catch (IOException ex)
-                            {
-                                throw new VMException(
-                                    $"Runtime error: fopen I/O error for '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
-                                    instr.Line, instr.Col, instr.OriginFile);
-                            }
-                            catch (Exception ex)
-                            {
-                                throw new VMException(
-                                    $"Runtime error: fopen failed for '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
-                                    instr.Line, instr.Col, instr.OriginFile);
-                            }
-                        }
-
-                    case "typeof":
-                        {
-                            object val = args[0];
-                            if (val == null) return "Null";
-                            if (val is bool) return "Bool";
-                            if (val is int) return "Int";
-                            if (val is long) return "Long";
-                            if (val is double) return "Double";
-                            if (val is float) return "Float";
-                            if (val is decimal) return "Decimal";
-                            if (val is string) return "String";
-                            if (val is char) return "Char";
-                            if (val is List<object>) return "Array";
-                            if (val is FunctionInfo) return "Function";
-                            if (val is Closure) return "Closure";
-                            if (val is Dictionary<string, object>) return "Dictionary";
-                            if (val is ClassInstance) return (val as ClassInstance ?? new ClassInstance("null")).ClassName;
-                            if (val is StaticInstance) return (val as StaticInstance ?? new StaticInstance("null")).ClassName;
-                            return val.GetType().Name;
-                        }
-
-                    case "getfields":
-                        if (args[0] is not Dictionary<string, object>)
-                            return new List<object>();
-                        Dictionary<string, object>? fld = args[0] as Dictionary<string, object>;
-                        return fld?.Keys.ToList<object>() ?? new List<object>();
-
-                    case "isarray":
-                        return args[0] is List<object>;
-
-                    case "isdict":
-                        return args[0] is Dictionary<string, object>;
-
-                    case "len":
-                        if (args[0] is string s) return s.Length;
-                        if (args[0] is List<object> list) return list.Count;
-                        if (args[0] is Dictionary<string, object> dct) return dct.Count;
-                        return -1;
-
-                    case "isdigit":
-                        if (args[0] is null) return false;
-                        return char.IsDigit(Convert.ToChar(args[0]));
-
-                    case "isletter":
-                        if (args[0] is null) return false;
-                        return char.IsLetter(Convert.ToChar(args[0]));
-
-                    case "isspace":
-                        if (args[0] is null) return false;
-                        return char.IsWhiteSpace(Convert.ToChar(args[0]));
-
-                    case "isalnum":
-                        if (args[0] is null) return false;
-                        return char.IsLetterOrDigit(Convert.ToChar(args[0]));
-
-                    case "str":
-                        if (args[0] is null) return null;
-                        return args[0].ToString() ?? "";
-
-                    case "toi":
-                        return ToNumber(args[0]);
-
-                    case "toi16":
-                        return Convert.ToInt16(args[0]);
-
-                    case "toi32":
-                        return Convert.ToInt32(args[0]);
-
-                    case "toi64":
-                        return Convert.ToInt64(args[0]);
-
-                    case "abs":
-                        return Math.Abs((dynamic)args[0]);
-
-                    case "rand":
-                        return new Random((int)args[0]).Next((int)args[1], (int)args[2]);
-
-                    case "print":
-                        PrintValue(args[0], Console.Out, 1, escapeNewlines: true);
-                        Console.Out.WriteLine();
-                        Console.Out.Flush();
-                        return 1;
-
-                    case "put":
-                        PrintValue(args[0], Console.Out, 1, escapeNewlines: false);
-                        return 1;
-
-                    case "clear":
-                        Console.Clear();
-                        return 1;
-
-                    case "getl":
-                        return Console.ReadLine() ?? "";
-
-                    case "getc":
-                        return Console.Read();
-                }
-
-                throw new VMException(
-                    $"Runtime error: unknown builtin function '{name}'",
-                    instr.Line, instr.Col, instr.OriginFile);
+                return d.Invoke(args, instr);
             }
-            catch (VMException)
-            {
-                throw;
-            }
+            catch (VMException) { throw; }
             catch (Exception ex)
             {
-                string argsInfo = ArgsDebug(args);
-                string msg =
-                    $"Runtime error in builtin '{name}': {ex.GetType().Name}: {ex.Message}\n" +
-                    $"Args: {argsInfo}\n" +
-                    $"Instruction: {instr.OriginFile}:{instr.Line}:{instr.Col}";
-                throw new VMException(msg, instr.Line, instr.Col, instr.OriginFile);
+                throw new VMException($"Runtime error in builtin '{name}': {ex.GetType().Name}: {ex.Message}", instr.Line, instr.Col, instr.OriginFile);
             }
         }
 
@@ -3731,20 +3326,42 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// The TryBindIntrinsic
+        /// </summary>
+        /// <param name="receiver">The receiver<see cref="object"/></param>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="bound">The bound<see cref="IntrinsicBound"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool TryBindIntrinsic(object receiver, string name, out IntrinsicBound bound, Instruction instr)
+        {
+            Type t = receiver?.GetType() ?? typeof(object);
+            if (Intrinsics.TryGet(t, name, out IntrinsicDescriptor? desc))
+            {
+                IntrinsicMethod adapted = new(desc.Name, desc.ArityMin, desc.ArityMax,
+                    (recv, args, ins) => desc.Invoke(recv, args, ins));
+                bound = new IntrinsicBound(adapted, receiver);
+                return true;
+            }
+            bound = null!;
+            return false;
+        }
+
+        /// <summary>
         /// The GetIndexedValue
         /// </summary>
         /// <param name="target">The target<see cref="object"/></param>
         /// <param name="idxObj">The idxObj<see cref="object"/></param>
         /// <param name="instr">The instr<see cref="Instruction"/></param>
         /// <returns>The <see cref="object"/></returns>
-        private static object GetIndexedValue(object target, object idxObj, Instruction instr)
+        private object GetIndexedValue(object target, object idxObj, Instruction instr)
         {
             switch (target)
             {
                 case List<object> arr:
                     {
-                        if (idxObj is string mname && ArrayProto.TryGetValue(mname, out IntrinsicMethod? imArr))
-                            return new IntrinsicBound(imArr, arr);
+                        if (idxObj is string mname && TryBindIntrinsic(arr, mname, out IntrinsicBound? bound, instr))
+                            return bound;
 
                         int index = Convert.ToInt32(idxObj);
                         if (index < 0 || index >= arr.Count)
@@ -3754,16 +3371,16 @@ namespace CFGS_VM.VMCore
 
                 case FileHandle fh:
                     {
-                        if (idxObj is string mname && FileProto.TryGetValue(mname, out IntrinsicMethod? im))
-                            return new IntrinsicBound(im, fh);
+                        if (idxObj is string mname && TryBindIntrinsic(fh, mname, out IntrinsicBound? bound, instr))
+                            return bound;
                         throw new VMException($"invalid file member '{idxObj}'", instr.Line, instr.Col, instr.OriginFile);
                     }
 
                 case ExceptionObject exo:
                     {
                         string key = idxObj?.ToString() ?? "";
-                        if (ExceptionProto.TryGetValue(key, out IntrinsicMethod? im))
-                            return new IntrinsicBound(im, exo);
+                        if (idxObj is string mname && TryBindIntrinsic(exo, mname, out IntrinsicBound? bound, instr))
+                            return bound;
                         if (string.Equals(key, "message$", StringComparison.Ordinal)) return exo.Message;
                         if (string.Equals(key, "type$", StringComparison.Ordinal)) return exo.Type;
                         throw new VMException($"invalid member '{key}' on Exception", instr.Line, instr.Col, instr.OriginFile);
@@ -3771,8 +3388,8 @@ namespace CFGS_VM.VMCore
 
                 case string strv:
                     {
-                        if (idxObj is string mname && StringProto.TryGetValue(mname, out IntrinsicMethod? im))
-                            return new IntrinsicBound(im, strv);
+                        if (idxObj is string mname && TryBindIntrinsic(strv, mname, out IntrinsicBound? bound, instr))
+                            return bound;
 
                         int index = Convert.ToInt32(idxObj);
                         if (index < 0 || index >= strv.Length)
@@ -3782,8 +3399,8 @@ namespace CFGS_VM.VMCore
 
                 case Dictionary<string, object> dict:
                     {
-                        if (idxObj is string mname && DictProto.TryGetValue(mname, out IntrinsicMethod? imDict))
-                            return new IntrinsicBound(imDict, dict);
+                        if (idxObj is string mname && TryBindIntrinsic(dict, mname, out IntrinsicBound? bound, instr))
+                            return bound;
                         string key = idxObj?.ToString() ?? "";
                         if (dict.TryGetValue(key, out object? val))
                             return val;
@@ -3922,13 +3539,13 @@ namespace CFGS_VM.VMCore
         /// <param name="idxObj">The idxObj<see cref="object"/></param>
         /// <param name="value">The value<see cref="object"/></param>
         /// <param name="instr">The instr<see cref="Instruction"/></param>
-        private static void SetIndexedValue(ref object target, object idxObj, object value, Instruction instr)
+        private void SetIndexedValue(ref object target, object idxObj, object value, Instruction instr)
         {
             switch (target)
             {
                 case List<object> arr:
                     {
-                        if (IsReservedArrayMemberName(idxObj))
+                        if (IsReservedIntrinsicName(arr, idxObj))
                             throw new VMException($"Runtime error: cannot assign to array intrinsic '{idxObj}'", instr.Line, instr.Col, instr.OriginFile);
 
                         int index = RequireIntIndex(idxObj, instr);
@@ -3943,7 +3560,7 @@ namespace CFGS_VM.VMCore
 
                 case Dictionary<string, object> dict:
                     {
-                        if (IsReservedDictMemberName(idxObj))
+                        if (IsReservedIntrinsicName(dict, idxObj))
                             throw new VMException($"Runtime error: key '{idxObj}' is reserved for dictionary intrinsics", instr.Line, instr.Col, instr.OriginFile);
 
                         string key = idxObj?.ToString() ?? "";
@@ -4021,20 +3638,17 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The IsReservedArrayMemberName
+        /// The IsReservedIntrinsicName
         /// </summary>
+        /// <param name="receiver">The receiver<see cref="object"/></param>
         /// <param name="idxObj">The idxObj<see cref="object"/></param>
         /// <returns>The <see cref="bool"/></returns>
-        private static bool IsReservedArrayMemberName(object idxObj)
-            => idxObj is string name && ArrayProto.ContainsKey(name);
-
-        /// <summary>
-        /// The IsReservedDictMemberName
-        /// </summary>
-        /// <param name="idxObj">The idxObj<see cref="object"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        private static bool IsReservedDictMemberName(object idxObj)
-            => idxObj is string name && DictProto.ContainsKey(name);
+        private bool IsReservedIntrinsicName(object receiver, object idxObj)
+        {
+            if (idxObj is not string name) return false;
+            Type t = receiver?.GetType() ?? typeof(object);
+            return Intrinsics.TryGet(t, name, out _);
+        }
 
         /// <summary>
         /// The CreateIndexException

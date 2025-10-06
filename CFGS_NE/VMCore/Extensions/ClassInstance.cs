@@ -1,4 +1,4 @@
-﻿namespace CFGS_VM.VMCore.Extention
+﻿namespace CFGS_VM.VMCore.Extensions
 {
     /// <summary>
     /// Defines the <see cref="ClassInstance" />
