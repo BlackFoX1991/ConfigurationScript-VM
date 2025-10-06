@@ -21,13 +21,6 @@ namespace CFGS_VM.VMCore
         public string FileName { get; set; } = fname;
 
         /// <summary>
-        /// The IsBuiltinFunction
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        private static bool IsBuiltinFunction(string name) => VM.bInFunc.ContainsKey(name);
-
-        /// <summary>
         /// Defines the _insns
         /// </summary>
         private readonly List<Instruction> _insns = [];
@@ -988,6 +981,7 @@ namespace CFGS_VM.VMCore
                                 _insns.Add(new Instruction(OpCode.PUSH_STR, s.Value, e.Line, e.Col, e.OriginFile));
                             else
                                 CompileExpr(ie.Index);
+
                             _insns.Add(new Instruction(OpCode.INDEX_GET, null, e.Line, e.Col, e.OriginFile));
 
                             for (int i = call.Args.Count - 1; i >= 0; i--)
@@ -995,15 +989,6 @@ namespace CFGS_VM.VMCore
 
                             _insns.Add(new Instruction(OpCode.CALL_INDIRECT, call.Args.Count, e.Line, e.Col, e.OriginFile));
                         }
-                        else if (call.Target is VarExpr ve && IsBuiltinFunction(ve.Name))
-                        {
-
-                            for (int i = call.Args.Count - 1; i >= 0; i--)
-                                CompileExpr(call.Args[i]);
-                            _insns.Add(new Instruction(OpCode.CALL, ve.Name, e.Line, e.Col, e.OriginFile));
-                            break;
-                        }
-
                         else
                         {
                             CompileExpr(call.Target);
