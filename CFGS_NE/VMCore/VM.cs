@@ -3310,7 +3310,7 @@ namespace CFGS_VM.VMCore
         /// <param name="mode">The mode<see cref="int"/></param>
         /// <param name="seen">The seen<see cref="HashSet{object}?"/></param>
         /// <param name="escapeNewlines">The escapeNewlines<see cref="bool"/></param>
-        private static void PrintValue(object v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false)
+        public static void PrintValue(object v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false)
         {
             static string UnescapeForPrinting(string s)
             {
