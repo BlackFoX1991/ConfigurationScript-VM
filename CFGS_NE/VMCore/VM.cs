@@ -737,7 +737,7 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="bool"/></returns>
         public static bool IsNumber(object x) =>
             x is sbyte or byte or short or ushort or int or uint or long or ulong
-              or float or double or decimal;
+              or float or double or decimal or char;
 
         /// <summary>
         /// Defines the NumKind
@@ -786,6 +786,14 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// The CharToNumeric
+        /// </summary>
+        /// <param name="o">The o<see cref="object"/></param>
+        /// <returns>The <see cref="object"/></returns>
+        internal static object CharToNumeric(object o)
+    => o is char ch ? (char.IsDigit(ch) ? (int)(ch - '0') : (int)ch) : o;
+
+        /// <summary>
         /// The CoercePair
         /// </summary>
         /// <param name="a">The a<see cref="object"/></param>
@@ -793,6 +801,8 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="(object A, object B, NumKind K)"/></returns>
         private static (object A, object B, NumKind K) CoercePair(object a, object b)
         {
+            a = a is char ? CharToNumeric(a) : a;
+            b = b is char ? CharToNumeric(b) : b;
             NumKind k = PromoteKind(a, b);
             switch (k)
             {
@@ -827,6 +837,7 @@ namespace CFGS_VM.VMCore
             float v => (decimal)v,
             double v => (decimal)v,
             decimal v => v,
+            char v => (decimal)v,
             _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}"),
         };
 
