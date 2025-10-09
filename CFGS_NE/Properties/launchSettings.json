@@ -2,7 +2,7 @@
   "profiles": {
     "CFGS_NE": {
       "commandName": "Project",
-      "commandLineArgs": "abla.cfs -d",
+      "commandLineArgs": "-d",
       "workingDirectory": ".\\Samples"
     }
   }

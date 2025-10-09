@@ -1,8 +1,11 @@
-﻿using CFGS_VM.VMCore.Plugin;
+﻿using CFGS_VM.VMCore.Extension;
+using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Plugin;
 using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
+using static CFGS_VM.VMCore.VM;
 
 namespace CFGS_VM.VMCore.CorePlugin
 {
@@ -69,7 +72,7 @@ namespace CFGS_VM.VMCore.CorePlugin
 
             builtins.Register(new BuiltinDescriptor("print", 1, 1, (args, instr) =>
             {
-                PrintValue(args[0], Console.Out, escapeNewlines: true);
+                PrintValue(args[0], Console.Out, escapeNewlines: false);
                 Console.Out.WriteLine();
                 Console.Out.Flush();
                 return 1;
@@ -456,49 +459,6 @@ namespace CFGS_VM.VMCore.CorePlugin
             intrinsics.Register(T, new IntrinsicDescriptor("close", 0, 0, (recv, a, i) => { dynamic fh = recv; fh.Close(); return 1; }));
         }
 
-        /// <summary>
-        /// The PrintValue
-        /// </summary>
-        /// <param name="val">The val<see cref="object?"/></param>
-        /// <param name="writer">The writer<see cref="TextWriter"/></param>
-        /// <param name="escapeNewlines">The escapeNewlines<see cref="bool"/></param>
-        private static void PrintValue(object? val, TextWriter writer, bool escapeNewlines)
-        {
-            if (val is null) { writer.Write("null"); return; }
-
-            switch (val)
-            {
-                case string s:
-                    if (escapeNewlines) writer.Write(s.Replace("\n", "\\n").Replace("\r", "\\r"));
-                    else writer.Write(s);
-                    return;
-                case List<object> list:
-                    writer.Write("[");
-                    for (int i = 0; i < list.Count; i++)
-                    {
-                        if (i > 0) writer.Write(", ");
-                        PrintValue(list[i], writer, escapeNewlines);
-                    }
-                    writer.Write("]");
-                    return;
-                case Dictionary<string, object> dict:
-                    writer.Write("{");
-                    bool first = true;
-                    foreach (KeyValuePair<string, object> kv in dict)
-                    {
-                        if (!first) writer.Write(", ");
-                        first = false;
-                        writer.Write(kv.Key);
-                        writer.Write(": ");
-                        PrintValue(kv.Value, writer, escapeNewlines);
-                    }
-                    writer.Write("}");
-                    return;
-                default:
-                    writer.Write(val.ToString());
-                    return;
-            }
-        }
 
         /// <summary>
         /// The ToNumber
