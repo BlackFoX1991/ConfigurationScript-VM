@@ -463,29 +463,16 @@ namespace CFGS_VM.VMCore
                         {
                             _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, en.Name, en.Line, en.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.NEW_DICT, 0, en.Line, en.Col, s.OriginFile));
 
-                            Dictionary<int, string> reverseDict = new();
                             foreach (EnumMemberNode member in en.Members)
                             {
-                                _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
                                 _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, en.Line, en.Col, s.OriginFile));
                                 _insns.Add(new Instruction(OpCode.PUSH_INT, (int)member.Value, en.Line, en.Col, s.OriginFile));
-                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
-                                reverseDict[(int)member.Value] = member.Name;
                             }
 
-                            _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "Name", en.Line, en.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.NEW_DICT, 0, en.Line, en.Col, s.OriginFile));
-                            foreach (KeyValuePair<int, string> kv2 in reverseDict)
-                            {
-                                _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
-                                _insns.Add(new Instruction(OpCode.PUSH_INT, kv2.Key, en.Line, en.Col, s.OriginFile));
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, kv2.Value, en.Line, en.Col, s.OriginFile));
-                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
-                            }
-                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_INT, en.Members.Count, en.Line, en.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.NEW_ENUM, en.Name, en.Line, en.Col, s.OriginFile));
+
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, en.Line, en.Col, s.OriginFile));
                         }
 
@@ -504,36 +491,17 @@ namespace CFGS_VM.VMCore
 
                 case EnumDeclStmt eds:
                     {
-                        _insns.Add(new Instruction(OpCode.NEW_DICT, 0, eds.Line, eds.Col));
-
-                        Dictionary<int, string> reverseDict = new();
 
                         foreach (EnumMemberNode member in eds.Members)
                         {
-                            _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col, eds.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, eds.Line, eds.Col, eds.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_INT, (int)member.Value, eds.Line, eds.Col, eds.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, eds.Line, eds.Col, eds.OriginFile));
-
-                            reverseDict[(int)member.Value] = member.Name;
                         }
 
-                        _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col, eds.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__name", eds.Line, eds.Col, eds.OriginFile));
-                        _insns.Add(new Instruction(OpCode.NEW_DICT, 0, eds.Line, eds.Col, eds.OriginFile));
-
-                        foreach (KeyValuePair<int, string> kv in reverseDict)
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, eds.Line, eds.Col, eds.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_INT, kv.Key, eds.Line, eds.Col, eds.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, kv.Value, eds.Line, eds.Col, eds.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, eds.Line, eds.Col, eds.OriginFile));
-                        }
-
-                        _insns.Add(new Instruction(OpCode.INDEX_SET, null, eds.Line, eds.Col, eds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_INT, eds.Members.Count, eds.Line, eds.Col, eds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.NEW_ENUM, eds.Name, eds.Line, eds.Col, eds.OriginFile));
 
                         _insns.Add(new Instruction(OpCode.VAR_DECL, eds.Name, eds.Line, eds.Col, eds.OriginFile));
-
                         break;
                     }
 

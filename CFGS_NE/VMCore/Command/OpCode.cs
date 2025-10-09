@@ -126,6 +126,11 @@
         NEW_STATIC,
 
         /// <summary>
+        /// Defines the NEW_ENUM
+        /// </summary>
+        NEW_ENUM,
+
+        /// <summary>
         /// Defines the ARRAY_PUSH
         /// </summary>
         ARRAY_PUSH,
