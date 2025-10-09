@@ -53,6 +53,7 @@ namespace CFGS_VM.VMCore.CorePlugin
                 if (val is Dictionary<string, object>) return "Dictionary";
                 if (val is CFGS_VM.VMCore.Extensions.ClassInstance ci) return ci.ClassName;
                 if (val is CFGS_VM.VMCore.Extensions.StaticInstance si) return si.ClassName;
+                if (val is Extensions.EnumInstance ei) return "Enum";
                 if (val is CFGS_VM.VMCore.VM.ExceptionObject) return "Exception";
                 return val.GetType().Name;
             }));
