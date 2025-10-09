@@ -2,7 +2,7 @@
   "profiles": {
     "CFGS_NE": {
       "commandName": "Project",
-      "commandLineArgs": "test_u2.cfs -d -c",
+      "commandLineArgs": "bla.cfs -d",
       "workingDirectory": ".\\Samples"
     }
   }
