@@ -1,0 +1,26 @@
+enum Colors
+{
+	Red,
+	Green = 3,
+	Blue
+}
+
+class abla
+{
+	enum espanol
+	{
+		abla,
+		que
+	}
+	class abk
+	{
+		static func getInfo()
+		{
+			print(abla.espanol.que);
+		}
+	}
+}
+
+print(Colors.contains("Blue"));
+print(typeof(Colors));
+print(typeof(abla.espanol));

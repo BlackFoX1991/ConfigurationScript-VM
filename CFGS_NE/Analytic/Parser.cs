@@ -404,13 +404,13 @@ namespace CFGS_VM.Analytic
         /// <returns>The <see cref="EnumDeclStmt"/></returns>
         private EnumDeclStmt ParseEnumDecl()
         {
-            int line = _current.Line;
-            int col = _current.Column;
+            int declLine = _current.Line;
+            int declCol = _current.Column;
 
             Eat(TokenType.Enum);
 
             if (_current.Type != TokenType.Ident)
-                throw new ParserException("expected enum name", line, col, _current.Filename);
+                throw new ParserException("expected enum name", declLine, declCol, _current.Filename);
 
             string name = _current.Value.ToString() ?? "";
             Eat(TokenType.Ident);
@@ -418,42 +418,69 @@ namespace CFGS_VM.Analytic
             Eat(TokenType.LBrace);
 
             List<EnumMemberNode> members = new();
-            int currentValue = 0;
+            HashSet<string> usedNames = new(StringComparer.Ordinal);
+            HashSet<int> usedValues = new();
+
+            int nextAutoValue = 0;
 
             while (_current.Type != TokenType.RBrace)
             {
+                int memberLine = _current.Line;
+                int memberCol = _current.Column;
+
+                if (_current.Type != TokenType.Ident)
+                    throw new ParserException("expected identifier in enum body", memberLine, memberCol, _current.Filename);
+
                 string memberName = _current.Value.ToString() ?? "";
                 Eat(TokenType.Ident);
 
+                int value;
                 if (_current.Type == TokenType.Assign)
                 {
                     Eat(TokenType.Assign);
                     if (_current.Type != TokenType.Number)
-                        throw new ParserException("expected number after '='", line, col, _current.Filename);
+                        throw new ParserException("expected number after '='", _current.Line, _current.Column, _current.Filename);
 
-                    currentValue = Convert.ToInt32(_current.Value);
+                    value = Convert.ToInt32(_current.Value);
                     Eat(TokenType.Number);
                 }
+                else
+                {
+                    value = nextAutoValue;
+                }
 
-                if (members.Any(m => m.Value == currentValue))
+                if (!usedNames.Add(memberName))
                     throw new ParserException(
-                        $"duplicate enum value '{currentValue}' in enum '{name}'",
-                        line, col, _current.Filename
+                        $"duplicate enum member name '{memberName}' in enum '{name}'",
+                        memberLine, memberCol, _current.Filename
                     );
 
-                members.Add(new EnumMemberNode(memberName, currentValue, line, col, _current.Filename));
+                if (!usedValues.Add(value))
+                    throw new ParserException(
+                        $"duplicate enum value '{value}' in enum '{name}'",
+                        memberLine, memberCol, _current.Filename
+                    );
 
-                currentValue++;
+                members.Add(new EnumMemberNode(memberName, value, memberLine, memberCol, _current.Filename));
+
+                nextAutoValue = value + 1;
 
                 if (_current.Type == TokenType.Comma)
+                {
                     Eat(TokenType.Comma);
+
+                    if (_current.Type == TokenType.RBrace)
+                        break;
+                }
                 else
+                {
                     break;
+                }
             }
 
             Eat(TokenType.RBrace);
 
-            return new EnumDeclStmt(name, members, line, col, _current.Filename);
+            return new EnumDeclStmt(name, members, declLine, declCol, _current.Filename);
         }
 
         /// <summary>

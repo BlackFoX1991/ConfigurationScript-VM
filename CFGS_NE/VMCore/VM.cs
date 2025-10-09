@@ -1150,10 +1150,10 @@ namespace CFGS_VM.VMCore
                 case OpCode.NEW_ARRAY:
                     {
                         if (instr.Operand is null) break;
-                        int count = (int)instr.Operand;
-                        RequireStack(count, instr, "NEW_ARRAY");
-                        object[] temp = new object[count];
-                        for (int i = count - 1; i >= 0; i--) temp[i] = _stack.Pop();
+                        int ecount = (int)instr.Operand;
+                        RequireStack(ecount, instr, "NEW_ARRAY");
+                        object[] temp = new object[ecount];
+                        for (int i = ecount - 1; i >= 0; i--) temp[i] = _stack.Pop();
                         List<object> list = new(temp);
                         _stack.Push(list);
                         break;
@@ -1399,16 +1399,44 @@ namespace CFGS_VM.VMCore
                 case OpCode.NEW_DICT:
                     {
                         if (instr.Operand is null) break;
-                        int count = (int)instr.Operand;
-                        RequireStack(count * 2, instr, "NEW_DICT");
+                        int dcount = (int)instr.Operand;
+                        RequireStack(dcount * 2, instr, "NEW_DICT");
                         Dictionary<string, object> dict = new();
-                        for (int i = 0; i < count; i++)
+                        for (int i = 0; i < dcount; i++)
                         {
                             object value = _stack.Pop();
                             object key = _stack.Pop();
                             dict[key?.ToString() ?? "null"] = value;
                         }
                         _stack.Push(dict);
+                        break;
+                    }
+
+                case OpCode.NEW_ENUM:
+                    {
+                        if (instr.Operand is null) break;
+
+                        if (_stack.Count < 1)
+                            throw new VMException("Runtime error: stack underflow (NEW_ENUM needs count)", instr.Line, instr.Col, instr.OriginFile);
+
+                        int count = Convert.ToInt32(_stack.Pop());
+
+                        RequireStack(2 * count, instr, "NEW_ENUM");
+
+                        EnumInstance ei = new(instr.Operand.ToString() ?? "null");
+
+                        for (int i = 0; i < count; i++)
+                        {
+                            object valueObj = _stack.Pop();
+                            object keyObj = _stack.Pop();
+
+                            string key = keyObj?.ToString() ?? "null";
+                            int value = Convert.ToInt32(valueObj);
+
+                            ei.Add(key, value);
+                        }
+
+                        _stack.Push(ei);
                         break;
                     }
 
@@ -1541,8 +1569,8 @@ namespace CFGS_VM.VMCore
                         if (target is List<object> arr)
                         {
                             (int start, int endEx) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
-                            int count = endEx - start;
-                            if (count > 0) arr.RemoveRange(start, count);
+                            int sdcount = endEx - start;
+                            if (sdcount > 0) arr.RemoveRange(start, sdcount);
                         }
                         else if (target is Dictionary<string, object> dict)
                         {
@@ -3588,6 +3616,25 @@ namespace CFGS_VM.VMCore
                             instr.Line, instr.Col, instr.OriginFile
                         );
                     }
+                case EnumInstance en:
+                    {
+                        string key = idxObj?.ToString() ?? "";
+
+                        if (string.Equals(key, "name", StringComparison.Ordinal))
+                            return en.EnumName;
+                        if (string.Equals(key, "contains", StringComparison.Ordinal))
+                        {
+                            return new IntrinsicBound(new IntrinsicMethod("contains", 1, 1, (recv, args, ins) =>
+                            {
+                                string m = args[0]?.ToString() ?? "";
+                                return en.Values.ContainsKey(m);
+                            }), en);
+                        }
+                        if (en.TryGet(key, out int enumVal))
+                            return enumVal;
+
+                        throw new VMException($"Runtime error: invalid enum member '{key}' in enum '{en.EnumName}'", instr.Line, instr.Col, instr.OriginFile);
+                    }
 
                 default:
                     throw CreateIndexException(target, idxObj, instr);
@@ -3666,6 +3713,8 @@ namespace CFGS_VM.VMCore
                         st.Fields[key] = value;
                         break;
                     }
+                case EnumInstance en:
+                    throw new VMException($"Runtime error: cannot assign to enum '{en.EnumName}' members", instr.Line, instr.Col, instr.OriginFile);
 
                 case null:
                     throw new VMException("Runtime error: INDEX_SET on null target", instr.Line, instr.Col, instr.OriginFile);
