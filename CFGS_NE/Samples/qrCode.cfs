@@ -1,0 +1,296 @@
+# QR Model 2 – Auto EC (H→Q→M→L) und Auto Version (V1/V2), Byte-Mode, Maske 0
+class QRTools() {
+
+    # ---------- Helpers ----------
+    static func repeat(s, n) { var out = ""; var i = 0; while (i < n) { out = out + s; i = i + 1; } return out; }
+    static func zeros(n) { var a = []; var i = 0; while (i < n) { a.push(0); i = i + 1; } return a; }
+    static func clone_arr(a) { var b = []; var i = 0; while (i < len(a)) { b.push(a[i]); i = i + 1; } return b; }
+    static func code_of(ch) { return toi(ch) & 0xFF; }
+    static func size_for_version(v) { return 21 + 4 * (v - 1); }
+
+    # ---------- GF(256) & RS ----------
+    static func gf_mul(a, b) {
+        var x = 0; var i = 0;
+        while (i < 8) {
+            if ((b & 1) == 1) { x = x ^ a; }
+            var hi = a & 0x80;
+            a = (a << 1) & 0xFF;
+            if (hi != 0) { a = a ^ 0x1D; }
+            b = b >> 1; i = i + 1;
+        }
+        return x;
+    }
+    static func gf_pow(a, n) { var r = 1; var i = 0; while (i < n) { r = type.gf_mul(r, a); i = i + 1; } return r; }
+    static func poly_mul(p, q) { var r = type.zeros(len(p) + len(q) - 1); var i = 0; while (i < len(p)) { var j = 0; while (j < len(q)) { r[i + j] = r[i + j] ^ type.gf_mul(p[i], q[j]); j = j + 1; } i = i + 1; } return r; }
+    static func poly_mod(dividend, divisor) {
+        var rem = type.clone_arr(dividend); var dl = len(divisor);
+        var i = 0; while (i <= len(rem) - dl) { var coef = rem[i];
+            if (coef != 0) { var j = 1; while (j < dl) { rem[i + j] = rem[i + j] ^ type.gf_mul(divisor[j], coef); j = j + 1; } }
+            i = i + 1; }
+        var out = []; var k = len(rem) - (dl - 1); while (k < len(rem)) { out.push(rem[k]); k = k + 1; } return out;
+    }
+    static func rs_generator(deg) { var g = [1]; var i = 0; while (i < deg) { var term = [1, type.gf_pow(2, i)]; g = type.poly_mul(g, term); i = i + 1; } return g; }
+
+    # ---------- Bitpuffer ----------
+    static func bits_init() { return []; }
+    static func bits_put(bb, value, count) { var i = count - 1; while (i >= 0) { bb.push((value >> i) & 1); i = i - 1; } }
+    static func bits_to_bytes(bb) {
+        var out = []; var i = 0;
+        while (i < len(bb)) {
+            var byte = 0; var j = 0;
+            while (j < 8 && i < len(bb)) { byte = (byte << 1) | bb[i]; i = i + 1; j = j + 1; }
+            if (j < 8) { byte = byte << (8 - j); }
+            out.push(byte & 0xFF);
+        }
+        return out;
+    }
+
+    # ---------- Kapazitäten (Byte-Mode) je Version ----------
+    # Quelle: Thonky "Error Correction Code Words and Block Information"
+    # V1: data bytes L/M/Q/H = 19/16/13/9  (EC: 7/10/13/17), 1 Block
+    # V2: data bytes L/M/Q/H = 34/28/22/16 (EC:10/16/22/28), 1 Block
+    static func data_bytes(v, ec) {
+        if (v == 1) {
+            if (ec == "L") { return 19; } if (ec == "M") { return 16; } if (ec == "Q") { return 13; } return 9;
+        } else { # v==2
+            if (ec == "L") { return 34; } if (ec == "M") { return 28; } if (ec == "Q") { return 22; } return 16;
+        }
+    }
+    static func ec_degree(v, ec) {
+        if (v == 1) {
+            if (ec == "L") { return 7; } if (ec == "M") { return 10; } if (ec == "Q") { return 13; } return 17;
+        } else {
+            if (ec == "L") { return 10; } if (ec == "M") { return 16; } if (ec == "Q") { return 22; } return 28;
+        }
+    }
+
+    # ---------- Formatinfo (BCH) ----------
+    static func fmt_bits_for(ec, mask) {
+        var ec2;
+        if (ec == "L") { ec2 = 0b01; }
+        else if (ec == "M") { ec2 = 0b00; }
+        else if (ec == "Q") { ec2 = 0b11; }
+        else { ec2 = 0b10; } # H
+        var info = (ec2 << 3) | (mask & 0b111);
+        var g = 0x537; var x = info << 10; var i = 14;
+        while (i >= 10) { if (((x >> i) & 1) == 1) { x = x ^ (g << (i - 10)); } i = i - 1; }
+        var bch = (info << 10) | (x & 0x3FF);
+        return bch ^ 0x5412;
+    }
+    static func set_format_info(m, n, ec, mask) {
+        var f = type.fmt_bits_for(ec, mask);
+        # oben links, entlang Spalte 8
+        var i = 0; while (i < 6) { m[i][8] = (f >> i) & 1; i = i + 1; }
+        m[7][8] = (f >> 6) & 1;
+        m[8][8] = (f >> 7) & 1;
+        m[8][7] = (f >> 8) & 1;
+        i = 0; while (i < 6) { m[8][5 - i] = (f >> (9 + i)) & 1; i = i + 1; }
+        # oben rechts & unten links
+        i = 0; while (i < 8) { m[8][(n - 1) - i] = (f >> i) & 1; i = i + 1; }
+        i = 0; while (i < 7) { m[(n - 1) - i][8] = (f >> (8 + i)) & 1; i = i + 1; }
+    }
+
+    # ---------- Encoder (Byte-Mode) für V1/V2 ----------
+    static func encode_bytes_with(v, ec, s) {
+        var cap = type.data_bytes(v, ec);
+        var bb = type.bits_init();
+        type.bits_put(bb, 0b0100, 4);            # Byte-Mode
+        var n = len(s); if (n > cap) { n = cap; } # truncate
+        # Character Count Indicator: 8 Bit für V1–9
+        type.bits_put(bb, n, 8);
+        var i = 0; while (i < n) { type.bits_put(bb, type.code_of(s[i]), 8); i = i + 1; }
+        # Terminator und Auffüllen bis Datenlänge für Version/EC
+        var maxbits = cap * 8;
+        var remain = maxbits - len(bb); if (remain > 4) { remain = 4; }
+        type.bits_put(bb, 0, remain);
+        while ((len(bb) % 8) != 0) { bb.push(0); }
+        var data = type.bits_to_bytes(bb);
+        while (len(data) < cap) { data.push(0xEC); if (len(data) < cap) { data.push(0x11); } }
+        # EC-Bytes generieren
+        var ecdeg = type.ec_degree(v, ec);
+        var gen = type.rs_generator(ecdeg);
+        var padded = type.clone_arr(data);
+        var k = 0; while (k < ecdeg) { padded.push(0); k = k + 1; }
+        var rem = type.poly_mod(padded, gen);
+        # finale Codewords (nur 1 Block bei V1/V2)
+        var all = []; i = 0; while (i < len(data)) { all.push(data[i]); i = i + 1; }
+        i = 0; while (i < ecdeg) { all.push(rem[i]); i = i + 1; }
+        return all;
+    }
+
+    # ---------- Matrix & Funktionselemente (generisch) ----------
+    static func new_matrix(n) { var m = []; var r = 0; while (r < n) { var row = []; var c = 0; while (c < n) { row.push(-1); c = c + 1; } m.push(row); r = r + 1; } return m; }
+    static func set_fun_white(m, r, c) { m[r][c] = 2; } static func set_fun_black(m, r, c) { m[r][c] = 3; }
+
+    static func draw_finder_at(m, r0, c0) {
+        var dr = 0; while (dr < 7) { var dc = 0; while (dc < 7) {
+            var rr = r0 + dr; var cc = c0 + dc; var on = 0;
+            if (dr == 0 || dr == 6 || dc == 0 || dc == 6) { on = 1; }
+            if ((dr >= 2 && dr <= 4) && (dc >= 2 && dc <= 4)) { on = 1; }
+            if (on == 1) { type.set_fun_black(m, rr, cc); } else { type.set_fun_white(m, rr, cc); }
+            dc = dc + 1; } dr = dr + 1; }
+    }
+    static func draw_separators(n, m) {
+        var i = 0;
+        # rechts vom TL-Finder
+        while (i < 8) { type.set_fun_white(m, i, 7); i = i + 1; }
+        # unter TL-Finder
+        i = 0; while (i < 8) { type.set_fun_white(m, 7, i); i = i + 1; }
+        # links vom TR-Finder
+        i = 0; while (i < 8) { type.set_fun_white(m, i, n - 8); i = i + 1; }
+        # unter TR-Finder
+        i = 0; while (i < 8) { type.set_fun_white(m, 7, (n - 8) + i); i = i + 1; }
+        # rechts vom BL-Finder
+        i = 0; while (i < 8) { type.set_fun_white(m, (n - 8) + i, 7); i = i + 1; }
+        # oberhalb BL-Finder
+        i = 0; while (i < 8) { type.set_fun_white(m, n - 8, i); i = i + 1; }
+    }
+    static func draw_timing(n, m) {
+        var i = 8; while (i <= n - 9) {
+            if ((i % 2) == 0) { type.set_fun_black(m, 6, i); } else { type.set_fun_white(m, 6, i); }
+            if ((i % 2) == 0) { type.set_fun_black(m, i, 6); } else { type.set_fun_white(m, i, 6); }
+            i = i + 1;
+        }
+    }
+    static func draw_dark_module(n, m) { type.set_fun_black(m, 8, n - 8); }  # stets (8, 4*v + 9) == (8, n-8)
+
+    static func reserve_format(n, m) {
+        var i = 0; while (i < 9) {
+            if (i != 6) {
+                if (m[8][i] == -1) { m[8][i] = -2; }
+                if (m[i][8] == -1) { m[i][8] = -2; }
+            }
+            i = i + 1;
+        }
+        i = 0; while (i < 8) {
+            if (m[8][(n - 1) - i] == -1) { m[8][(n - 1) - i] = -2; }
+            if (m[(n - 1) - i][8] == -1) { m[(n - 1) - i][8] = -2; }
+            i = i + 1;
+        }
+    }
+
+    static func draw_alignment_v2(m) {
+        # Zentren lt. Tabelle: {6, 18}; im Überschneidungsfall mit Findern/Separatoren nicht setzen
+        var centers = [6, 18];
+        var ri = 0; while (ri < len(centers)) {
+            var ci = 0; while (ci < len(centers)) {
+                var r = centers[ri]; var c = centers[ci];
+                if (m[r][c] == -1) {  # nur setzen, wenn Fläche frei
+                    var dr = -2; while (dr <= 2) {
+                        var dc = -2; while (dc <= 2) {
+                            var rr = r + dr; var cc = c + dc;
+                            var on = 0;
+                            if (dr == 0 && dc == 0) { on = 1; }            # Zentrum dunkel
+                            else if (dr == -2 || dr == 2 || dc == -2 || dc == 2) { on = 1; } # Außenring dunkel
+                            else { on = 0; }                                # Innenring hell
+                            if (on == 1) { type.set_fun_black(m, rr, cc); } else { type.set_fun_white(m, rr, cc); }
+                            dc = dc + 1;
+                        }
+                        dr = dr + 1;
+                    }
+                }
+                ci = ci + 1;
+            }
+            ri = ri + 1;
+        }
+    }
+
+    static func place_function_patterns(v, m) {
+        var n = type.size_for_version(v);
+        type.draw_finder_at(m, 0, 0);
+        type.draw_finder_at(m, 0, n - 7);
+        type.draw_finder_at(m, n - 7, 0);
+        type.draw_separators(n, m);
+        type.draw_timing(n, m);
+        type.draw_dark_module(n, m);
+        if (v >= 2) { type.draw_alignment_v2(m); }
+        type.reserve_format(n, m);
+    }
+
+    static func is_free(m, r, c) { return m[r][c] == -1; }
+
+    static func place_data(v, m, bits) {
+        var n = type.size_for_version(v);
+        var dirUp = true; var col = n - 1; var idx = 0;
+        while (col > 0) {
+            if (col == 6) { col = col - 1; }
+            var row; if (dirUp) { row = n - 1; } else { row = 0; }
+            while (true) {
+                var c2 = col;
+                while (c2 >= col - 1) {
+                    if (type.is_free(m, row, c2)) {
+                        var bit = 0; if (idx < len(bits)) { bit = bits[idx]; idx = idx + 1; }
+                        m[row][c2] = bit;
+                    }
+                    c2 = c2 - 1;
+                }
+                if (dirUp) { if (row == 0) { dirUp = false; break; } row = row - 1; }
+                else { if (row == n - 1) { dirUp = true; break; } row = row + 1; }
+            }
+            col = col - 2;
+        }
+    }
+
+    # 1/3 = schwarz, 0/2 (sowie negatives) = weiß
+    static func is_black(v) { if (v == 1) { return 1; } if (v == 3) { return 1; } return 0; }
+
+    static func render_console(v, m) {
+        var n = type.size_for_version(v); var quiet = 4;
+        var t = 0; while (t < quiet) { print(type.repeat("  ", n + 2 * quiet)); t = t + 1; }
+        var r = 0; while (r < n) {
+            var line = type.repeat("  ", quiet); var c = 0;
+            while (c < n) { var on = type.is_black(m[r][c]); if (on == 1) { line = line + "██"; } else { line = line + "  "; } c = c + 1; }
+            line = line + type.repeat("  ", quiet); print(line); r = r + 1;
+        }
+        var b = 0; while (b < quiet) { print(type.repeat("  ", n + 2 * quiet)); b = b + 1; }
+    }
+
+    # ---------- Auto-Logik V1/V2 ----------
+    static func choose_ec_for_version(v, n_bytes) {
+        if (n_bytes <= type.data_bytes(v, "H")) { return "H"; }
+        if (n_bytes <= type.data_bytes(v, "Q")) { return "Q"; }
+        if (n_bytes <= type.data_bytes(v, "M")) { return "M"; }
+        if (n_bytes <= type.data_bytes(v, "L")) { return "L"; }
+        return "";
+    }
+
+    static func qr_auto_console_v1_v2(text) {
+        var nbytes = len(text);
+        var ec = type.choose_ec_for_version(1, nbytes);
+        var version = 1;
+        if (ec == "") {
+            ec = type.choose_ec_for_version(2, nbytes);
+            if (ec == "") {
+                print("Passt nicht in Version 1 oder 2 (Byte-Mode). Höhere Version nötig.");
+                return 1;
+            }
+            version = 2;
+        }
+
+        var cw = type.encode_bytes_with(version, ec, text);
+        var bits = []; var i = 0; while (i < len(cw)) { var b = cw[i]; var k = 7; while (k >= 0) { bits.push((b >> k) & 1); k = k - 1; } i = i + 1; }
+
+        var n = type.size_for_version(version);
+        var m = type.new_matrix(n);
+        type.place_function_patterns(version, m);
+        type.place_data(version, m, bits);
+        type.apply_mask0(m);
+        type.set_format_info(m, n, ec, 0);
+        type.render_console(version, m);
+
+        print("Version: " + version + ", EC: " + ec + ", Modus: BYTE, Nutzdaten-Bytes: " + nbytes);
+    }
+
+    # ---------- Maske 0 ----------
+    static func apply_mask0(m) {
+        var n = len(m);
+        var r = 0; while (r < n) {
+            var c = 0; while (c < n) {
+                var v = m[r][c];
+                if (v == 0 || v == 1) { if (((r + c) % 2) == 0) { m[r][c] = v ^ 1; } }
+                c = c + 1;
+            }
+            r = r + 1;
+        }
+    }
+}
