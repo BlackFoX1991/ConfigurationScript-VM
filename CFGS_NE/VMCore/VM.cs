@@ -2014,6 +2014,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "BIT_AND");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
+                        r = r is char ? CharToNumeric(r) : r;
+                        l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
                             throw new VMException("BIT_AND requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2029,6 +2031,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "BIT_OR");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
+                        r = r is char ? CharToNumeric(r) : r;
+                        l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
                             throw new VMException("BIT_OR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2044,6 +2048,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "BIT_XOR");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
+                        r = r is char ? CharToNumeric(r) : r;
+                        l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
                             throw new VMException("BIT_XOR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2059,6 +2065,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "SHL");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
+                        r = r is char ? CharToNumeric(r) : r;
+                        l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
                             throw new VMException("SHL requires (int|long|uint|ulong) << int", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2075,6 +2083,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "SHR");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
+                        r = r is char ? CharToNumeric(r) : r;
+                        l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
                             throw new VMException("SHR requires (int|long|uint|ulong) >> int", instr.Line, instr.Col, instr.OriginFile);
 

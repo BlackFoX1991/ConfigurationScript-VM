@@ -1,0 +1,9 @@
+import QRTools from "qrCode.cfs";
+while(true)
+{
+	put("Enter your text for QR-Generation : ");
+	var ln = getl();
+	if(ln == "--exit")break;
+	QRTools.qr_auto_console_v1_v2(ln);
+	
+}
