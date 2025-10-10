@@ -615,6 +615,124 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case ForeachStmt fe:
+                    {
+                        string seqNm = $"__fe_seq_{_anonCounter++}";
+                        string keysNm = $"__fe_keys_{_anonCounter++}";
+                        string lenNm = $"__fe_len_{_anonCounter++}";
+                        string idxNm = $"__fe_i_{_anonCounter++}";
+                        string isDictNm = $"__fe_isdict_{_anonCounter++}";
+
+                        CompileExpr(fe.Iterable);
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, seqNm, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.IS_DICT, null, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, isDictNm, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, isDictNm, fe.Line, fe.Col, fe.OriginFile));
+                        int jmpIfNotDict = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "keys", fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, 0, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, keysNm, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, keysNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "len", fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, 0, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, lenNm, fe.Line, fe.Col, fe.OriginFile));
+
+                        int jmpAfterDictInit = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP, null, fe.Line, fe.Col, fe.OriginFile));
+
+                        int notDictAddr = _insns.Count;
+                        _insns[jmpIfNotDict] = new Instruction(OpCode.JMP_IF_FALSE, notDictAddr, fe.Line, fe.Col, fe.OriginFile);
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "len", fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, 0, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, lenNm, fe.Line, fe.Col, fe.OriginFile));
+
+                        int afterInit = _insns.Count;
+                        _insns[jmpAfterDictInit] = new Instruction(OpCode.JMP, afterInit, fe.Line, fe.Col, fe.OriginFile);
+
+                        _insns.Add(new Instruction(OpCode.PUSH_INT, 0, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, idxNm, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
+
+                        int loopStart = _insns.Count;
+                        _breakLists.Push(new List<int>());
+                        _continueLists.Push(new List<int>());
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, lenNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.LT, null, fe.Line, fe.Col, fe.OriginFile));
+                        int jmpIfFalse = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, isDictNm, fe.Line, fe.Col, fe.OriginFile));
+                        int jmpToSeqPath = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, keysNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.SWAP, null, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, keysNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.SWAP, null, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.NEW_ARRAY, 2, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.STORE_VAR, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
+
+                        int jmpAfterSet = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP, null, fe.Line, fe.Col, fe.OriginFile));
+
+                        int seqPathAddr = _insns.Count;
+                        _insns[jmpToSeqPath] = new Instruction(OpCode.JMP_IF_FALSE, seqPathAddr, fe.Line, fe.Col, fe.OriginFile);
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.STORE_VAR, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
+
+                        int afterSet = _insns.Count;
+                        _insns[jmpAfterSet] = new Instruction(OpCode.JMP, afterSet, fe.Line, fe.Col, fe.OriginFile);
+
+                        CompileStmt(fe.Body, insideFunction);
+
+                        int incStart = _insns.Count;
+                        foreach (int k in _continueLists.Peek())
+                            _insns[k] = new Instruction(OpCode.JMP, incStart, fe.Line, fe.Col, fe.OriginFile);
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_INT, 1, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.ADD, null, fe.Line, fe.Col, fe.OriginFile));
+                        _insns.Add(new Instruction(OpCode.STORE_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.JMP, loopStart, fe.Line, fe.Col, fe.OriginFile));
+                        _insns[jmpIfFalse] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, fe.Line, fe.Col, fe.OriginFile);
+
+                        foreach (int br in _breakLists.Peek())
+                            _insns[br] = new Instruction(OpCode.JMP, _insns.Count, fe.Line, fe.Col, fe.OriginFile);
+
+                        _breakLists.Pop();
+                        _continueLists.Pop();
+                        break;
+                    }
+
                 case MatchStmt ms:
                     {
                         CompileExpr(ms.Expression);

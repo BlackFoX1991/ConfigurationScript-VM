@@ -1240,6 +1240,51 @@ namespace CFGS_VM.Analytic
     }
 
     /// <summary>
+    /// Defines the <see cref="ForeachStmt" />
+    /// </summary>
+    public sealed class ForeachStmt : Stmt
+    {
+        /// <summary>
+        /// Gets the VarName
+        /// </summary>
+        public string VarName { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether DeclareLocal
+        /// </summary>
+        public bool DeclareLocal { get; }
+
+        /// <summary>
+        /// Gets the Iterable
+        /// </summary>
+        public Expr Iterable { get; }
+
+        /// <summary>
+        /// Gets the Body
+        /// </summary>
+        public Stmt Body { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ForeachStmt"/> class.
+        /// </summary>
+        /// <param name="varName">The varName<see cref="string"/></param>
+        /// <param name="declareLocal">The declareLocal<see cref="bool"/></param>
+        /// <param name="iterable">The iterable<see cref="Expr"/></param>
+        /// <param name="body">The body<see cref="Stmt"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="origin">The origin<see cref="string"/></param>
+        public ForeachStmt(string varName, bool declareLocal, Expr iterable, Stmt body, int line, int col, string origin)
+            : base(line, col, origin)
+        {
+            VarName = varName;
+            DeclareLocal = declareLocal;
+            Iterable = iterable;
+            Body = body;
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="BreakStmt" />
     /// </summary>
     public class BreakStmt : Stmt

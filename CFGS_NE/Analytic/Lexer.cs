@@ -381,6 +381,8 @@ public class Lexer
                     "from" => MakeToken(TokenType.From, id),
                     "emit" => MakeToken(TokenType.Emit, id),
                     "static" => MakeToken(TokenType.Static, id),
+                    "in" => MakeToken(TokenType.In, id),
+                    "foreach" => MakeToken(TokenType.ForEach, id),
                     _ => MakeToken(TokenType.Ident, id)
                 };
             }

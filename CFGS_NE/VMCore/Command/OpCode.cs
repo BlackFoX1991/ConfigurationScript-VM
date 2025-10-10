@@ -306,6 +306,16 @@
         ROT,
 
         /// <summary>
+        /// Defines the SWAP
+        /// </summary>
+        SWAP,
+
+        /// <summary>
+        /// Defines the IS_DICT
+        /// </summary>
+        IS_DICT,
+
+        /// <summary>
         /// Defines the CALL
         /// </summary>
         CALL,
