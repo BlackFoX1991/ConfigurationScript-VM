@@ -1024,6 +1024,26 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case ConditionalExpr cnd:
+                    {
+                        CompileExpr(cnd.Condition);
+
+                        int jmpIfFalseIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, e.Line, e.Col, e.OriginFile));
+
+                        CompileExpr(cnd.ThenExpr);
+
+                        int jmpEndIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP, null, e.Line, e.Col, e.OriginFile));
+
+                        _insns[jmpIfFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, e.Line, e.Col, e.OriginFile);
+
+                        CompileExpr(cnd.ElseExpr);
+
+                        _insns[jmpEndIdx] = new Instruction(OpCode.JMP, _insns.Count, e.Line, e.Col, e.OriginFile);
+                        break;
+                    }
+
                 default:
                     throw new CompilerException($"unknown expr type {e?.GetType().Name}", e?.Line ?? -1, e?.Col ?? -1, e?.OriginFile ?? "");
             }

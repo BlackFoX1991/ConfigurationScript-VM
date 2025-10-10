@@ -433,6 +433,7 @@ public class Lexer
                 '!' => MakeToken(TokenType.Not, "!"),
                 '.' => MakeToken(TokenType.Dot, "."),
                 '~' => MakeToken(TokenType.Range, "~"),
+                '?' => MakeToken(TokenType.Question, "?"),
                 _ => throw new LexerException($"unknown character in input: '{c}'", _line, _col, FileName)
             };
         }

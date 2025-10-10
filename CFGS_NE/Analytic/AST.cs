@@ -1091,6 +1091,44 @@ namespace CFGS_VM.Analytic
     }
 
     /// <summary>
+    /// Defines the <see cref="ConditionalExpr" />
+    /// </summary>
+    public class ConditionalExpr : Expr
+    {
+        /// <summary>
+        /// Gets the Condition
+        /// </summary>
+        public Expr Condition { get; }
+
+        /// <summary>
+        /// Gets the ThenExpr
+        /// </summary>
+        public Expr ThenExpr { get; }
+
+        /// <summary>
+        /// Gets the ElseExpr
+        /// </summary>
+        public Expr ElseExpr { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ConditionalExpr"/> class.
+        /// </summary>
+        /// <param name="cond">The cond<see cref="Expr"/></param>
+        /// <param name="thenExpr">The thenExpr<see cref="Expr"/></param>
+        /// <param name="elseExpr">The elseExpr<see cref="Expr"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="fname">The fname<see cref="string"/></param>
+        public ConditionalExpr(Expr cond, Expr thenExpr, Expr elseExpr, int line, int col, string fname)
+            : base(line, col, fname)
+        {
+            Condition = cond;
+            ThenExpr = thenExpr;
+            ElseExpr = elseExpr;
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="IfStmt" />
     /// </summary>
     public class IfStmt : Stmt
