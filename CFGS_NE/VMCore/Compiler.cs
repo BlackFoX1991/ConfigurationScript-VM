@@ -761,7 +761,30 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case FuncDeclStmt fd:
-                    break;
+                    {
+                        int jmpOverFuncIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP, null, fd.Line, fd.Col, s.OriginFile));
+
+                        int funcStart = _insns.Count;
+                        string internalName = $"__local_{fd.Name}_{_anonCounter++}";
+                        _functions[internalName] = new FunctionInfo(fd.Parameters, funcStart);
+
+                        if (fd.Body is BlockStmt fb) fb.IsFunctionBody = true;
+                        CompileStmt(fd.Body, insideFunction: true);
+
+                        if (_insns.Count == 0 || _insns[^1].Code != OpCode.RET)
+                        {
+                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fd.Line, fd.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.RET, null, fd.Line, fd.Col, s.OriginFile));
+                        }
+
+                        _insns[jmpOverFuncIdx] = new Instruction(OpCode.JMP, _insns.Count, fd.Line, fd.Col, s.OriginFile);
+
+                        _insns.Add(new Instruction(OpCode.PUSH_CLOSURE, new object[] { funcStart, fd.Name }, fd.Line, fd.Col, s.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, fd.Line, fd.Col, s.OriginFile));
+                        break;
+                    }
+
                 case ReturnStmt rs:
                     if (rs.Value != null) CompileExpr(rs.Value);
                     else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, s.Line, s.Col, s.OriginFile));
