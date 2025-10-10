@@ -211,6 +211,11 @@
         For,
 
         /// <summary>
+        /// Defines the ForEach
+        /// </summary>
+        ForEach,
+
+        /// <summary>
         /// Defines the Break
         /// </summary>
         Break,
@@ -239,6 +244,11 @@
         /// Defines the Default
         /// </summary>
         Default,
+
+        /// <summary>
+        /// Defines the In
+        /// </summary>
+        In,
 
         /// <summary>
         /// Defines the Null

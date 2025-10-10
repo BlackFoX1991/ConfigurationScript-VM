@@ -340,6 +340,7 @@ namespace CFGS_VM.Analytic
                 TokenType.Class => ParseClassDecl(),
                 TokenType.Enum => ParseEnumDecl(),
                 TokenType.Emit => ParseEmitStmt,
+                TokenType.ForEach => ParseForeach(),
 
                 _ => ParseExprStmt
             };
@@ -1183,6 +1184,46 @@ namespace CFGS_VM.Analytic
             Eat(TokenType.RParen);
             BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
             return new WhileStmt(cond, body, _current.Line, _current.Column, _current.Filename);
+        }
+
+        /// <summary>
+        /// The ParseForeach
+        /// </summary>
+        /// <returns>The <see cref="Stmt"/></returns>
+        private Stmt ParseForeach()
+        {
+            int line = _current.Line;
+            int col = _current.Column;
+
+            Eat(TokenType.ForEach);
+            Eat(TokenType.LParen);
+
+            bool declare = false;
+            string name;
+
+            if (_current.Type == TokenType.Var)
+            {
+                declare = true;
+                Eat(TokenType.Var);
+            }
+
+            if (_current.Type != TokenType.Ident)
+                throw new ParserException("expected identifier after 'foreach('", line, col, _current.Filename);
+
+            name = _current.Value.ToString() ?? "";
+            Eat(TokenType.Ident);
+
+            if (_current.Type != TokenType.In)
+                throw new ParserException("expected 'in' in foreach", _current.Line, _current.Column, _current.Filename);
+            Eat(TokenType.In);
+
+            Expr iterable = Expr();
+
+            Eat(TokenType.RParen);
+
+            Stmt body = ParseEmbeddedBlockOrSingleStatement();
+
+            return new ForeachStmt(name, declare, iterable, body, line, col, _current.Filename);
         }
 
         /// <summary>

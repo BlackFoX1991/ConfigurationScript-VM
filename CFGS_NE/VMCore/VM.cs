@@ -1401,13 +1401,20 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is null) break;
                         int dcount = (int)instr.Operand;
                         RequireStack(dcount * 2, instr, "NEW_DICT");
-                        Dictionary<string, object> dict = new();
-                        for (int i = 0; i < dcount; i++)
+
+                        (string key, object val)[] pairs = new (string key, object val)[dcount];
+                        for (int i = dcount - 1; i >= 0; i--)
                         {
                             object value = _stack.Pop();
                             object key = _stack.Pop();
-                            dict[key?.ToString() ?? "null"] = value;
+                            string sk = key?.ToString() ?? "null";
+                            pairs[i] = (sk, value);
                         }
+
+                        Dictionary<string, object> dict = new(dcount);
+                        for (int i = 0; i < dcount; i++)
+                            dict[pairs[i].key] = pairs[i].val;
+
                         _stack.Push(dict);
                         break;
                     }
@@ -1449,6 +1456,26 @@ namespace CFGS_VM.VMCore
                         _stack.Push(b);
                         _stack.Push(a);
                         _stack.Push(c);
+                        break;
+                    }
+                case OpCode.SWAP:
+                    {
+                        RequireStack(2, instr, "SWAP");
+
+                        object a = _stack.Pop();
+                        object b = _stack.Pop();
+                        _stack.Push(a);
+                        _stack.Push(b);
+                        break;
+                    }
+
+                case OpCode.IS_DICT:
+                    {
+                        if (_stack.Count < 1)
+                            throw new VMException("Stack underflow in IS_DICT", instr.Line, instr.Col, instr.OriginFile);
+
+                        object v = _stack.Pop();
+                        _stack.Push(v is Dictionary<string, object>);
                         break;
                     }
 
@@ -3631,7 +3658,14 @@ namespace CFGS_VM.VMCore
                         string key = idxObj?.ToString() ?? "";
 
                         if (string.Equals(key, "name", StringComparison.Ordinal))
-                            return en.EnumName;
+                        {
+                            return new IntrinsicBound(new IntrinsicMethod("name", 0, 1, (recv, args, ins) =>
+                            {
+                                if (args.Count == 0) return en.EnumName;
+                                string m = args[0]?.ToString() ?? "";
+                                return (from sk in en.Values where sk.Value == (int)args[0] select sk.Key).FirstOrDefault() ?? "null";
+                            }), en);
+                        }
                         if (string.Equals(key, "contains", StringComparison.Ordinal))
                         {
                             return new IntrinsicBound(new IntrinsicMethod("contains", 1, 1, (recv, args, ins) =>
