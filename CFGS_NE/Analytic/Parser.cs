@@ -1218,7 +1218,35 @@ namespace CFGS_VM.Analytic
         /// The Expr
         /// </summary>
         /// <returns>The <see cref="Expr"/></returns>
-        private Expr Expr() => Or();
+        private Expr Expr() => Conditional();
+
+        /// <summary>
+        /// The Conditional
+        /// </summary>
+        /// <returns>The <see cref="Expr"/></returns>
+        private Expr Conditional()
+        {
+            Expr condition = Or();
+
+            if (_current.Type == TokenType.Question)
+            {
+                int line = _current.Line;
+                int col = _current.Column;
+                string fs = _current.Filename;
+
+                Eat(TokenType.Question);
+
+                Expr thenExpr = Conditional();
+
+                Eat(TokenType.Colon);
+
+                Expr elseExpr = Conditional();
+
+                return new ConditionalExpr(condition, thenExpr, elseExpr, line, col, fs);
+            }
+
+            return condition;
+        }
 
         /// <summary>
         /// The Or
