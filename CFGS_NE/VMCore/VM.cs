@@ -3680,7 +3680,11 @@ namespace CFGS_VM.VMCore
                         throw new VMException($"Runtime error: invalid enum member '{key}' in enum '{en.EnumName}'", instr.Line, instr.Col, instr.OriginFile);
                     }
 
+
+
                 default:
+                    if (idxObj is string defName && TryBindIntrinsic(target, defName, out IntrinsicBound? defbound, instr))
+                        return defbound;
                     throw CreateIndexException(target, idxObj, instr);
             }
         }

@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CFGS_VM", "CFGS_NE\CFGS_VM.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "stdlib", "stdlib\stdlib.csproj", "{C3ABEEB3-7D7B-482A-8C01-C94CCA6FD69B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "cfgsHttp", "cfgsHttp\cfgsHttp.csproj", "{58298762-7D05-4119-B0C4-4E1F6FFE3706}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{C3ABEEB3-7D7B-482A-8C01-C94CCA6FD69B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C3ABEEB3-7D7B-482A-8C01-C94CCA6FD69B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C3ABEEB3-7D7B-482A-8C01-C94CCA6FD69B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{58298762-7D05-4119-B0C4-4E1F6FFE3706}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{58298762-7D05-4119-B0C4-4E1F6FFE3706}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{58298762-7D05-4119-B0C4-4E1F6FFE3706}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{58298762-7D05-4119-B0C4-4E1F6FFE3706}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

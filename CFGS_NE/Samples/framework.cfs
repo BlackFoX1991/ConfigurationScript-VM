@@ -1,0 +1,631 @@
+# ---------- Utilities ----------
+class util
+{
+    static func esc(s) {
+        if (typeof(s) != "String" || s == null) return "";
+        var t = s;
+        t = t.replace("&", "&amp;");
+        t = t.replace("<", "&lt;");
+        t = t.replace(">", "&gt;");
+        t = t.replace("\"", "&quot;");
+        t = t.replace("'", "&#39;");
+        return t;
+    }
+
+    static func qv(q, key, def) {
+        var v = q[key];
+        if (v == null || v == "") return def;
+        return v;
+    }
+
+    static func join(arr, sep) {
+        var out = "";
+        var i = 0;
+        while (i < len(arr)) {
+            if (i > 0) out = out + sep;
+            out = out + arr[i];
+            i = i + 1;
+        }
+        return out;
+    }
+
+    static func is_array(x) { return typeof(x) == "Array"; }
+    static func is_dict(x)  { return typeof(x) == "Dictionary"; }
+
+    static func starts_with(s, prefix) {
+        if (s == null) return false;
+        var n = len(prefix);
+        if (len(s) < n) return false;
+        return s.substr(0, n) == prefix;
+    }
+
+    # --- Whitespace Helpers (nutzt isspace) ---
+    static func trim(s) {
+        if (s == null) return "";
+        var i = 0;
+        var j = len(s);
+        while (i < j && isspace(s.substr(i,1))) { i = i + 1; }
+        while (j > i && isspace(s.substr(j-1,1))) { j = j - 1; }
+        return s.substr(i, j - i);
+    }
+
+    static func is_blank(s) {
+        if (s == null) return true;
+        var k = 0;
+        while (k < len(s)) {
+            if (!isspace(s.substr(k,1))) return false;
+            k = k + 1;
+        }
+        return true;
+    }
+
+    # Alphanum-Token (für evtl. zukünftige Parser)
+    static func is_token_char(c) {
+        if (isalnum(c)) return true;
+        return c == "-" || c == "_" || c == "." || c == "~";
+    }
+
+    static func split_segments(path) {
+        var segs = [];
+        if (path == null) return segs;
+
+        var i = 0;
+        if (len(path) > 0 && path.substr(0,1) == "/") i = 1;
+
+        var cur = "";
+        while (i < len(path)) {
+            var ch = path.substr(i, 1);
+            if (ch == "/") {
+                if (len(cur) > 0) { segs[] = cur; cur = ""; }
+            } else {
+                cur = cur + ch;
+            }
+            i = i + 1;
+        }
+        if (len(cur) > 0) segs[] = cur;
+        return segs;
+    }
+
+    # --- Query & Form parsing ---
+    static func parse_query(qs) {
+        var out = {};
+        if (qs == null || len(qs) == 0) return out;
+        if (util.is_blank(qs)) return out;
+
+        var i = 0;
+        var part = "";
+        while (i <= len(qs)) {
+            var ch = i == len(qs) ? "&" : qs.substr(i,1);
+            if (ch == "&") {
+                if (len(part) > 0) {
+                    var eq = -1;
+                    var j = 0;
+                    while (j < len(part)) {
+                        if (part.substr(j,1) == "=") { eq = j; break; }
+                        j = j + 1;
+                    }
+                    if (eq >= 0) {
+                        var k = urldecode(part.substr(0,eq));
+                        var v = urldecode(part.substr(eq+1, len(part)-(eq+1)));
+                        out[k] = v;
+                    } else {
+                        out[urldecode(part)] = "";
+                    }
+                }
+                part = "";
+            } else {
+                part = part + ch;
+            }
+            i = i + 1;
+        }
+        return out;
+    }
+
+    static func parse_form(req) {
+        # Liefert { fields: dict, files: dict, _raw: string }
+        var ct = req.headers["Content-Type"];
+        if (ct == null) ct = req.headers["content-type"];   # fallback für lowercase
+        var body = req.body == null ? "" : req.body;
+        var res = {"fields":{}, "files":{}, "_raw":body};
+
+        if (ct == null) return res;
+
+        var ct_l = ct;
+        if (ct_l.contains("application/x-www-form-urlencoded")) {
+            res["fields"] = util.parse_query(body);
+            return res;
+        }
+        if (ct_l.contains("text/plain")) {
+            res["fields"]["_text"] = body;
+            return res;
+        }
+        if (ct_l.contains("multipart/form-data")) {
+            var bidx = ct_l.indexOf("boundary=");
+            if (bidx != -1) {
+                var boundary = ct_l.substr(bidx+9, len(ct_l)-(bidx+9));
+                if (len(boundary) > 0) {
+                    var dashb = "--" + boundary;
+                    var parts = [];
+                    var cur = "";
+                    var i = 0;
+                    while (i < len(body)) {
+                        if (i+len(dashb)+2 <= len(body) && body.substr(i,2) == "\r\n" && body.substr(i+2, len(dashb)) == dashb) {
+                            if (len(cur) > 0) { parts[] = cur; cur = ""; }
+                            i = i + 2 + len(dashb);
+                        } else {
+                            cur = cur + body.substr(i,1);
+                            i = i + 1;
+                        }
+                    }
+                    if (len(cur) > 0) parts[] = cur;
+
+                    var fields = {};
+                    var p = 0;
+                    while (p < len(parts)) {
+                        var seg = parts[p];
+                        var pos = -1;
+                        var k2 = 0;
+                        while (k2+3 < len(seg)) {
+                            if (seg.substr(k2,4) == "\r\n\r\n") { pos = k2; break; }
+                            k2 = k2 + 1;
+                        }
+                        if (pos != -1) {
+                            var h = seg.substr(0,pos);
+                            var v = seg.substr(pos+4, len(seg)-(pos+4));
+                            var name = null;
+                            var cdpos = h.indexOf("name=\"");
+                            if (cdpos != -1) {
+                                var s = cdpos + 6;
+                                var e = s;
+                                while (e < len(h) && h.substr(e,1) != "\"") { e = e + 1; }
+                                if (e < len(h)) name = h.substr(s, e-s);
+                            }
+                            if (name != null) {
+                                fields[name] = v;
+                            }
+                        }
+                        p = p + 1;
+                    }
+                    res["fields"] = fields;
+                }
+            }
+            return res;
+        }
+
+        return res;
+    }
+
+    # --- JSON stringify ---
+    static func json_escape_str(s) {
+        var t = s;
+        t = t.replace("\\", "\\\\");
+        t = t.replace("\"", "\\\"");
+        t = t.replace("\n", "\\n");
+        t = t.replace("\r", "\\r");
+        t = t.replace("\t", "\\t");
+        return "\"" + t + "\"";
+    }
+
+    static func to_json(x) {
+        var t = typeof(x);
+        if (t == "null")  return "null";
+        if (t == "Bool")  return x ? "true" : "false";
+        if (t == "Int" || t == "Float") return str(x);
+        if (t == "String") return util.json_escape_str(x);
+        if (t == "Array") {
+            var parts = [];
+            var i = 0;
+            while (i < len(x)) { parts[] = util.to_json(x[i]); i = i + 1; }
+            return "[" + util.join(parts, ",") + "]";
+        }
+        if (t == "Dictionary") {
+            # WICHTIG: keys() AUFRUFEN
+            var keys = x.keys();
+            var i2 = 0;
+            var pairs = [];
+            while (i2 < len(keys)) {
+                var k = keys[i2];
+                var v = x[k];
+                pairs[] = util.json_escape_str(k) + ":" + util.to_json(v);
+                i2 = i2 + 1;
+            }
+            return "{" + util.join(pairs, ",") + "}";
+        }
+        return util.json_escape_str(str(x));
+    }
+
+    # --- Hashing (32-bit, DJB2-Stil über URL-kodierte Bytes) + ETag ---
+    static func _hex_val(c) {
+        var m = {
+            "0":0,"1":1,"2":2,"3":3,"4":4,"5":5,"6":6,"7":7,"8":8,"9":9,
+            "a":10,"b":11,"c":12,"d":13,"e":14,"f":15,
+            "A":10,"B":11,"C":12,"D":13,"E":14,"F":15
+        };
+        var v = m[c];
+        return v == null ? 0 : v;
+    }
+
+    static func hash32(s) {
+        if (s == null) return 0;
+        var enc = urlencode(s);
+        var i = 0;
+        var h = 5381;
+        while (i < len(enc)) {
+            var ch = enc.substr(i,1);
+            var b = 0;
+            if (ch == "%") {
+                if (i + 2 < len(enc)) {
+                    var h1 = util._hex_val(enc.substr(i+1,1));
+                    var h2 = util._hex_val(enc.substr(i+2,1));
+                    b = h1 * 16 + h2;
+                    i = i + 3;
+                } else {
+                    i = i + 1;
+                    continue;
+                }
+            } else {
+                b = ch[0] & 0xFF;
+                i = i + 1;
+            }
+            h = ((h << 5) + h) + b;     # h = h*33 + b
+            h = h & 0xFFFFFFFF;         # 32-bit mask
+        }
+        return h;
+    }
+
+    static func etag_for(s) {
+        var h = util.hash32(str(s));
+        var hex = "";
+        var n = 0;
+        while (n < 8) {
+            var nibble = (h >> ((7 - n) * 4)) & 0xF;
+            var digits = "0123456789abcdef";
+            hex = hex + digits.substr(nibble,1);
+            n = n + 1;
+        }
+        return "\"" + str(len(str(s))) + "-" + hex + "\"";
+    }
+}
+
+# ---------- VNode & DOM ----------
+class vnode
+{
+    var tag;
+    var props;
+    var children;
+
+    func init(tag, props, children) {
+        this.tag = tag;
+        this.props = props == null ? {} : props;
+        if (children == null) {
+            this.children = [];
+        } else if (typeof(children) == "Array") {
+            this.children = children;
+        } else {
+            this.children = [ children ];
+        }
+    }
+}
+
+class dom
+{
+    static func h(tag, props, children) {
+        return new vnode(tag, props, children);
+    }
+
+    static func _render_props(p) {
+        if (p == null) return "";
+        var out = "";
+        var keys = [
+            "id","class","href","style","title","rel","target",
+            "type","name","value","for","role","aria-label",
+            "action","method","rows","cols","placeholder","enctype",
+            "accept","autocomplete","min","max","step","checked","selected","disabled"
+        ];
+        var i = 0;
+        while (i < len(keys)) {
+            var k = keys[i];
+            var v = p[k];
+            if (v != null && v != false) {
+                out = out + " " + k + "=\"" + util.esc(v) + "\"";
+            }
+            i = i + 1;
+        }
+        return out;
+    }
+
+    static func _render_child(c) {
+        if (c == null) return "";
+        var t = typeof(c);
+
+        if (t == "String" || t == "Int" || t == "Float" || t == "Bool") {
+            return util.esc(str(c));
+        }
+        if (util.is_array(c)) {
+            var parts = [];
+            var i = 0;
+            while (i < len(c)) { parts[] = dom._render_child(c[i]); i = i + 1; }
+            return util.join(parts, "");
+        }
+        if (t == "vnode") {
+            return dom.render(c);
+        }
+        return "";
+    }
+
+    static func render(node) {
+        if (node == null) return "";
+
+        var tt = typeof(node);
+        if (tt == "String" || tt == "Int" || tt == "Float" || tt == "Bool") {
+            return util.esc(str(node));
+        }
+        var open = "<" + node.tag + dom._render_props(node.props) + ">";
+        var inner = "";
+        var i = 0;
+        while (i < len(node.children)) {
+            inner = inner + dom._render_child(node.children[i]);
+            i = i + 1;
+        }
+        var close = "</" + node.tag + ">";
+        return open + inner + close;
+    }
+}
+
+# ---------- HTML Shell ----------
+class html
+{
+    static var CSS =
+":root{--bg:#0b1020;--panel:#121a33;--ink:#e7ebff;--muted:#a9b1d6;--brand:#8ab4ff;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--border:#1f2a4a}" +
+"*,*::before,*::after{box-sizing:border-box}" +
+"html,body{height:100%}" +
+"body{margin:0;background:radial-gradient(1200px 800px at 20% -10%,#12214a,transparent),radial-gradient(900px 600px at 120% 30%,#191f3d,transparent),var(--bg);color:var(--ink);font:15px/1.6 system-ui,Segoe UI,Roboto,Ubuntu,sans-serif}" +
+"a{color:var(--brand);text-decoration:none}a:hover{text-decoration:underline}" +
+".wrap{max-width:920px;margin:32px auto;padding:0 20px}" +
+".hero{display:flex;gap:16px;align-items:center}" +
+".badge{padding:2px 8px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}" +
+".panel{margin-top:16px;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.00));border:1px solid var(--border);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);overflow:hidden}" +
+".panel .hd{display:flex;gap:8px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border);color:var(--muted)}" +
+".dot{width:10px;height:10px;border-radius:50%}" +
+".dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.err{background:var(--err)}" +
+".content{padding:18px}" +
+"ul.routes{margin:0;padding-left:18px}" +
+"code{background:#0f1732;border:1px solid var(--border);padding:2px 6px;border-radius:8px;color:#dbe4ff}" ;
+
+    static func page(title, body_html) {
+        var head =
+            "<meta charset='utf-8'>" +
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
+            "<title>" + util.esc(title) + "</title>" +
+            "<style>" + html.CSS + "</style>";
+        return "<!doctype html><html><head>" + head + "</head><body>" + body_html + "</body></html>";
+    }
+}
+
+# ---------- BaseView mit Slots ----------
+class BaseView()
+{
+    static var site_name = "CFGS_HTTP Demo";
+    var local_note;
+
+    func init() { this.local_note = ""; }
+
+    func title()   { return type.site_name; }
+    func heading() { return ""; }
+
+    func nav() { 
+        return dom.h("p", {"class":"muted"}, ""); 
+    }
+    func content(props) { return []; }
+    func footer() { 
+        return dom.h("p", {"style":"color:#a9b1d6"}, "© CFGS Demo"); 
+    }
+
+    func layout(inner) {
+        var body = dom.h("div", {"class":"wrap"}, [
+            dom.h("div", {"class":"hero"}, [
+                dom.h("h1", null, type.site_name),
+                dom.h("span", {"class":"badge"}, "mini-framework")
+            ]),
+            dom.h("div", {"class":"panel"}, [
+                dom.h("div", {"class":"hd"}, [
+                    dom.h("div", {"class":"dot ok"}, ""),
+                    dom.h("div", {"class":"dot warn"}, ""),
+                    dom.h("div", {"class":"dot err"}, ""),
+                    dom.h("span", null, this.heading())
+                ]),
+                dom.h("div", {"class":"content"}, [
+                    this.nav(),
+                    inner,
+                    dom.h("hr", {"style":"border-color:#1f2a4a"}, ""),
+                    this.footer()
+                ])
+            ])
+        ]);
+        return html.page(this.title(), dom.render(body));
+    }
+
+    func render(props) { return this.layout(this.content(props)); }
+}
+
+# ---------- Router ----------
+class route
+{
+    var method;
+    var pattern;
+    var segs;
+    var handler;
+    var has_wild;
+
+    func init(method, pattern, handler) {
+        this.method = method;
+        this.pattern = pattern;
+        this.handler = handler;
+        this.segs = util.split_segments(pattern);
+        this.has_wild = (len(this.segs) > 0 && this.segs[len(this.segs)-1] == "*");
+    }
+}
+
+class router
+{
+    var rs;
+
+    func init() { this.rs = []; }
+
+    func add(method, pattern, handler) {
+        this.rs[] = new route(method, pattern, handler);
+        return this;
+    }
+
+    func _segs_ok(pat, path) {
+        if (pat.has_wild) {
+            return len(util.split_segments(path)) >= (len(pat.segs) - 1);
+        } else {
+            return len(util.split_segments(path)) == len(pat.segs);
+        }
+    }
+
+    func matches_route(pat, path, outParams) {
+        if (!this._segs_ok(pat, path)) return false;
+
+        var p = util.split_segments(path);
+        var i = 0;
+        while (i < len(pat.segs)) {
+            var want = pat.segs[i];
+            if (want == "*") { return true; }
+            var got = i < len(p) ? p[i] : "";
+            if (len(want) > 0 && want.substr(0,1) == ":") {
+                var key = want.substr(1, len(want)-1);
+                outParams[key] = got;
+            } else if (want != got) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    func handle(req) {
+        var i = 0;
+        while (i < len(this.rs)) {
+            var r = this.rs[i];
+            if (r.method == req.method) {
+                var params = {};
+                if (this.matches_route(r, req.path, params)) {
+                    req.params = params;
+                    return r.handler(req);
+                }
+            }
+            i = i + 1;
+        }
+        return null; # app kümmert sich um 404-Page
+    }
+}
+
+# ---------- App mit Middleware & Static ----------
+class app()
+{
+    var r;
+    var befores;     
+    var afters;      
+    var static_prefix;
+    var static_loader;  
+    var static_max_age;
+
+    func init() {
+        this.r = new router();
+        this.befores = [];
+        this.afters = [];
+        this.static_prefix = "/static/";
+        this.static_loader = null;
+        this.static_max_age = 3600; # 1h
+    }
+
+    func use_before(f) { this.befores[] = f; return this; }
+    func use_after(f)  { this.afters[]  = f; return this; }
+
+    func serve_static_with(prefix, loader_func, max_age) {
+        this.static_prefix = prefix;
+        this.static_loader = loader_func;
+        this.static_max_age = max_age;
+        return this;
+    }
+
+    func get(pattern, handler)  { this.r.add("GET",  pattern, handler); return this; }
+    func post(pattern, handler) { this.r.add("POST", pattern, handler); return this; }
+
+    static func respond_redirect(status, location) {
+        return {
+            "status": status,
+            "headers": {
+                "Location": location,
+                "Content-Type": "text/html; charset=utf-8",
+                "Cache-Control": "no-store"
+            },
+            "body": "<!doctype html><meta http-equiv='refresh' content='0;url="+util.esc(location)+"'>Redirecting…"
+        };
+    }
+
+    static func respond_json(value) {
+        return {
+            "status": 200,
+            "headers": {"Content-Type":"application/json; charset=utf-8"},
+            "body": util.to_json(value)
+        };
+    }
+
+    static func not_found(req) {
+        var v = new NotFoundPage(req.path);
+        return {"status":404, "headers":{"Content-Type":"text/html; charset=utf-8"}, "body": v.render({})};
+    }
+
+    static func error_500(msg) {
+        var v = new ErrorPage(msg);
+        return {"status":500, "headers":{"Content-Type":"text/html; charset=utf-8"}, "body": v.render({})};
+    }
+
+    func _try_static(req) {
+        if (req.method != "GET") return null;
+        if (this.static_loader == null) return null;
+        if (!util.starts_with(req.path, this.static_prefix)) return null;
+
+        var rel = req.path.substr(len(this.static_prefix), len(req.path)-len(this.static_prefix));
+        var hit = this.static_loader(rel);
+        if (hit == null) return null;
+
+        var ct = hit["content_type"] == null ? "application/octet-stream" : hit["content_type"];
+        var etag = util.etag_for(hit["data"]);
+        var hdrs = {
+            "Content-Type": ct,
+            "Cache-Control": "public, max-age=" + str(this.static_max_age),
+            "ETag": etag
+        };
+        return {"status":200, "headers":hdrs, "body":hit["data"]};
+    }
+
+    func serve_req(req) {
+        var i = 0;
+        while (i < len(this.befores)) {
+            var res0 = this.befores[i](req);
+            if (res0 != null) return res0;
+            i = i + 1;
+        }
+
+        var st = this._try_static(req);
+        if (st != null) { 
+            var j = 0;
+            while (j < len(this.afters)) { st = this.afters[j](req, st); j = j + 1; }
+            return st; 
+        }
+
+        var res = this.r.handle(req);
+        if (res == null) res = type.not_found(req);
+
+        var k = 0;
+        while (k < len(this.afters)) {
+            res = this.afters[k](req, res);
+            k = k + 1;
+        }
+        return res;
+    }
+}

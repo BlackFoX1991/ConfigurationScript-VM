@@ -1,0 +1,191 @@
+# CFGS HTTP Sample
+
+var PORT = 8080;
+
+func html(body) {
+    return "<!doctype html><html lang='de'><head>"
+        + "<meta charset='utf-8'>"
+        + "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        + "<title>CFGS_HTTP Demo</title>"
+        + "<style>"
+        + ":root{--bg:#0f1226;--card:#171a36;--muted:#8a91b4;--text:#e7e9ff;--acc:#7c5cff;--acc2:#2dd4bf;--ok:#22c55e;--err:#ef4444;--bd:rgba(255,255,255,.08)}"
+        + "*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:radial-gradient(1200px 700px at 20% -10%,#1d2250 0%,transparent 60%),radial-gradient(1000px 600px at 120% 20%,#1a2a3f 0%,transparent 55%),var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial}"
+        + "a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}"
+        + ".wrap{max-width:1100px;margin:0 auto;padding:28px}"
+        + "header{display:flex;align-items:center;gap:14px;margin:6px 0 22px}"
+        + ".logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(145deg,var(--acc),#5b4df2);display:grid;place-items:center;color:white;font-weight:700}"
+        + "h1{margin:0;font-size:1.45rem} .sub{color:var(--muted)}"
+        + ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}"
+        + ".card{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));border:1px solid var(--bd);border-radius:18px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}"
+        + ".card h3{margin:0 0 8px;font-size:1.05rem}"
+        + ".muted{color:var(--muted);margin:0 0 10px}"
+        + ".row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}"
+        + "input,select,textarea{width:100%;padding:10px;border-radius:12px;border:1px solid var(--bd);background:#0f1330;color:var(--text);outline:none}"
+        + "textarea{min-height:100px;resize:vertical}"
+        + ".btn{appearance:none;border:1px solid var(--bd);background:linear-gradient(180deg,#262a56,#1c2048);color:#fff;padding:10px 14px;border-radius:12px;font-weight:600;cursor:pointer}"
+        + ".btn:hover{filter:brightness(1.1)}"
+        + ".btn.ghost{background:transparent}"
+        + ".badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--bd);color:var(--muted);font-size:.85rem}"
+        + "pre{margin:10px 0 0;background:#0b1030;border:1px solid var(--bd);border-radius:12px;padding:12px;max-height:220px;overflow:auto}"
+        + ".ok{color:var(--ok)} .err{color:var(--err)}"
+        + "footer{margin-top:26px;color:var(--muted);font-size:.9rem}"
+        + "</style>"
+        + "</head><body><div class='wrap'>"
+        + body
+        + "</div>"
+        + "<script>"
+        + "function qsel(id){return document.getElementById(id)};"
+        + "async function doFetch(url,opts){"
+        + "  const out=qsel('out'); out.textContent='Lade...';"
+        + "  try{const r=await fetch(url,opts||{});"
+        + "      const ct=r.headers.get('content-type')||'';"
+        + "      const txt=await r.text();"
+        + "      out.innerText='Status: '+r.status+' '+r.statusText+'\\nContent-Type: '+ct+'\\n\\n'+txt;"
+        + "  }catch(e){out.innerText='Fehler: '+e}"
+        + "}"
+        + "function goEcho(){"
+        + "  const name=encodeURIComponent(qsel('name').value||'Stranger');"
+        + "  location.href='/echo?name='+name;"
+        + "}"
+        + "async function goAdd(){"
+        + "  const a=encodeURIComponent(qsel('a').value||'0');"
+        + "  const b=encodeURIComponent(qsel('b').value||'0');"
+        + "  await doFetch('/add?a='+a+'&b='+b)"
+        + "}"
+        + "async function goMirror(){"
+        + "  const body=qsel('mirror_body').value||'';"
+        + "  const ct=qsel('ctype').value||'text/plain; charset=utf-8';"
+        + "  await doFetch('/mirror',{method:'POST',headers:{'Content-Type':ct,'_ctype':ct},body:body});"
+        + "}"
+        + "async function goGetbin(){await doFetch('/getbin')}"
+        + "</script>"
+        + "</body></html>";
+}
+
+func home() {
+    return ""
+    + "<header>"
+    + "  <div class='logo'>C</div>"
+    + "  <div><h1>CFGS_HTTP Demo</h1><div class='sub'>Kleine Sammlung von Routen &amp; Tools</div></div>"
+    + "  <div style='margin-left:auto' class='badge'>localhost:" + str(PORT) + "</div>"
+    + "</header>"
+
+    + "<div class='grid'>"
+
+    + "  <section class='card'>"
+    + "    <h3>Übersicht</h3>"
+    + "    <p class='muted'>Klicke eine Route oder nutze die Formulare. Ergebnisse erscheinen unten im <code>Response</code>.</p>"
+    + "    <div class='row'>"
+    + "      <a class='btn ghost' href='/echo?name=World'>/echo?name=World</a>"
+    + "      <a class='btn ghost' href='/add?a=7&b=5'>/add?a=7&b=5</a>"
+    + "      <button class='btn ghost' onclick='goGetbin()'>/getbin (Proxy)</button>"
+    + "    </div>"
+    + "  </section>"
+
+    + "  <section class='card'>"
+    + "    <h3>/echo</h3>"
+    + "    <p class='muted'>Einfacher Text-Echo via <code>GET</code>.</p>"
+    + "    <div class='row'><input id='name' placeholder='Name eingeben (Default: Stranger)'></div>"
+    + "    <div class='row'><button class='btn' onclick='goEcho()'>Aufrufen</button></div>"
+    + "  </section>"
+
+    + "  <section class='card'>"
+    + "    <h3>/add</h3>"
+    + "    <p class='muted'>Addiert zwei Zahlen und liefert JSON.</p>"
+    + "    <div class='row'><input id='a' type='number' placeholder='a'><input id='b' type='number' placeholder='b'></div>"
+    + "    <div class='row'><button class='btn' onclick='goAdd()'>Berechnen</button></div>"
+    + "  </section>"
+
+    + "  <section class='card'>"
+    + "    <h3>/mirror</h3>"
+    + "    <p class='muted'>Spiegelt den Request-Body. Content-Type frei wählbar.</p>"
+    + "    <div class='row'><select id='ctype'>"
+    + "      <option>text/plain; charset=utf-8</option>"
+    + "      <option>application/json</option>"
+    + "      <option>text/html; charset=utf-8</option>"
+    + "    </select></div>"
+    + "    <div class='row'><textarea id='mirror_body' placeholder='Body...'>{\"msg\":\"Hallo vom /mirror\"}</textarea></div>"
+    + "    <div class='row'><button class='btn' onclick='goMirror()'>POST /mirror</button></div>"
+    + "  </section>"
+
+    + "</div>"
+
+    + "<section class='card' style='margin-top:16px'>"
+    + "  <h3>Response</h3>"
+    + "  <p class='muted'>Ausgabe der letzten Anfrage (Status, Content-Type &amp; Body):</p>"
+    + "  <pre id='out'>Noch keine Anfrage ausgeführt.</pre>"
+    + "</section>"
+
+    + "<footer>CFGS_HTTP • Demo UI • dot-Style Intrinsics</footer>";
+}
+
+func qv(q, key, def) {
+    var val = q[key];
+    if (val == null || val == "") return def;
+    return val;
+}
+
+print("Starte Server auf http://localhost:" + str(PORT) + "/");
+var srv = http_server(PORT).start();   # dot-style start()
+
+# Demo Client
+var r_get = http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"});
+print("GET status: " + str(r_get.status) + " " + r_get.reason);
+
+var r_post = http_post("https://httpbin.org/post", "{\"msg\":\"Hallo\"}", {"Content-Type":"application/json"});
+print("POST status: " + str(r_post.status));
+
+var enc = urlencode("a b&c=1");
+var dec = urldecode(enc);
+print("urlencode/urldecode: " + enc + " -> " + dec);
+
+# Loop
+while (srv.is_running()) {
+    var req = srv.poll(1000);
+    if (req == null) {
+        put("");
+    } else {
+        var method = req.method;
+        var path = req.path;
+        var q = req.query;
+
+        if (method == "GET" && path == "/") {
+            var body = html(home());
+            srv.respond(req.id, 200, body, {"Content-Type":"text/html; charset=utf-8"});
+        }
+        else if (method == "GET" && path == "/exit"){
+            break;
+        }
+        else if (method == "GET" && path == "/echo") {
+            var name = qv(q, "name", "Stranger");
+            var msg = "Hello, " + name + "!";
+            srv.respond(req.id, 200, msg, {"Content-Type":"text/plain; charset=utf-8"});
+        }
+        else if (method == "GET" && path == "/add") {
+            var a = toi32(qv(q, "a", "0"));
+            var b = toi32(qv(q, "b", "0"));
+            var sum = a + b;
+            var body = "{\"a\":" + str(a) + ",\"b\":" + str(b) + ",\"sum\":" + str(sum) + "}";
+            srv.respond(req.id, 200, body, {"Content-Type":"application/json"});
+        }
+        else if (method == "POST" && path == "/mirror") {
+            var ctype = q.contains("_ctype") ? q["_ctype"] : "text/plain; charset=utf-8";
+            srv.respond(req.id, 200, req.body, {"Content-Type":ctype});
+        }
+        else if (method == "GET" && path == "/getbin") {
+            var r = http_get("https://httpbin.org/uuid");
+            if (r.status == 200) {
+                srv.respond(req.id, 200, r.body, {"Content-Type":"application/json"});
+            } else {
+                srv.respond(req.id, 502, "{\"error\":\"upstream\"}", {"Content-Type":"application/json"});
+            }
+        }
+        else {
+            srv.respond(req.id, 404, "Not Found", {"Content-Type":"text/plain; charset=utf-8"});
+        }
+    }
+}
+
+srv.stop();
+srv.close();
+print("Server beendet.");
