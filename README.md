@@ -156,7 +156,7 @@ Dictionaries map string keys to values.
 ### Intrinsics (methods)
 
 - `d.len()` → number of keys  
-- `d.has(key)` → boolean existence  
+- `d.contains(key)` → boolean existence  
 - `d.remove(key)` → remove by key, returns true/false  
 - `d.keys()` → array of keys  
 - `d.values()` → array of values  
@@ -168,7 +168,7 @@ Dictionaries map string keys to values.
 ```cfs
 var settings = {"volume": 70, "theme": "dark"};
 
-print(settings.has("volume"));  # true
+print(settings.contains("volume"));  # true
 print(settings.len());          # 2
 
 settings.set("theme", "light");
@@ -234,7 +234,8 @@ s = s[~1] + s[3~];  # drop index 1..2 -> "adef"
 
 ## Strings (Intrinsics)
 
-- `s.substr(start, length)` → substring by count  
+- `s.substr(start, length)` → substring by count
+- `s.contains(value)` → returns true or false depending on existing substring 
 - `s.slice(start?, end?)` → half-open range (like array slice)  
 - `s.replace_range(start, end, text)` → returns new string  
 - `s.remove_range(start, end)` → returns new string with range removed  
