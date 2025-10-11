@@ -1,6 +1,4 @@
-﻿using CFGS_VM.VMCore.Extension;
-using CFGS_VM.VMCore.Extensions;
-using CFGS_VM.VMCore.Plugin;
+﻿using CFGS_VM.VMCore.Plugin;
 using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -154,6 +152,15 @@ namespace CFGS_VM.VMCore.CorePlugin
             {
                 return JsonStringify(args[0]);
             }));
+            builtins.Register(new BuiltinDescriptor("now", 0, 1, (args, instr) =>
+            {
+                if (args.Count == 0) return DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                return DateTime.Now.ToString(args[0].ToString() ?? "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            }));
+            builtins.Register(new BuiltinDescriptor("date", 0, 0, (args, instr) =>
+            {
+                return new DateTime();
+            }));
 
             builtins.Register(new BuiltinDescriptor("fopen", 2, 2, (args, instr) =>
             {
@@ -248,6 +255,7 @@ namespace CFGS_VM.VMCore.CorePlugin
             Type T = typeof(string);
 
             intrinsics.Register(T, new IntrinsicDescriptor("len", 0, 0, (recv, a, i) => ((string)(recv ?? ""))!.Length));
+            intrinsics.Register(T, new IntrinsicDescriptor("contains", 1, 1, (recv, a, i) => ((string)(recv ?? ""))!.Contains(a[0].ToString() ?? "null")));
             intrinsics.Register(T, new IntrinsicDescriptor("substr", 2, 2, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
@@ -285,7 +293,12 @@ namespace CFGS_VM.VMCore.CorePlugin
                 (int st, int ex) = NormalizeSliceBounds(a[0], a[1], len);
                 return s.Substring(0, st) + s.Substring(ex);
             }));
-
+            intrinsics.Register(T, new IntrinsicDescriptor("replace", 2, 2, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                if (a[0] is not string || a[1] is not string) return s;
+                return s.Replace((string)a[0], (string)a[1]);
+            }));
             intrinsics.Register(T, new IntrinsicDescriptor("insert_at", 2, 2, (recv, a, instr) =>
             {
                 string s = recv?.ToString() ?? "";
@@ -367,7 +380,7 @@ namespace CFGS_VM.VMCore.CorePlugin
         {
             Type T = typeof(Dictionary<string, object>);
             intrinsics.Register(T, new IntrinsicDescriptor("len", 0, 0, (r, a, i) => ((Dictionary<string, object>)r).Count));
-            intrinsics.Register(T, new IntrinsicDescriptor("has", 1, 1, (r, a, i) =>
+            intrinsics.Register(T, new IntrinsicDescriptor("contains", 1, 1, (r, a, i) =>
             {
                 Dictionary<string, object> d = (Dictionary<string, object>)r;
                 string key = a[0]?.ToString() ?? "";
@@ -458,7 +471,6 @@ namespace CFGS_VM.VMCore.CorePlugin
             intrinsics.Register(T, new IntrinsicDescriptor("eof", 0, 0, (recv, a, i) => { dynamic fh = recv; return (bool)fh.Eof(); }));
             intrinsics.Register(T, new IntrinsicDescriptor("close", 0, 0, (recv, a, i) => { dynamic fh = recv; fh.Close(); return 1; }));
         }
-
 
         /// <summary>
         /// The ToNumber
