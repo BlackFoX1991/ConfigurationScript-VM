@@ -523,35 +523,6 @@ print(Colors.green);  # 6
 
 ---
 
-## File I/O
-
-Open files with the builtin `fopen(path, mode)` and then call **file intrinsics**:
-
-- `fh.write(text)`  
-- `fh.writeln(text)`  
-- `fh.flush()`  
-- `fh.read(nBytes)`  
-- `fh.readline()`  
-- `fh.seek(offset, origin)` → origin: `0=Begin, 1=Current, 2=End`  
-- `fh.tell()`  
-- `fh.eof()`  
-- `fh.close()`
-
-Example:
-
-```cfs
-var f = fopen("out.txt", "w");
-f.writeln("Hello");
-f.flush();
-f.close();
-
-var r = fopen("out.txt", "r");
-print(r.readline()); # Hello
-r.close();
-```
-
----
-
 ## Built-ins (selected)
 
 Common built-ins include `print`, `str`, numeric conversions, `len`, random utilities, etc.
@@ -607,4 +578,4 @@ import ClassName from "path/to/file.ext";
 
 ---
 
-[Samples](CFGS_NE/Samples/) · [Built-in Functions](builtin.md)
+[Samples](CFGS_NE/Samples/) · [File-IO Functions](fileio.md)  · [HTTP Functions](httpc.md)  ·  [Built-in Functions](builtin.md) · [Creating Plugins](plugins.md) 
