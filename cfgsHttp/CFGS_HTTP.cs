@@ -160,7 +160,14 @@ namespace CFGS_VM.VMCore.CorePlugin
                 {
                     if (req.Content == null)
                         req.Content = new ByteArrayContent(Array.Empty<byte>());
-                    req.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(val);
+                    try
+                    {
+                        req.Content.Headers.ContentType = MediaTypeHeaderValue.Parse(val);
+                    }
+                    catch
+                    {
+                        req.Content.Headers.TryAddWithoutValidation("Content-Type", val);
+                    }
                     continue;
                 }
 
@@ -274,6 +281,11 @@ namespace CFGS_VM.VMCore.CorePlugin
             private volatile bool _running;
 
             /// <summary>
+            /// Defines the ActiveByPort
+            /// </summary>
+            private static readonly ConcurrentDictionary<int, ServerHandle> ActiveByPort = new();
+
+            /// <summary>
             /// Initializes a new instance of the <see cref="ServerHandle"/> class.
             /// </summary>
             /// <param name="port">The port<see cref="int"/></param>
@@ -282,6 +294,8 @@ namespace CFGS_VM.VMCore.CorePlugin
                 if (port <= 0 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port));
                 _port = port;
                 _listener.Prefixes.Add($"http://localhost:{_port}/");
+
+                _listener.IgnoreWriteExceptions = true;
             }
 
             /// <summary>
@@ -300,7 +314,29 @@ namespace CFGS_VM.VMCore.CorePlugin
             public void Start()
             {
                 if (_running) return;
-                _listener.Start();
+
+                if (ActiveByPort.TryGetValue(_port, out ServerHandle? prev) && !ReferenceEquals(prev, this))
+                {
+                    try { prev.Stop(); } catch { }
+                    try { prev.Close(); } catch { }
+                    Thread.Sleep(100);
+                }
+
+                ActiveByPort[_port] = this;
+
+                try
+                {
+                    _listener.Start();
+                }
+                catch (HttpListenerException ex)
+                {
+                    ActiveByPort.TryRemove(_port, out _);
+                    throw new VMException(
+                        $"Cannot start HTTP server on http://localhost:{_port}/: {ex.Message} (code {ex.ErrorCode})",
+                        0, 0, ""
+                    );
+                }
+
                 _running = true;
                 _loop = Task.Run(LoopAsync);
             }
@@ -314,7 +350,7 @@ namespace CFGS_VM.VMCore.CorePlugin
                 _running = false;
                 _cts.Cancel();
                 try { _listener.Stop(); } catch { }
-                try { _loop?.Wait(1000); } catch { }
+                try { _loop?.Wait(2000); } catch { }
             }
 
             /// <summary>
@@ -324,7 +360,10 @@ namespace CFGS_VM.VMCore.CorePlugin
             {
                 try { Stop(); } catch { }
                 try { _listener.Close(); } catch { }
+                Thread.Sleep(100);
                 _cts.Dispose();
+
+                ActiveByPort.TryRemove(_port, out _);
             }
 
             /// <summary>
@@ -366,6 +405,7 @@ namespace CFGS_VM.VMCore.CorePlugin
 
                 HttpListenerResponse resp = ctx.Response;
                 resp.StatusCode = status;
+                resp.KeepAlive = false;
 
                 if (headers != null)
                 {
@@ -382,8 +422,20 @@ namespace CFGS_VM.VMCore.CorePlugin
 
                 byte[] buf = Encoding.UTF8.GetBytes(body);
                 resp.ContentLength64 = buf.Length;
-                using (Stream os = resp.OutputStream)
-                    os.Write(buf, 0, buf.Length);
+
+                try
+                {
+                    using (Stream os = resp.OutputStream)
+                        os.Write(buf, 0, buf.Length);
+                }
+                catch (HttpListenerException ex)
+                {
+                    if (ex.ErrorCode != 64 && ex.ErrorCode != 1229) throw;
+                }
+                catch (IOException ioEx) when (ioEx.InnerException is HttpListenerException hlex
+                                               && (hlex.ErrorCode == 64 || hlex.ErrorCode == 1229))
+                {
+                }
 
                 return 1;
             }

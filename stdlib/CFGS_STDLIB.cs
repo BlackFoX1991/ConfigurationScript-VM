@@ -255,7 +255,7 @@ namespace CFGS_VM.VMCore.CorePlugin
             Type T = typeof(string);
 
             intrinsics.Register(T, new IntrinsicDescriptor("len", 0, 0, (recv, a, i) => ((string)(recv ?? ""))!.Length));
-            intrinsics.Register(T, new IntrinsicDescriptor("contains", 1, 1, (recv, a, i) => ((string)(recv ?? ""))!.Contains(a[0].ToString() ?? "null")));
+            intrinsics.Register(T, new IntrinsicDescriptor("contains", 1, 1, (recv, a, i) => ((string)(recv ?? ""))!.Contains(a[0].ToString()! ?? "")));
             intrinsics.Register(T, new IntrinsicDescriptor("substr", 2, 2, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
