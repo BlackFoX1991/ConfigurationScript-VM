@@ -291,6 +291,21 @@
         JMP_IF_TRUE,
 
         /// <summary>
+        /// Defines the TRY_PUSH
+        /// </summary>
+        TRY_PUSH,
+
+        /// <summary>
+        /// Defines the TRY_POP
+        /// </summary>
+        TRY_POP,
+
+        /// <summary>
+        /// Defines the THROW
+        /// </summary>
+        THROW,
+
+        /// <summary>
         /// Defines the LABEL
         /// </summary>
         LABEL,
@@ -338,27 +353,6 @@
         /// <summary>
         /// Defines the PUSH_CLOSURE
         /// </summary>
-        PUSH_CLOSURE,
-
-        /// <summary>
-        /// Defines the TRY_PUSH
-        /// </summary>
-        TRY_PUSH,
-
-        /// <summary>
-        /// Defines the TRY_POP
-        /// </summary>
-        TRY_POP,
-
-        /// <summary>
-        /// Defines the THROW
-        /// </summary>
-        THROW,
-
-        /// <summary>
-        /// Defines the END_FINALLY
-        /// </summary>
-        END_FINALLY,
-
+        PUSH_CLOSURE
     }
 }

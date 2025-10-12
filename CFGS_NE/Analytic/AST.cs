@@ -1354,45 +1354,45 @@ namespace CFGS_VM.Analytic
     }
 
     /// <summary>
-    /// Defines the <see cref="TryCatchFinallyStmt" />
+    /// Defines the <see cref="TryStmt" />
     /// </summary>
-    public class TryCatchFinallyStmt : Stmt
+    public class TryStmt : Stmt
     {
         /// <summary>
-        /// Gets the TryBlock
+        /// Defines the TryBlock
         /// </summary>
-        public BlockStmt TryBlock { get; }
+        public BlockStmt TryBlock;
 
         /// <summary>
-        /// Gets the CatchVar
+        /// Defines the CatchIdent
         /// </summary>
-        public string? CatchVar { get; }
+        public string? CatchIdent;
 
         /// <summary>
-        /// Gets the CatchBlock
+        /// Defines the CatchBlock
         /// </summary>
-        public BlockStmt? CatchBlock { get; }
+        public BlockStmt? CatchBlock;
 
         /// <summary>
-        /// Gets the FinallyBlock
+        /// Defines the FinallyBlock
         /// </summary>
-        public BlockStmt? FinallyBlock { get; }
+        public BlockStmt? FinallyBlock;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="TryCatchFinallyStmt"/> class.
+        /// Initializes a new instance of the <see cref="TryStmt"/> class.
         /// </summary>
         /// <param name="tryBlock">The tryBlock<see cref="BlockStmt"/></param>
-        /// <param name="catchVar">The catchVar<see cref="string?"/></param>
+        /// <param name="catchIdent">The catchIdent<see cref="string?"/></param>
         /// <param name="catchBlock">The catchBlock<see cref="BlockStmt?"/></param>
         /// <param name="finallyBlock">The finallyBlock<see cref="BlockStmt?"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public TryCatchFinallyStmt(BlockStmt tryBlock, string? catchVar, BlockStmt? catchBlock, BlockStmt? finallyBlock, int line, int col, string fname)
-            : base(line, col, fname)
+        /// <param name="file">The file<see cref="string"/></param>
+        public TryStmt(BlockStmt tryBlock, string? catchIdent, BlockStmt? catchBlock, BlockStmt? finallyBlock, int line, int col, string file)
+            : base(line, col, file)
         {
             TryBlock = tryBlock;
-            CatchVar = catchVar;
+            CatchIdent = catchIdent;
             CatchBlock = catchBlock;
             FinallyBlock = finallyBlock;
         }
@@ -1404,9 +1404,9 @@ namespace CFGS_VM.Analytic
     public class ThrowStmt : Stmt
     {
         /// <summary>
-        /// Gets the Value
+        /// Defines the Value
         /// </summary>
-        public Expr Value { get; }
+        public Expr Value;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ThrowStmt"/> class.
@@ -1414,8 +1414,9 @@ namespace CFGS_VM.Analytic
         /// <param name="value">The value<see cref="Expr"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public ThrowStmt(Expr value, int line, int col, string fname) : base(line, col, fname)
+        /// <param name="file">The file<see cref="string"/></param>
+        public ThrowStmt(Expr value, int line, int col, string file)
+            : base(line, col, file)
         {
             Value = value;
         }
