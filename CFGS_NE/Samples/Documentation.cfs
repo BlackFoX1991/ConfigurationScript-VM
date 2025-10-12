@@ -1,0 +1,635 @@
+# ==============================
+# Documentation.cfs
+# Futuristic Docs Site (server-side Markdown) for CFGS
+# Run: http://localhost:8080
+# ==============================
+
+# --------------------------------
+# CONFIG: which Markdown files exist
+# --------------------------------
+var DOCS = [
+    { "title": "HTTP Client (CFGS_HTTP)", "file": "httpc.md" },
+    { "title": "Plugins",                 "file": "docs/plugins.md" },
+    { "title": "Built-ins",               "file": "docs/builtin.md" },
+    { "title": "File I/O",                "file": "docs/fileio.md"  },
+    { "title": "README",                  "file": "docs/README.md"  }
+];
+
+# ==============================
+# Markdown Renderer for CFGS (with Tables)
+# ==============================
+
+class MdRenderer
+{
+    var _state;      # { ul, ol, p, code, tbl }
+    var _codebuf;    # fenced code buffer
+
+    var _tbuf;        # table buffer
+    var _tbl_prefix;  # html emitted before table
+
+    func render(md)
+    {
+        var in_ul = false; var in_ol = false; var in_p = false; var in_code = false; var in_tbl = false;
+        var out = ""; var line = ""; var i = 0; var n = md.len();
+
+        while (i < n)
+        {
+            var ch = md.substr(i, 1);
+            if (ch == "\r") { i = i + 1; continue; }
+            if (ch != "\n") { line = line + ch; }
+            else
+            {
+                out = out + this._render_line(line, in_ul, in_ol, in_p, in_code, in_tbl);
+                in_ul = this._state["ul"]; in_ol = this._state["ol"]; in_p = this._state["p"]; in_code = this._state["code"]; in_tbl = this._state["tbl"];
+                line = "";
+            }
+            i = i + 1;
+        }
+
+        if (line.len() > 0)
+        {
+            out = out + this._render_line(line, in_ul, in_ol, in_p, in_code, in_tbl);
+            in_ul = this._state["ul"]; in_ol = this._state["ol"]; in_p = this._state["p"]; in_code = this._state["code"]; in_tbl = this._state["tbl"];
+        }
+
+        if (in_code) { var normTail = this._normalize_code_block(this._codebuf); out = out + this._escape_html(normTail) + "</code></pre>\n"; }
+        if (in_tbl)  { out = out + this._tbl_prefix + this._render_table_from_buffer(); }
+        if (in_ul)   { out = out + "</ul>\n"; }
+        if (in_ol)   { out = out + "</ol>\n"; }
+        if (in_p)    { out = out + "</p>\n"; }
+
+        return out;
+    }
+
+    func _looks_like_ol_item(line)
+    {
+        var i = 0; var L = line.len(); var hasDigit = false;
+        while (i < L && line.substr(i,1) >= "0" && line.substr(i,1) <= "9") { hasDigit = true; i = i + 1; }
+        if (!hasDigit) { return false; }
+        if (i + 1 < L && line.substr(i,2) == ". ") { return true; }
+        return false;
+    }
+
+    func _render_line(line, in_ul, in_ol, in_p, in_code, in_tbl)
+    {
+        this._state = { "ul": in_ul, "ol": in_ol, "p": in_p, "code": in_code, "tbl": in_tbl };
+        line = this._rtrim(line);
+
+        if (this._starts_with(line, "```"))
+        {
+            if (!in_code) { this._state["code"] = true; this._codebuf = ""; return "<pre><code>"; }
+            var norm = this._normalize_code_block(this._codebuf);
+            this._state["code"] = false;
+            return this._escape_html(norm) + "</code></pre>\n";
+        }
+
+        if (in_code) { this._codebuf = this._codebuf + line + "\n"; return ""; }
+
+        # ---- tables ----
+        var isRow = this._is_table_row(line);
+        if (isRow)
+        {
+            if (!in_tbl)
+            {
+                this._tbl_prefix = this._close_lists_paras(in_ul, in_ol, in_p);
+                this._tbuf = "";
+                in_ul = false; in_ol = false; in_p = false;
+                this._state["ul"] = false; this._state["ol"] = false; this._state["p"] = false;
+            }
+            this._tbuf = this._tbuf + line + "\n";
+            this._state["tbl"] = true;
+            return "";
+        }
+        if (in_tbl && !isRow)
+        {
+            var htmlTable = this._tbl_prefix + this._render_table_from_buffer();
+            this._state["tbl"] = false;
+            var rest = this._render_line(line, this._state["ul"], this._state["ol"], this._state["p"], this._state["code"], false);
+            return htmlTable + rest;
+        }
+        # --------------
+
+        if (this._is_hr(line)) { return this._close_lists_paras(in_ul, in_ol, in_p) + "<hr/>\n"; }
+
+        var h = this._heading_level(line);
+        if (h > 0)
+        {
+            var content = this._lstrip_hash_space(line, h);
+            content = this._render_inline(content);
+            var tag = "h" + h;
+            return this._close_lists_paras(in_ul, in_ol, in_p) + "<" + tag + ">" + content + "</" + tag + ">\n";
+        }
+
+        if (this._starts_with(line, ">"))
+        {
+            var inner = this._lstrip_one(line, ">");
+            inner = this._ltrim(inner);
+            inner = this._render_inline(inner);
+            return this._close_lists_paras(in_ul, in_ol, in_p) + "<blockquote>" + inner + "</blockquote>\n";
+        }
+
+        if (this._starts_with(line, "- ") || this._starts_with(line, "* ") || this._starts_with(line, "+ "))
+        {
+            var body = this._render_inline(line.slice(2));
+            var s = "";
+            if (!in_ul) { s = this._close_paragraph(in_p) + (in_ol ? "</ol>\n" : "") + "<ul>\n"; in_ul = true; in_ol = false; in_p = false; }
+            s = s + "<li>" + body + "</li>\n";
+            this._state["ul"] = in_ul; this._state["ol"] = in_ol; this._state["p"] = in_p; return s;
+        }
+
+        if (this._looks_like_ol_item(line))
+        {
+            var dot = this._find(line, ". ");
+            var body2 = this._render_inline(line.slice(dot + 2));
+            var s2 = "";
+            if (!in_ol) { s2 = this._close_paragraph(in_p) + (in_ul ? "</ul>\n" : "") + "<ol>\n"; in_ol = true; in_ul = false; in_p = false; }
+            s2 = s2 + "<li>" + body2 + "</li>\n";
+            this._state["ul"] = in_ul; this._state["ol"] = in_ol; this._state["p"] = in_p; return s2;
+        }
+
+        if (this._is_blank(line))
+        {
+            var s3 = "";
+            if (in_p)  { s3 = s3 + "</p>\n";  in_p = false; }
+            if (in_ul) { s3 = s3 + "</ul>\n"; in_ul = false; }
+            if (in_ol) { s3 = s3 + "</ol>\n"; in_ol = false; }
+            this._state["ul"] = in_ul; this._state["ol"] = in_ol; this._state["p"] = in_p; return s3;
+        }
+
+        var text = this._render_inline(line);
+        var s4 = "";
+        if (!in_p) { s4 = this._close_lists(in_ul, in_ol) + "<p>"; in_p = true; }
+        s4 = s4 + text + "\n";
+        this._state["ul"] = in_ul; this._state["ol"] = in_ol; this._state["p"] = in_p; return s4;
+    }
+
+    # --------- inline ---------
+    func _render_inline(t)
+    {
+        t = this._unescape_whitelisted_html_entities(t);
+        t = this._replace_links_or_images(t, true);
+        t = this._replace_links_or_images(t, false);
+        t = this._replace_delimited(t, "`",  "<code>", "</code>");
+        t = this._replace_double_delim(t, "**", "<strong>", "</strong>");
+        t = this._replace_delimited(t, "*",  "<em>", "</em>");
+        t = this._escape_html_preserving_tags(t);
+        t = this._deep_unescape_whitelist(t);
+        return t;
+    }
+
+    func _unescape_whitelisted_html_entities(s)
+    {
+        while (true)
+        {
+            var before = s;
+            s = s.replace("&amp;amp;", "&amp;");
+            s = s.replace("&amp;lt;",  "&lt;");
+            s = s.replace("&amp;gt;",  "&gt;");
+            s = s.replace("&amp;quot;","&quot;");
+            if (s == before) { break; }
+        }
+        s = s.replace("&lt;code&gt;","<code>");   s = s.replace("&lt;/code&gt;","</code>");
+        s = s.replace("&lt;strong&gt;","<strong>"); s = s.replace("&lt;/strong&gt;","</strong>");
+        s = s.replace("&lt;em&gt;","<em>");       s = s.replace("&lt;/em&gt;","</em>");
+        s = s.replace("&lt;br/&gt;","<br/>");
+        s = s.replace("&lt;/a&gt;","</a>"); s = s.replace("&lt;a ","<a "); s = this._fix_open_tag_gt(s, "<a ");
+        return s;
+    }
+
+    func _deep_unescape_whitelist(s)
+    {
+        while (true)
+        {
+            var before = s;
+            s = s.replace("&amp;amp;", "&amp;"); s = s.replace("&amp;lt;", "&lt;");
+            s = s.replace("&amp;gt;", "&gt;");   s = s.replace("&amp;quot;","&quot;");
+            if (s == before) { break; }
+        }
+        s = s.replace("&lt;code&gt;","<code>");   s = s.replace("&lt;/code&gt;","</code>");
+        s = s.replace("&lt;strong&gt;","<strong>"); s = s.replace("&lt;/strong&gt;","</strong>");
+        s = s.replace("&lt;em&gt;","<em>");       s = s.replace("&lt;/em&gt;","</em>");
+        s = s.replace("&lt;br/&gt;","<br/>");
+        s = s.replace("&lt;/a&gt;","</a>"); s = s.replace("&lt;a ","<a "); s = this._fix_open_tag_gt(s, "<a ");
+        return s;
+    }
+
+    # --------- tables ----------
+    func _is_table_row(line)
+    {
+        var x = this._ltrim(line);
+        if (x.len() < 2) { return false; }
+        if (x.substr(0,1) != "|") { return false; }
+        var i = 1; var L = x.len();
+        while (i < L) { if (x.substr(i,1) == "|") { return true; } i = i + 1; }
+        return false;
+    }
+
+    func _split_pipe(line)
+    {
+        line = this._ltrim(this._rtrim(line));
+        if (line.substr(0,1) == "|") { line = line.slice(1); }
+        if (line.len() > 0 && line.substr(line.len()-1,1) == "|") { line = line.substr(0, line.len()-1); }
+
+        var cells = []; var cur = ""; var i = 0; var L = line.len();
+        while (i < L)
+        {
+            var ch = line.substr(i,1);
+            if (ch == "|") { cells.push(this._ltrim(this._rtrim(cur))); cur = ""; }
+            else           { cur = cur + ch; }
+            i = i + 1;
+        }
+        cells.push(this._ltrim(this._rtrim(cur)));
+        return cells;
+    }
+
+    func _parse_aligns(line)
+    {
+        var segs = this._split_pipe(line);
+        var out = []; var i = 0;
+        while (i < segs.len())
+        {
+            var s = this._ltrim(this._rtrim(segs[i]));
+            var left  = (s.len() > 0 && s.substr(0,1) == ":");
+            var right = (s.len() > 0 && s.substr(s.len()-1,1) == ":");
+            var align = "left";
+            if (left && right) { align = "center"; }
+            else if (right)    { align = "right"; }
+            out.push(align); i = i + 1;
+        }
+        return out;
+    }
+
+    func _render_table_from_buffer()
+    {
+        var rows = [];
+        var buf = this._tbuf; var i = 0; var L = buf.len(); var acc = "";
+        while (i < L) { var ch = buf.substr(i,1); if (ch != "\n") { acc = acc + ch; } else { rows.push(acc); acc = ""; } i = i + 1; }
+        if (acc.len() > 0) { rows.push(acc); }
+        if (rows.len() < 2) { return ""; }
+
+        var headerCells = this._split_pipe(rows[0]);
+        var aligns      = this._parse_aligns(rows[1]);
+        var k = aligns.len(); while (k < headerCells.len()) { aligns.push("left"); k = k + 1; }
+
+        var html = "<table>\n<thead><tr>";
+        var j = 0; while (j < headerCells.len()) { var a = aligns[j]; var cell = this._render_inline(headerCells[j]); html = html + "<th align=\"" + a + "\">" + cell + "</th>"; j = j + 1; }
+        html = html + "</tr></thead>\n<tbody>\n";
+
+        var r = 2;
+        while (r < rows.len())
+        {
+            var data = this._split_pipe(rows[r]);
+            html = html + "<tr>";
+            j = 0;
+            while (j < headerCells.len())
+            {
+                var txt = (j < data.len()) ? data[j] : "";
+                var a2 = aligns[j];
+                html = html + "<td align=\"" + a2 + "\">" + this._render_inline(txt) + "</td>";
+                j = j + 1;
+            }
+            html = html + "</tr>\n";
+            r = r + 1;
+        }
+
+        html = html + "</tbody>\n</table>\n";
+        return html;
+    }
+
+    # -------- links/images (raw passthrough if no match) --------
+    func _replace_links_or_images(s, isImg)
+    {
+        var out = ""; var i = 0; var L = s.len();
+        while (i < L)
+        {
+            var bang = (isImg && s.substr(i,1) == "!");
+            var openSqIdx = i + (bang ? 1 : 0);
+            if ((bang || !isImg) && openSqIdx < L && s.substr(openSqIdx,1) == "[")
+            {
+                var endSq = this._scan_to(s, openSqIdx + 1, "]");
+                if (endSq >= 0 && endSq + 1 < L && s.substr(endSq + 1,1) == "(")
+                {
+                    var endPar = this._scan_to(s, endSq + 2, ")");
+                    if (endPar >= 0)
+                    {
+                        out = out + s.substr(0, i); # raw prefix
+                        var txt = s.substr(openSqIdx + 1, endSq - (openSqIdx + 1));
+                        var url = s.substr(endSq + 2, endPar - (endSq + 2));
+                        txt = this._escape_html(txt); url = this._escape_html(url);
+                        if (isImg) out = out + "<img src=\"" + url + "\" alt=\"" + txt + "\"/>";
+                        else       out = out + "<a href=\"" + url + "\">" + txt + "</a>";
+                        s = s.substr(endPar + 1, L - (endPar + 1)); L = s.len(); i = 0; continue;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        out = out + s; return out;
+    }
+
+    # -------- misc helpers --------
+    func _scan_to(s, start, needle) { var i = start; var L = s.len(); while (i < L) { if (s.substr(i,1) == needle) { return i; } i = i + 1; } return -1; }
+    func _find(s, pat)              { var n = s.len(); var m = pat.len(); if (m == 0){return 0;} var i = 0; while(i <= n - m){ if (s.substr(i,m) == pat){return i;} i = i + 1; } return -1; }
+    func _find_from(s, pat, start)  { var n = s.len(); var m = pat.len(); if (m == 0){return start;} var i = start; while(i <= n - m){ if (s.substr(i,m) == pat){return i;} i = i + 1; } return -1; }
+
+    func _fix_open_tag_gt(s, tagPrefix)
+    {
+        var out = ""; var pos = 0;
+        while (true)
+        {
+            var i = this._find_from(s, tagPrefix, pos);
+            if (i < 0) { out = out + s.substr(pos, s.len() - pos); break; }
+            out = out + s.substr(pos, i - pos) + tagPrefix;
+            var j = this._find_from(s, "&gt;", i + tagPrefix.len());
+            if (j < 0) { out = out + s.substr(i + tagPrefix.len(), s.len() - (i + tagPrefix.len())); break; }
+            var attrs = s.substr(i + tagPrefix.len(), j - (i + tagPrefix.len()));
+            out = out + attrs + ">";
+            pos = j + 4;
+        }
+        return out;
+    }
+
+    func _collapse_amp(s){ while(true){ var nxt = s.replace("&amp;amp;","&amp;"); if(nxt == s){break;} s = nxt; } return s; }
+    func _stitch_split_entities(s)
+    {
+        while (true)
+        {
+            var prev = s;
+            s = s.replace("&amp;\nlt;","&amp;lt;");
+            s = s.replace("&amp;\ngt;","&amp;gt;");
+            s = s.replace("&amp;\namp;","&amp;amp;");
+            s = s.replace("&amp;\nquot;","&amp;quot;");
+            if (s == prev) { break; }
+        }
+        return s;
+    }
+    func _normalize_code_block(buf) { var s = buf; s = this._collapse_amp(s); s = this._stitch_split_entities(s); return s; }
+
+    func _is_blank(s){ var i = 0; var L = s.len(); while(i < L){ var c = s.substr(i,1); if(c != " " && c != "\t"){ return false; } i = i + 1; } return true; }
+    func _ltrim(s){ var i = 0; var L = s.len(); while(i < L && (s.substr(i,1) == " " || s.substr(i,1) == "\t")) { i = i + 1; } if(i <= 0){ return s; } return s.slice(i); }
+    func _rtrim(s){ var L = s.len(); var i = L - 1; while(i >= 0 && (s.substr(i,1) == " " || s.substr(i,1) == "\t")){ i = i - 1; } return s.substr(0, i + 1); }
+    func _starts_with(s,p){ return s.len() >= p.len() && s.substr(0,p.len()) == p; }
+    func _heading_level(s){ var cnt=0; var i=0; var L=s.len(); while(i<L && s.substr(i,1)=="#"){ cnt=cnt+1; i=i+1; if(cnt==6){break;} } if(cnt==0){return 0;} if(i<L && s.substr(i,1)==" "){return cnt;} return 0; }
+    func _lstrip_hash_space(s,n){ var i=0; var L=s.len(); var c=0; while(i<L && c<n && s.substr(i,1)=="#"){ i=i+1; c=c+1; } if(i<L && s.substr(i,1)==" "){ i=i+1; } return s.slice(i); }
+    func _lstrip_one(s,pref){ if(this._starts_with(s,pref)){ return s.slice(pref.len()); } return s; }
+    func _is_hr(s){ var x = this._ltrim(s); return (x == "---" || x == "***"); }
+    func _close_paragraph(in_p){ if(in_p){ return "</p>\n"; } return ""; }
+    func _close_lists(in_ul,in_ol){ var s=""; if(in_ul){ s=s+"</ul>\n"; } if(in_ol){ s=s+"</ol>\n"; } return s; }
+    func _close_lists_paras(in_ul,in_ol,in_p){ var s=""; if(in_p){ s=s+"</p>\n"; } if(in_ul){ s=s+"</ul>\n"; } if(in_ol){ s=s+"</ol>\n"; } return s; }
+
+    func _escape_html(s){ s = s.replace("&","&amp;"); s = s.replace("<","&lt;"); s = s.replace(">","&gt;"); return s; }
+
+    func _escape_html_preserving_tags(s)
+    {
+        var masks = [
+            "<strong>","</strong>","<em>","</em>","<code>","</code>",
+            "<a href=\"","\">","</a>","<img src=\"","\" alt=\"","\"/>",
+            "<p>","</p>","<ul>","</ul>","<ol>","</ol>","<li>","</li>",
+            "<h1>","</h1>","<h2>","</h2>","<h3>","</h3>","<h4>","</h4>","<h5>","</h5>","<h6>","</h6>",
+            "<pre>","</pre>","<blockquote>","</blockquote>","<hr/>","<br/>",
+            "<table>","</table>","<thead>","</thead>","<tbody>","</tbody>","<tr>","</tr>","<th","</th>","<td","</td>"
+        ];
+        var repl = []; var k = 0;
+        while (k < masks.len()) { var token = masks[k]; var key = "§" + k + "§"; s = s.replace(token, key); repl.push(token); k = k + 1; }
+        s = this._escape_html(s);
+        k = 0; while (k < masks.len()) { var key2 = "§" + k + "§"; s = s.replace(key2, repl[k]); k = k + 1; }
+        return s;
+    }
+
+    func _replace_delimited(s, mark, openTag, closeTag)
+    {
+        var out=""; var i=0; var L=s.len(); var open=false; var last=0;
+        while(i<L)
+        {
+            if(s.substr(i,mark.len()) == mark)
+            {
+                var chunk = s.substr(last, i - last);
+                if (!open) { out = out + this._escape_html(chunk) + openTag; }
+                else       { out = out + this._escape_html(chunk) + closeTag; }
+                open = !open; i = i + mark.len(); last = i;
+            }
+            else { i = i + 1; }
+        }
+        out = out + this._escape_html(s.substr(last, L - last)); return out;
+    }
+
+    func _replace_double_delim(s, mark2, openTag, closeTag)
+    {
+        var out=""; var i=0; var L=s.len(); var open=false; var last=0; var mL=mark2.len();
+        while(i <= L - mL)
+        {
+            if(s.substr(i,mL) == mark2)
+            {
+                var chunk = s.substr(last, i - last);
+                if (!open) { out = out + this._escape_html(chunk) + openTag; }
+                else       { out = out + this._escape_html(chunk) + closeTag; }
+                open = !open; i = i + mL; last = i;
+            }
+            else { i = i + 1; }
+        }
+        out = out + this._escape_html(s.substr(last, L - last)); return out;
+    }
+}
+
+# ==============================
+# Simple Docs HTTP Server (uses MdRenderer)
+# ==============================
+
+class DocsServer
+{
+    var port;
+    var srv;
+    var renderer;
+
+    func init(port)
+    {
+        this.port = port;
+        this.renderer = new MdRenderer();
+    }
+
+    func run()
+    {
+        this.srv = http_server(this.port);
+        this.srv.start();
+
+        print("Docs server at http://localhost:" + this.port);
+
+        var running = true;
+        while (running)
+        {
+            var req = this.srv.poll(200);
+            try
+            {
+                
+                if (req == null) { continue; }
+
+                var path = req["path"];
+
+                if (path == "/stop")
+                {
+                    this.srv.respond(req["id"], 200, "Bye!", { "Content-Type": "text/plain" });
+                    this.srv.stop(); this.srv.close(); running = false; continue;
+                }
+
+                if (path == "/" || path == "/index")
+                {
+                    var html = this._wrap_html(this._render_index());
+                    this.srv.respond(req["id"], 200, html, { "Content-Type": "text/html; charset=utf-8" });
+                    continue;
+                }
+
+                if (path == "/doc")
+                {
+                    var q = req["query"];
+                    var f = q["file"];
+                    if (f == null || f == "")
+                    {
+                        this.srv.respond(req["id"], 400, "Missing ?file=", { "Content-Type": "text/plain" });
+                        continue;
+                    }
+
+                    var md = this._read_all(f);
+                    var body = this.renderer.render(md);
+                    var html = this._wrap_html(this._render_layout_for_file(f, body));
+                    this.srv.respond(req["id"], 200, html, { "Content-Type": "text/html; charset=utf-8" });
+                    continue;
+                }
+				this.srv.respond(req["id"], 404, "Not Found", { "Content-Type": "text/plain" });
+                # fallback
+                
+            }
+			catch(ex)
+            {
+                this.srv.respond(req["id"], 404, "Not Found", { "Content-Type": "text/plain" });
+                running = true;
+                continue;
+                
+			}
+
+        }
+    }
+
+    func _render_index()
+    {
+        var list = "";
+        var i = 0;
+        while (i < DOCS.len())
+        {
+            var t = DOCS[i]["title"];
+            var f = DOCS[i]["file"];
+            list = list + "<li><a href=\"/doc?file=" + this._esc_url(f) + "\">" + this._esc_html(t) + "</a></li>";
+            i = i + 1;
+        }
+
+        var intro = ""
+        + "<h1>Configuration Language</h1>"
+        + "<p>Welcome! Choose a chapter below.</p>"
+        + "<ul>" + list + "</ul>";
+
+        return this._chrome(intro, "");
+    }
+
+    func _render_layout_for_file(fname, renderedBody)
+    {
+        var toc = "";
+        var i = 0;
+        while (i < DOCS.len())
+        {
+            var t = DOCS[i]["title"];
+            var f = DOCS[i]["file"];
+            var active = (f == fname) ? " class=\"active\"" : "";
+            toc = toc + "<li><a" + active + " href=\"/doc?file=" + this._esc_url(f) + "\">" + this._esc_html(t) + "</a></li>";
+            i = i + 1;
+        }
+
+        var left = "<h2>Contents</h2><ul class=\"toc\">" + toc + "</ul>";
+        var right = renderedBody;
+
+        return this._chrome(left, right);
+    }
+
+    func _chrome(left, right)
+    {
+        return ""
+        + "<div class=\"shell\">"
+        + "  <header class=\"topbar\">"
+        + "    <div class=\"logo\"></div>"
+        + "    <div class=\"brand\">Configuration Language</div>"
+        + "    <a class=\"pill\" href=\"/\">Docs</a>"
+        + "  </header>"
+        + "  <main class=\"grid\">"
+        + "    <aside class=\"panel\">" + left + "</aside>"
+        + "    <section class=\"panel content\">" + right + "</section>"
+        + "  </main>"
+        + "  <footer class=\"foot\">Made with CFGS</footer>"
+        + "</div>";
+    }
+
+    func _wrap_html(body)
+    {
+        var head = ""
+        + "<!doctype html><html><head><meta charset=\"utf-8\"/>"
+        + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>"
+        + "<title>Configuration Language</title>"
+        + "<style>"
+        + ":root{--bg:#0b0f16;--surface:#121826;--muted:#9fb1c7;--fg:#e6edf6;--accent:#61a6ff;--panel:#121826cc}"
+        + "html,body{height:100%}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;background:radial-gradient(1000px 600px at 20% -10%,#1f2a3b 0,#0b0f16 60%);color:var(--fg)}"
+        + ".topbar{position:sticky;top:0;backdrop-filter:saturate(160%) blur(12px);background:linear-gradient(180deg,rgba(18,24,38,.85),rgba(18,24,38,.45));border-bottom:1px solid #1f2a3b;display:flex;align-items:center;gap:10px;padding:12px 18px}"
+        + ".logo{width:22px;height:22px;border-radius:6px;background:conic-gradient(from 30deg, #61a6ff, #7c5cff, #61a6ff)}"
+        + ".brand{font-weight:600;letter-spacing:.2px;opacity:.9}"
+        + ".pill{margin-left:auto;background:#0f1621;border:1px solid #1e293b;padding:8px 12px;border-radius:999px;color:var(--fg);text-decoration:none;font-size:12px}"
+        + ".grid{display:grid;grid-template-columns:280px 1fr;gap:18px;max-width:1200px;margin:28px auto;padding:0 18px}"
+        + ".panel{background:var(--panel);border:1px solid #1f2a3b;border-radius:16px;padding:18px}"
+        + ".content{min-height:60vh}"
+        + "a{color:var(--accent)} a:hover{text-decoration:underline}"
+        + "h1,h2,h3{margin:20px 0 12px} p{margin:10px 0}"
+        + "ul,ol{padding-left:24px}"
+        + "pre{background:#0f1621;border:1px solid #1e293b;padding:16px;border-radius:12px;overflow:auto}"
+        + "code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}"
+        + "blockquote{border-left:4px solid #3b82f6;padding:8px 16px;margin:12px 0;background:rgba(59,130,246,.08);border-radius:6px}"
+        + "table{border-collapse:collapse;width:100%;margin:16px 0;border:1px solid #334155;border-radius:12px;overflow:hidden}"
+        + "thead th{background:#0f1621;border-bottom:1px solid #1e293b;padding:10px 12px;text-align:left}"
+        + "tbody td{border-top:1px solid #1e293b;padding:10px 12px;vertical-align:top}"
+        + "tbody tr:nth-child(odd){background:rgba(148,163,184,.04)}"
+        + ".toc{list-style:none;padding-left:0} .toc li{margin:6px 0} .toc a{display:block;padding:6px 8px;border-radius:8px;text-decoration:none} .toc a.active,.toc a:hover{background:#0f1621;border:1px solid #1e293b}"
+        + ".foot{opacity:.6;text-align:center;padding:24px}"
+        + "</style></head><body>";
+        var foot = "</body></html>";
+        return head + body + foot;
+    }
+
+    func _read_all(p)
+    {
+        var fh = fopen(p, 0); # read
+        var s = "";
+        while (!fh.eof())
+        {
+            var line = fh.readline();
+            s = s + line + "\n";
+        }
+        fh.close();
+        return s;
+    }
+
+    func _esc_html(s)
+    {
+        s = s.replace("&","&amp;"); s = s.replace("<","&lt;"); s = s.replace(">","&gt;");
+        return s;
+    }
+
+    func _esc_url(s)
+    {
+        # very small helper; for full safety könntest du urlencode() nutzen, wenn du Query-Werte variabel zusammensetzt
+        s = s.replace(" ","%20");
+        return s;
+    }
+}
+
+# ==============================
+# Boot
+# ==============================
+
+var app = new DocsServer(8080);
+app.run();
+
+getc();

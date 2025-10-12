@@ -30,6 +30,8 @@ namespace CFGS_VM.VMCore.CorePlugin
             RegisterDict(intrinsics);
             RegisterException(intrinsics);
             RegisterFile(intrinsics);
+            RegisterDateTime(intrinsics);
+            RegisterDirectoryInfo(intrinsics);
         }
 
         /// <summary>
@@ -110,6 +112,60 @@ namespace CFGS_VM.VMCore.CorePlugin
             builtins.Register(new BuiltinDescriptor("toi32", 1, 1, (args, instr) => Convert.ToInt32(args[0])));
             builtins.Register(new BuiltinDescriptor("toi64", 1, 1, (args, instr) => Convert.ToInt64(args[0])));
 
+            builtins.Register(new BuiltinDescriptor("set_workspace", 1, 1, (args, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                if (args[0] is not string path)
+                    throw new VMException("Runtime error: set_workspace requires a string path",
+                        instr.Line, instr.Col, instr.OriginFile);
+                try
+                {
+                    Directory.SetCurrentDirectory(path);
+                    return 1;
+                }
+                catch (Exception ex)
+                {
+                    throw new VMException($"Runtime error: set_workspace('{path}') failed: {ex.GetType().Name}: {ex.Message}",
+                        instr.Line, instr.Col, instr.OriginFile);
+                }
+            }));
+            builtins.Register(new BuiltinDescriptor("get_workspace", 0, 0, (args, instr) =>
+            {
+                return Directory.GetCurrentDirectory();
+            }));
+
+            builtins.Register(new BuiltinDescriptor("cmdArgs", 0, 0, (args, instr) =>
+            {
+
+                return Environment.GetCommandLineArgs().Skip(1).ToList<object>();
+            }));
+
+            builtins.Register(new BuiltinDescriptor("getDirectory", 1, 1, (args, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                return Path.GetDirectoryName(args[0]?.ToString() ?? "") ?? "";
+            }));
+
+            builtins.Register(new BuiltinDescriptor("DirectoryInfo", 1, 1, (args, instr) =>
+            {
+                return new DirectoryInfo(args[0]?.ToString() ?? "");
+            }));
+
+            builtins.Register(new BuiltinDescriptor("DateTime", 0, 0, (args, instr) =>
+            {
+                return new DateTime();
+            }));
+            builtins.Register(new BuiltinDescriptor("Now", 0, 0, (args, instr) =>
+            {
+                return DateTime.Now;
+            }));
+            builtins.Register(new BuiltinDescriptor("UtcNow", 0, 0, (args, instr) =>
+            {
+                return DateTime.UtcNow;
+            }));
+
             builtins.Register(new BuiltinDescriptor("abs", 1, 1, (args, instr) => Math.Abs((dynamic)args[0])));
 
             builtins.Register(new BuiltinDescriptor("rand", 3, 3, (args, instr) =>
@@ -151,15 +207,6 @@ namespace CFGS_VM.VMCore.CorePlugin
             builtins.Register(new BuiltinDescriptor("json", 1, 1, (args, instr) =>
             {
                 return JsonStringify(args[0]);
-            }));
-            builtins.Register(new BuiltinDescriptor("now", 0, 1, (args, instr) =>
-            {
-                if (args.Count == 0) return DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-                return DateTime.Now.ToString(args[0].ToString() ?? "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-            }));
-            builtins.Register(new BuiltinDescriptor("date", 0, 0, (args, instr) =>
-            {
-                return new DateTime();
             }));
 
             builtins.Register(new BuiltinDescriptor("fopen", 2, 2, (args, instr) =>
@@ -407,6 +454,272 @@ namespace CFGS_VM.VMCore.CorePlugin
                 string key = a[0]?.ToString() ?? "";
                 return d.TryGetValue(key, out object? v) ? v : a[1];
             }));
+        }
+
+        /// <summary>
+        /// The RegisterDateTime
+        /// </summary>
+        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
+        private static void RegisterDateTime(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(DateTime);
+
+            static DateTime ParseDt(object? v)
+            {
+                if (v is DateTime dt) return dt;
+
+                string s = v?.ToString() ?? "";
+                if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime p))
+                    return p;
+
+                if (long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out long n))
+                {
+                    if (n >= 100_000_000_000L) return DateTimeOffset.FromUnixTimeMilliseconds(n).LocalDateTime;
+                    return DateTimeOffset.FromUnixTimeSeconds(n).LocalDateTime;
+                }
+
+                return DateTime.MinValue;
+            }
+
+            static DateTimeKind ParseKind(object? v)
+            {
+                if (v is DateTimeKind k) return k;
+                string s = (v?.ToString() ?? "").Trim().ToLowerInvariant();
+                return s switch
+                {
+                    "utc" => DateTimeKind.Utc,
+                    "local" => DateTimeKind.Local,
+                    "unspecified" => DateTimeKind.Unspecified,
+                    "0" => DateTimeKind.Unspecified,
+                    "1" => DateTimeKind.Utc,
+                    "2" => DateTimeKind.Local,
+                    _ => DateTimeKind.Unspecified
+                };
+            }
+
+            intrinsics.Register(T, new IntrinsicDescriptor("year", 0, 0, (r, a, i) => ((DateTime)r).Year));
+            intrinsics.Register(T, new IntrinsicDescriptor("month", 0, 0, (r, a, i) => ((DateTime)r).Month));
+            intrinsics.Register(T, new IntrinsicDescriptor("day", 0, 0, (r, a, i) => ((DateTime)r).Day));
+            intrinsics.Register(T, new IntrinsicDescriptor("hour", 0, 0, (r, a, i) => ((DateTime)r).Hour));
+            intrinsics.Register(T, new IntrinsicDescriptor("minute", 0, 0, (r, a, i) => ((DateTime)r).Minute));
+            intrinsics.Register(T, new IntrinsicDescriptor("second", 0, 0, (r, a, i) => ((DateTime)r).Second));
+            intrinsics.Register(T, new IntrinsicDescriptor("millisecond", 0, 0, (r, a, i) => ((DateTime)r).Millisecond));
+            intrinsics.Register(T, new IntrinsicDescriptor("dayOfWeek", 0, 0, (r, a, i) => (int)((DateTime)r).DayOfWeek));
+            intrinsics.Register(T, new IntrinsicDescriptor("dayOfYear", 0, 0, (r, a, i) => ((DateTime)r).DayOfYear));
+            intrinsics.Register(T, new IntrinsicDescriptor("ticks", 0, 0, (r, a, i) => ((DateTime)r).Ticks));
+            intrinsics.Register(T, new IntrinsicDescriptor("kind", 0, 0, (r, a, i) => ((DateTime)r).Kind.ToString()));
+            intrinsics.Register(T, new IntrinsicDescriptor("dateOnly", 0, 0, (r, a, i) => ((DateTime)r).Date));
+            intrinsics.Register(T, new IntrinsicDescriptor("timeOfDayTicks", 0, 0, (r, a, i) => ((DateTime)r).TimeOfDay.Ticks));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("toUnixSeconds", 0, 0, (r, a, i) => new DateTimeOffset((DateTime)r).ToUnixTimeSeconds()));
+            intrinsics.Register(T, new IntrinsicDescriptor("toUnixMilliseconds", 0, 0, (r, a, i) => new DateTimeOffset((DateTime)r).ToUnixTimeMilliseconds()));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("toString", 0, 1, (r, a, i) =>
+            {
+                DateTime dt = (DateTime)r;
+                string fmt = a.Count > 0 ? (a[0]?.ToString() ?? "yyyy-MM-dd HH:mm:ss") : "yyyy-MM-dd HH:mm:ss";
+                return dt.ToString(fmt, CultureInfo.InvariantCulture);
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("toLocalTime", 0, 0, (r, a, i) => ((DateTime)r).ToLocalTime()));
+            intrinsics.Register(T, new IntrinsicDescriptor("toUniversalTime", 0, 0, (r, a, i) => ((DateTime)r).ToUniversalTime()));
+            intrinsics.Register(T, new IntrinsicDescriptor("withKind", 1, 1, (r, a, i) =>
+            {
+                DateTime dt = (DateTime)r;
+                DateTimeKind kind = ParseKind(a[0]);
+                return DateTime.SpecifyKind(dt, kind);
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("addYears", 1, 1, (r, a, i) => ((DateTime)r).AddYears(Convert.ToInt32(a[0], CultureInfo.InvariantCulture))));
+            intrinsics.Register(T, new IntrinsicDescriptor("addMonths", 1, 1, (r, a, i) => ((DateTime)r).AddMonths(Convert.ToInt32(a[0], CultureInfo.InvariantCulture))));
+            intrinsics.Register(T, new IntrinsicDescriptor("addDays", 1, 1, (r, a, i) => ((DateTime)r).AddDays(Convert.ToDouble(a[0], CultureInfo.InvariantCulture))));
+            intrinsics.Register(T, new IntrinsicDescriptor("addHours", 1, 1, (r, a, i) => ((DateTime)r).AddHours(Convert.ToDouble(a[0], CultureInfo.InvariantCulture))));
+            intrinsics.Register(T, new IntrinsicDescriptor("addMinutes", 1, 1, (r, a, i) => ((DateTime)r).AddMinutes(Convert.ToDouble(a[0], CultureInfo.InvariantCulture))));
+            intrinsics.Register(T, new IntrinsicDescriptor("addSeconds", 1, 1, (r, a, i) => ((DateTime)r).AddSeconds(Convert.ToDouble(a[0], CultureInfo.InvariantCulture))));
+            intrinsics.Register(T, new IntrinsicDescriptor("addMilliseconds", 1, 1, (r, a, i) => ((DateTime)r).AddMilliseconds(Convert.ToDouble(a[0], CultureInfo.InvariantCulture))));
+            intrinsics.Register(T, new IntrinsicDescriptor("addTicks", 1, 1, (r, a, i) => ((DateTime)r).AddTicks(Convert.ToInt64(a[0], CultureInfo.InvariantCulture))));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("compareTo", 1, 1, (r, a, i) => ((DateTime)r).CompareTo(ParseDt(a[0]))));
+            intrinsics.Register(T, new IntrinsicDescriptor("diffMs", 1, 1, (r, a, i) =>
+            {
+                DateTime dt = (DateTime)r;
+                DateTime other = ParseDt(a[0]);
+                return (dt - other).TotalMilliseconds;
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("diffTicks", 1, 1, (r, a, i) =>
+            {
+                DateTime dt = (DateTime)r;
+                DateTime other = ParseDt(a[0]);
+                return (dt - other).Ticks;
+            }));
+
+            intrinsics.Register(typeof(string), new IntrinsicDescriptor("toDateTime", 0, 1, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                if (a.Count == 0)
+                {
+                    return ParseDt(s);
+                }
+                else
+                {
+                    string fmt = a[0]?.ToString() ?? "yyyy-MM-dd HH:mm:ss";
+                    return DateTime.ParseExact(s, fmt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
+                }
+            }));
+
+            intrinsics.Register(typeof(string), new IntrinsicDescriptor("toUnixSeconds", 0, 0, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "0";
+                long n = Convert.ToInt64(s, CultureInfo.InvariantCulture);
+                return DateTimeOffset.FromUnixTimeSeconds(n).LocalDateTime;
+            }));
+            intrinsics.Register(typeof(string), new IntrinsicDescriptor("toUnixMilliseconds", 0, 0, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "0";
+                long n = Convert.ToInt64(s, CultureInfo.InvariantCulture);
+                return DateTimeOffset.FromUnixTimeMilliseconds(n).LocalDateTime;
+            }));
+        }
+
+        /// <summary>
+        /// The RegisterDirectoryInfo
+        /// </summary>
+        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
+        private static void RegisterDirectoryInfo(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(DirectoryInfo);
+
+            static DateTime ParseDt(object? v)
+            {
+                if (v is DateTime dt) return dt;
+                string s = v?.ToString() ?? "";
+                if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime p)) return p;
+                if (long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out long secs))
+                    return DateTimeOffset.FromUnixTimeSeconds(secs).LocalDateTime;
+                return DateTime.Now;
+            }
+
+            intrinsics.Register(T, new IntrinsicDescriptor("exists", 0, 0, (r, a, instr) => ((DirectoryInfo)r).Exists));
+            intrinsics.Register(T, new IntrinsicDescriptor("fullName", 0, 0, (r, a, instr) => ((DirectoryInfo)r).FullName));
+            intrinsics.Register(T, new IntrinsicDescriptor("name", 0, 0, (r, a, instr) => ((DirectoryInfo)r).Name));
+            intrinsics.Register(T, new IntrinsicDescriptor("parent", 0, 0, (r, a, instr) => ((DirectoryInfo)r).Parent));
+            intrinsics.Register(T, new IntrinsicDescriptor("root", 0, 0, (r, a, instr) => ((DirectoryInfo)r).Root));
+            intrinsics.Register(T, new IntrinsicDescriptor("attributes", 0, 0, (r, a, instr) => (long)((DirectoryInfo)r).Attributes));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("creationTime", 0, 0, (r, a, instr) => ((DirectoryInfo)r).CreationTime));
+            intrinsics.Register(T, new IntrinsicDescriptor("lastAccessTime", 0, 0, (r, a, instr) => ((DirectoryInfo)r).LastAccessTime));
+            intrinsics.Register(T, new IntrinsicDescriptor("lastWriteTime", 0, 0, (r, a, instr) => ((DirectoryInfo)r).LastWriteTime));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("setCreationTime", 1, 1, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                DirectoryInfo di = (DirectoryInfo)r; di.CreationTime = ParseDt(a[0]); return di;
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("setLastAccessTime", 1, 1, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                DirectoryInfo di = (DirectoryInfo)r; di.LastAccessTime = ParseDt(a[0]); return di;
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("setLastWriteTime", 1, 1, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                DirectoryInfo di = (DirectoryInfo)r; di.LastWriteTime = ParseDt(a[0]); return di;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("setAttributes", 1, 1, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                DirectoryInfo di = (DirectoryInfo)r;
+                long val = Convert.ToInt64(a[0], CultureInfo.InvariantCulture);
+                di.Attributes = (FileAttributes)val; return di;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("create", 0, 0, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                ((DirectoryInfo)r).Create(); return r;
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("delete", 0, 1, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                bool recursive = a.Count > 0 && Convert.ToBoolean(a[0], CultureInfo.InvariantCulture);
+                ((DirectoryInfo)r).Delete(recursive); return 1;
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("refresh", 0, 0, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                ((DirectoryInfo)r).Refresh(); return r;
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("moveTo", 1, 1, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                string dest = a[0]?.ToString() ?? "";
+                ((DirectoryInfo)r).MoveTo(dest); return r;
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("createSubdirectory", 1, 1, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                string name = a[0]?.ToString() ?? "";
+                return ((DirectoryInfo)r).CreateSubdirectory(name);
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("getFiles", 0, 2, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                DirectoryInfo di = (DirectoryInfo)r;
+                string pattern = a.Count >= 1 ? a[0]?.ToString() ?? "*" : "*";
+                SearchOption opt = (a.Count >= 2 && Convert.ToBoolean(a[1], CultureInfo.InvariantCulture))
+                    ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                return di.GetFiles(pattern, opt).Select(f => (object)f.FullName).ToList();
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("getDirectories", 0, 2, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                DirectoryInfo di = (DirectoryInfo)r;
+                string pattern = a.Count >= 1 ? a[0]?.ToString() ?? "*" : "*";
+                SearchOption opt = (a.Count >= 2 && Convert.ToBoolean(a[1], CultureInfo.InvariantCulture))
+                    ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                return di.GetDirectories(pattern, opt).Select(d => (object)d.FullName).ToList();
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("enumerateFileSystem", 0, 2, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                DirectoryInfo di = (DirectoryInfo)r;
+                string pattern = a.Count >= 1 ? a[0]?.ToString() ?? "*" : "*";
+                SearchOption opt = (a.Count >= 2 && Convert.ToBoolean(a[1], CultureInfo.InvariantCulture))
+                    ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                return di.EnumerateFileSystemInfos(pattern, opt).Select(fi => (object)fi.FullName).ToList();
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("existsOrCreate", 0, 0, (r, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                DirectoryInfo di = (DirectoryInfo)r;
+                if (!di.Exists) di.Create();
+                return di.Exists;
+            }));
+
+            intrinsics.Register(typeof(string), new IntrinsicDescriptor("dirinfo", 0, 0, (recv, a, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                return new DirectoryInfo(recv?.ToString() ?? "");
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("toString", 0, 0, (r, a, instr) => ((DirectoryInfo)r).FullName));
         }
 
         /// <summary>

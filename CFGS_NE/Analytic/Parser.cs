@@ -335,15 +335,66 @@ namespace CFGS_VM.Analytic
                 TokenType.Return => ParseReturnStmt(),
                 TokenType.Delete => ParseDelete,
                 TokenType.Match => ParseMatch(),
-                TokenType.Try => ParseTry,
-                TokenType.Throw => ParseThrow,
                 TokenType.Class => ParseClassDecl(),
                 TokenType.Enum => ParseEnumDecl(),
                 TokenType.Emit => ParseEmitStmt,
                 TokenType.ForEach => ParseForeach(),
+                TokenType.Try => ParseTry(),
+                TokenType.Throw => ParseThrow(),
 
                 _ => ParseExprStmt
             };
+        }
+
+        /// <summary>
+        /// The ParseThrow
+        /// </summary>
+        /// <returns>The <see cref="Stmt"/></returns>
+        private Stmt ParseThrow()
+        {
+            int line = _current.Line, col = _current.Column;
+            Eat(TokenType.Throw);
+            Expr ex = Expr();
+            Eat(TokenType.Semi);
+            return new ThrowStmt(ex, line, col, _current.Filename);
+        }
+
+        /// <summary>
+        /// The ParseTry
+        /// </summary>
+        /// <returns>The <see cref="Stmt"/></returns>
+        private Stmt ParseTry()
+        {
+            int line = _current.Line, col = _current.Column;
+            Eat(TokenType.Try);
+            BlockStmt tryBlock = ParseEmbeddedBlockOrSingleStatement();
+
+            string? catchIdent = null;
+            BlockStmt? catchBlock = null;
+            if (_current.Type == TokenType.Catch)
+            {
+                Eat(TokenType.Catch);
+                Eat(TokenType.LParen);
+                if (_current.Type == TokenType.Ident)
+                {
+                    catchIdent = _current.Value!.ToString();
+                    Advance();
+                }
+                Eat(TokenType.RParen);
+                catchBlock = ParseEmbeddedBlockOrSingleStatement();
+            }
+
+            BlockStmt? finallyBlock = null;
+            if (_current.Type == TokenType.Finally)
+            {
+                Eat(TokenType.Finally);
+                finallyBlock = ParseEmbeddedBlockOrSingleStatement();
+            }
+
+            if (catchBlock == null && finallyBlock == null)
+                throw new ParserException("try must have at least catch or finally", line, col, _current.Filename);
+
+            return new TryStmt(tryBlock, catchIdent, catchBlock, finallyBlock, line, col, _current.Filename);
         }
 
         /// <summary>
@@ -734,61 +785,6 @@ namespace CFGS_VM.Analytic
             }
 
             return list;
-        }
-
-        /// <summary>
-        /// Gets the ParseThrow
-        /// </summary>
-        private Stmt ParseThrow
-        {
-            get
-            {
-                int line = _current.Line;
-                int col = _current.Column;
-                Eat(TokenType.Throw);
-                Expr ex = Expr();
-                Eat(TokenType.Semi);
-                return new ThrowStmt(ex, line, col, _current.Filename);
-            }
-        }
-
-        /// <summary>
-        /// Gets the ParseTry
-        /// </summary>
-        private Stmt ParseTry
-        {
-            get
-            {
-                int line = _current.Line;
-                int col = _current.Column;
-
-                Eat(TokenType.Try);
-                BlockStmt tryBlock = ParseEmbeddedBlockOrSingleStatement();
-
-                string? catchVar = null;
-                BlockStmt? catchBlock = null;
-                BlockStmt? finallyBlock = null;
-
-                if (_current.Type == TokenType.Catch)
-                {
-                    Eat(TokenType.Catch);
-                    Eat(TokenType.LParen);
-                    if (_current.Type != TokenType.Ident)
-                        throw new ParserException("expected identifier in catch(...)", _current.Line, _current.Column, _current.Filename);
-                    catchVar = _current.Value.ToString();
-                    Eat(TokenType.Ident);
-                    Eat(TokenType.RParen);
-                    catchBlock = ParseEmbeddedBlockOrSingleStatement();
-                }
-
-                if (_current.Type == TokenType.Finally)
-                {
-                    Eat(TokenType.Finally);
-                    finallyBlock = ParseEmbeddedBlockOrSingleStatement();
-                }
-
-                return new TryCatchFinallyStmt(tryBlock, catchVar, catchBlock, finallyBlock, line, col, _current.Filename);
-            }
         }
 
         /// <summary>

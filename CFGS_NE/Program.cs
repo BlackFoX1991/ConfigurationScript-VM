@@ -25,7 +25,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v1.8.6";
+    public static readonly string Version = "v1.9.7";
 
     /// <summary>
     /// Defines the PluginsFolder
@@ -64,7 +64,6 @@ public class Program
     {
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
-
         List<string> files = new();
 
         foreach (string arg in args)
@@ -112,7 +111,9 @@ public class Program
                     else
                         BinaryRun = false;
 
+                    Environment.CurrentDirectory = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Environment.CurrentDirectory;
                     RunSource(input, file, IsDebug, BinaryRun);
+
 
                 }
             }

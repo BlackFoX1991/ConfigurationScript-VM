@@ -119,6 +119,11 @@ namespace CFGS_VM.VMCore
             Continue,
 
             /// <summary>
+            /// Defines the Routed
+            /// </summary>
+            Routed,
+
+            /// <summary>
             /// Defines the Halt
             /// </summary>
             Halt
@@ -437,20 +442,29 @@ namespace CFGS_VM.VMCore
             public object? Exception;
 
             /// <summary>
+            /// Defines the ScopeDepthAtTry
+            /// </summary>
+            public int ScopeDepthAtTry;
+
+            /// <summary>
             /// Initializes a new instance of the <see cref="TryHandler"/> class.
             /// </summary>
-            /// <param name="c">The c<see cref="int"/></param>
-            /// <param name="f">The f<see cref="int"/></param>
-            public TryHandler(int c, int f)
+            /// <param name="catchAddr">The catchAddr<see cref="int"/></param>
+            /// <param name="finallyAddr">The finallyAddr<see cref="int"/></param>
+            /// <param name="scopeDepthAtTry">The scopeDepthAtTry<see cref="int"/></param>
+            public TryHandler(int catchAddr, int finallyAddr, int scopeDepthAtTry)
             {
-                CatchAddr = c; FinallyAddr = f; Exception = null;
+                CatchAddr = catchAddr;
+                FinallyAddr = finallyAddr;
+                Exception = null;
+                ScopeDepthAtTry = scopeDepthAtTry;
             }
         }
 
         /// <summary>
         /// Defines the _tryHandlers
         /// </summary>
-        private readonly List<TryHandler> _tryHandlers = new();
+        private readonly Stack<TryHandler> _tryHandlers = new();
 
         /// <summary>
         /// Defines the <see cref="BoundMethod" />
@@ -2733,70 +2747,40 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.TRY_PUSH:
                     {
-                        int[] arr = instr.Operand as int[] ?? new[] { -1, -1 };
-                        int catchAddr = arr.Length > 0 ? arr[0] : -1;
-                        int finallyAddr = arr.Length > 1 ? arr[1] : -1;
-                        _tryHandlers.Add(new TryHandler(catchAddr, finallyAddr));
+                        object[]? op = (object[]?)instr.Operand;
+                        int catchAddr = (op != null && op.Length > 0) ? (int)op[0] : -1;
+                        int finallyAddr = (op != null && op.Length > 1) ? (int)op[1] : -1;
+
+                        _tryHandlers.Push(new TryHandler(catchAddr, finallyAddr, _scopes.Count));
                         break;
                     }
-
                 case OpCode.TRY_POP:
                     {
-                        if (_tryHandlers.Count == 0)
-                            throw new VMException("Runtime error: TRY_POP with empty try stack", instr.Line, instr.Col, instr.OriginFile);
-                        _tryHandlers.RemoveAt(_tryHandlers.Count - 1);
+                        if (_tryHandlers.Count > 0)
+                            _tryHandlers.Pop();
                         break;
                     }
-
                 case OpCode.THROW:
                     {
-                        RequireStack(1, instr, "THROW");
-                        object any = _stack.Pop();
-
-                        ExceptionObject payload = any as ExceptionObject
-                            ?? new ExceptionObject(
-                                   type: "UserError",
-                                    message: any?.ToString() ?? "error",
-                                    file: instr.OriginFile,
-                                    line: instr.Line,
-                                    col: instr.Col,
-                                    stack: BuildStackString(_insns, instr)
-                               );
-
-                        if (RouteExceptionToTryHandlers(payload, instr, out int nip))
-                        { _ip = nip; return StepResult.Continue; }
-
-                        throw new VMException($"Uncaught exception: {payload}", instr.Line, instr.Col, instr.OriginFile);
-                    }
-
-                case OpCode.END_FINALLY:
-                    {
-                        if (_tryHandlers.Count == 0) break;
-
-                        TryHandler h = _tryHandlers[^1];
-                        _tryHandlers.RemoveAt(_tryHandlers.Count - 1);
-
-                        if (h.Exception != null)
+                        object? thrown = _stack.Count > 0 ? _stack.Pop() : null;
+                        ExceptionObject payload =
+                            thrown is ExceptionObject eo
+                                ? eo
+                                : new ExceptionObject(
+                                    type: "UserError",
+                                    message: thrown?.ToString() ?? "throw",
+                                    file: _insns[_ip].OriginFile,
+                                    line: _insns[_ip].Line,
+                                    col: _insns[_ip].Col,
+                                    stack: BuildStackString(_insns, SafeCurrentInstr(_insns, _ip))
+                                );
+                        if (RouteExceptionToTryHandlers(payload, SafeCurrentInstr(_insns, _ip), out int nipNullable))
                         {
-                            object any = h.Exception;
-                            h.Exception = null;
-
-                            ExceptionObject payload = any as ExceptionObject
-                                ?? new ExceptionObject(
-                                       type: "UserError",
-                                       message: any?.ToString() ?? "error",
-                                       file: instr.OriginFile,
-                                       line: instr.Line,
-                                       col: instr.Col,
-                                       stack: BuildStackString(_insns, instr)
-                                   );
-
-                            if (RouteExceptionToTryHandlers(payload, instr, out int nip))
-                            { _ip = nip; return StepResult.Continue; }
-
-                            throw new VMException($"Uncaught exception: {payload}", instr.Line, instr.Col, instr.OriginFile);
+                            if (nipNullable is int nipA) { _ip = nipA; return StepResult.Routed; }
+                            break;
                         }
-                        break;
+
+                        throw new VMException(payload.Message, _insns[_ip].Line, _insns[_ip].Col, _insns[_ip].OriginFile);
                     }
 
                 default:
@@ -2978,7 +2962,8 @@ namespace CFGS_VM.VMCore
         /// <param name="lastPos">The lastPos<see cref="int"/></param>
         public void Run(bool debugging = false, int lastPos = 0)
         {
-            if (_program is null || _program.Count == 0) return;
+            if (_program is null || _program.Count == 0)
+                return;
 
             bool routed = false;
             DebugStream = new MemoryStream();
@@ -3001,20 +2986,24 @@ namespace CFGS_VM.VMCore
 
                     if (res == StepResult.Halt) return;
                     if (res == StepResult.Continue) continue;
+                    if (res == StepResult.Routed) routed = true;
                 }
                 catch (VMException ex)
                 {
+                    int safeIp = Math.Min(_ip, _program.Count - 1);
+
                     ExceptionObject payload = new(
                         type: "RuntimeError",
                         message: ex.Message,
-                        file: _program[_ip].OriginFile,
-                        line: _program[_ip].Line,
-                        col: _program[_ip].Col,
-                        stack: BuildStackString(_program, _program[_ip])
+                        file: _program[safeIp].OriginFile,
+                        line: _program[safeIp].Line,
+                        col: _program[safeIp].Col,
+                        stack: BuildStackString(_program, _program[safeIp])
                     );
 
-                    if (RouteExceptionToTryHandlers(payload, _program[_ip], out int nip))
+                    if (RouteExceptionToTryHandlers(payload, _program[safeIp], out int nip))
                     {
+
                         _ip = nip;
                         routed = true;
                     }
@@ -3023,10 +3012,49 @@ namespace CFGS_VM.VMCore
                         throw;
                     }
                 }
+                catch (Exception sysEx)
+                {
+                    int safeIp = Math.Min(_ip, _program.Count - 1);
+
+                    ExceptionObject payload = new(
+                        type: "SystemError",
+                        message: sysEx.Message,
+                        file: _program[safeIp].OriginFile,
+                        line: _program[safeIp].Line,
+                        col: _program[safeIp].Col,
+                        stack: BuildStackString(_program, _program[safeIp])
+                    );
+
+                    if (RouteExceptionToTryHandlers(payload, _program[safeIp], out int nip))
+                    {
+                        _ip = nip;
+                        routed = true;
+                    }
+                    else
+                    {
+                        throw new VMException("Uncaught system exception: " + sysEx.Message, _program[_ip].Line, _program[_ip].Col, _program[_ip].OriginFile);
+                    }
+                }
 
                 if (routed)
                 {
                     routed = false;
+
+                    if (_tryHandlers.Count > 0 && _tryHandlers.Peek().Exception is object deferredEx)
+                    {
+                        _tryHandlers.Peek().Exception = null;
+
+                        if (RouteExceptionToTryHandlers(deferredEx, _program[Math.Min(_ip, _program.Count - 1)], out int nip2))
+                        {
+                            _ip = nip2;
+                            routed = true;
+                        }
+                        else
+                        {
+                            throw new VMException("Uncaught system exception", _program[_ip].Line, _program[_ip].Col, _program[_ip].OriginFile);
+                        }
+                    }
+
                     continue;
                 }
             }
@@ -3085,9 +3113,13 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="bool"/></returns>
         private bool RouteExceptionToTryHandlers(object exPayload, Instruction instr, out int newIp)
         {
-            for (int i = _tryHandlers.Count - 1; i >= 0; i--)
+            while (_tryHandlers.Count > 0)
             {
-                TryHandler h = _tryHandlers[i];
+                TryHandler h = _tryHandlers.Peek();
+
+                while (_scopes.Count > h.ScopeDepthAtTry)
+                    _scopes.RemoveAt(_scopes.Count - 1);
+
                 if (h.CatchAddr >= 0)
                 {
                     _stack.Push(exPayload);
@@ -3095,17 +3127,17 @@ namespace CFGS_VM.VMCore
                     h.CatchAddr = -1;
                     return true;
                 }
-                else if (h.FinallyAddr >= 0)
+
+                if (h.FinallyAddr >= 0)
                 {
                     h.Exception = exPayload;
                     newIp = h.FinallyAddr;
                     return true;
                 }
-                else
-                {
-                    _tryHandlers.RemoveAt(i);
-                }
+
+                _tryHandlers.Pop();
             }
+
             newIp = -1;
             return false;
         }
@@ -3679,8 +3711,6 @@ namespace CFGS_VM.VMCore
 
                         throw new VMException($"Runtime error: invalid enum member '{key}' in enum '{en.EnumName}'", instr.Line, instr.Col, instr.OriginFile);
                     }
-
-
 
                 default:
                     if (idxObj is string defName && TryBindIntrinsic(target, defName, out IntrinsicBound? defbound, instr))

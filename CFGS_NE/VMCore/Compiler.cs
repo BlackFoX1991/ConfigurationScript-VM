@@ -776,72 +776,52 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
-                case ThrowStmt ts:
-                    CompileExpr(ts.Value);
-                    _insns.Add(new Instruction(OpCode.THROW, null, s.Line, s.Col, s.OriginFile));
-                    break;
-
-                case TryCatchFinallyStmt tcf:
+                case TryStmt ts:
                     {
-                        int tryPushIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.TRY_PUSH, new int[] { -1, -1 }, s.Line, s.Col, s.OriginFile));
+                        int tryStart = _insns.Count;
 
-                        CompileStmt(tcf.TryBlock, insideFunction);
+                        _insns.Add(new Instruction(OpCode.TRY_PUSH, null, ts.Line, ts.Col, ts.OriginFile));
 
-                        if (tcf.FinallyBlock != null)
+                        CompileStmt(ts.TryBlock, insideFunction);
+
+                        int catchStart = -1, finallyStart = -1;
+
+                        if (ts.CatchBlock != null)
                         {
-                            int jmpToFinallyIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
+                            catchStart = _insns.Count;
 
-                            int catchStart = -1;
-                            int jmpAfterCatchIdx = -1;
-                            if (tcf.CatchBlock != null)
-                            {
-                                catchStart = _insns.Count;
-                                _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col, s.OriginFile));
-                                if (!string.IsNullOrEmpty(tcf.CatchVar))
-                                    _insns.Add(new Instruction(OpCode.VAR_DECL, tcf.CatchVar, s.Line, s.Col, s.OriginFile));
-                                foreach (Stmt st in tcf.CatchBlock.Statements) CompileStmt(st, insideFunction);
-                                _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
-                                jmpAfterCatchIdx = _insns.Count;
-                                _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
-                            }
+                            if (ts.CatchIdent != null)
+                                _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, ts.Line, ts.Col, ts.OriginFile));
 
-                            int finallyStart = _insns.Count;
+                            if (ts.CatchIdent != null)
+                                _insns.Add(new Instruction(OpCode.VAR_DECL, ts.CatchIdent, ts.Line, ts.Col, ts.OriginFile));
 
-                            _insns[tryPushIdx] = new Instruction(OpCode.TRY_PUSH, new int[] { catchStart, finallyStart }, s.Line, s.Col, s.OriginFile);
+                            CompileStmt(ts.CatchBlock, insideFunction);
 
-                            CompileStmt(tcf.FinallyBlock, insideFunction);
-
-                            _insns.Add(new Instruction(OpCode.END_FINALLY, null, s.Line, s.Col, s.OriginFile));
-
-                            _insns[jmpToFinallyIdx] = new Instruction(OpCode.JMP, finallyStart, s.Line, s.Col, s.OriginFile);
-                            if (jmpAfterCatchIdx != -1)
-                                _insns[jmpAfterCatchIdx] = new Instruction(OpCode.JMP, finallyStart, s.Line, s.Col, s.OriginFile);
-                        }
-                        else
-                        {
-                            _insns.Add(new Instruction(OpCode.TRY_POP, null, s.Line, s.Col, s.OriginFile));
-                            int jmpOverCatchIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
-
-                            int catchStart = -1;
-                            if (tcf.CatchBlock != null)
-                            {
-                                catchStart = _insns.Count;
-                                _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col, s.OriginFile));
-                                if (!string.IsNullOrEmpty(tcf.CatchVar))
-                                    _insns.Add(new Instruction(OpCode.VAR_DECL, tcf.CatchVar, s.Line, s.Col, s.OriginFile));
-                                foreach (Stmt st in tcf.CatchBlock.Statements) CompileStmt(st, insideFunction);
-                                _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
-                                _insns.Add(new Instruction(OpCode.TRY_POP, null, s.Line, s.Col, s.OriginFile));
-                            }
-
-                            int endIdx = _insns.Count;
-                            _insns[tryPushIdx] = new Instruction(OpCode.TRY_PUSH, new int[] { catchStart, -1 }, s.Line, s.Col, s.OriginFile);
-                            _insns[jmpOverCatchIdx] = new Instruction(OpCode.JMP, endIdx, s.Line, s.Col, s.OriginFile);
+                            if (ts.CatchIdent != null)
+                                _insns.Add(new Instruction(OpCode.POP_SCOPE, null, ts.Line, ts.Col, ts.OriginFile));
                         }
 
+                        if (ts.FinallyBlock != null)
+                        {
+                            finallyStart = _insns.Count;
+                            CompileStmt(ts.FinallyBlock, insideFunction);
+                        }
+
+                        _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
+
+                        _insns[tryStart] = new Instruction(
+                            OpCode.TRY_PUSH,
+                            new object[] { catchStart, finallyStart },
+                            ts.Line, ts.Col, ts.OriginFile
+                        );
+                        break;
+                    }
+
+                case ThrowStmt th:
+                    {
+                        CompileExpr(th.Value);
+                        _insns.Add(new Instruction(OpCode.THROW, null, th.Line, th.Col, th.OriginFile));
                         break;
                     }
 
