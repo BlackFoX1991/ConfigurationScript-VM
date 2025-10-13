@@ -171,6 +171,11 @@
         Question,
 
         /// <summary>
+        /// Defines the QQNull
+        /// </summary>
+        QQNull,
+
+        /// <summary>
         /// Defines the Assign
         /// </summary>
         Assign,

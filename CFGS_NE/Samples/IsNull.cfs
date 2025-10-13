@@ -1,0 +1,17 @@
+func testOne()
+{
+	var nobj;
+	print(30 + nobj ?? 20);
+}
+
+func testTwo()
+{
+	var nobj = 40;
+	print(30 + nobj ?? 10); 
+
+	var ag;
+	print(ag ?? 20);
+}
+
+testOne();
+testTwo();
