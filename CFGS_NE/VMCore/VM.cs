@@ -338,7 +338,10 @@ namespace CFGS_VM.VMCore
             /// The ToString
             /// </summary>
             /// <returns>The <see cref="string"/></returns>
-            public override string ToString() => $"{Type}: {Message}";
+            public override string ToString()
+            {
+                return Message ?? base.ToString() ?? "";
+            }
         }
 
         /// <summary>
@@ -456,8 +459,8 @@ namespace CFGS_VM.VMCore
             {
                 CatchAddr = catchAddr;
                 FinallyAddr = finallyAddr;
-                Exception = null;
                 ScopeDepthAtTry = scopeDepthAtTry;
+                Exception = null;
             }
         }
 
@@ -982,32 +985,6 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The CallBuiltin
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="args">The args<see cref="List{object}"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="object"/></returns>
-        private object CallBuiltin(string name, List<object> args, Instruction instr)
-        {
-            if (!Builtins.TryGet(name, out BuiltinDescriptor? d))
-                throw new VMException($"Runtime error: unknown builtin function '{name}'", instr.Line, instr.Col, instr.OriginFile);
-
-            if (args.Count < d.ArityMin || args.Count > d.ArityMax)
-                throw new VMException($"Runtime error: builtin '{name}' expects {d.ArityMin}..{d.ArityMax} args (got {args.Count})", instr.Line, instr.Col, instr.OriginFile);
-
-            try
-            {
-                return d.Invoke(args, instr);
-            }
-            catch (VMException) { throw; }
-            catch (Exception ex)
-            {
-                throw new VMException($"Runtime error in builtin '{name}': {ex.GetType().Name}: {ex.Message}", instr.Line, instr.Col, instr.OriginFile);
-            }
-        }
-
-        /// <summary>
         /// Gets the CurrentReceiver
         /// </summary>
         private object? CurrentReceiver => _callStack.Count > 0 ? _callStack.Peek().ThisRef : null;
@@ -1033,16 +1010,6 @@ namespace CFGS_VM.VMCore
             }
 
             return null;
-        }
-
-        /// <summary>
-        /// The IsNumericType
-        /// </summary>
-        /// <param name="v">The v<see cref="object"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        private static bool IsNumericType(object v)
-        {
-            return v is int || v is long || v is double || v is decimal;
         }
 
         /// <summary>
@@ -2750,37 +2717,66 @@ namespace CFGS_VM.VMCore
                         object[]? op = (object[]?)instr.Operand;
                         int catchAddr = (op != null && op.Length > 0) ? (int)op[0] : -1;
                         int finallyAddr = (op != null && op.Length > 1) ? (int)op[1] : -1;
-
                         _tryHandlers.Push(new TryHandler(catchAddr, finallyAddr, _scopes.Count));
                         break;
                     }
                 case OpCode.TRY_POP:
                     {
-                        if (_tryHandlers.Count > 0)
+                        if (_tryHandlers.Count == 0) break;
+                        TryHandler h = _tryHandlers.Peek();
+
+                        if (h.Exception == null && h.FinallyAddr >= 0)
+                        {
+                            if (h.FinallyAddr < _ip)
+                            {
+                                h.FinallyAddr = -1;
+                            }
+                            else
+                            {
+                                int nip = h.FinallyAddr;
+                                h.FinallyAddr = -1;
+                                _ip = nip;
+                                return StepResult.Routed;
+                            }
+                        }
+
+                        if (h.Exception is object ex)
+                        {
                             _tryHandlers.Pop();
+
+                            if (RouteExceptionToTryHandlers(ex, SafeCurrentInstr(_insns, _ip), out int nip))
+                            {
+                                _ip = nip;
+                                return StepResult.Routed;
+                            }
+                            throw new VMException(ex.ToString()!, instr.Line, instr.Col, instr.OriginFile);
+
+                        }
+
+                        _tryHandlers.Pop();
                         break;
                     }
+
                 case OpCode.THROW:
                     {
                         object? thrown = _stack.Count > 0 ? _stack.Pop() : null;
-                        ExceptionObject payload =
-                            thrown is ExceptionObject eo
-                                ? eo
-                                : new ExceptionObject(
-                                    type: "UserError",
-                                    message: thrown?.ToString() ?? "throw",
-                                    file: _insns[_ip].OriginFile,
-                                    line: _insns[_ip].Line,
-                                    col: _insns[_ip].Col,
-                                    stack: BuildStackString(_insns, SafeCurrentInstr(_insns, _ip))
-                                );
-                        if (RouteExceptionToTryHandlers(payload, SafeCurrentInstr(_insns, _ip), out int nipNullable))
+
+                        ExceptionObject payload = thrown as ExceptionObject ?? new ExceptionObject(
+                            type: "UserError",
+                            message: thrown?.ToString() ?? "throw",
+                            file: instr.OriginFile,
+                            line: instr.Line,
+                            col: instr.Col,
+                            stack: BuildStackString(_insns, instr)
+                        );
+
+                        if (RouteExceptionToTryHandlers(payload, instr, out int nip))
                         {
-                            if (nipNullable is int nipA) { _ip = nipA; return StepResult.Routed; }
-                            break;
+                            _ip = nip;
+                            return StepResult.Routed;
                         }
 
-                        throw new VMException(payload.Message, _insns[_ip].Line, _insns[_ip].Col, _insns[_ip].OriginFile);
+                        throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile);
                     }
 
                 default:
@@ -2975,13 +2971,16 @@ namespace CFGS_VM.VMCore
                 {
                     if (debugging)
                     {
+                        int di = Math.Clamp(_ip, 0, _program.Count - 1);
+                        Instruction dinstr = _program[di];
                         DebugStream.Write(System.Text.Encoding.Default.GetBytes(
-                            $"[DEBUG] {_program[_ip].Line} ->  IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
+                            $"[DEBUG] {dinstr.Line} ->  IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
                         DebugStream.Write(System.Text.Encoding.Default.GetBytes(
-                            $"[DEBUG] {_program[_ip]} (Line {_program[_ip].Line}, Col {_program[_ip].Col})\n"));
+                            $"[DEBUG] {dinstr} (Line {dinstr.Line}, Col {dinstr.Col})\n"));
                     }
 
                     Instruction instr = _program[_ip++];
+                    _ip = Math.Clamp(_ip, 0, _program.Count - 1);
                     StepResult res = HandleInstruction(ref _ip, _program, instr);
 
                     if (res == StepResult.Halt) return;
@@ -3015,7 +3014,6 @@ namespace CFGS_VM.VMCore
                 catch (Exception sysEx)
                 {
                     int safeIp = Math.Min(_ip, _program.Count - 1);
-
                     ExceptionObject payload = new(
                         type: "SystemError",
                         message: sysEx.Message,
@@ -3032,31 +3030,45 @@ namespace CFGS_VM.VMCore
                     }
                     else
                     {
-                        throw new VMException("Uncaught system exception: " + sysEx.Message, _program[_ip].Line, _program[_ip].Col, _program[_ip].OriginFile);
+                        if (debugging)
+                        {
+                            DebugStream.Position = 0;
+                            using FileStream file = File.Create("log_file.log");
+                            DebugStream.CopyTo(file);
+                        }
+                        throw new VMException($"Uncaught system exception : " + sysEx.Message, _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile);
                     }
                 }
 
                 if (routed)
                 {
+                    int safeIp = Math.Min(_ip, _program.Count - 1);
                     routed = false;
 
                     if (_tryHandlers.Count > 0 && _tryHandlers.Peek().Exception is object deferredEx)
                     {
                         _tryHandlers.Peek().Exception = null;
 
-                        if (RouteExceptionToTryHandlers(deferredEx, _program[Math.Min(_ip, _program.Count - 1)], out int nip2))
+                        if (RouteExceptionToTryHandlers(deferredEx, _program[safeIp], out int nip2))
                         {
                             _ip = nip2;
                             routed = true;
                         }
                         else
                         {
-                            throw new VMException("Uncaught system exception", _program[_ip].Line, _program[_ip].Col, _program[_ip].OriginFile);
+                            if (debugging)
+                            {
+                                DebugStream.Position = 0;
+                                using FileStream file = File.Create("log_file.log");
+                                DebugStream.CopyTo(file);
+                            }
+                            throw new VMException("Uncaught system exception : ", _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile);
                         }
                     }
 
                     continue;
                 }
+
             }
         }
 
@@ -3117,14 +3129,24 @@ namespace CFGS_VM.VMCore
             {
                 TryHandler h = _tryHandlers.Peek();
 
+                int before = _scopes.Count;
                 while (_scopes.Count > h.ScopeDepthAtTry)
                     _scopes.RemoveAt(_scopes.Count - 1);
+                int removed = before - _scopes.Count;
+
+                if (_callStack.Count > 0 && removed > 0)
+                {
+                    CallFrame fr = _callStack.Pop();
+                    fr = fr with { ScopesAdded = Math.Max(0, fr.ScopesAdded - removed) };
+                    _callStack.Push(fr);
+                }
 
                 if (h.CatchAddr >= 0)
                 {
                     _stack.Push(exPayload);
                     newIp = h.CatchAddr;
                     h.CatchAddr = -1;
+                    h.Exception = null;
                     return true;
                 }
 
@@ -3132,6 +3154,7 @@ namespace CFGS_VM.VMCore
                 {
                     h.Exception = exPayload;
                     newIp = h.FinallyAddr;
+                    h.FinallyAddr = -1;
                     return true;
                 }
 
@@ -3456,10 +3479,7 @@ namespace CFGS_VM.VMCore
 
             if (v is ExceptionObject exo)
             {
-                if (mode == 2)
-                    w.Write($"\"{exo.Type}: {exo.Message}\"");
-                else
-                    w.Write(exo.ToString());
+                w.Write(exo.ToString());
                 return;
             }
 
