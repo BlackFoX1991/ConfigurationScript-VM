@@ -2,7 +2,7 @@
   "profiles": {
     "CFGS_NE": {
       "commandName": "Project",
-      "commandLineArgs": "-d Documentation.cfs",
+      "commandLineArgs": "-d tryCatch.cfs",
       "workingDirectory": ".\\Samples"
     }
   }

@@ -1,0 +1,137 @@
+# === Test 1: Kein Throw, nur finally ===
+func test_no_throw()
+{
+    var log = "";
+    try
+    {
+        log = log + "try;";
+    }
+    finally
+    {
+        log = log + "finally;";
+    }
+    print("no_throw => " + log);    # erwarted: "try;finally;"
+}
+
+
+# === Test 2: Throw + Catch + Finally, äußere Variable sichtbar ===
+func test_catch_visible_outer()
+{
+    var req = "outer-req";   # soll im catch sichtbar sein
+    var seen = "";
+
+    try
+    {
+        throw "boom";
+    }
+    catch(ex)
+    {
+        # Zugriff auf 'req' (außerhalb von try deklariert)
+        seen = "catch:" + req + ":" + ex;
+    }
+    finally
+    {
+        seen = seen + ":finally";
+    }
+
+    print("catch_visible_outer => " + seen);
+    # erwartet: "catch:outer-req:boom:finally"
+}
+
+
+# === Test 3: Propagation durch finally (kein innerer Catch) ===
+# Inneres try hat nur finally -> Exception bleibt bestehen und geht zum äußeren catch.
+func test_propagation_via_finally()
+{
+    var s = "";
+
+    try
+    {
+        try
+        {
+            throw "E1";
+        }
+        finally
+        {
+            s = s + "F1;";
+        }
+    }
+    catch(ex)
+    {
+        s = s + "Couter(" + ex + ");";
+    }
+
+    print("propagation_via_finally => " + s);
+    # erwartet: "F1;Couter(E1);"
+}
+
+
+# === Test 4: Verschachtelt: innerer Catch + beide Finallys ===
+func test_nested_catch()
+{
+    var s = "";
+
+    try
+    {
+        try
+        {
+            throw "E2";
+        }
+        catch(e)
+        {
+            s = s + "Cinner(" + e + ");";
+        }
+        finally
+        {
+            s = s + "Finner;";
+        }
+    }
+    finally
+    {
+        s = s + "Fouter;";
+    }
+
+    print("nested_catch => " + s);
+    # erwartet: "Cinner(E2);Finner;Fouter;"
+}
+
+
+# === Test 5: Throw im finally überschreibt den Fluss ===
+# finally wirft selbst => muss vom äußeren catch gefangen werden.
+func test_throw_in_finally()
+{
+    var s = "";
+
+    try
+    {
+        try
+        {
+            s = s + "T;";
+        }
+        finally
+        {
+            s = s + "F!";
+            throw "FERR";     # neue Exception aus finally
+        }
+    }
+    catch(ex)
+    {
+        s = s + ":Couter(" + ex + ")";
+    }
+
+    print("throw_in_finally => " + s);
+    # erwartet: "T;F!:Couter(FERR)"
+}
+
+
+# === Runner ===
+func run()
+{
+    test_no_throw();
+    test_catch_visible_outer();
+    test_propagation_via_finally();
+    test_nested_catch();
+    test_throw_in_finally();
+}
+
+run();
