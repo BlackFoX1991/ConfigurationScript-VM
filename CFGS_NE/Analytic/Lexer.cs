@@ -407,6 +407,7 @@ public class Lexer
 
             if (c == '%' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.ModAssign, "%="); }
             if (c == '*' && Peek == '*') { SyncPos(2); return MakeToken(TokenType.Expo, "**"); }
+            if (c == '?' && Peek == '?') { SyncPos(2); return MakeToken(TokenType.QQNull, "??"); }
 
             SyncPos();
 

@@ -1255,7 +1255,23 @@ namespace CFGS_VM.Analytic
         /// The Expr
         /// </summary>
         /// <returns>The <see cref="Expr"/></returns>
-        private Expr Expr() => Conditional();
+        private Expr Expr() => Coalesce();
+
+        /// <summary>
+        /// The Coalesce
+        /// </summary>
+        /// <returns>The <see cref="Expr"/></returns>
+        private Expr Coalesce()
+        {
+            Expr node = Conditional();
+            while (_current.Type == TokenType.QQNull)
+            {
+                Eat(TokenType.QQNull);
+                Expr rhs = Conditional();
+                node = new BinaryExpr(node, TokenType.QQNull, rhs, _current.Line, _current.Column, _current.Filename);
+            }
+            return node;
+        }
 
         /// <summary>
         /// The Conditional

@@ -1017,6 +1017,28 @@ namespace CFGS_VM.VMCore
                             _insns[jmpEnd] = new Instruction(OpCode.JMP, _insns.Count, b.Line, b.Col, b.OriginFile);
                             break;
                         }
+                        else if (b.Op == TokenType.QQNull)
+                        {
+                            CompileExpr(b.Left);
+
+                            _insns.Add(new Instruction(OpCode.DUP, null, b.Line, b.Col, b.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, b.Line, b.Col, b.OriginFile));
+                            _insns.Add(new Instruction(OpCode.EQ, null, b.Line, b.Col, b.OriginFile));
+
+                            int jmpIfNull = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP_IF_TRUE, null, b.Line, b.Col, b.OriginFile));
+
+                            int jmpEnd = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP, null, b.Line, b.Col, b.OriginFile));
+
+                            _insns[jmpIfNull] = new Instruction(OpCode.JMP_IF_TRUE, _insns.Count, b.Line, b.Col, b.OriginFile);
+
+                            _insns.Add(new Instruction(OpCode.POP, null, b.Line, b.Col, b.OriginFile));
+                            CompileExpr(b.Right);
+
+                            _insns[jmpEnd] = new Instruction(OpCode.JMP, _insns.Count, b.Line, b.Col, b.OriginFile);
+                            break;
+                        }
 
                         OpCode op = OpFromToken(b.Op, b, FileName);
                         CompileExpr(b.Left);

@@ -1870,19 +1870,33 @@ namespace CFGS_VM.VMCore
                                 _ => (int)A + (int)B,
                             };
                             _stack.Push(res);
+                            break;
                         }
-                        else if (l is List<object> || r is List<object> ||
-                                 l is Dictionary<string, object> || r is Dictionary<string, object>)
+
+                        if (l is null || r is null)
+                        {
+                            if (l is string || r is string)
+                            {
+                                _stack.Push((l as string ?? "") + (r as string ?? ""));
+                            }
+                            else
+                            {
+                                _stack.Push(null);
+                            }
+                            break;
+                        }
+
+                        if (l is List<object> || r is List<object> ||
+                            l is Dictionary<string, object> || r is Dictionary<string, object>)
                         {
                             string ls, rs;
                             using (StringWriter lw = new()) { PrintValue(l, lw); ls = lw.ToString(); }
                             using (StringWriter rw = new()) { PrintValue(r, rw); rs = rw.ToString(); }
                             _stack.Push(ls + rs);
+                            break;
                         }
-                        else
-                        {
-                            _stack.Push((l?.ToString() ?? "null") + (r?.ToString() ?? "null"));
-                        }
+
+                        _stack.Push(l.ToString() + r.ToString());
                         break;
                     }
 
@@ -1891,6 +1905,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "SUB");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
+
+                        if (l is null || r is null) { _stack.Push(null); break; }
                         if (!IsNumber(l) || !IsNumber(r))
                             throw new VMException("SUB on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
 
@@ -1913,6 +1929,16 @@ namespace CFGS_VM.VMCore
                         object r = _stack.Pop();
                         object l = _stack.Pop();
 
+                        if (l is null || r is null)
+                        {
+                            if (l is string && IsNumber(r))
+                            { _stack.Push(string.Concat(Enumerable.Repeat(l as string ?? "", Convert.ToInt32(r)))); break; }
+                            if (r is string && IsNumber(l))
+                            { _stack.Push(string.Concat(Enumerable.Repeat(r as string ?? "", Convert.ToInt32(l)))); break; }
+                            _stack.Push(null);
+                            break;
+                        }
+
                         if (IsNumber(l) && IsNumber(r))
                         {
                             (object A, object B, NumKind K) = CoercePair(l, r);
@@ -1928,11 +1954,11 @@ namespace CFGS_VM.VMCore
                         }
                         else if (l is string && IsNumber(r))
                         {
-                            _stack.Push(string.Concat(Enumerable.Repeat(l?.ToString() ?? "", Convert.ToInt32(r))));
+                            _stack.Push(string.Concat(Enumerable.Repeat(l as string ?? "", Convert.ToInt32(r))));
                         }
                         else if (r is string && IsNumber(l))
                         {
-                            _stack.Push(string.Concat(Enumerable.Repeat(r?.ToString() ?? "", Convert.ToInt32(l))));
+                            _stack.Push(string.Concat(Enumerable.Repeat(r as string ?? "", Convert.ToInt32(l))));
                         }
                         else
                         {
@@ -1946,6 +1972,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "MOD");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
+
+                        if (l is null || r is null) { _stack.Push(null); break; }
                         if (!IsNumber(l) || !IsNumber(r))
                             throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
 
@@ -1973,6 +2001,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "DIV");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
+
+                        if (l is null || r is null) { _stack.Push(null); break; }
                         if (!IsNumber(l) || !IsNumber(r))
                             throw new VMException($"Runtime error: cannot DIV {l?.GetType()} and {r?.GetType()}",
                                 instr.Line, instr.Col, instr.OriginFile);
@@ -2001,6 +2031,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "EXPO");
                         object r = _stack.Pop();
                         object l = _stack.Pop();
+
+                        if (l is null || r is null) { _stack.Push(null); break; }
                         if (!IsNumber(l) || !IsNumber(r))
                             throw new VMException("EXPO on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
 
@@ -2020,13 +2052,12 @@ namespace CFGS_VM.VMCore
                 case OpCode.BIT_AND:
                     {
                         RequireStack(2, instr, "BIT_AND");
-                        object r = _stack.Pop();
-                        object l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
+                        if (l is null || r is null) { _stack.Push(null); break; }
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
                             throw new VMException("BIT_AND requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
-
                         if (l is ulong || r is ulong || l is long || r is long)
                             _stack.Push(Convert.ToInt64(l) & Convert.ToInt64(r));
                         else
@@ -2037,13 +2068,12 @@ namespace CFGS_VM.VMCore
                 case OpCode.BIT_OR:
                     {
                         RequireStack(2, instr, "BIT_OR");
-                        object r = _stack.Pop();
-                        object l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
+                        if (l is null || r is null) { _stack.Push(null); break; }
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
                             throw new VMException("BIT_OR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
-
                         if (l is ulong || r is ulong || l is long || r is long)
                             _stack.Push(Convert.ToInt64(l) | Convert.ToInt64(r));
                         else
@@ -2054,13 +2084,12 @@ namespace CFGS_VM.VMCore
                 case OpCode.BIT_XOR:
                     {
                         RequireStack(2, instr, "BIT_XOR");
-                        object r = _stack.Pop();
-                        object l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
+                        if (l is null || r is null) { _stack.Push(null); break; }
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
                             throw new VMException("BIT_XOR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
-
                         if (l is ulong || r is ulong || l is long || r is long)
                             _stack.Push(Convert.ToInt64(l) ^ Convert.ToInt64(r));
                         else
@@ -2071,13 +2100,12 @@ namespace CFGS_VM.VMCore
                 case OpCode.SHL:
                     {
                         RequireStack(2, instr, "SHL");
-                        object r = _stack.Pop();
-                        object l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
+                        if (l is null || r is null) { _stack.Push(null); break; }
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
                             throw new VMException("SHL requires (int|long|uint|ulong) << int", instr.Line, instr.Col, instr.OriginFile);
-
                         int sh = Convert.ToInt32(r) & 0x3F;
                         if (l is long or ulong)
                             _stack.Push(Convert.ToInt64(l) << sh);
@@ -2089,13 +2117,12 @@ namespace CFGS_VM.VMCore
                 case OpCode.SHR:
                     {
                         RequireStack(2, instr, "SHR");
-                        object r = _stack.Pop();
-                        object l = _stack.Pop();
+                        object r = _stack.Pop(); object l = _stack.Pop();
+                        if (l is null || r is null) { _stack.Push(null); break; }
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
                             throw new VMException("SHR requires (int|long|uint|ulong) >> int", instr.Line, instr.Col, instr.OriginFile);
-
                         int sh = Convert.ToInt32(r) & 0x3F;
                         if (l is long or ulong)
                             _stack.Push(Convert.ToInt64(l) >> sh);
@@ -2141,6 +2168,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "LT");
                         object r = _stack.Pop(); object l = _stack.Pop();
 
+                        if (l is null || r is null) { _stack.Push(null); break; }
+
                         if (IsNumber(l) && IsNumber(r))
                         {
                             (object A, object B, NumKind K) = CoercePair(l, r);
@@ -2169,6 +2198,8 @@ namespace CFGS_VM.VMCore
                     {
                         RequireStack(2, instr, "GT");
                         object r = _stack.Pop(); object l = _stack.Pop();
+
+                        if (l is null || r is null) { _stack.Push(null); break; }
 
                         if (IsNumber(l) && IsNumber(r))
                         {
@@ -2199,6 +2230,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "LE");
                         object r = _stack.Pop(); object l = _stack.Pop();
 
+                        if (l is null || r is null) { _stack.Push(null); break; }
+
                         if (IsNumber(l) && IsNumber(r))
                         {
                             (object A, object B, NumKind K) = CoercePair(l, r);
@@ -2228,6 +2261,8 @@ namespace CFGS_VM.VMCore
                         RequireStack(2, instr, "GE");
                         object r = _stack.Pop(); object l = _stack.Pop();
 
+                        if (l is null || r is null) { _stack.Push(null); break; }
+
                         if (IsNumber(l) && IsNumber(r))
                         {
                             (object A, object B, NumKind K) = CoercePair(l, r);
@@ -2252,10 +2287,20 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case OpCode.NOT:
+                    {
+                        RequireStack(1, instr, "NOT");
+                        object v = _stack.Pop();
+                        if (v is null) { _stack.Push(null); break; }
+                        _stack.Push(!ToBool(v));
+                        break;
+                    }
+
                 case OpCode.NEG:
                     {
                         RequireStack(1, instr, "NEG");
                         object? v = _stack.Pop();
+                        if (v is null) { _stack.Push(null); break; }
                         if (!IsNumber(v))
                             throw new VMException(
                                 $"NEG only works on numeric types (got {v ?? "null"} of type {v?.GetType().Name ?? "null"})",
@@ -2271,14 +2316,6 @@ namespace CFGS_VM.VMCore
                             (object)(-Convert.ToInt32(v));
 
                         _stack.Push(res);
-                        break;
-                    }
-
-                case OpCode.NOT:
-                    {
-                        RequireStack(1, instr, "NOT");
-                        object v = _stack.Pop();
-                        _stack.Push(!ToBool(v));
                         break;
                     }
 
