@@ -25,7 +25,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v1.9.9";
+    public static readonly string Version = "v2.0.1";
 
     /// <summary>
     /// Defines the PluginsFolder
@@ -63,7 +63,7 @@ public class Program
     /// <param name="args">The args<see cref="string[]"/></param>
     public static void Main(string[] args)
     {
-        CLIPath = Environment.CurrentDirectory;
+        CLIPath = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
         PluginsFolder = CLIPath + "\\" + PluginsFolder;
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
@@ -114,7 +114,7 @@ public class Program
                     else
                         BinaryRun = false;
 
-                    Environment.CurrentDirectory = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Environment.CurrentDirectory;
+                    Environment.CurrentDirectory = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
                     RunSource(input, file, IsDebug, BinaryRun);
 
 
