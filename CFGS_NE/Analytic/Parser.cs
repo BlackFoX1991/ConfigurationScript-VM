@@ -366,6 +366,8 @@ namespace CFGS_VM.Analytic
         private Stmt ParseTry()
         {
             int line = _current.Line, col = _current.Column;
+            string file = _current.Filename;
+
             Eat(TokenType.Try);
             BlockStmt tryBlock = ParseEmbeddedBlockOrSingleStatement();
 
@@ -375,11 +377,17 @@ namespace CFGS_VM.Analytic
             {
                 Eat(TokenType.Catch);
                 Eat(TokenType.LParen);
+
                 if (_current.Type == TokenType.Ident)
                 {
                     catchIdent = _current.Value!.ToString();
                     Advance();
                 }
+                else if (_current.Type != TokenType.RParen)
+                {
+                    throw new ParserException("expected identifier or ')'", _current.Line, _current.Column, _current.Filename);
+                }
+
                 Eat(TokenType.RParen);
                 catchBlock = ParseEmbeddedBlockOrSingleStatement();
             }
@@ -392,9 +400,9 @@ namespace CFGS_VM.Analytic
             }
 
             if (catchBlock == null && finallyBlock == null)
-                throw new ParserException("try must have at least catch or finally", line, col, _current.Filename);
+                throw new ParserException("try must have at least catch or finally", line, col, file);
 
-            return new TryStmt(tryBlock, catchIdent, catchBlock, finallyBlock, line, col, _current.Filename);
+            return new TryStmt(tryBlock, catchIdent, catchBlock, finallyBlock, line, col, file);
         }
 
         /// <summary>

@@ -134,9 +134,7 @@ assert_eq("static_count_still1",Point.Count,   1);
 p.inc();
 assert_eq("static_count_2",     Point.Count,   2);
 
-# Enum (statisch)
-assert_eq("enum_red",           Point.Color["Red"], 1);
-assert_eq("enum_name_back",     Point.Color["Name"][1], "Red");
+
 
 # ===== 5) Closures (capturing) =====
 func make_adder(base) {

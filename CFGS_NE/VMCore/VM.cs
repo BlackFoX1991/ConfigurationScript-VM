@@ -430,6 +430,11 @@ namespace CFGS_VM.VMCore
         private class TryHandler
         {
             /// <summary>
+            /// Defines the CallDepth
+            /// </summary>
+            public int CallDepth;
+
+            /// <summary>
             /// Defines the CatchAddr
             /// </summary>
             public int CatchAddr;
@@ -450,17 +455,38 @@ namespace CFGS_VM.VMCore
             public int ScopeDepthAtTry;
 
             /// <summary>
+            /// Defines the InFinally
+            /// </summary>
+            public bool InFinally;
+
+            /// <summary>
+            /// Defines the HasPendingReturn
+            /// </summary>
+            public bool HasPendingReturn;
+
+            /// <summary>
+            /// Defines the PendingReturnValue
+            /// </summary>
+            public object? PendingReturnValue;
+
+            /// <summary>
             /// Initializes a new instance of the <see cref="TryHandler"/> class.
             /// </summary>
             /// <param name="catchAddr">The catchAddr<see cref="int"/></param>
             /// <param name="finallyAddr">The finallyAddr<see cref="int"/></param>
             /// <param name="scopeDepthAtTry">The scopeDepthAtTry<see cref="int"/></param>
-            public TryHandler(int catchAddr, int finallyAddr, int scopeDepthAtTry)
+            /// <param name="callDepth">The callDepth<see cref="int"/></param>
+            public TryHandler(int catchAddr, int finallyAddr, int scopeDepthAtTry, int callDepth)
             {
                 CatchAddr = catchAddr;
                 FinallyAddr = finallyAddr;
                 ScopeDepthAtTry = scopeDepthAtTry;
+                CallDepth = callDepth;
                 Exception = null;
+
+                InFinally = false;
+                HasPendingReturn = false;
+                PendingReturnValue = null;
             }
         }
 
@@ -567,7 +593,17 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        private record CallFrame(int ReturnIp, int ScopesAdded, object? ThisRef);
+        private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef);
+        /// <summary>
+        /// The PopScopesToBase
+        /// </summary>
+        /// <param name="baseDepth">The baseDepth<see cref="int"/></param>
+        private void PopScopesToBase(int baseDepth)
+        {
+            while (_scopes.Count > baseDepth)
+                _scopes.RemoveAt(_scopes.Count - 1);
+        }
+
         /// <summary>
         /// Gets the CurrentThis
         /// </summary>
@@ -1089,11 +1125,6 @@ namespace CFGS_VM.VMCore
                 case OpCode.PUSH_SCOPE:
                     {
                         _scopes.Add(new Env(_scopes[^1]));
-                        if (_callStack.Count > 0)
-                        {
-                            CallFrame fr = _callStack.Pop();
-                            _callStack.Push(new CallFrame(fr.ReturnIp, fr.ScopesAdded + 1, fr.ThisRef));
-                        }
                         break;
                     }
 
@@ -1101,15 +1132,7 @@ namespace CFGS_VM.VMCore
                     {
                         if (_scopes.Count <= 1)
                             throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile);
-
                         _scopes.RemoveAt(_scopes.Count - 1);
-
-                        if (_callStack.Count > 0)
-                        {
-                            CallFrame fr = _callStack.Pop();
-                            int newCount = Math.Max(0, fr.ScopesAdded - 1);
-                            _callStack.Push(new CallFrame(fr.ReturnIp, newCount, fr.ThisRef));
-                        }
                         break;
                     }
 
@@ -2584,8 +2607,9 @@ namespace CFGS_VM.VMCore
                             for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
                                 callEnv.Define(f.Parameters[pi], argsList[ai]);
 
+                            int callerDepth = _scopes.Count;
                             _scopes.Add(callEnv);
-                            _callStack.Push(new CallFrame(_ip, 1, receiver));
+                            _callStack.Push(new CallFrame(_ip, callerDepth, receiver));
                             _ip = f.Address;
                             return StepResult.Continue;
                         }
@@ -2672,8 +2696,9 @@ namespace CFGS_VM.VMCore
                                 for (int pi = piStart2, ai = 0; pi < f.Parameters.Count; pi++, ai++)
                                     callEnv2.Define(f.Parameters[pi], argsTmp[ai]);
 
+                                int callerDepth2 = _scopes.Count;
                                 _scopes.Add(callEnv2);
-                                _callStack.Push(new CallFrame(_ip, 1, receiver));
+                                _callStack.Push(new CallFrame(_ip, callerDepth2, receiver));
                                 _ip = f.Address;
                                 return StepResult.Continue;
                             }
@@ -2735,46 +2760,128 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.RET:
                     {
-                        RequireStack(1, instr, "RET");
-                        object retVal = _stack.Pop();
+                        object? retVal = _stack.Count > 0 ? _stack.Pop() : null;
+
+                        TryHandler? nextFinally = null;
+                        foreach (TryHandler th in _tryHandlers)
+                        {
+                            if (th.FinallyAddr >= 0 && !th.InFinally)
+                            {
+                                nextFinally = th;
+                                break;
+                            }
+                        }
+
+                        if (nextFinally != null)
+                        {
+                            nextFinally.HasPendingReturn = true;
+                            nextFinally.PendingReturnValue = retVal;
+                            nextFinally.InFinally = true;
+
+                            int nip = nextFinally.FinallyAddr;
+                            nextFinally.FinallyAddr = -1;
+                            _ip = nip;
+                            return StepResult.Routed;
+                        }
+
+                        if (_callStack.Count == 0)
+                            throw new VMException("Runtime error: return with empty call stack", instr.Line, instr.Col, instr.OriginFile);
 
                         CallFrame fr = _callStack.Pop();
 
-                        for (int i = 0; i < fr.ScopesAdded; i++)
+                        while (_scopes.Count > fr.BaseScopeDepth)
                             _scopes.RemoveAt(_scopes.Count - 1);
 
-                        _ip = fr.ReturnIp;
+                        while (_tryHandlers.Count > 0 && _tryHandlers.Peek().CallDepth > _callStack.Count)
+                            _tryHandlers.Pop();
 
+                        _ip = fr.ReturnIp;
                         _stack.Push(retVal);
                         return StepResult.Continue;
                     }
 
                 case OpCode.TRY_PUSH:
                     {
-                        object[]? op = (object[]?)instr.Operand;
-                        int catchAddr = (op != null && op.Length > 0) ? (int)op[0] : -1;
-                        int finallyAddr = (op != null && op.Length > 1) ? (int)op[1] : -1;
-                        _tryHandlers.Push(new TryHandler(catchAddr, finallyAddr, _scopes.Count));
+                        object[] arr = (object[])instr.Operand!;
+                        int catchIp = (int)arr[0];
+                        int finallyIp = (int)arr[1];
+
+                        TryHandler th = new(
+                            catchAddr: catchIp,
+                            finallyAddr: finallyIp,
+                            scopeDepthAtTry: _scopes.Count,
+                            callDepth: _callStack.Count
+                        );
+
+                        _tryHandlers.Push(th);
                         break;
                     }
+
                 case OpCode.TRY_POP:
                     {
-                        if (_tryHandlers.Count == 0) break;
+                        if (_tryHandlers.Count == 0)
+                            break;
+
                         TryHandler h = _tryHandlers.Peek();
 
-                        if (h.Exception == null && h.FinallyAddr >= 0)
+                        if (!h.InFinally && h.FinallyAddr >= 0)
                         {
-                            if (h.FinallyAddr < _ip)
+                            if (h.FinallyAddr >= _ip)
                             {
-                                h.FinallyAddr = -1;
-                            }
-                            else
-                            {
+                                h.InFinally = true;
                                 int nip = h.FinallyAddr;
                                 h.FinallyAddr = -1;
                                 _ip = nip;
                                 return StepResult.Routed;
                             }
+                            else
+                            {
+                                h.FinallyAddr = -1;
+                            }
+                        }
+
+                        if (h.HasPendingReturn)
+                        {
+                            object? retVal = h.PendingReturnValue;
+
+                            _tryHandlers.Pop();
+
+                            TryHandler? outerWithFinally = null;
+                            foreach (TryHandler th in _tryHandlers)
+                            {
+                                if (th.FinallyAddr >= 0 && !th.InFinally)
+                                {
+                                    outerWithFinally = th;
+                                    break;
+                                }
+                            }
+
+                            if (outerWithFinally != null)
+                            {
+                                outerWithFinally.HasPendingReturn = true;
+                                outerWithFinally.PendingReturnValue = retVal;
+                                outerWithFinally.InFinally = true;
+
+                                int nip = outerWithFinally.FinallyAddr;
+                                outerWithFinally.FinallyAddr = -1;
+                                _ip = nip;
+                                return StepResult.Routed;
+                            }
+
+                            if (_callStack.Count == 0)
+                                throw new VMException("Runtime error: return with empty call stack", instr.Line, instr.Col, instr.OriginFile);
+
+                            CallFrame fr = _callStack.Pop();
+
+                            while (_scopes.Count > fr.BaseScopeDepth)
+                                _scopes.RemoveAt(_scopes.Count - 1);
+
+                            while (_tryHandlers.Count > 0 && _tryHandlers.Peek().CallDepth > _callStack.Count)
+                                _tryHandlers.Pop();
+
+                            _ip = fr.ReturnIp;
+                            _stack.Push(retVal);
+                            return StepResult.Continue;
                         }
 
                         if (h.Exception is object ex)
@@ -2786,8 +2893,9 @@ namespace CFGS_VM.VMCore
                                 _ip = nip;
                                 return StepResult.Routed;
                             }
-                            throw new VMException(ex.ToString()!, instr.Line, instr.Col, instr.OriginFile);
 
+                            Instruction instrNow = SafeCurrentInstr(_insns, _ip);
+                            throw new VMException(ex.ToString()!, instrNow.Line, instrNow.Col, instrNow.OriginFile);
                         }
 
                         _tryHandlers.Pop();
@@ -2798,20 +2906,30 @@ namespace CFGS_VM.VMCore
                     {
                         object? thrown = _stack.Count > 0 ? _stack.Pop() : null;
 
-                        ExceptionObject payload = thrown as ExceptionObject ?? new ExceptionObject(
-                            type: "UserError",
-                            message: thrown?.ToString() ?? "throw",
-                            file: instr.OriginFile,
-                            line: instr.Line,
-                            col: instr.Col,
-                            stack: BuildStackString(_insns, instr)
-                        );
+                        object exPayload = thrown is null
+                            ? new ExceptionObject(
+                                  type: "UserError",
+                                  message: "throw",
+                                  file: instr.OriginFile,
+                                  line: instr.Line,
+                                  col: instr.Col,
+                                  stack: BuildStackString(_insns, instr))
+                            : (thrown is ExceptionObject eo ? eo : thrown);
 
-                        if (RouteExceptionToTryHandlers(payload, instr, out int nip))
+                        if (RouteExceptionToTryHandlers(exPayload, instr, out int nip))
                         {
                             _ip = nip;
                             return StepResult.Routed;
                         }
+
+                        ExceptionObject payload = exPayload as ExceptionObject
+                            ?? new ExceptionObject(
+                                   type: "UserError",
+                                   message: thrown?.ToString() ?? "throw",
+                                   file: instr.OriginFile,
+                                   line: instr.Line,
+                                   col: instr.Col,
+                                   stack: BuildStackString(_insns, instr));
 
                         throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile);
                     }
@@ -3014,6 +3132,7 @@ namespace CFGS_VM.VMCore
                             $"[DEBUG] {dinstr.Line} ->  IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
                         DebugStream.Write(System.Text.Encoding.Default.GetBytes(
                             $"[DEBUG] {dinstr} (Line {dinstr.Line}, Col {dinstr.Col})\n"));
+
                     }
 
                     Instruction instr = _program[_ip++];
@@ -3082,24 +3201,29 @@ namespace CFGS_VM.VMCore
                     int safeIp = Math.Min(_ip, _program.Count - 1);
                     routed = false;
 
-                    if (_tryHandlers.Count > 0 && _tryHandlers.Peek().Exception is object deferredEx)
+                    if (_tryHandlers.Count > 0)
                     {
-                        _tryHandlers.Peek().Exception = null;
+                        TryHandler top = _tryHandlers.Peek();
 
-                        if (RouteExceptionToTryHandlers(deferredEx, _program[safeIp], out int nip2))
+                        if (top.Exception is object deferredEx && !top.InFinally)
                         {
-                            _ip = nip2;
-                            routed = true;
-                        }
-                        else
-                        {
-                            if (debugging)
+                            top.Exception = null;
+
+                            if (RouteExceptionToTryHandlers(deferredEx, _program[safeIp], out int nip2))
                             {
-                                DebugStream.Position = 0;
-                                using FileStream file = File.Create("log_file.log");
-                                DebugStream.CopyTo(file);
+                                _ip = nip2;
+                                routed = true;
                             }
-                            throw new VMException("Uncaught system exception : ", _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile);
+                            else
+                            {
+                                if (debugging)
+                                {
+                                    DebugStream.Position = 0;
+                                    using FileStream file = File.Create("log_file.log");
+                                    DebugStream.CopyTo(file);
+                                }
+                                throw new VMException("Uncaught system exception : ", _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile);
+                            }
                         }
                     }
 
@@ -3166,24 +3290,26 @@ namespace CFGS_VM.VMCore
             {
                 TryHandler h = _tryHandlers.Peek();
 
-                int before = _scopes.Count;
-                while (_scopes.Count > h.ScopeDepthAtTry)
-                    _scopes.RemoveAt(_scopes.Count - 1);
-                int removed = before - _scopes.Count;
-
-                if (_callStack.Count > 0 && removed > 0)
-                {
-                    CallFrame fr = _callStack.Pop();
-                    fr = fr with { ScopesAdded = Math.Max(0, fr.ScopesAdded - removed) };
-                    _callStack.Push(fr);
-                }
+                PopScopesToBase(h.ScopeDepthAtTry);
 
                 if (h.CatchAddr >= 0)
                 {
                     _stack.Push(exPayload);
                     newIp = h.CatchAddr;
+
                     h.CatchAddr = -1;
                     h.Exception = null;
+                    while (_callStack.Count > h.CallDepth)
+                    {
+                        CallFrame fr = _callStack.Pop();
+
+                        while (_scopes.Count > fr.BaseScopeDepth)
+                            _scopes.RemoveAt(_scopes.Count - 1);
+
+                        while (_tryHandlers.Count > 0 && _tryHandlers.Peek().CallDepth > _callStack.Count)
+                            _tryHandlers.Pop();
+                    }
+
                     return true;
                 }
 
@@ -3192,6 +3318,18 @@ namespace CFGS_VM.VMCore
                     h.Exception = exPayload;
                     newIp = h.FinallyAddr;
                     h.FinallyAddr = -1;
+                    h.InFinally = true;
+                    while (_callStack.Count > h.CallDepth)
+                    {
+                        CallFrame fr = _callStack.Pop();
+
+                        while (_scopes.Count > fr.BaseScopeDepth)
+                            _scopes.RemoveAt(_scopes.Count - 1);
+
+                        while (_tryHandlers.Count > 0 && _tryHandlers.Peek().CallDepth > _callStack.Count)
+                            _tryHandlers.Pop();
+                    }
+
                     return true;
                 }
 
@@ -3262,9 +3400,23 @@ namespace CFGS_VM.VMCore
         private string DumpCallStack()
         {
             if (_callStack == null || _callStack.Count == 0) return "<empty>";
+
             CallFrame[] arr = _callStack.ToArray();
+            int curDepth = _scopes?.Count ?? 0;
+
             IEnumerable<string> parts = arr.Select((fr, i) =>
-                $"#{i}: ret={fr.ReturnIp}, scopes+={fr.ScopesAdded}, this={(fr.ThisRef != null ? FormatVal(fr.ThisRef) : "null")}");
+            {
+                bool isTop = (i == 0);
+                int scopesPlus = Math.Max(0, curDepth - fr.BaseScopeDepth);
+
+                string thisPart = fr.ThisRef != null ? FormatVal(fr.ThisRef) : "null";
+                string scopeInfo = isTop
+                    ? $"base={fr.BaseScopeDepth}, scopes+={scopesPlus}"
+                    : $"base={fr.BaseScopeDepth}";
+
+                return $"#{i}: ret={fr.ReturnIp}, {scopeInfo}, this={thisPart}";
+            });
+
             return string.Join(" ; ", parts);
         }
 

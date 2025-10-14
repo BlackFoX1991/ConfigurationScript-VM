@@ -784,6 +784,9 @@ namespace CFGS_VM.VMCore
 
                         CompileStmt(ts.TryBlock, insideFunction);
 
+                        int jmpAfterTryIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP, null, ts.Line, ts.Col, ts.OriginFile));
+
                         int catchStart = -1, finallyStart = -1;
 
                         if (ts.CatchBlock != null)
@@ -795,6 +798,8 @@ namespace CFGS_VM.VMCore
 
                             if (ts.CatchIdent != null)
                                 _insns.Add(new Instruction(OpCode.VAR_DECL, ts.CatchIdent, ts.Line, ts.Col, ts.OriginFile));
+                            else
+                                _insns.Add(new Instruction(OpCode.POP, null, ts.Line, ts.Col, ts.OriginFile));
 
                             CompileStmt(ts.CatchBlock, insideFunction);
 
@@ -808,6 +813,7 @@ namespace CFGS_VM.VMCore
                             CompileStmt(ts.FinallyBlock, insideFunction);
                         }
 
+                        int tryPopIdx = _insns.Count;
                         _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
 
                         _insns[tryStart] = new Instruction(
@@ -815,6 +821,10 @@ namespace CFGS_VM.VMCore
                             new object[] { catchStart, finallyStart },
                             ts.Line, ts.Col, ts.OriginFile
                         );
+
+                        int target = (finallyStart >= 0) ? finallyStart : tryPopIdx;
+                        _insns[jmpAfterTryIdx] = new Instruction(OpCode.JMP, target, ts.Line, ts.Col, ts.OriginFile);
+
                         break;
                     }
 
