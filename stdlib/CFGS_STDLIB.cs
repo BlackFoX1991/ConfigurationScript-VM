@@ -111,6 +111,7 @@ namespace CFGS_VM.VMCore.CorePlugin
             builtins.Register(new BuiltinDescriptor("toi16", 1, 1, (args, instr) => Convert.ToInt16(args[0])));
             builtins.Register(new BuiltinDescriptor("toi32", 1, 1, (args, instr) => Convert.ToInt32(args[0])));
             builtins.Register(new BuiltinDescriptor("toi64", 1, 1, (args, instr) => Convert.ToInt64(args[0])));
+            builtins.Register(new BuiltinDescriptor("chr", 1, 1, (args, instr) => Convert.ToChar(args[0])));
 
             builtins.Register(new BuiltinDescriptor("set_workspace", 1, 1, (args, instr) =>
             {
