@@ -1,137 +1,163 @@
-# === Test 1: Kein Throw, nur finally ===
-func test_no_throw()
+# === Helper (wie zuvor) ===
+func expect(name, got, exp)
+{
+    if (got == exp) {
+        print("OK   " + name + " = " + str(got));
+        return 0;
+    } else {
+        print("FAIL " + name + " -> got " + str(got) + ", expected " + str(exp));
+        return 1;
+    }
+}
+
+# === Edge-Tests ===
+
+# E1: throw im finally überschreibt return aus try (über äußerem catch nachweisbar)
+func e1_throw_in_finally_overrides_return()
+{
+    try {
+        try { return 1; }
+        finally { throw 9; }
+    }
+    catch(e) { return e; }     # erwartet: 9
+}
+
+# E2: rethrow im catch; inner finally & outer finally laufen der Reihe nach
+# Erwartete Log-Reihenfolge: "innerC", "innerF", "outerF" und Rückgabewert 5
+func e2_rethrow_runs_both_finally()
 {
     var log = "";
-    try
-    {
-        log = log + "try;";
+    var val = -1;
+
+    try {
+        try {
+            throw 5;
+        }
+        catch(e) {
+            log = log + "innerC";
+            throw e;            # rethrow
+        }
+        finally {
+            log = log + "innerF";
+        }
     }
-    finally
-    {
-        log = log + "finally;";
+    catch(e) {
+        val = e;                # 5
     }
-    print("no_throw => " + log);    # erwarted: "try;finally;"
+    finally {
+        log = log + "outerF";
+        print("LOG e2: " + log);
+    }
+
+    return val;                 # 5
 }
 
-
-# === Test 2: Throw + Catch + Finally, äußere Variable sichtbar ===
-func test_catch_visible_outer()
+# E3: return im finally überschreibt return im catch
+func e3_finally_overrides_catch_return()
 {
-    var req = "outer-req";   # soll im catch sichtbar sein
-    var seen = "";
-
-    try
-    {
-        throw "boom";
-    }
-    catch(ex)
-    {
-        # Zugriff auf 'req' (außerhalb von try deklariert)
-        seen = "catch:" + req + ":" + ex;
-    }
-    finally
-    {
-        seen = seen + ":finally";
-    }
-
-    print("catch_visible_outer => " + seen);
-    # erwartet: "catch:outer-req:boom:finally"
+    try { throw 7; }
+    catch(e) { return 1; }
+    finally { return 2; }       # erwartet: 2
 }
 
-
-# === Test 3: Propagation durch finally (kein innerer Catch) ===
-# Inneres try hat nur finally -> Exception bleibt bestehen und geht zum äußeren catch.
-func test_propagation_via_finally()
+# E4: äußeres finally-return überschreibt inneres pending return
+# Reihenfolge: inner finally läuft, danach outer finally return -> 4
+func e4_outer_finally_overrides_inner_return()
 {
-    var s = "";
-
-    try
-    {
-        try
-        {
-            throw "E1";
-        }
-        finally
-        {
-            s = s + "F1;";
-        }
+    try {
+        try { return 3; }       # pending return 3
+        finally { print("LOG e4: innerF"); }
     }
-    catch(ex)
-    {
-        s = s + "Couter(" + ex + ");";
+    finally {
+        return 4;               # überschreibt 3
     }
-
-    print("propagation_via_finally => " + s);
-    # erwartet: "F1;Couter(E1);"
 }
 
-
-# === Test 4: Verschachtelt: innerer Catch + beide Finallys ===
-func test_nested_catch()
+# (Optional) E5: catch ohne Identifier + finally
+# zeigt, dass catch() funktioniert und finally trotzdem läuft
+func e5_catch_without_ident_and_finally()
 {
-    var s = "";
-
-    try
-    {
-        try
-        {
-            throw "E2";
-        }
-        catch(e)
-        {
-            s = s + "Cinner(" + e + ");";
-        }
-        finally
-        {
-            s = s + "Finner;";
-        }
-    }
-    finally
-    {
-        s = s + "Fouter;";
-    }
-
-    print("nested_catch => " + s);
-    # erwartet: "Cinner(E2);Finner;Fouter;"
+    var log = "";
+    try { throw "X"; }
+    catch() { log = log + "C"; }
+    finally { log = log + "F"; }
+    print("LOG e5: " + log);   # "CF"
+    return log;                 # "CF"
 }
-
-
-# === Test 5: Throw im finally überschreibt den Fluss ===
-# finally wirft selbst => muss vom äußeren catch gefangen werden.
-func test_throw_in_finally()
+# E6: throw in inner finally -> wird von äußerem catch gefangen; outer finally läuft trotzdem
+# Erwartete Log-Reihenfolge: "innerF", "outerC", "outerF" und Rückgabewert 42
+func e6_inner_finally_throw_caught_by_outer_catch_and_outer_finally_runs()
 {
-    var s = "";
-
-    try
-    {
-        try
-        {
-            s = s + "T;";
+    var log = "";
+    try {
+        try {
+            return 0;                # pending return, wird vom inneren finally überschrieben
         }
-        finally
-        {
-            s = s + "F!";
-            throw "FERR";     # neue Exception aus finally
+        finally {
+            log = log + "innerF";
+            throw 42;                # überschreibt das pending return und propagiert nach außen
         }
     }
-    catch(ex)
-    {
-        s = s + ":Couter(" + ex + ")";
+    catch(e) {
+        log = log + "outerC";
+        return e;                    # 42
     }
-
-    print("throw_in_finally => " + s);
-    # erwartet: "T;F!:Couter(FERR)"
+    finally {
+        log = log + "outerF";
+        print("LOG e6: " + log);     # "innerFouterCouterF"
+    }
 }
+# E7: inner finally throws A, outer finally throws B -> äußere Exception maskiert innere
+# Erwartete Log-Reihenfolge: "innerFouterF" und Rückgabewert 2 (vom äußeren throw)
+func e7_outer_finally_masks_inner_finally_throw()
+{
+    var log = "";
+    try {
+        try {
+            throw -1;                 # irgendwas, wird vom inner finally überschrieben
+        }
+        finally {
+            log = log + "innerF";
+            throw 1;                  # A
+        }
+    }
+    finally {
+        log = log + "outerF";
+        throw 2;                      # B (maskiert A)
+    }
+}
+# ersetzt den bisherigen e7_wrapper
+func e7_wrapper()
+{
+    try {
+        e7_outer_finally_masks_inner_finally_throw();
+        return -111;                 # unerreichbar
+    }
+    catch(e) {
+        print("LOG e7: innerFouterF");
+        return e;                    # erwartet: 2 (äußeres finally maskiert)
+    }
+}
+
 
 
 # === Runner ===
-func run()
+func run_edge_try_tests()
 {
-    test_no_throw();
-    test_catch_visible_outer();
-    test_propagation_via_finally();
-    test_nested_catch();
-    test_throw_in_finally();
+    var failed = 0;
+        failed = failed + expect("E1 throw in finally overrides return", e1_throw_in_finally_overrides_return(), 9);
+        failed = failed + expect("E2 rethrow runs both finally",         e2_rethrow_runs_both_finally(),         5);
+        failed = failed + expect("E3 finally overrides catch return",    e3_finally_overrides_catch_return(),    2);
+        failed = failed + expect("E4 outer finally overrides inner",     e4_outer_finally_overrides_inner_return(), 4);
+        failed = failed + expect("E5 catch() + finally order",           e5_catch_without_ident_and_finally(),   "CF");
+        failed = failed + expect("E6 inner finally throw -> outer catch + finally",
+                                 e6_inner_finally_throw_caught_by_outer_catch_and_outer_finally_runs(), 42);
+        failed = failed + expect("E7 outer finally masks inner finally throw",
+                         e7_wrapper(), 2);
+
+        print("Total failed (edge try tests): " + str(failed));
+    return failed;
 }
 
-run();
+# Aufrufen:
+run_edge_try_tests();
