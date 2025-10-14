@@ -3610,7 +3610,7 @@ namespace CFGS_VM.VMCore
                         int index = Convert.ToInt32(idxObj);
                         if (index < 0 || index >= strv.Length)
                             throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
-                        return strv[index];
+                        return (char)strv[index];
                     }
 
                 case Dictionary<string, object> dict:

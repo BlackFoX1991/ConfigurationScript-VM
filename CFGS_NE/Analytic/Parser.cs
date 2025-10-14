@@ -58,16 +58,6 @@ namespace CFGS_VM.Analytic
         }
 
         /// <summary>
-        /// Gets the Current
-        /// </summary>
-        private Token Current => _current;
-
-        /// <summary>
-        /// Gets the LookAhead
-        /// </summary>
-        private Token LookAhead => _next;
-
-        /// <summary>
         /// Defines the _importedHashes
         /// </summary>
         private readonly HashSet<string> _importedHashes = new();
@@ -227,11 +217,21 @@ namespace CFGS_VM.Analytic
         private List<Stmt> GetImports(string path, int ln, int col, string fsname, string specClass = "")
         {
             List<Stmt> result = new();
-            string baseDir = string.IsNullOrWhiteSpace(fsname) ? Directory.GetCurrentDirectory() : Path.GetDirectoryName(Path.GetFullPath(fsname)) ?? Directory.GetCurrentDirectory();
+            string baseDir = string.IsNullOrWhiteSpace(fsname)
+                ? Directory.GetCurrentDirectory()
+                : Path.GetDirectoryName(Path.GetFullPath(fsname)) ?? Directory.GetCurrentDirectory();
+
             string candidate = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(baseDir, path));
             if (!File.Exists(candidate)) return result;
+
             string fullPath = Path.GetFullPath(candidate);
 
+            string? thisFile = string.IsNullOrWhiteSpace(fsname) ? null : Path.GetFullPath(fsname);
+            if (thisFile != null && string.Equals(fullPath, thisFile, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine($"Import Warning: Ignoring self-import of '{fullPath}'.");
+                return result;
+            }
             if (_importStack.Contains(fullPath))
             {
                 string chain = string.Join(" -> ", _importStack.Reverse().Append(fullPath));
