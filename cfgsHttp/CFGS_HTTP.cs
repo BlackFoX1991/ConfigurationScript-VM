@@ -286,6 +286,16 @@ namespace CFGS_VM.VMCore.CorePlugin
             private static readonly ConcurrentDictionary<int, ServerHandle> ActiveByPort = new();
 
             /// <summary>
+            /// Defines the _activeResponses
+            /// </summary>
+            private int _activeResponses = 0;
+
+            /// <summary>
+            /// Defines the _noActiveResponses
+            /// </summary>
+            private readonly ManualResetEventSlim _noActiveResponses = new(initialState: true);
+
+            /// <summary>
             /// Initializes a new instance of the <see cref="ServerHandle"/> class.
             /// </summary>
             /// <param name="port">The port<see cref="int"/></param>
@@ -359,6 +369,9 @@ namespace CFGS_VM.VMCore.CorePlugin
             public void Close()
             {
                 try { Stop(); } catch { }
+
+                try { _noActiveResponses.Wait(TimeSpan.FromSeconds(2)); } catch { }
+
                 try { _listener.Close(); } catch { }
                 Thread.Sleep(100);
                 _cts.Dispose();
@@ -403,9 +416,15 @@ namespace CFGS_VM.VMCore.CorePlugin
                 if (!_inflight.TryRemove(id, out HttpListenerContext? ctx))
                     return 0;
 
+                _noActiveResponses.Reset();
+                Interlocked.Increment(ref _activeResponses);
+
                 HttpListenerResponse resp = ctx.Response;
                 resp.StatusCode = status;
                 resp.KeepAlive = false;
+
+                bool methodIsHead = string.Equals(ctx.Request.HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase);
+                bool noBody = methodIsHead || status == 204 || status == 304 || (status >= 100 && status < 200);
 
                 if (headers != null)
                 {
@@ -413,20 +432,46 @@ namespace CFGS_VM.VMCore.CorePlugin
                     {
                         string k = kv.Key;
                         string v = kv.Value?.ToString() ?? "";
-                        if (string.Equals(k, "Content-Type", StringComparison.OrdinalIgnoreCase))
+
+                        if (k.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (k.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (k.Equals("Connection", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (k.Equals("Keep-Alive", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (k.Equals("Upgrade", StringComparison.OrdinalIgnoreCase)) continue;
+
+                        if (k.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
                             resp.ContentType = v;
                         else
                             resp.Headers[k] = v;
                     }
                 }
+                if (string.IsNullOrWhiteSpace(resp.ContentType))
+                    resp.ContentType = "text/plain; charset=utf-8";
 
-                byte[] buf = Encoding.UTF8.GetBytes(body);
-                resp.ContentLength64 = buf.Length;
+                byte[] payload = Array.Empty<byte>();
+                if (!noBody)
+                    payload = Encoding.UTF8.GetBytes(body ?? "");
+
+                resp.SendChunked = false;
+                resp.ContentLength64 = noBody ? 0 : payload.LongLength;
 
                 try
                 {
-                    using (Stream os = resp.OutputStream)
-                        os.Write(buf, 0, buf.Length);
+                    if (!noBody && payload.Length > 0)
+                    {
+                        Stream s = resp.OutputStream;
+                        int off = 0;
+                        while (off < payload.Length)
+                        {
+                            int n = Math.Min(64 * 1024, payload.Length - off);
+                            s.Write(payload, off, n);
+                            off += n;
+                        }
+                        s.Flush();
+                    }
+                }
+                catch (ObjectDisposedException)
+                {
                 }
                 catch (HttpListenerException ex)
                 {
@@ -435,6 +480,14 @@ namespace CFGS_VM.VMCore.CorePlugin
                 catch (IOException ioEx) when (ioEx.InnerException is HttpListenerException hlex
                                                && (hlex.ErrorCode == 64 || hlex.ErrorCode == 1229))
                 {
+                }
+                finally
+                {
+                    try { resp.OutputStream.Close(); } catch { }
+                    try { resp.Close(); } catch { }
+
+                    if (Interlocked.Decrement(ref _activeResponses) == 0)
+                        _noActiveResponses.Set();
                 }
 
                 return 1;
