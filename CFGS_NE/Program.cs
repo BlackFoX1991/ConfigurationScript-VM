@@ -30,7 +30,8 @@ public class Program
     /// <summary>
     /// Defines the PluginsFolder
     /// </summary>
-    public static readonly string PluginsFolder = "plugins";
+    public static string PluginsFolder = "plugins";
+    public static string CLIPath = string.Empty;
 
     /// <summary>
     /// Defines the logo
@@ -62,6 +63,8 @@ public class Program
     /// <param name="args">The args<see cref="string[]"/></param>
     public static void Main(string[] args)
     {
+        CLIPath = Environment.CurrentDirectory;
+        PluginsFolder = CLIPath + "\\" + PluginsFolder;
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
         List<string> files = new();
