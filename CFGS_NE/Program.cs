@@ -172,9 +172,7 @@ public class Program
             compiler = new(name);
             bytecode = compiler.Compile(ast);
 
-            string baseDir = AppContext.BaseDirectory;
-            string pluginDir = Path.Combine(baseDir, PluginsFolder);
-            vm.LoadPluginsFrom(pluginDir);
+            vm.LoadPluginsFrom(PluginsFolder);
             vm.LoadFunctions(compiler._functions);
             vm.LoadInstructions(bytecode);
             if (debug)
@@ -230,9 +228,7 @@ public class Program
             (bytecode, Dictionary<string, CFGS_VM.VMCore.Extension.FunctionInfo>? funcs) = CFGS_VM.VMCore.IO.CFSBinary.Load(name);
             vm.LoadInstructions(bytecode);
             vm.LoadFunctions(funcs);
-            string baseDir = AppContext.BaseDirectory;
-            string pluginDir = Path.Combine(baseDir, PluginsFolder);
-            vm.LoadPluginsFrom(pluginDir);
+            vm.LoadPluginsFrom(PluginsFolder);
             if (debug)
             {
                 Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
