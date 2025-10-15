@@ -15,37 +15,7 @@ This project also served to **deepen my compiler engineering knowledge**.
 
 ## 🚀 Getting Started
 
-You can run code in two ways:
-
-1. **Interactive REPL**  
-   Starts automatically if you run without arguments.  
-   The REPL detects open blocks and only executes when all blocks are closed.
-
-2. ## CFS Command-Line Guide
-
-> Quick reference for compiling and running CFS scripts from the terminal.
-
----
-
-### 🚀 Usage
-
-```bash
-cfcs [-d | -c | -b] <script-path>
-```
-
-- `<script-path>` can be a `.cfs` source file or a compiled `.cfb` bytecode file.
-
----
-
-### 🧭 Options
-
-| Flag | Description |
-|-----:|-------------|
-| `-d` | Enable **debug mode**. |
-| `-c` | Compile a `.cfs` script to a `.cfb` bytecode file. The output is written next to the input script, using the same filename with a `.cfb` extension. |
-| `-b` | Run a compiled `.cfb` file. |
-
-> **Tip:** You don't need `-b` when passing a `.cfb` file—CFS detects the extension automatically and runs it as bytecode.
+[Here is a short Introduction](https://github.com/BlackFoX1991/ConfigurationScript-VM/blob/af7cb4bd74b0ef7b580d12349cd174a6a0f059a1/CFGS_NE/Tutorial/Introduction.md)
 
 ---
 
