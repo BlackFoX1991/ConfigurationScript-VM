@@ -387,36 +387,6 @@ namespace CFGS_VM.Analytic
     }
 
     /// <summary>
-    /// Defines the <see cref="EmitStmt" />
-    /// </summary>
-    public class EmitStmt : Stmt
-    {
-        /// <summary>
-        /// Defines the Command
-        /// </summary>
-        public int Command;
-
-        /// <summary>
-        /// Defines the Argument
-        /// </summary>
-        public object? Argument;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="EmitStmt"/> class.
-        /// </summary>
-        /// <param name="command">The command<see cref="int"/></param>
-        /// <param name="argm">The argm<see cref="object?"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public EmitStmt(int command, object? argm, int line, int col, string fname) : base(line, col, fname)
-        {
-            Command = command;
-            Argument = argm;
-        }
-    }
-
-    /// <summary>
     /// Defines the <see cref="ExprStmt" />
     /// </summary>
     public class ExprStmt : Stmt
@@ -617,6 +587,17 @@ namespace CFGS_VM.Analytic
             Target = target;
             Value = value;
         }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="TryUnwrapExpr" />
+    /// </summary>
+    public sealed class TryUnwrapExpr(Expr? inner, int line, int col, string file) : Expr(line, col, file)
+    {
+        /// <summary>
+        /// Gets the Inner
+        /// </summary>
+        public Expr? Inner { get; } = inner;
     }
 
     /// <summary>
@@ -1354,6 +1335,71 @@ namespace CFGS_VM.Analytic
     }
 
     /// <summary>
+    /// Defines the <see cref="CaseExprArm" />
+    /// </summary>
+    public sealed class CaseExprArm : Node
+    {
+        /// <summary>
+        /// Gets the Pattern
+        /// </summary>
+        public Expr Pattern { get; }
+
+        /// <summary>
+        /// Gets the Body
+        /// </summary>
+        public Expr Body { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="CaseExprArm"/> class.
+        /// </summary>
+        /// <param name="p">The p<see cref="Expr"/></param>
+        /// <param name="b">The b<see cref="Expr"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public CaseExprArm(Expr p, Expr b, int line, int col, string file) : base(line, col, file)
+        {
+            Pattern = p; Body = b;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="MatchExpr" />
+    /// </summary>
+    public sealed class MatchExpr : Expr
+    {
+        /// <summary>
+        /// Gets the Scrutinee
+        /// </summary>
+        public Expr Scrutinee { get; }
+
+        /// <summary>
+        /// Gets the Arms
+        /// </summary>
+        public List<CaseExprArm> Arms { get; }
+
+        /// <summary>
+        /// Gets the DefaultArm
+        /// </summary>
+        public Expr? DefaultArm { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MatchExpr"/> class.
+        /// </summary>
+        /// <param name="scr">The scr<see cref="Expr"/></param>
+        /// <param name="arms">The arms<see cref="List{CaseExprArm}"/></param>
+        /// <param name="def">The def<see cref="Expr?"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public MatchExpr(Expr scr, List<CaseExprArm> arms, Expr? def, int line, int col, string file)
+            : base(line, col, file)
+        {
+            Scrutinee = scr; Arms = arms; DefaultArm = def;
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="TryStmt" />
     /// </summary>
     public class TryStmt : Stmt
@@ -1565,11 +1611,11 @@ namespace CFGS_VM.Analytic
     /// <summary>
     /// Defines the <see cref="ReturnStmt" />
     /// </summary>
-    public class ReturnStmt(Expr value, int line, int col, string fname) : Stmt(line, col, fname)
+    public class ReturnStmt(Expr? value, int line, int col, string fname) : Stmt(line, col, fname)
     {
         /// <summary>
         /// Defines the Value
         /// </summary>
-        public Expr Value = value;
+        public Expr? Value = value;
     }
 }

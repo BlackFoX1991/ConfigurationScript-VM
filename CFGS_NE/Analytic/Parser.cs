@@ -1,5 +1,4 @@
 ﻿using CFGS_VM.Analytic.TTypes;
-using CFGS_VM.VMCore.Command;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -337,7 +336,6 @@ namespace CFGS_VM.Analytic
                 TokenType.Match => ParseMatch(),
                 TokenType.Class => ParseClassDecl(),
                 TokenType.Enum => ParseEnumDecl(),
-                TokenType.Emit => ParseEmitStmt,
                 TokenType.ForEach => ParseForeach(),
                 TokenType.Try => ParseTry(),
                 TokenType.Throw => ParseThrow(),
@@ -418,43 +416,6 @@ namespace CFGS_VM.Analytic
 
                 Eat(TokenType.Semi);
                 return new EmptyStmt(TokenType.Semi, line, col, fs);
-            }
-        }
-
-        /// <summary>
-        /// Gets the ParseEmitStmt
-        /// </summary>
-        private EmitStmt ParseEmitStmt
-        {
-            get
-            {
-                object? argLine = string.Empty;
-                Eat(TokenType.Emit);
-                Eat(TokenType.LParen);
-                if (_current.Type != TokenType.Ident)
-                    throw new ParserException("expected opcode name", _current.Line, _current.Column, _current.Filename);
-                int gcode = -1;
-                if (Enum.TryParse<OpCode>(_current.Value.ToString() ?? "", ignoreCase: false, out OpCode cmd))
-                    gcode = Convert.ToInt32(cmd);
-                else
-                    throw new ParserException("invalid opcode name", _current.Line, _current.Column, _current.Filename);
-
-                Eat(TokenType.Ident);
-                if (_current.Type == TokenType.Comma)
-                {
-                    Eat(TokenType.Comma);
-                    if (_current.Type == TokenType.Number)
-                        argLine = (int)_current.Value;
-                    else if (_current.Type == TokenType.String)
-                        argLine = _current.Value.ToString() ?? "";
-                    else
-                        throw new ParserException("expected number or string as opcode argument", _current.Line, _current.Column, _current.Filename);
-
-                    Advance();
-                }
-                Eat(TokenType.RParen);
-                Eat(TokenType.Semi);
-                return new EmitStmt(gcode, argLine, _current.Line, _current.Column, _current.Filename);
             }
         }
 
@@ -1660,9 +1621,59 @@ namespace CFGS_VM.Analytic
                     Eat(TokenType.Dot);
                     if (_current.Type != TokenType.Ident)
                         throw new ParserException("expected identifier after '.'", _current.Line, _current.Column, _current.Filename);
-                    string member = _current.Value.ToString() ?? "";
+                    string member = _current.Value?.ToString() ?? "";
                     node = new IndexExpr(node, new StringExpr(member, _current.Line, _current.Column, _current.Filename), node?.Line ?? -1, node?.Col ?? -1, node?.OriginFile ?? "");
                     Eat(TokenType.Ident);
+                }
+                else if (_current.Type == TokenType.Match)
+                {
+                    int line = _current.Line, col = _current.Column;
+                    string fs = _current.Filename;
+
+                    Eat(TokenType.Match);
+                    Eat(TokenType.LBrace);
+
+                    List<CaseExprArm> arms = new();
+                    Expr? defaultArm = null;
+
+                    if (_current.Type != TokenType.RBrace)
+                    {
+                        while (true)
+                        {
+                            if (_current.Type == TokenType.Ident && (_current.Value?.ToString() ?? "") == "_")
+                            {
+                                Eat(TokenType.Ident);
+                                Eat(TokenType.Colon);
+
+                                Expr body = Expr();
+
+                                if (defaultArm != null)
+                                    throw new ParserException("duplicate '_' default arm in match expression", _current.Line, _current.Column, _current.Filename);
+
+                                defaultArm = body;
+                            }
+                            else
+                            {
+                                Expr pat = Expr();
+                                Eat(TokenType.Colon);
+                                Expr body = Expr();
+
+                                arms.Add(new CaseExprArm(pat, body, pat.Line, pat.Col, pat.OriginFile));
+                            }
+
+                            if (_current.Type == TokenType.Comma)
+                            {
+                                Eat(TokenType.Comma);
+                                if (_current.Type == TokenType.RBrace) break;
+                                continue;
+                            }
+                            else break;
+                        }
+                    }
+
+                    Eat(TokenType.RBrace);
+
+                    node = new MatchExpr(node!, arms, defaultArm, line, col, fs);
                 }
                 else if (_current.Type == TokenType.PlusPlus || _current.Type == TokenType.MinusMinus)
                 {
@@ -1740,7 +1751,7 @@ namespace CFGS_VM.Analytic
             }
 
             Eat(TokenType.RParen);
-            BlockStmt body = ParseBlock();
+            BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
 
             return new FuncDeclStmt(name, parameters, body, _current.Line, _current.Column, _current.Filename);
         }
@@ -1752,7 +1763,10 @@ namespace CFGS_VM.Analytic
         private ReturnStmt ParseReturnStmt()
         {
             Eat(TokenType.Return);
-            Expr value = Expr();
+            Expr? value = null;
+            if (_current.Type != TokenType.Semi)
+                value = Expr();
+
             Eat(TokenType.Semi);
             return new ReturnStmt(value, _current.Line, _current.Column, _current.Filename);
         }

@@ -1,0 +1,19 @@
+# 1) Ausdrucks-match als Funktionsargument
+func toText(n) {
+  return n match { 0:"zero", 1:"one", _:"many" };
+}
+print(toText(0));
+print(toText(7));
+
+# 2) Kein Treffer ohne default -> null
+func f(x) { return x match { 1:"one" }; }
+print(f(2));  # null
+
+
+var p = 3;
+# 3) Statement-match mit Seiteneffekten
+match (2) {
+  case 1: { print("one"); }
+  case 2: { print("two"); }
+  default: { print("other"); }
+}

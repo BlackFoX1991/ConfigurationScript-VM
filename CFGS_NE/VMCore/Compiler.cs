@@ -171,12 +171,6 @@ namespace CFGS_VM.VMCore
                 case EmptyStmt etst:
                     break;
 
-                case EmitStmt emitStmt:
-                    {
-                        _insns.Add(new Instruction((OpCode)emitStmt.Command, emitStmt.Argument, s.Line, s.Col, s.OriginFile));
-                        break;
-                    }
-
                 case AssignIndexExprStmt aies:
                     {
                         CompileExpr(aies.Value);
@@ -1190,6 +1184,43 @@ namespace CFGS_VM.VMCore
                         CompileExpr(cnd.ElseExpr);
 
                         _insns[jmpEndIdx] = new Instruction(OpCode.JMP, _insns.Count, e.Line, e.Col, e.OriginFile);
+                        break;
+                    }
+
+                case MatchExpr me:
+                    {
+                        CompileExpr(me.Scrutinee);
+
+                        List<int> endJumps = new();
+
+                        foreach (CaseExprArm arm in me.Arms)
+                        {
+                            _insns.Add(new Instruction(OpCode.DUP, null, me.Line, me.Col, me.OriginFile));
+                            CompileExpr(arm.Pattern);
+                            _insns.Add(new Instruction(OpCode.EQ, null, me.Line, me.Col, me.OriginFile));
+
+                            int jmpIfFalse = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, me.Line, me.Col, me.OriginFile));
+                            _insns.Add(new Instruction(OpCode.POP, null, me.Line, me.Col, me.OriginFile));
+                            CompileExpr(arm.Body);
+
+                            int jmpEnd = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP, null, me.Line, me.Col, me.OriginFile));
+                            endJumps.Add(jmpEnd);
+
+                            _insns[jmpIfFalse] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, me.Line, me.Col, me.OriginFile);
+                        }
+
+                        _insns.Add(new Instruction(OpCode.POP, null, me.Line, me.Col, me.OriginFile));
+                        if (me.DefaultArm != null)
+                            CompileExpr(me.DefaultArm);
+                        else
+                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, me.Line, me.Col, me.OriginFile));
+
+                        int endTarget = _insns.Count;
+                        foreach (int idx in endJumps)
+                            _insns[idx] = new Instruction(OpCode.JMP, endTarget, me.Line, me.Col, me.OriginFile);
+
                         break;
                     }
 

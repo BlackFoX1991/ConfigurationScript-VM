@@ -376,11 +376,6 @@
         Return,
 
         /// <summary>
-        /// Defines the Emit
-        /// </summary>
-        Emit,
-
-        /// <summary>
         /// Defines the EOF
         /// </summary>
         EOF,
