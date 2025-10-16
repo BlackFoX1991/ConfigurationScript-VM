@@ -1,5 +1,8 @@
 ﻿using CFGS_VM.Analytic.TTypes;
 
+/// <summary>
+/// Defines the <see cref="Token" />
+/// </summary>
 public class Token
 {
     /// <summary>

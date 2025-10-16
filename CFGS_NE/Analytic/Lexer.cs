@@ -15,9 +15,9 @@ public class Lexer
     /// The MakeToken
     /// </summary>
     /// <param name="type">The type<see cref="TokenType"/></param>
-    /// <param name="value">The value<see cref="string"/></param>
+    /// <param name="value">The value<see cref="object"/></param>
     /// <returns>The <see cref="Token"/></returns>
-    private Token MakeToken(TokenType type, string value)
+    private Token MakeToken(TokenType type, object value)
     {
         return new Token(type, value, _line, _col, FileName);
     }
@@ -176,9 +176,9 @@ public class Lexer
 
                 if (Current != '\"')
                     throw new LexerException("unterminated string literal", startLine, startCol, FileName);
-
                 SyncPos();
-                return new Token(TokenType.String, sb.ToString(), startLine, startCol, FileName);
+
+                return MakeToken(TokenType.String, sb.ToString());
             }
 
             if (Current == '\'')
@@ -225,7 +225,7 @@ public class Lexer
                     throw new LexerException("char literal must contain exactly one character", startLine, startCol, FileName);
 
                 SyncPos();
-                return new Token(TokenType.Char, ch.ToString(), startLine, startCol, FileName);
+                return MakeToken(TokenType.Char, ch.ToString());
             }
 
             if (char.IsDigit(Current))
@@ -254,7 +254,8 @@ public class Lexer
                         object nval;
                         try { nval = Convert.ToInt64(hex, 16); }
                         catch { nval = decimal.Parse(Convert.ToUInt64(hex, 16).ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture); }
-                        return new Token(TokenType.Number, nval, startLine, startCol, FileName);
+
+                        return MakeToken(TokenType.Number, nval);
                     }
                     else if (Current == 'b' || Current == 'B')
                     {
@@ -266,7 +267,8 @@ public class Lexer
                             SyncPos();
                         }
                         if (bin.Length == 0) throw new LexerException("invalid binary literal", startLine, startCol, FileName);
-                        return new Token(TokenType.Number, Convert.ToInt64(bin, 2), startLine, startCol, FileName);
+
+                        return MakeToken(TokenType.Number, Convert.ToInt64(bin, 2));
                     }
                     else if (Current == 'o' || Current == 'O')
                     {
@@ -278,7 +280,8 @@ public class Lexer
                             SyncPos();
                         }
                         if (oct.Length == 0) throw new LexerException("invalid octal literal", startLine, startCol, FileName);
-                        return new Token(TokenType.Number, Convert.ToInt64(oct, 8), startLine, startCol, FileName);
+
+                        return MakeToken(TokenType.Number, Convert.ToInt64(oct, 8));
                     }
                     else
                     {
@@ -344,8 +347,7 @@ public class Lexer
                     else if (decimal.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out decimal m)) val = m;
                     else throw new LexerException($"invalid number literal '{num}'", startLine, startCol, FileName);
                 }
-
-                return new Token(TokenType.Number, val, startLine, startCol, FileName);
+                return MakeToken(TokenType.Number, val);
             }
 
             if (char.IsLetter(c) || c == '_')
@@ -379,12 +381,12 @@ public class Lexer
                     "import" => MakeToken(TokenType.Import, id),
                     "enum" => MakeToken(TokenType.Enum, id),
                     "from" => MakeToken(TokenType.From, id),
-                    "emit" => MakeToken(TokenType.Emit, id),
                     "static" => MakeToken(TokenType.Static, id),
                     "in" => MakeToken(TokenType.In, id),
                     "foreach" => MakeToken(TokenType.ForEach, id),
                     _ => MakeToken(TokenType.Ident, id)
                 };
+
             }
 
             if (c == '=' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.Eq, "=="); }
