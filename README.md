@@ -363,6 +363,14 @@ match(level) {
 }
 ```
 
+```cfs
+func toText(n) {
+  return n match { 0:"zero", 1:"one", _:"many" };
+}
+print(toText(0));
+print(toText(7));
+```
+
 ---
 
 ## Break & Continue
