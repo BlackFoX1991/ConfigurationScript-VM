@@ -15,91 +15,138 @@ This project also served to **deepen my compiler engineering knowledge**.
 
 ## 🚀 Getting Started
 
-You can run code in two ways:
-
-1. **Interactive REPL**  
-   Starts automatically if you run without arguments.  
-   The REPL detects open blocks and only executes when all blocks are closed.
-
-2. ## CFS Command-Line Guide
-
-> Quick reference for compiling and running CFS scripts from the terminal.
-
----
-
-### 🚀 Usage
-
-```bash
-cfcs [-d | -c | -b] <script-path>
-```
-
-- `<script-path>` can be a `.cfs` source file or a compiled `.cfb` bytecode file.
-
----
-
-### 🧭 Options
-
-| Flag | Description |
-|-----:|-------------|
-| `-d` | Enable **debug mode**. |
-| `-c` | Compile a `.cfs` script to a `.cfb` bytecode file. The output is written next to the input script, using the same filename with a `.cfb` extension. |
-| `-b` | Run a compiled `.cfb` file. |
-
-> **Tip:** You don't need `-b` when passing a `.cfb` file—CFS detects the extension automatically and runs it as bytecode.
-
----
-
-### 📌 Examples
-
-Compile a script:
-```bash
-cfcs -c ./scripts/example.cfs
-# → creates ./scripts/example.cfb
-```
-
-Run a compiled bytecode file:
-```bash
-cfcs ./scripts/example.cfb
-# or explicitly:
-cfcs -b ./scripts/example.cfb
-```
-
-Debug while running a source script:
-```bash
-cfcs -d ./scripts/example.cfs
-```
-
----
-
-### ❓ Notes
-
-- If you provide a `.cfb` file, CFS treats it as **bytecode** automatically.  
-- If you provide a `.cfs` file with `-c`, the compiler writes the `.cfb` next to the source.  
-- You can combine `-d` with `-b` to debug a compiled program.
+[Here is a short Introduction](https://github.com/BlackFoX1991/ConfigurationScript-VM/blob/af7cb4bd74b0ef7b580d12349cd174a6a0f059a1/CFGS_NE/Tutorial/Introduction.md)
 
 ---
 
 ## Table of Contents
 
-1. [Variables](#variables)  
-2. [Arrays](#arrays)  
-3. [Dictionaries (Objects)](#dictionaries-objects)  
-4. [Slicing](#slicing)  
-5. [Strings (Intrinsics)](#strings-intrinsics)  
-6. [Functions](#functions)  
-7. [While Loops](#while-loops)  
-8. [For Loops](#for-loops)  
-9. [If / Else](#if--else)  
-10. [Match / Case](#match--case)  
-11. [Break & Continue](#break--continue)  
-12. [Closures / Functions as Values](#closures--functions-as-values)  
-13. [Classes (Instances, Statics, Inheritance)](#classes-instances-statics-inheritance)  
-14. [Enums](#enums)  
-15. [File I/O](#file-io)  
-16. [Built-ins (selected)](#built-ins-selected)  
-17. [Examples](#examples)
+
+1. [Algebraic Expressions](#algebraic-expressions)
+2. [Ternary Operator](#ternary-operator)
+3. [Null Coalescing](#null-coalescing)
+4. [Variables](#variables)
+5. [Arrays](#arrays)
+6. [Dictionaries (Objects)](#dictionaries-objects)
+7. [Slicing](#slicing)
+8. [Strings (Intrinsics)](#strings-intrinsics)
+9. [Functions](#functions)
+10. [While Loops](#while-loops)
+11. [For Loops](#for-loops)
+12. [If / Else](#if--else)
+13. [Match / Case](#match--case)
+14. [Break & Continue](#break--continue)
+15. [Closures / Functions as Values](#closures--functions-as-values)
+16. [Classes (Instances, Statics, Inheritance)](#classes-instances-statics-inheritance)
+17. [Enums](#enums)
+18. [File I/O](#file-io)
+19. [Built-ins (selected)](#built-ins-selected)
+20. [Examples](#examples)
 
 ---
+
+
+## Algebraic Expressions
+
+CFGS supports a rich set of arithmetic, shift, bitwise, comparison, and logical operators with clear precedence. Use parentheses to make intent explicit and to override the default order.
+
+**Operator categories (from higher to lower precedence):**
+
+1. **Grouping**: `(...)`  
+2. **Power**: `**`  
+3. **Unary**: `+x`, `-x`  
+4. **Multiplicative**: `*`, `/`  
+5. **Additive**: `+`, `-`  
+6. **Shifts**: `<<`, `>>`  
+7. **Bitwise**: `&`, `^`, `|`  
+8. **Comparisons**: `==`, `!=`, `<`, `<=`, `>`, `>=`  
+9. **Logical (short-circuit)**: `&&`, `||`
+
+> **Note:** `**` is the power operator. `^` is **bitwise XOR** (not power).
+
+**Examples**
+
+```cfs
+# Arithmetic
+print(1 + 2 * 3);          # 7
+print((1 + 2) * 3);        # 9
+print((2 ** 3) * 2);       # 16
+
+var a = 10;
+var b = 3;
+print(a / b);              # 3  (integer division if both sides are integers)
+
+# Shifts & bitwise
+print(1 << 3);             # 8
+print(13 & 7);             # 5   (1101 & 0111 = 0101)
+print(10 | 4);             # 14  (1010 | 0100 = 1110)
+print(10 ^ 4);             # 14  (1010 ^ 0100 = 1110)
+
+# Comparisons
+print(5 > 3);              # true
+print(5 == 5);             # true
+print(5 != 6);             # true
+
+# Logical (short-circuit)
+var isAdmin = false;
+func heavyCheck() { print("called"); return true; }
+print(isAdmin && heavyCheck());   # false; heavyCheck() is NOT called
+print(isAdmin || true);           # true
+
+# Precedence demo (use parentheses to be explicit)
+print(1 + 2 << 2);         # 12  because (1 + 2) << 2 = 3 << 2 = 12
+print(1 + (2 << 2));       # 9   parentheses change the result
+```
+
+> **Tip:** When mixing shifts, bitwise, and arithmetic, add parentheses—future-you will thank present-you.
+
+
+## Ternary Operator
+
+Use the ternary operator to select between two values inline.
+
+**Syntax:** `condition ? valueIfTrue : valueIfFalse`
+
+**Examples**
+
+```cfs
+var health = 72;
+var status = (health >= 90) ? "Great" : "Needs attention";
+print(status);  # "Needs attention"
+
+# Nesting (use sparingly; consider readability):
+var grade = (score >= 90) ? "A" : (score >= 75) ? "B" : "C";
+
+# Ternary as an expression within larger statements:
+print( (isAdmin) ? "Welcome, admin." : "Welcome." );
+```
+
+> The condition is evaluated once; only the chosen branch is evaluated.
+
+---
+
+## Null Coalescing
+
+Return the left operand if it is **not** `null`; otherwise return the right operand.
+
+**Syntax:** `left ?? right`
+
+**Examples**
+
+```cfs
+var userName = inputName ?? "Guest";      # fall back to "Guest" if inputName is null
+var title = config["title"] ?? "Untitled";
+
+# Chaining
+var port = env["PORT"] ?? settings["port"] ?? 8080;
+
+# With function calls
+func findUser(id) { /* ... */ }    # returns user or null
+var user = findUser(42) ?? defaultUser();
+```
+
+> `??` short-circuits: if the left side is non-null, the right side is not evaluated.
+
 
 ## Variables
 
