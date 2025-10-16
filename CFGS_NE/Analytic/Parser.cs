@@ -1684,6 +1684,7 @@ namespace CFGS_VM.Analytic
         /// <returns>The <see cref="Expr"/></returns>
         private Expr Unary()
         {
+
             if (_current.Type == TokenType.Minus)
             {
                 Eat(TokenType.Minus);

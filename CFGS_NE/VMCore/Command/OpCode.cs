@@ -61,6 +61,11 @@
         POP_SCOPE,
 
         /// <summary>
+        /// Defines the LEAVE
+        /// </summary>
+        LEAVE,
+
+        /// <summary>
         /// Defines the NEW_ARRAY
         /// </summary>
         NEW_ARRAY,

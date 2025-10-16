@@ -1,0 +1,169 @@
+# spec_sanity_edge.cfgs
+# Edge-case suite focusing on precedence, associativity, short-circuiting,
+# loops/break/continue/finally, closures/classes/nested `outer` binding,
+# slicing (incl. negatives), array/dict/string intrinsics, and error paths.
+#
+# Run once WITHOUT and once WITH optimizers; outputs must match exactly.
+
+var total = 0;
+var failed = 0;
+
+var test = func(name, cond) {
+  total = total + 1;
+  if (cond) { print("OK: " + name); }
+  else { print("FAIL: " + name); failed = failed + 1; }
+};
+
+var assertThrows = func(name, thunk) {
+  total = total + 1;
+  try {
+    var _ = thunk();
+    print("FAIL: " + name + " (no throw)");
+    failed = failed + 1;
+  } catch(e) {
+    print("OK: " + name);
+  }
+};
+
+# ---------------------- Precedence & Associativity -------------------------
+# && binds tighter than || ; comparisons bind tighter than &&/||
+test("precedence: false || 2<3 && 0==1 || true",
+     (false || (2 < 3) && (0 == 1) || true) == true);
+
+# Ternary is right-associative:  a ? b ? 1 : 2 : 3  == a ? (b ? 1 : 2) : 3
+var r1 = false ? 0 : true ? 1 : 2;
+test("ternary right-assoc", r1 == 1);
+
+# Parentheses matter around shifts vs adds
+test("precedence: 1 + 2 << 2 == 12", (1 + 2) << 2 == 12);
+test("precedence: 1 + (2 << 2) == 9", 1 + (2 << 2) == 9);
+
+# Double negations collapse
+test("!!true==true", (!!true) == true);
+test("!!false==false", (!!false) == false);
+
+# --------------------------- ++ / -- semantics -----------------------------
+var i = 1; var a = i++; var b = ++i;
+test("pre/post ++", a == 1 && b == 3 && i == 3);
+
+# ++ in index expression: use old value for access, then increment
+var j = 0; var A = [0,0,0];
+A[j++] = 5;      # write at index 0, then j=1
+A[j]   = 9;      # write at index 1
+test("i++ in index uses old value", A[0] == 5 && A[1] == 9 && j == 1);
+
+# ----------------------- Short-circuiting edge cases -----------------------
+var c1 = 0; var inc1 = func(){ c1 = c1 + 1; return true; };
+test("false && inc not called", (false && inc1()) == false && c1 == 0);
+
+var c2 = 0; var inc2 = func(){ c2 = c2 + 1; return false; };
+test("true || inc not called", (true || inc2()) == true && c2 == 0);
+
+# Nested short-circuit
+var c3 = 0; var bump = func(){ c3 = c3 + 1; return true; };
+test("nested short-circuit", ((false && bump()) || true) == true && c3 == 0);
+
+# Ternary: only chosen branch evaluates (via thunks)
+var t = 0;
+var onlyThen = func(){ t = 1; return 11; };
+var onlyElse = func(){ t = 2; return 22; };
+var z = true ? onlyThen() : onlyElse();
+test("ternary evaluates single branch", z == 11 && t == 1);
+
+# ----------------------------- Loops & Flow --------------------------------
+# continue skips body, break exits, finally runs on break
+var s = "";
+for (var k = 0; k < 5; k = k + 1;) {
+  if (k % 2 == 0) { continue; }  # skip even
+  s = s + str(k);
+}
+test("continue skips evens", s == "13");
+
+# finally must run on break
+var logF = "";
+while (true) {
+  try { 
+   break; 
+  }
+  finally { logF = logF + "F"; }
+}
+test("finally runs on break", logF == "F");
+
+# ------------------------- Arrays / Dicts / Strings ------------------------
+# Array bounds should throw
+var arr = [1,2];
+assertThrows("array oob read throws", func(){ var _ = arr[5]; });
+
+# remove_range boundaries (no-op & full clear)
+var b = [1,2,3,4];
+b.remove_range(1,1);   # no-op
+test("remove_range no-op", b[0] == 1 && b[1] == 2 && b[2] == 3 && b[3] == 4);
+b.remove_range(0, b.len());
+test("remove_range full clear", b.len() == 0);
+
+# String replace_range boundaries
+var ss = "abcdef";
+var ss2 = ss.replace_range(0, ss.len(), "X");
+test("string replace_range full", ss2 == "X");
+
+# Negative slicing (if supported for strings)
+var sneg = "abcdef";
+# If negatives supported: last 3 chars
+test("string negative slice [-3~] == def", sneg[-3~] == "def");
+
+# Dict get_or default
+var d = {"a":1};
+test("dict get_or default", d.get_or("x", 7) == 7);
+
+# ------------------------------- Classes -----------------------------------
+# Minimal class + nested with `outer`
+class Outer(n) {
+  var n = 0;
+  func init(n) { this.n = n; }
+  class Inner() {
+    func who(){ return "O:" + str(outer.n); }
+  }
+}
+var o = Outer(42);
+var in1 = o.Inner();
+test("inner sees outer", in1.who() == "O:42");
+
+# Inner constructed via type (no outer) must fail when accessing `outer`
+var IType = Outer.Inner;
+var in2 = IType(null);
+assertThrows("inner w/o outer: who() throws", func(){ return in2.who(); });
+
+# Pre/post ++ inside methods not tested here—covered by index tests above.
+
+# -------------------------- Dangling else binding --------------------------
+var x = 0;
+if (true) 
+  if (false) x = 1;
+  else x = 2;      # should bind to inner if -> executes, x=2
+test("dangling else binds to nearest if", x == 2);
+
+# ------------------------------ Optional -----------------------------------
+# NOTE: Uncomment these if the features are enabled in your build.
+
+# -- Null coalescing '??' (define precedence & associativity in spec) --
+# var k = 0;
+# func bump2(){ k = k + 1; return 9; }
+# var u = 5 ?? bump2();       # RHS must not run
+# test("?? short-circuit", u == 5 && k == 0);
+# var v = null ?? 7;
+# test("?? yields RHS on null", v == 7);
+
+# -- Power operator '**' (usually right-associative) --
+# test("2**3==8", 2 ** 3 == 8);
+# test("2**3**2==512 (right-assoc)", 2 ** 3 ** 2 == 512);
+# test("(2**3)**2==64", (2 ** 3) ** 2 == 64);
+
+# -- delete slice (if syntax supported) --
+# var delA = [1,2,3,4];
+# delete delA[1~3];  # expect [1,4]
+# test("delete slice array", delA.len() == 2 && delA[0]==1 && delA[1]==4);
+
+# ------------------------------- Summary -----------------------------------
+print("TOTAL=" + total);
+print("FAILED=" + failed);
+if (failed == 0) print("ALL OK");

@@ -1,0 +1,379 @@
+# === Try/Catch/Finally Sanity & Edge Tests ===
+# Assertions
+var total = 0;
+var failed = 0;
+
+var assertThrows = func(name, thunk) {
+  total = total + 1;
+  try {
+    var _ = thunk();
+    print("FAIL: " + name + " (no throw)");
+    failed = failed + 1;
+  } catch(e) {
+    print("OK: " + name);
+  }
+};
+
+var assertNoThrow = func(name, thunk) {
+  total = total + 1;
+  try {
+    var _ = thunk();
+    print("OK: " + name);
+  } catch(e) {
+    print("FAIL: " + name + " (threw: " + e + ")");
+    failed = failed + 1;
+  }
+};
+
+var assertEq = func(name, thunk, expected) {
+  total = total + 1;
+  try {
+    var actual = thunk();
+    if (actual == expected) {
+      print("OK: " + name);
+    } else {
+      print("FAIL: " + name + " (got " + actual + ", expected " + expected + ")");
+      failed = failed + 1;
+    }
+  } catch(e) {
+    print("FAIL: " + name + " (threw: " + e + ")");
+    failed = failed + 1;
+  }
+};
+
+# --- Tests ---
+var runTests = func() {
+
+  # 1) finally runs on normal completion
+  assertEq("finally on normal flow",
+    func() {
+      var log = "";
+      try { log = log + "T"; }
+      finally { log = log + "F"; }
+      return log;
+    },
+    "TF"
+  );
+
+  # 2) finally runs on break (single finally)
+  assertEq("finally on break (single)",
+    func() {
+      var log = "";
+      while (true) {
+        try { break; }
+        finally { log = log + "F"; }
+      }
+      return log;
+    },
+    "F"
+  );
+
+  # 3) finally runs on continue
+  assertEq("finally on continue",
+    func() {
+      var log = "";
+      var i = 0;
+      while (i < 2) {
+        try {
+          i = i + 1;
+          continue;
+        } finally {
+          log = log + "F";
+        }
+      }
+      return log + "|" + ("" + i);
+    },
+    "FF|2"
+  );
+
+  # 4) return inside try executes finally before returning
+  assertEq("return inside try executes finally",
+    func() {
+      var log = "";
+      var f = func() {
+        try { return 42; }
+        finally { log = log + "F"; }
+      };
+      var v = f();
+      return ("" + v) + "|" + log;
+    },
+    "42|F"
+  );
+
+  # 5) nested try/finally order with return (inner before outer)
+  assertEq("nested finally order with return",
+    func() {
+      var log = "";
+      var f = func() {
+        try {
+          try { return "X"; }
+          finally { log = log + "I"; }
+        } finally {
+          log = log + "O";
+        }
+      };
+      var res = f();
+      return res + "|" + log;
+    },
+    "X|IO"
+  );
+
+  # 6) catch runs, then finally runs
+  assertEq("catch + finally order",
+    func() {
+      var log = "";
+      try {
+        throw "boom";
+      } catch(e) {
+        log = log + "C";
+      } finally {
+        log = log + "F";
+      }
+      return log;
+    },
+    "CF"
+  );
+
+  # 7) nested exception routing: inner finally, outer catch, outer finally
+  assertEq("nested: inner finally -> outer catch -> outer finally",
+    func() {
+      var log = "";
+      try {
+        try { throw "bang"; }
+        finally { log = log + "I"; }
+      } catch(e) {
+        log = log + "C";
+      } finally {
+        log = log + "O";
+      }
+      return log;
+    },
+    "ICO"
+  );
+
+  # 8) break across two finally blocks executes both finally blocks
+  assertEq("break across nested finally executes both",
+    func() {
+      var log = "";
+      while (true) {
+        try {
+          try { break; }
+          finally { log = log + "I"; }
+        } finally {
+          log = log + "O";
+        }
+      }
+      return log;
+    },
+    "IO"
+  );
+
+  # 9) continue across two finally blocks executes both finally blocks
+  assertEq("continue across nested finally executes both",
+    func() {
+      var log = "";
+      var i = 0;
+      while (i < 1) {
+        try {
+          try { i = i + 1; continue; }
+          finally { log = log + "I"; }
+        } finally {
+          log = log + "O";
+        }
+      }
+      return log + "|" + ("" + i);
+    },
+    "IO|1"
+  );
+
+  # 10) exception in finally overrides pending break
+  assertThrows("finally throws cancels break and propagates",
+    func() {
+      var log = "";
+      var i = 0;
+      try {
+        while (true) {
+          try { break; }
+          finally {
+            log = log + "F";
+            throw "X";
+          }
+        }
+      } catch(e) {
+        if (log != "F") {
+          print("NOTE: unexpected log = " + log);
+        }
+        throw e;
+      }
+    }
+  );
+
+  # 11) variable visibility in finally during break
+  assertEq("variable visible in finally during break",
+    func() {
+      var x = "";
+      while (true) {
+        try { break; }
+        finally { x = x + "F"; }
+      }
+      return x;
+    },
+    "F"
+  );
+
+  # 12) exception flows through finally chain when uncaught
+  assertThrows("uncaught throw flows through finally chain",
+    func() {
+      var log = "";
+      try {
+        try { throw "K"; }
+        finally { log = log + "I"; }
+      } finally {
+        log = log + "O";
+      }
+    }
+  );
+
+  # 13) return im catch: finally läuft trotzdem
+  assertEq("return from catch runs finally",
+    func() {
+      var log = "";
+      var f = func() {
+        try { throw "x"; }
+        catch(e) { return "R"; }
+        finally { log = log + "F"; }
+      };
+      var v = f();
+      return v + "|" + log;
+    },
+    "R|F"
+  );
+
+  # 14) break im catch: finally läuft vor dem Schleifenende
+  assertEq("break from catch runs finally",
+    func() {
+      var log = "";
+      while (true) {
+        try { throw "x"; }
+        catch(e) { break; }
+        finally { log = log + "F"; }
+      }
+      return log;
+    },
+    "F"
+  );
+
+  # 15) continue im catch: finally läuft vor dem nächsten Iterationsschritt
+  assertEq("continue from catch runs finally",
+    func() {
+      var log = "";
+      var i = 0;
+      while (i < 2) {
+        try { throw "x"; }
+        catch(e) { i = i + 1; continue; }
+        finally { log = log + "F"; }
+      }
+      return log + "|" + ("" + i);
+    },
+    "FF|2"
+  );
+
+  # 16) throw im finally überschreibt pending return
+  assertThrows("throw in finally cancels pending return",
+    func() {
+      var f = func() {
+        try { return 1; }
+        finally { throw "X"; }  # sollte den Return aushebeln
+      };
+      var _ = f();
+    }
+  );
+
+  # 17) rethrow im catch -> outer finally läuft, Exception propagiert
+  assertThrows("rethrow in catch hits outer finally",
+    func() {
+      var log = "";
+      try {
+        try { throw "x"; }
+        catch(e) { log = log + "C"; throw e; }
+        finally { log = log + "F"; }
+      } finally {
+        log = log + "O";
+      }
+    }
+  );
+
+  # 18) return im finally überschreibt break (falls erlaubt)
+  assertEq("return in finally overrides break",
+    func() {
+      var f = func() {
+        while (true) {
+          try { break; }
+          finally { return "R"; }
+        }
+        return "N";
+      };
+      return f();
+    },
+    "R"
+  );
+
+  # 19) return im finally überschreibt früheres return (falls erlaubt)
+  assertEq("return in finally overrides return",
+    func() {
+      var f = func() {
+        try { return "A"; }
+        finally { return "B"; }
+      };
+      return f();
+    },
+    "B"
+  );
+
+  # 20) finally mutiert Zustand und wirft danach -> Wurf hat Vorrang, Mutation bleibt
+  assertThrows("finally mutates then throws (mutation visible)",
+    func() {
+      var log = "";
+      try {
+        try { throw "x"; }
+        finally { log = log + "M"; throw "F"; }
+      } catch(e) {
+        if (log != "M") print("FAIL: mutation lost");
+        throw e;
+      }
+    }
+  );
+
+  # 21) rethrow same error from finally (minimal, regelkonform: try hat catch+finally)
+  assertThrows("rethrow same error from finally (minimal)",
+    func() {
+      var captured = null;
+      try {
+        throw "X";
+      } catch(e) {
+        captured = e;
+      } finally {
+        throw captured;
+      }
+    }
+  );
+
+  # 22) Sichtbarkeit mit zusätzlichem Block-Scope im Loop-Körper
+  assertEq("visibility with extra block scope",
+    func() {
+    var s = "";
+    while (true) {
+      { # zusätzlicher Block
+        s = s + "A";
+        try { break; }
+        finally { s = s + "F"; }
+      }
+    }
+    return s; # Erwartung: "AF"
+  },
+  "AF"
+  );
+};
+
+runTests();
+print("TOTAL: " + ("" + total) + ", FAILED: " + ("" + failed));

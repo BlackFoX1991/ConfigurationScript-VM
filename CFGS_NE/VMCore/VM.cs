@@ -470,6 +470,21 @@ namespace CFGS_VM.VMCore
             public object? PendingReturnValue;
 
             /// <summary>
+            /// Defines the HasPendingLeave
+            /// </summary>
+            public bool HasPendingLeave;
+
+            /// <summary>
+            /// Defines the PendingLeaveTargetIp
+            /// </summary>
+            public int PendingLeaveTargetIp;
+
+            /// <summary>
+            /// Defines the PendingLeaveScopes
+            /// </summary>
+            public int PendingLeaveScopes;
+
+            /// <summary>
             /// Initializes a new instance of the <see cref="TryHandler"/> class.
             /// </summary>
             /// <param name="catchAddr">The catchAddr<see cref="int"/></param>
@@ -487,6 +502,10 @@ namespace CFGS_VM.VMCore
                 InFinally = false;
                 HasPendingReturn = false;
                 PendingReturnValue = null;
+
+                HasPendingLeave = false;
+                PendingLeaveTargetIp = -1;
+                PendingLeaveScopes = 0;
             }
         }
 
@@ -1134,6 +1153,47 @@ namespace CFGS_VM.VMCore
                             throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile);
                         _scopes.RemoveAt(_scopes.Count - 1);
                         break;
+                    }
+                case OpCode.LEAVE:
+                    {
+                        if (instr.Operand is not object[] arr || arr.Length < 2)
+                            throw new VMException("Runtime error: LEAVE requires [targetIp, scopesToPop]", instr.Line, instr.Col, instr.OriginFile);
+
+                        int targetIp = Convert.ToInt32(arr[0]);
+                        int scopesToPop = Convert.ToInt32(arr[1]);
+
+                        TryHandler? nextFinally = null;
+                        foreach (TryHandler th in _tryHandlers)
+                        {
+                            if (th.FinallyAddr >= 0 && !th.InFinally)
+                            {
+                                nextFinally = th;
+                                break;
+                            }
+                        }
+
+                        if (nextFinally != null)
+                        {
+                            nextFinally.HasPendingLeave = true;
+                            nextFinally.PendingLeaveTargetIp = targetIp;
+                            nextFinally.PendingLeaveScopes = scopesToPop;
+                            nextFinally.InFinally = true;
+
+                            int nip = nextFinally.FinallyAddr;
+                            nextFinally.FinallyAddr = -1;
+                            _ip = nip;
+                            return StepResult.Routed;
+                        }
+
+                        for (int i = 0; i < scopesToPop; i++)
+                        {
+                            if (_scopes.Count <= 1)
+                                throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile);
+                            _scopes.RemoveAt(_scopes.Count - 1);
+                        }
+
+                        _ip = targetIp;
+                        return StepResult.Continue;
                     }
 
                 case OpCode.NEW_OBJECT:
@@ -2881,6 +2941,43 @@ namespace CFGS_VM.VMCore
 
                             _ip = fr.ReturnIp;
                             _stack.Push(retVal);
+                            return StepResult.Continue;
+                        }
+
+                        if (h.HasPendingLeave)
+                        {
+                            int leaveTarget = h.PendingLeaveTargetIp;
+                            int leaveScopes = h.PendingLeaveScopes;
+
+                            _tryHandlers.Pop();
+
+                            TryHandler? outerWithFinally = null;
+                            foreach (TryHandler th in _tryHandlers)
+                            {
+                                if (th.FinallyAddr >= 0 && !th.InFinally) { outerWithFinally = th; break; }
+                            }
+
+                            if (outerWithFinally != null)
+                            {
+                                outerWithFinally.HasPendingLeave = true;
+                                outerWithFinally.PendingLeaveTargetIp = leaveTarget;
+                                outerWithFinally.PendingLeaveScopes = leaveScopes;
+                                outerWithFinally.InFinally = true;
+
+                                int nip = outerWithFinally.FinallyAddr;
+                                outerWithFinally.FinallyAddr = -1;
+                                _ip = nip;
+                                return StepResult.Routed;
+                            }
+
+                            for (int i = 0; i < leaveScopes; i++)
+                            {
+                                if (_scopes.Count <= 1)
+                                    throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile);
+                                _scopes.RemoveAt(_scopes.Count - 1);
+                            }
+
+                            _ip = leaveTarget;
                             return StepResult.Continue;
                         }
 
