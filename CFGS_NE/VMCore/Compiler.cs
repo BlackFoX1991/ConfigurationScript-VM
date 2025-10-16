@@ -543,6 +543,49 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case MatchStmt ms:
+                    {
+                        CompileExpr(ms.Expression);
+
+                        List<int> endJumps = new();
+
+                        foreach (CaseClause c in ms.Cases)
+                        {
+                            _insns.Add(new Instruction(OpCode.DUP, null, ms.Line, ms.Col, s.OriginFile));
+                            CompileExpr(c.Pattern);
+                            _insns.Add(new Instruction(OpCode.EQ, null, ms.Line, ms.Col, s.OriginFile));
+
+                            int jmpNext = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, ms.Line, ms.Col, s.OriginFile));
+
+                            _insns.Add(new Instruction(OpCode.POP, null, ms.Line, ms.Col, s.OriginFile));
+
+                            CompileStmt(c.Body, insideFunction);
+
+                            endJumps.Add(_insns.Count);
+                            _insns.Add(new Instruction(OpCode.JMP, null, ms.Line, ms.Col, s.OriginFile));
+
+                            _insns[jmpNext] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, ms.Line, ms.Col, s.OriginFile);
+                        }
+
+                        if (ms.DefaultCase != null)
+                        {
+                            _insns.Add(new Instruction(OpCode.POP, null, ms.Line, ms.Col, s.OriginFile));
+
+                            CompileStmt(ms.DefaultCase, insideFunction);
+                        }
+                        else
+                        {
+                            _insns.Add(new Instruction(OpCode.POP, null, ms.Line, ms.Col, s.OriginFile));
+                        }
+
+                        int endTarget = _insns.Count;
+                        foreach (int idx in endJumps)
+                            _insns[idx] = new Instruction(OpCode.JMP, endTarget, ms.Line, ms.Col, s.OriginFile);
+
+                        break;
+                    }
+
                 case WhileStmt ws:
                     {
                         int loopStart = _insns.Count;
@@ -556,13 +599,13 @@ namespace CFGS_VM.VMCore
                         CompileStmt(ws.Body, insideFunction);
 
                         foreach (int idx in _continueLists.Peek())
-                            _insns[idx] = new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile);
+                            _insns[idx] = new Instruction(OpCode.LEAVE, new object[] { loopStart, 1 }, s.Line, s.Col, s.OriginFile);
 
                         _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
                         _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col, s.OriginFile);
 
                         foreach (int idx in _breakLists.Peek())
-                            _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col, s.OriginFile);
+                            _insns[idx] = new Instruction(OpCode.LEAVE, new object[] { _insns.Count, 1 }, s.Line, s.Col, s.OriginFile);
 
                         _breakLists.Pop();
                         _continueLists.Pop();
@@ -586,14 +629,14 @@ namespace CFGS_VM.VMCore
 
                             int incStart = _insns.Count;
                             foreach (int idx in _continueLists.Peek())
-                                _insns[idx] = new Instruction(OpCode.JMP, incStart, s.Line, s.Col, s.OriginFile);
+                                _insns[idx] = new Instruction(OpCode.LEAVE, new object[] { incStart, 1 }, s.Line, s.Col, s.OriginFile);
 
                             if (fs.Increment != null) CompileStmt(fs.Increment, insideFunction);
                             _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
                             _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col, s.OriginFile);
 
                             foreach (int idx in _breakLists.Peek())
-                                _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col, s.OriginFile);
+                                _insns[idx] = new Instruction(OpCode.LEAVE, new object[] { _insns.Count, 1 }, s.Line, s.Col, s.OriginFile);
                         }
                         else
                         {
@@ -601,13 +644,13 @@ namespace CFGS_VM.VMCore
 
                             int incStart = _insns.Count;
                             foreach (int idx in _continueLists.Peek())
-                                _insns[idx] = new Instruction(OpCode.JMP, incStart, s.Line, s.Col, s.OriginFile);
+                                _insns[idx] = new Instruction(OpCode.LEAVE, new object[] { incStart, 1 }, s.Line, s.Col, s.OriginFile);
 
                             if (fs.Increment != null) CompileStmt(fs.Increment, insideFunction);
                             _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
 
                             foreach (int idx in _breakLists.Peek())
-                                _insns[idx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col, s.OriginFile);
+                                _insns[idx] = new Instruction(OpCode.LEAVE, new object[] { _insns.Count, 1 }, s.Line, s.Col, s.OriginFile);
                         }
 
                         _breakLists.Pop();
@@ -715,7 +758,7 @@ namespace CFGS_VM.VMCore
 
                         int incStart = _insns.Count;
                         foreach (int k in _continueLists.Peek())
-                            _insns[k] = new Instruction(OpCode.JMP, incStart, fe.Line, fe.Col, fe.OriginFile);
+                            _insns[k] = new Instruction(OpCode.LEAVE, new object[] { incStart, 1 }, fe.Line, fe.Col, fe.OriginFile);
 
                         _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
                         _insns.Add(new Instruction(OpCode.PUSH_INT, 1, fe.Line, fe.Col, fe.OriginFile));
@@ -726,53 +769,10 @@ namespace CFGS_VM.VMCore
                         _insns[jmpIfFalse] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, fe.Line, fe.Col, fe.OriginFile);
 
                         foreach (int br in _breakLists.Peek())
-                            _insns[br] = new Instruction(OpCode.JMP, _insns.Count, fe.Line, fe.Col, fe.OriginFile);
+                            _insns[br] = new Instruction(OpCode.LEAVE, new object[] { _insns.Count, 1 }, fe.Line, fe.Col, fe.OriginFile);
 
                         _breakLists.Pop();
                         _continueLists.Pop();
-                        break;
-                    }
-
-                case MatchStmt ms:
-                    {
-                        CompileExpr(ms.Expression);
-
-                        List<int> endJumps = new();
-
-                        foreach (CaseClause c in ms.Cases)
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, ms.Line, ms.Col, s.OriginFile));
-                            CompileExpr(c.Pattern);
-                            _insns.Add(new Instruction(OpCode.EQ, null, ms.Line, ms.Col, s.OriginFile));
-
-                            int jmpNext = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, ms.Line, ms.Col, s.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.POP, null, ms.Line, ms.Col, s.OriginFile));
-
-                            CompileStmt(c.Body, insideFunction);
-
-                            endJumps.Add(_insns.Count);
-                            _insns.Add(new Instruction(OpCode.JMP, null, ms.Line, ms.Col, s.OriginFile));
-
-                            _insns[jmpNext] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, ms.Line, ms.Col, s.OriginFile);
-                        }
-
-                        if (ms.DefaultCase != null)
-                        {
-                            _insns.Add(new Instruction(OpCode.POP, null, ms.Line, ms.Col, s.OriginFile));
-
-                            CompileStmt(ms.DefaultCase, insideFunction);
-                        }
-                        else
-                        {
-                            _insns.Add(new Instruction(OpCode.POP, null, ms.Line, ms.Col, s.OriginFile));
-                        }
-
-                        int endTarget = _insns.Count;
-                        foreach (int idx in endJumps)
-                            _insns[idx] = new Instruction(OpCode.JMP, endTarget, ms.Line, ms.Col, s.OriginFile);
-
                         break;
                     }
 
@@ -837,21 +837,17 @@ namespace CFGS_VM.VMCore
 
                 case ContinueStmt:
                     {
-                        _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
-
-                        int jmpIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
-                        _continueLists.Peek().Add(jmpIdx);
+                        int leaveIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.LEAVE, null, s.Line, s.Col, s.OriginFile));
+                        _continueLists.Peek().Add(leaveIdx);
                         break;
                     }
 
                 case BreakStmt:
                     {
-                        _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
-
-                        int jmpIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
-                        _breakLists.Peek().Add(jmpIdx);
+                        int leaveIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.LEAVE, null, s.Line, s.Col, s.OriginFile));
+                        _breakLists.Peek().Add(leaveIdx);
                         break;
                     }
 

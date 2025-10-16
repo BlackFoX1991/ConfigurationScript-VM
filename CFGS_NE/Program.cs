@@ -25,7 +25,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v2.0.8-pre";
+    public static readonly string Version = "v2.1.0-stable";
 
     /// <summary>
     /// Defines the PluginsFolder
@@ -171,7 +171,6 @@ public class Program
             ast = parser.Parse();
             compiler = new(name);
             bytecode = compiler.Compile(ast);
-
             vm.LoadPluginsFrom(PluginsFolder);
             vm.LoadFunctions(compiler._functions);
             vm.LoadInstructions(bytecode);
