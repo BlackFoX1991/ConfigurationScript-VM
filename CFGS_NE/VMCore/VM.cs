@@ -155,6 +155,8 @@ namespace CFGS_VM.VMCore
 
         public static bool AllowFileIO { get; set; } = true;
 
+        public static bool IsDebugging { get; set; } = false;
+
         private List<Instruction>? _program;
         private enum StepResult
         {
@@ -223,22 +225,23 @@ namespace CFGS_VM.VMCore
                 case OpCode.POP_SCOPE:
                     {
                         if (_scopes.Count <= 1)
-                            throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         _scopes.RemoveAt(_scopes.Count - 1);
                         break;
                     }
                 case OpCode.LEAVE:
                     {
                         if (instr.Operand is not object[] arr || arr.Length < 2)
-                            throw new VMException("Runtime error: LEAVE requires [targetIp, scopesToPop]", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: LEAVE requires [targetIp, scopesToPop]", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         int targetIp = Convert.ToInt32(arr[0]);
                         int scopesToPop = Convert.ToInt32(arr[1]);
 
+
                         TryHandler? nextFinally = null;
                         foreach (TryHandler th in _tryHandlers)
                         {
-                            if (th.FinallyAddr >= 0 && !th.InFinally)
+                            if (th.FinallyAddr >= 0 && !th.InFinally && th.CallDepth == _callStack.Count)
                             {
                                 nextFinally = th;
                                 break;
@@ -251,6 +254,7 @@ namespace CFGS_VM.VMCore
                             nextFinally.PendingLeaveTargetIp = targetIp;
                             nextFinally.PendingLeaveScopes = scopesToPop;
                             nextFinally.InFinally = true;
+                            nextFinally.CatchAddr = -1;
 
                             int nip = nextFinally.FinallyAddr;
                             nextFinally.FinallyAddr = -1;
@@ -258,16 +262,19 @@ namespace CFGS_VM.VMCore
                             return StepResult.Routed;
                         }
 
+
                         for (int i = 0; i < scopesToPop; i++)
                         {
                             if (_scopes.Count <= 1)
-                                throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             _scopes.RemoveAt(_scopes.Count - 1);
                         }
 
                         _ip = targetIp;
                         return StepResult.Continue;
                     }
+
+
 
                 case OpCode.NEW_OBJECT:
                     {
@@ -310,7 +317,7 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is string name)
                         {
                             Env owner = FindEnvWithLocal(name)
-                                ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                                ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             target = owner.Vars[name];
                         }
                         else
@@ -363,7 +370,7 @@ namespace CFGS_VM.VMCore
 
                             default:
                                 throw new VMException($"Runtime error: SLICE_GET target must be array, dictionary, or string",
-                                    instr.Line, instr.Col, instr.OriginFile);
+                                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         break;
                     }
@@ -384,7 +391,7 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is string name)
                         {
                             Env env = FindEnvWithLocal(name)
-                                ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                                ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             target = env.Vars[name];
 
                             DoSliceSet(ref target, startObj, endObj, value, instr);
@@ -400,7 +407,7 @@ namespace CFGS_VM.VMCore
                         static void DoSliceSet(ref object target, object startObj, object endObj, object value, Instruction instr)
                         {
                             if (target is string)
-                                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             static void Normalize(int len, object startRaw, object endRaw, out int start, out int end)
                             {
                                 start = startRaw == null ? 0 : Convert.ToInt32(startRaw);
@@ -430,7 +437,7 @@ namespace CFGS_VM.VMCore
                                         else
                                         {
                                             throw new VMException($"Runtime error: trying to assign non-list to array slice",
-                                                instr.Line, instr.Col, instr.OriginFile);
+                                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                                         }
                                         break;
                                     }
@@ -452,7 +459,7 @@ namespace CFGS_VM.VMCore
                                         else
                                         {
                                             throw new VMException($"Runtime error: trying to assign non-dictionary to dictionary slice",
-                                                instr.Line, instr.Col, instr.OriginFile);
+                                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                                         }
                                         break;
                                     }
@@ -474,7 +481,7 @@ namespace CFGS_VM.VMCore
 
                                 default:
                                     throw new VMException($"Runtime error: SLICE_SET target must be array, dictionary, or string",
-                                        instr.Line, instr.Col, instr.OriginFile);
+                                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
                         }
                     }
@@ -492,7 +499,7 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is string nameFromEnv)
                         {
                             Env owner = FindEnvWithLocal(nameFromEnv)
-                                ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile);
+                                ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             target = owner.Vars[nameFromEnv];
                         }
                         else
@@ -518,7 +525,7 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is string nameFromEnv)
                         {
                             Env env = FindEnvWithLocal(nameFromEnv)
-                                ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile);
+                                ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             target = env.Vars[nameFromEnv];
                             SetIndexedValue(ref target, idxObj, value, instr);
@@ -561,7 +568,7 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is null) break;
 
                         if (_stack.Count < 1)
-                            throw new VMException("Runtime error: stack underflow (NEW_ENUM needs count)", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: stack underflow (NEW_ENUM needs count)", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         int count = Convert.ToInt32(_stack.Pop());
 
@@ -609,7 +616,7 @@ namespace CFGS_VM.VMCore
                 case OpCode.IS_DICT:
                     {
                         if (_stack.Count < 1)
-                            throw new VMException("Stack underflow in IS_DICT", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Stack underflow in IS_DICT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         object v = _stack.Pop();
                         _stack.Push(v is Dictionary<string, object>);
@@ -649,7 +656,7 @@ namespace CFGS_VM.VMCore
                             }
                             else
                             {
-                                throw new VMException($"Runtime error: ARRAY_PUSH target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: ARRAY_PUSH target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
                         }
                         else
@@ -659,7 +666,7 @@ namespace CFGS_VM.VMCore
                             string name = (string)instr.Operand;
                             Env? env = FindEnvWithLocal(name);
                             if (env == null || !env.Vars.TryGetValue(name, out object? obj))
-                                throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             if (obj is List<object> arr)
                             {
                                 arr.Add(value);
@@ -685,7 +692,7 @@ namespace CFGS_VM.VMCore
                             }
                             else
                             {
-                                throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
                         }
                         break;
@@ -705,7 +712,7 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is string name)
                         {
                             Env env = FindEnvWithLocal(name)
-                                ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                                ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             target = env.Vars[name];
 
                             DeleteSliceOnTarget(ref target, startObj, endObj, instr);
@@ -728,7 +735,7 @@ namespace CFGS_VM.VMCore
                         object target = _stack.Pop();
 
                         if (target is string)
-                            throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         if (target is List<object> arr)
                         {
@@ -745,7 +752,7 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         break;
                     }
@@ -764,12 +771,12 @@ namespace CFGS_VM.VMCore
                             string name = (string)instr.Operand;
                             Env? owner = FindEnvWithLocal(name);
                             if (owner == null)
-                                throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             object target = owner.Vars[name];
 
                             if (target is string)
-                                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             if (target is List<object> arr)
                             {
@@ -777,17 +784,17 @@ namespace CFGS_VM.VMCore
                                 if (index >= 0 && index < arr.Count)
                                     arr.RemoveAt(index);
                                 else
-                                    throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
                             else if (target is Dictionary<string, object> dict)
                             {
                                 string key = Convert.ToString(idxObj, CultureInfo.InvariantCulture) ?? "";
                                 if (!dict.Remove(key))
-                                    throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
                             else
                             {
-                                throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
                         }
                         else
@@ -795,7 +802,7 @@ namespace CFGS_VM.VMCore
                             object target = _stack.Pop();
 
                             if (target is string)
-                                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             if (target is List<object> arr)
                             {
@@ -803,17 +810,17 @@ namespace CFGS_VM.VMCore
                                 if (index >= 0 && index < arr.Count)
                                     arr.RemoveAt(index);
                                 else
-                                    throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
                             else if (target is Dictionary<string, object> dict)
                             {
                                 string key = Convert.ToString(idxObj, CultureInfo.InvariantCulture) ?? "";
                                 if (!dict.Remove(key))
-                                    throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
                             else
                             {
-                                throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
                         }
                         break;
@@ -825,7 +832,7 @@ namespace CFGS_VM.VMCore
                         string name = (string)instr.Operand;
                         Env? env = FindEnvWithLocal(name);
                         if (env == null || !env.Vars.TryGetValue(name, out object? target))
-                            throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         if (target is List<object>)
                         {
                             env.Vars[name] = new List<object>();
@@ -836,7 +843,7 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: variable '{name}' is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         break;
                     }
@@ -848,27 +855,27 @@ namespace CFGS_VM.VMCore
                         object idxObj = _stack.Pop();
                         object target = _stack.Pop();
                         if (target is string)
-                            throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         if (target is List<object> arr)
                         {
                             int index = Convert.ToInt32(idxObj);
                             if (index < 0 || index >= arr.Count)
-                                throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             arr.RemoveAt(index);
                         }
                         else if (target is Dictionary<string, object> dict)
                         {
                             string key = idxObj?.ToString() ?? throw new VMException(
-                                $"Runtime error: dictionary key cannot be null", instr.Line, instr.Col, instr.OriginFile);
+                                $"Runtime error: dictionary key cannot be null", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             if (!dict.Remove(key))
-                                throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         else
                         {
-                            throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: delete target is not an array or dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         break;
                     }
@@ -882,7 +889,7 @@ namespace CFGS_VM.VMCore
                         {
                             object? th = CurrentThis;
                             if (th == null)
-                                throw new VMException("Runtime error: 'this' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: 'this' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             _stack.Push(th);
                             break;
                         }
@@ -902,9 +909,9 @@ namespace CFGS_VM.VMCore
                                     _stack.Push(st2);
                                     break;
                                 }
-                                throw new VMException("Runtime error: missing '__type' on instance for 'type'", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: missing '__type' on instance for 'type'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
-                            throw new VMException("Runtime error: 'type' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: 'type' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
 
                         if (name == "super")
@@ -918,7 +925,7 @@ namespace CFGS_VM.VMCore
                                     _stack.Push(baseInst);
                                     break;
                                 }
-                                throw new VMException("Runtime error: missing '__base' on instance for 'super'", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: missing '__base' on instance for 'super'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
 
                             if (recv is StaticInstance st)
@@ -928,10 +935,10 @@ namespace CFGS_VM.VMCore
                                     _stack.Push(baseType);
                                     break;
                                 }
-                                throw new VMException("Runtime error: missing '__base' on static type for 'super'", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: missing '__base' on static type for 'super'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
 
-                            throw new VMException("Runtime error: 'super' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: 'super' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         if (name == "outer")
                         {
@@ -944,15 +951,15 @@ namespace CFGS_VM.VMCore
                                     _stack.Push(outerInst);
                                     break;
                                 }
-                                throw new VMException("Runtime error: missing '__outer' on instance for 'outer'", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: missing '__outer' on instance for 'outer'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
 
                             if (recv is StaticInstance)
                             {
-                                throw new VMException("Runtime error: 'outer' not available in static context", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: 'outer' not available in static context", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
 
-                            throw new VMException("Runtime error: 'outer' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: 'outer' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
 
                         Env? owner = FindEnvWithLocal(name);
@@ -968,7 +975,7 @@ namespace CFGS_VM.VMCore
                             break;
                         }
 
-                        throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                        throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                     }
 
@@ -978,13 +985,13 @@ namespace CFGS_VM.VMCore
                         string name = (string)instr.Operand;
 
                         if (name == "this" || name == "type" || name == "super" || name == "outer")
-                            throw new VMException($"Runtime error: cannot declare '{name}' as a variable", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: cannot declare '{name}' as a variable", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         RequireStack(1, instr, "VAR_DECL");
                         object value = _stack.Pop();
                         Env scope = _scopes[^1];
                         if (scope.HasLocal(name))
-                            throw new VMException($"Runtime error: variable '{name}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: variable '{name}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         scope.Define(name, value);
                         break;
@@ -996,13 +1003,13 @@ namespace CFGS_VM.VMCore
                         string name = (string)instr.Operand;
 
                         if (name == "this" || name == "type" || name == "super" || name == "outer")
-                            throw new VMException($"Runtime error: cannot assign to '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: cannot assign to '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         RequireStack(1, instr, "STORE_VAR");
                         object value = _stack.Pop();
                         Env? env = FindEnvWithLocal(name);
                         if (env == null)
-                            throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         env.Vars[name] = value;
                         break;
@@ -1064,7 +1071,7 @@ namespace CFGS_VM.VMCore
 
                         if (l is null || r is null) { _stack.Push(null); break; }
                         if (!IsNumber(l) || !IsNumber(r))
-                            throw new VMException("SUB on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("SUB on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         (object A, object B, NumKind K) = CoercePair(l, r);
                         object res = K switch
@@ -1118,7 +1125,7 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            throw new VMException("MUL on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("MUL on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         break;
                     }
@@ -1131,14 +1138,14 @@ namespace CFGS_VM.VMCore
 
                         if (l is null || r is null) { _stack.Push(null); break; }
                         if (!IsNumber(l) || !IsNumber(r))
-                            throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         (object A, object B, NumKind K) = CoercePair(l, r);
                         if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
                          || K == NumKind.Int64 && Convert.ToInt64(r) == 0
                          || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
                          || K == NumKind.Decimal && Convert.ToDecimal(r) == 0m)
-                            throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         object res = K switch
                         {
@@ -1161,14 +1168,14 @@ namespace CFGS_VM.VMCore
                         if (l is null || r is null) { _stack.Push(null); break; }
                         if (!IsNumber(l) || !IsNumber(r))
                             throw new VMException($"Runtime error: cannot DIV {l?.GetType()} and {r?.GetType()}",
-                                instr.Line, instr.Col, instr.OriginFile);
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         (object A, object B, NumKind K) = CoercePair(l, r);
                         if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
                          || K == NumKind.Int64 && Convert.ToInt64(r) == 0
                          || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
                          || K == NumKind.Decimal && Convert.ToDecimal(r) == 0m)
-                            throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         object res = K switch
                         {
@@ -1190,7 +1197,7 @@ namespace CFGS_VM.VMCore
 
                         if (l is null || r is null) { _stack.Push(null); break; }
                         if (!IsNumber(l) || !IsNumber(r))
-                            throw new VMException("EXPO on non-numeric types", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("EXPO on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         (object A, object B, NumKind K) = CoercePair(l, r);
                         object res = K switch
@@ -1213,7 +1220,7 @@ namespace CFGS_VM.VMCore
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
-                            throw new VMException("BIT_AND requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("BIT_AND requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         if (l is ulong || r is ulong || l is long || r is long)
                             _stack.Push(Convert.ToInt64(l) & Convert.ToInt64(r));
                         else
@@ -1229,7 +1236,7 @@ namespace CFGS_VM.VMCore
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
-                            throw new VMException("BIT_OR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("BIT_OR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         if (l is ulong || r is ulong || l is long || r is long)
                             _stack.Push(Convert.ToInt64(l) | Convert.ToInt64(r));
                         else
@@ -1245,7 +1252,7 @@ namespace CFGS_VM.VMCore
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
-                            throw new VMException("BIT_XOR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("BIT_XOR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         if (l is ulong || r is ulong || l is long || r is long)
                             _stack.Push(Convert.ToInt64(l) ^ Convert.ToInt64(r));
                         else
@@ -1261,7 +1268,7 @@ namespace CFGS_VM.VMCore
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
-                            throw new VMException("SHL requires (int|long|uint|ulong) << int", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("SHL requires (int|long|uint|ulong) << int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         int sh = Convert.ToInt32(r) & 0x3F;
                         if (l is long or ulong)
                             _stack.Push(Convert.ToInt64(l) << sh);
@@ -1278,7 +1285,7 @@ namespace CFGS_VM.VMCore
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
                         if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
-                            throw new VMException("SHR requires (int|long|uint|ulong) >> int", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("SHR requires (int|long|uint|ulong) >> int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         int sh = Convert.ToInt32(r) & 0x3F;
                         if (l is long or ulong)
                             _stack.Push(Convert.ToInt64(l) >> sh);
@@ -1345,7 +1352,7 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            throw new VMException("Runtime error: LT on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: LT on non-comparable types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         break;
                     }
@@ -1376,7 +1383,7 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            throw new VMException("Runtime error: GT on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: GT on non-comparable types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         break;
                     }
@@ -1407,7 +1414,7 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            throw new VMException("Runtime error: LE on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: LE on non-comparable types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         break;
                     }
@@ -1438,7 +1445,7 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
-                            throw new VMException("Runtime error: GE on non-comparable types", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: GE on non-comparable types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
                         break;
                     }
@@ -1460,7 +1467,7 @@ namespace CFGS_VM.VMCore
                         if (!IsNumber(v))
                             throw new VMException(
                                 $"NEG only works on numeric types (got {v ?? "null"} of type {v?.GetType().Name ?? "null"})",
-                                instr.Line, instr.Col, instr.OriginFile
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                             );
 
                         object res =
@@ -1514,7 +1521,7 @@ namespace CFGS_VM.VMCore
                 case OpCode.JMP:
                     {
                         if (instr.Operand is null)
-                            throw new VMException("Runtime error: JMP missing target", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: JMP missing target", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         _ip = (int)instr.Operand;
                         return StepResult.Continue;
                     }
@@ -1522,7 +1529,7 @@ namespace CFGS_VM.VMCore
                 case OpCode.JMP_IF_FALSE:
                     {
                         if (instr.Operand is null)
-                            throw new VMException("Runtime error: JMP_IF_FALSE missing target", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: JMP_IF_FALSE missing target", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         RequireStack(1, instr, "JMP_IF_FALSE");
                         object v = _stack.Pop();
                         if (!ToBool(v))
@@ -1536,7 +1543,7 @@ namespace CFGS_VM.VMCore
                 case OpCode.JMP_IF_TRUE:
                     {
                         if (instr.Operand is null)
-                            throw new VMException("Runtime error: JMP_IF_TRUE missing target", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: JMP_IF_TRUE missing target", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         RequireStack(1, instr, "JMP_IF_TRUE");
                         object v = _stack.Pop();
                         if (ToBool(v))
@@ -1553,7 +1560,7 @@ namespace CFGS_VM.VMCore
                 case OpCode.PUSH_CLOSURE:
                     {
                         if (instr.Operand == null)
-                            throw new VMException($"Runtime error: PUSH_CLOSURE without operand", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: PUSH_CLOSURE without operand", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         int funcAddr;
                         string? funcName = null;
@@ -1568,15 +1575,15 @@ namespace CFGS_VM.VMCore
                                 funcName = arr[1]?.ToString() ?? "";
                                 break;
                             default:
-                                throw new VMException($"Runtime error: Invalid PUSH_CLOSURE operand type {instr.Operand.GetType().Name}", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: Invalid PUSH_CLOSURE operand type {instr.Operand.GetType().Name}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         }
 
                         FunctionInfo? funcInfo = _functions.Values.FirstOrDefault(f => f.Address == funcAddr);
                         if (funcInfo == null)
-                            throw new VMException($"Runtime error: PUSH_CLOSURE unknown function address {funcAddr}", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: PUSH_CLOSURE unknown function address {funcAddr}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         Env capturedEnv = _scopes[^1];
-                        _stack.Push(new Closure(funcAddr, funcInfo.Parameters, capturedEnv, funcName ?? throw new VMException("Invalid function-name", instr.Line, instr.Col, instr.OriginFile)));
+                        _stack.Push(new Closure(funcAddr, funcInfo.Parameters, capturedEnv, funcName ?? throw new VMException("Invalid function-name", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream)));
                         break;
                     }
 
@@ -1590,7 +1597,7 @@ namespace CFGS_VM.VMCore
                                 for (int i = desc.ArityMin - 1; i >= 0; i--)
                                 {
                                     if (_stack.Count == 0)
-                                        throw new VMException($"Runtime error: insufficient args for {funcName}()", instr.Line, instr.Col, instr.OriginFile);
+                                        throw new VMException($"Runtime error: insufficient args for {funcName}()", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                                     args.Insert(0, _stack.Pop());
                                 }
                                 object result = desc.Invoke(args, instr);
@@ -1599,12 +1606,12 @@ namespace CFGS_VM.VMCore
                             }
 
                             if (!_functions.TryGetValue(funcName, out FunctionInfo? func))
-                                throw new VMException($"Runtime error: unknown function {funcName}", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: unknown function {funcName}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             if (func.Parameters.Count > 0 && func.Parameters[0] == "this")
                                 throw new VMException(
                                     $"Runtime error: cannot CALL method '{funcName}' without receiver. Use CALL_INDIRECT with a bound receiver.",
-                                    instr.Line, instr.Col, instr.OriginFile);
+                                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             _stack.Push(new Closure(func.Address, func.Parameters, _scopes[^1], funcName));
                             goto case OpCode.CALL_INDIRECT;
@@ -1629,13 +1636,13 @@ namespace CFGS_VM.VMCore
                                 if (_stack.Count == 0)
                                     throw new VMException(
                                         $"Runtime error: not enough arguments for CALL_INDIRECT (expected {explicitArgCount})",
-                                        instr.Line, instr.Col, instr.OriginFile
+                                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                                     );
                                 argsList.Add(_stack.Pop());
                             }
 
                             if (_stack.Count == 0)
-                                throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             object callee = _stack.Pop();
                             Closure f;
@@ -1646,7 +1653,7 @@ namespace CFGS_VM.VMCore
                                 if (explicitArgCount < ib_ex.Method.ArityMin || explicitArgCount > ib_ex.Method.ArityMax)
                                     throw new VMException(
                                         $"Runtime error: {ib_ex.Method.Name} expects {ib_ex.Method.ArityMin}..{ib_ex.Method.ArityMax} args, got {explicitArgCount}",
-                                        instr.Line, instr.Col, instr.OriginFile
+                                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                                     );
 
                                 object result = ib_ex.Method.Invoke(ib_ex.Receiver, argsList, instr);
@@ -1656,12 +1663,12 @@ namespace CFGS_VM.VMCore
                             else if (callee is BuiltinCallable bc)
                             {
                                 if (!Builtins.TryGet(bc.Name, out BuiltinDescriptor? desc))
-                                    throw new VMException($"Runtime error: unknown builtin '{bc.Name}'", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException($"Runtime error: unknown builtin '{bc.Name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                                 if (explicitArgCount < desc.ArityMin || explicitArgCount > desc.ArityMax)
                                     throw new VMException(
                                         $"Runtime error: builtin '{bc.Name}' expects {desc.ArityMin}..{desc.ArityMax} args, got {explicitArgCount}",
-                                        instr.Line, instr.Col, instr.OriginFile);
+                                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                                 object result = desc.Invoke(argsList, instr);
                                 _stack.Push(result);
@@ -1677,7 +1684,7 @@ namespace CFGS_VM.VMCore
                                     if (argsList.Count > 0 && Equals(argsList[0], receiver))
                                         throw new VMException(
                                             "Runtime error: receiver provided twice (BoundMethod already has implicit receiver).",
-                                            instr.Line, instr.Col, instr.OriginFile
+                                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                                         );
                                 }
                             }
@@ -1685,7 +1692,7 @@ namespace CFGS_VM.VMCore
                             {
                                 object ctorVal = GetIndexedValue(bt.Type, "new", instr);
                                 if (ctorVal is not Closure ctorClos)
-                                    throw new VMException("Runtime error: nested type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException("Runtime error: nested type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                                 f = ctorClos;
                                 receiver = null;
@@ -1701,7 +1708,7 @@ namespace CFGS_VM.VMCore
                                     if (argsList.Count == 0)
                                         throw new VMException(
                                             $"Runtime error: missing '{f.Parameters[0]}' for method call.",
-                                            instr.Line, instr.Col, instr.OriginFile
+                                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                                         );
                                     receiver = argsList[0];
                                     argsList.RemoveAt(0);
@@ -1711,14 +1718,14 @@ namespace CFGS_VM.VMCore
                             {
                                 object ctorVal = GetIndexedValue(st, "new", instr);
                                 if (ctorVal is not Closure ctorClos)
-                                    throw new VMException("Runtime error: type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException("Runtime error: type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                                 f = ctorClos;
                                 receiver = null;
                             }
                             else
                             {
-                                throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code})", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
 
                             Env callEnv = new(f.CapturedEnv);
@@ -1728,13 +1735,13 @@ namespace CFGS_VM.VMCore
                             if (argsList.Count < expected)
                                 throw new VMException(
                                     $"Runtime error: insufficient args for call (expected {expected}, got {argsList.Count})",
-                                    instr.Line, instr.Col, instr.OriginFile
+                                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                                 );
 
                             if (argsList.Count > expected)
                                 throw new VMException(
                                     $"Runtime error: too many args for call (expected {expected}, got {argsList.Count})",
-                                    instr.Line, instr.Col, instr.OriginFile
+                                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                                 );
 
                             for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
@@ -1750,7 +1757,7 @@ namespace CFGS_VM.VMCore
                         else
                         {
                             if (_stack.Count == 0)
-                                throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             object callee = _stack.Pop();
                             Closure f;
@@ -1763,7 +1770,7 @@ namespace CFGS_VM.VMCore
                                 for (int i = 0; i < need; i++)
                                 {
                                     if (_stack.Count == 0)
-                                        throw new VMException("Runtime error: insufficient args for intrinsic call", instr.Line, instr.Col, instr.OriginFile);
+                                        throw new VMException("Runtime error: insufficient args for intrinsic call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                                     argsB.Add(_stack.Pop());
                                 }
                                 object result = ib.Method.Invoke(ib.Receiver, argsB, instr);
@@ -1773,14 +1780,14 @@ namespace CFGS_VM.VMCore
                             else if (callee is BuiltinCallable bc2)
                             {
                                 if (!Builtins.TryGet(bc2.Name, out BuiltinDescriptor? desc))
-                                    throw new VMException($"Runtime error: unknown builtin '{bc2.Name}'", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException($"Runtime error: unknown builtin '{bc2.Name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                                 int need = desc.ArityMin;
                                 List<object> argsB = new();
                                 for (int i = 0; i < need; i++)
                                 {
                                     if (_stack.Count == 0)
-                                        throw new VMException("Runtime error: insufficient args for builtin call", instr.Line, instr.Col, instr.OriginFile);
+                                        throw new VMException("Runtime error: insufficient args for builtin call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                                     argsB.Add(_stack.Pop());
                                 }
                                 argsB.Reverse();
@@ -1799,7 +1806,7 @@ namespace CFGS_VM.VMCore
                             {
                                 object ctorVal = GetIndexedValue(bt.Type, "new", instr);
                                 if (ctorVal is not Closure ctorClos)
-                                    throw new VMException("Runtime error: nested type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException("Runtime error: nested type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                                 f = ctorClos;
                                 receiver = null;
@@ -1810,7 +1817,7 @@ namespace CFGS_VM.VMCore
                                 for (int i = 0; i < total - 1; i++)
                                 {
                                     if (_stack.Count == 0)
-                                        throw new VMException("Runtime error: insufficient args for constructor call", instr.Line, instr.Col, instr.OriginFile);
+                                        throw new VMException("Runtime error: insufficient args for constructor call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                                     argsTmp.Add(_stack.Pop());
                                 }
                                 argsTmp.Reverse();
@@ -1823,7 +1830,7 @@ namespace CFGS_VM.VMCore
                                 if (argsTmp.Count != expected2)
                                     throw new VMException(
                                         $"Runtime error: argument count mismatch (expected {expected2}, got {argsTmp.Count})",
-                                        instr.Line, instr.Col, instr.OriginFile
+                                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                                     );
 
                                 for (int pi = piStart2, ai = 0; pi < f.Parameters.Count; pi++, ai++)
@@ -1844,7 +1851,7 @@ namespace CFGS_VM.VMCore
                                     if (_stack.Count == 0)
                                         throw new VMException(
                                             $"Runtime error: missing '{f.Parameters[0]}' for method call.",
-                                            instr.Line, instr.Col, instr.OriginFile
+                                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                                         );
                                     receiver = _stack.Pop();
                                 }
@@ -1853,14 +1860,14 @@ namespace CFGS_VM.VMCore
                             {
                                 object ctorVal = GetIndexedValue(st, "new", instr);
                                 if (ctorVal is not Closure ctorClos)
-                                    throw new VMException("Runtime error: type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException("Runtime error: type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                                 f = ctorClos;
                                 receiver = null;
                             }
                             else
                             {
-                                throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code})", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                             }
 
                             int piStart = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
@@ -1869,7 +1876,7 @@ namespace CFGS_VM.VMCore
                             for (int pi = f.Parameters.Count - 1; pi >= piStart; pi--)
                             {
                                 if (_stack.Count == 0)
-                                    throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                                 argsList2.Insert(0, _stack.Pop());
                             }
 
@@ -1877,7 +1884,7 @@ namespace CFGS_VM.VMCore
                             if (argsList2.Count != expected)
                                 throw new VMException(
                                     $"Runtime error: argument count mismatch (expected {expected}, got {argsList2.Count})",
-                                    instr.Line, instr.Col, instr.OriginFile
+                                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                                 );
 
                             Env callEnv = new(f.CapturedEnv);
@@ -1895,10 +1902,11 @@ namespace CFGS_VM.VMCore
                     {
                         object? retVal = _stack.Count > 0 ? _stack.Pop() : null;
 
+
                         TryHandler? nextFinally = null;
                         foreach (TryHandler th in _tryHandlers)
                         {
-                            if (th.FinallyAddr >= 0 && !th.InFinally)
+                            if (th.FinallyAddr >= 0 && !th.InFinally && th.CallDepth == _callStack.Count)
                             {
                                 nextFinally = th;
                                 break;
@@ -1910,6 +1918,7 @@ namespace CFGS_VM.VMCore
                             nextFinally.HasPendingReturn = true;
                             nextFinally.PendingReturnValue = retVal;
                             nextFinally.InFinally = true;
+                            nextFinally.CatchAddr = -1;
 
                             int nip = nextFinally.FinallyAddr;
                             nextFinally.FinallyAddr = -1;
@@ -1918,7 +1927,7 @@ namespace CFGS_VM.VMCore
                         }
 
                         if (_callStack.Count == 0)
-                            throw new VMException("Runtime error: return with empty call stack", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: return with empty call stack", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         CallFrame fr = _callStack.Pop();
 
@@ -1932,6 +1941,8 @@ namespace CFGS_VM.VMCore
                         _stack.Push(retVal);
                         return StepResult.Continue;
                     }
+
+
 
                 case OpCode.TRY_PUSH:
                     {
@@ -1957,11 +1968,13 @@ namespace CFGS_VM.VMCore
 
                         TryHandler h = _tryHandlers.Peek();
 
+
                         if (!h.InFinally && h.FinallyAddr >= 0)
                         {
                             if (h.FinallyAddr >= _ip)
                             {
                                 h.InFinally = true;
+                                h.CatchAddr = -1;
                                 int nip = h.FinallyAddr;
                                 h.FinallyAddr = -1;
                                 _ip = nip;
@@ -1973,16 +1986,18 @@ namespace CFGS_VM.VMCore
                             }
                         }
 
+
                         if (h.HasPendingReturn)
                         {
                             object? retVal = h.PendingReturnValue;
 
                             _tryHandlers.Pop();
 
+
                             TryHandler? outerWithFinally = null;
                             foreach (TryHandler th in _tryHandlers)
                             {
-                                if (th.FinallyAddr >= 0 && !th.InFinally)
+                                if (th.FinallyAddr >= 0 && !th.InFinally && th.CallDepth == _callStack.Count)
                                 {
                                     outerWithFinally = th;
                                     break;
@@ -1994,6 +2009,7 @@ namespace CFGS_VM.VMCore
                                 outerWithFinally.HasPendingReturn = true;
                                 outerWithFinally.PendingReturnValue = retVal;
                                 outerWithFinally.InFinally = true;
+                                outerWithFinally.CatchAddr = -1;   // catch deaktivieren
 
                                 int nip = outerWithFinally.FinallyAddr;
                                 outerWithFinally.FinallyAddr = -1;
@@ -2002,7 +2018,7 @@ namespace CFGS_VM.VMCore
                             }
 
                             if (_callStack.Count == 0)
-                                throw new VMException("Runtime error: return with empty call stack", instr.Line, instr.Col, instr.OriginFile);
+                                throw new VMException("Runtime error: return with empty call stack", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                             CallFrame fr = _callStack.Pop();
 
@@ -2017,6 +2033,7 @@ namespace CFGS_VM.VMCore
                             return StepResult.Continue;
                         }
 
+
                         if (h.HasPendingLeave)
                         {
                             int leaveTarget = h.PendingLeaveTargetIp;
@@ -2027,7 +2044,11 @@ namespace CFGS_VM.VMCore
                             TryHandler? outerWithFinally = null;
                             foreach (TryHandler th in _tryHandlers)
                             {
-                                if (th.FinallyAddr >= 0 && !th.InFinally) { outerWithFinally = th; break; }
+                                if (th.FinallyAddr >= 0 && !th.InFinally && th.CallDepth == _callStack.Count)
+                                {
+                                    outerWithFinally = th;
+                                    break;
+                                }
                             }
 
                             if (outerWithFinally != null)
@@ -2036,6 +2057,7 @@ namespace CFGS_VM.VMCore
                                 outerWithFinally.PendingLeaveTargetIp = leaveTarget;
                                 outerWithFinally.PendingLeaveScopes = leaveScopes;
                                 outerWithFinally.InFinally = true;
+                                outerWithFinally.CatchAddr = -1;
 
                                 int nip = outerWithFinally.FinallyAddr;
                                 outerWithFinally.FinallyAddr = -1;
@@ -2046,13 +2068,14 @@ namespace CFGS_VM.VMCore
                             for (int i = 0; i < leaveScopes; i++)
                             {
                                 if (_scopes.Count <= 1)
-                                    throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile);
+                                    throw new VMException("Runtime error: cannot pop global scope", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                                 _scopes.RemoveAt(_scopes.Count - 1);
                             }
 
                             _ip = leaveTarget;
                             return StepResult.Continue;
                         }
+
 
                         if (h.Exception is object ex)
                         {
@@ -2065,12 +2088,14 @@ namespace CFGS_VM.VMCore
                             }
 
                             Instruction instrNow = SafeCurrentInstr(_insns, _ip);
-                            throw new VMException(ex.ToString()!, instrNow.Line, instrNow.Col, instrNow.OriginFile);
+                            throw new VMException(ex.ToString()!, instrNow.Line, instrNow.Col, instrNow.OriginFile, IsDebugging, DebugStream);
                         }
 
                         _tryHandlers.Pop();
                         break;
                     }
+
+
 
                 case OpCode.THROW:
                     {
@@ -2101,11 +2126,11 @@ namespace CFGS_VM.VMCore
                                    col: instr.Col,
                                    stack: BuildStackString(_insns, instr));
 
-                        throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile);
+                        throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                     }
 
                 default:
-                    throw new VMException($"Runtime error: unknown opcode {instr.Code}", instr.Line, instr.Col, instr.OriginFile);
+                    throw new VMException($"Runtime error: unknown opcode {instr.Code}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
             }
 
             return StepResult.Next;
@@ -2118,6 +2143,7 @@ namespace CFGS_VM.VMCore
 
             bool routed = false;
             DebugStream = new MemoryStream();
+            IsDebugging = debugging;
             int _ip = lastPos;
 
             while (_ip < _program.Count)
@@ -2186,13 +2212,7 @@ namespace CFGS_VM.VMCore
                     }
                     else
                     {
-                        if (debugging)
-                        {
-                            DebugStream.Position = 0;
-                            using FileStream file = File.Create("log_file.log");
-                            DebugStream.CopyTo(file);
-                        }
-                        throw new VMException($"Uncaught system exception : " + sysEx.Message, _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile);
+                        throw new VMException($"Uncaught system exception : " + sysEx.Message, _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream);
                     }
                 }
 
@@ -2222,7 +2242,7 @@ namespace CFGS_VM.VMCore
                                     using FileStream file = File.Create("log_file.log");
                                     DebugStream.CopyTo(file);
                                 }
-                                throw new VMException("Uncaught system exception : ", _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile);
+                                throw new VMException("Uncaught system exception : ", _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream);
                             }
                         }
                     }
@@ -2254,7 +2274,15 @@ namespace CFGS_VM.VMCore
             {
                 TryHandler h = _tryHandlers.Peek();
 
+
+                if (h.InFinally)
+                {
+                    _tryHandlers.Pop();
+                    continue;
+                }
+
                 PopScopesToBase(h.ScopeDepthAtTry);
+
 
                 if (h.CatchAddr >= 0)
                 {
@@ -2263,6 +2291,7 @@ namespace CFGS_VM.VMCore
 
                     h.CatchAddr = -1;
                     h.Exception = null;
+
                     while (_callStack.Count > h.CallDepth)
                     {
                         CallFrame fr = _callStack.Pop();
@@ -2276,13 +2305,18 @@ namespace CFGS_VM.VMCore
 
                     return true;
                 }
+
 
                 if (h.FinallyAddr >= 0)
                 {
                     h.Exception = exPayload;
                     newIp = h.FinallyAddr;
+
+
                     h.FinallyAddr = -1;
                     h.InFinally = true;
+                    h.CatchAddr = -1;
+
                     while (_callStack.Count > h.CallDepth)
                     {
                         CallFrame fr = _callStack.Pop();
@@ -2296,6 +2330,7 @@ namespace CFGS_VM.VMCore
 
                     return true;
                 }
+
 
                 _tryHandlers.Pop();
             }
@@ -2304,74 +2339,20 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
+
+
         #endregion
 
-        #region host_var_access
-        public bool TryGetVar(string name, out object? value)
-        {
-            value = null;
-            if (string.IsNullOrWhiteSpace(name)) return false;
-
-            Env? env = FindEnvWithLocal(name);
-            if (env == null) return false;
-
-            return env.Vars.TryGetValue(name, out value);
-        }
-
-        public object? GetVar(string name)
-        {
-            if (TryGetVar(name, out object? v)) return v;
-            throw new VMException($"Runtime error: undefined variable '{name}'", 0, 0, "<host>");
-        }
-
-        public T GetVar<T>(string name)
-        {
-            object? v = GetVar(name);
-            if (v is T t) return t;
-            throw new VMException($"Runtime error: variable '{name}' is not of type {typeof(T).Name}", 0, 0, "<host>");
-        }
-
-        public void SetVar(string name, object? value, bool defineIfMissing = true, bool toGlobal = false)
-        {
-            if (string.IsNullOrWhiteSpace(name))
-                throw new ArgumentException("Variable name must not be empty.", nameof(name));
-
-            if (string.Equals(name, "this", StringComparison.Ordinal))
-                throw new VMException("Runtime error: cannot assign/declare 'this'", 0, 0, "<host>");
-
-            Env? env = FindEnvWithLocal(name);
-            if (env != null)
-            {
-                env.Vars[name] = value!;
-                return;
-            }
-
-            if (!defineIfMissing)
-                throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", 0, 0, "<host>");
-
-            Env target = toGlobal ? _scopes[0] : _scopes[^1];
-            if (target.HasLocal(name))
-                target.Vars[name] = value!;
-            else
-                target.Define(name, value!);
-        }
-
-        public void SetVars(IDictionary<string, object?> vars, bool defineIfMissing = true, bool toGlobal = false)
-        {
-            foreach (KeyValuePair<string, object?> kv in vars)
-                SetVar(kv.Key, kv.Value, defineIfMissing, toGlobal);
-        }
-        #endregion
 
         #region StackHandler
 
-        public MemoryStream DebugStream { get; private set; }
+        public static MemoryStream DebugStream { get; private set; }
         private void RequireStack(int needed, Instruction instr, string? opName = null)
         {
             if (_stack.Count < needed)
                 throw new VMException(
                     $"Runtime error: {(opName ?? instr.Code.ToString())} needs {needed} stack values (have {_stack.Count})",
-                    instr.Line, instr.Col, instr.OriginFile);
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
         }
         private string BuildStackString(List<Instruction> insns, Instruction current)
         {
@@ -2678,7 +2659,7 @@ namespace CFGS_VM.VMCore
             if (idxObj is long l)
             {
                 if (l < int.MinValue || l > int.MaxValue)
-                    throw new VMException($"Runtime error: index {l} outside Int32 range", instr.Line, instr.Col, instr.OriginFile);
+                    throw new VMException($"Runtime error: index {l} outside Int32 range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                 return (int)l;
             }
             if (idxObj is short s) return (int)s;
@@ -2687,7 +2668,7 @@ namespace CFGS_VM.VMCore
             if (idxObj is string sVal && int.TryParse(sVal, out int parsed))
                 return parsed;
 
-            throw new VMException($"Runtime error: index must be an integer, got '{idxObj?.GetType().Name ?? "null"}'", instr.Line, instr.Col, instr.OriginFile);
+            throw new VMException($"Runtime error: index must be an integer, got '{idxObj?.GetType().Name ?? "null"}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
         }
 
         private static VMException CreateIndexException(object target, object idxObj, Instruction instr)
@@ -2702,7 +2683,7 @@ namespace CFGS_VM.VMCore
                 "Runtime error: INDEX_GET target is not indexable.\n" +
                 $"  target type: {tid}\n  target value: {tval}\n" +
                 $"  index type: {iid}\n  index value: {ival}",
-                instr.Line, instr.Col, instr.OriginFile
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
             );
         }
         private object GetIndexedValue(object target, object idxObj, Instruction instr)
@@ -2716,7 +2697,7 @@ namespace CFGS_VM.VMCore
 
                         int index = Convert.ToInt32(idxObj);
                         if (index < 0 || index >= arr.Count)
-                            throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         return arr[index];
                     }
 
@@ -2724,7 +2705,7 @@ namespace CFGS_VM.VMCore
                     {
                         if (idxObj is string mname && TryBindIntrinsic(fh, mname, out IntrinsicBound? bound, instr))
                             return bound;
-                        throw new VMException($"invalid file member '{idxObj}'", instr.Line, instr.Col, instr.OriginFile);
+                        throw new VMException($"invalid file member '{idxObj}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                     }
 
                 case ExceptionObject exo:
@@ -2734,7 +2715,7 @@ namespace CFGS_VM.VMCore
                             return bound;
                         if (string.Equals(key, "message$", StringComparison.Ordinal)) return exo.Message;
                         if (string.Equals(key, "type$", StringComparison.Ordinal)) return exo.Type;
-                        throw new VMException($"invalid member '{key}' on Exception", instr.Line, instr.Col, instr.OriginFile);
+                        throw new VMException($"invalid member '{key}' on Exception", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                     }
 
                 case string strv:
@@ -2744,7 +2725,7 @@ namespace CFGS_VM.VMCore
 
                         int index = Convert.ToInt32(idxObj);
                         if (index < 0 || index >= strv.Length)
-                            throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         return (char)strv[index];
                     }
 
@@ -2769,7 +2750,7 @@ namespace CFGS_VM.VMCore
 
                             throw new VMException(
                                 "Runtime error: missing '__outer' on instance for 'outer'.",
-                                instr.Line, instr.Col, instr.OriginFile
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                             );
                         }
                         if (obj.Fields.TryGetValue(key, out object? fval))
@@ -2833,7 +2814,7 @@ namespace CFGS_VM.VMCore
                             }
                         }
 
-                        throw new VMException($"invalid field '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile);
+                        throw new VMException($"invalid field '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                     }
 
                 case StaticInstance st:
@@ -2844,7 +2825,7 @@ namespace CFGS_VM.VMCore
                         {
                             throw new VMException(
                                 $"Runtime error: invalid static member 'outer' in class '{st.ClassName}'.",
-                                instr.Line, instr.Col, instr.OriginFile
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                             );
                         }
                         if (st.Fields.TryGetValue(key, out object? fval))
@@ -2874,7 +2855,7 @@ namespace CFGS_VM.VMCore
 
                         throw new VMException(
                             $"Runtime error: invalid static member '{key}' in class '{st.ClassName}'.",
-                            instr.Line, instr.Col, instr.OriginFile
+                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                         );
                     }
                 case EnumInstance en:
@@ -2901,7 +2882,7 @@ namespace CFGS_VM.VMCore
                         if (en.TryGet(key, out int enumVal))
                             return enumVal;
 
-                        throw new VMException($"Runtime error: invalid enum member '{key}' in enum '{en.EnumName}'", instr.Line, instr.Col, instr.OriginFile);
+                        throw new VMException($"Runtime error: invalid enum member '{key}' in enum '{en.EnumName}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                     }
 
                 default:
@@ -2918,26 +2899,26 @@ namespace CFGS_VM.VMCore
                 case List<object> arr:
                     {
                         if (IsReservedIntrinsicName(arr, idxObj))
-                            throw new VMException($"Runtime error: cannot assign to array intrinsic '{idxObj}'", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: cannot assign to array intrinsic '{idxObj}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         int index = RequireIntIndex(idxObj, instr);
                         if (index < 0 || index >= arr.Count)
-                            throw new VMException($"Runtime error: index {index} out of range (0..{arr.Count - 1})", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: index {index} out of range (0..{arr.Count - 1})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                         arr[index] = value;
                         break;
                     }
 
                 case string _:
-                    throw new VMException("Runtime error: INDEX_SET on string. Strings are immutable.", instr.Line, instr.Col, instr.OriginFile);
+                    throw new VMException("Runtime error: INDEX_SET on string. Strings are immutable.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                 case Dictionary<string, object> dict:
                     {
                         if (IsReservedIntrinsicName(dict, idxObj))
-                            throw new VMException($"Runtime error: key '{idxObj}' is reserved for dictionary intrinsics", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException($"Runtime error: key '{idxObj}' is reserved for dictionary intrinsics", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         string key = idxObj?.ToString() ?? "";
                         if (key.Length == 0)
-                            throw new VMException("Runtime error: dictionary key cannot be empty", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: dictionary key cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         dict[key] = value;
                         break;
@@ -2947,13 +2928,13 @@ namespace CFGS_VM.VMCore
                     {
                         string key = idxObj?.ToString() ?? "";
                         if (key.Length == 0)
-                            throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         if (key == "outer")
                         {
                             throw new VMException(
                                 "Runtime error: cannot assign to 'outer' (read-only).",
-                                instr.Line, instr.Col, instr.OriginFile
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                             );
                         }
                         obj.Fields[key] = value;
@@ -2964,32 +2945,32 @@ namespace CFGS_VM.VMCore
                     {
                         string key = idxObj?.ToString() ?? "";
                         if (key.Length == 0)
-                            throw new VMException("Runtime error: static member name cannot be empty", instr.Line, instr.Col, instr.OriginFile);
+                            throw new VMException("Runtime error: static member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         if (key == "outer")
                         {
                             throw new VMException(
                                 "Runtime error: cannot assign to 'outer' on static type.",
-                                instr.Line, instr.Col, instr.OriginFile
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                             );
                         }
                         st.Fields[key] = value;
                         break;
                     }
                 case EnumInstance en:
-                    throw new VMException($"Runtime error: cannot assign to enum '{en.EnumName}' members", instr.Line, instr.Col, instr.OriginFile);
+                    throw new VMException($"Runtime error: cannot assign to enum '{en.EnumName}' members", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                 case null:
-                    throw new VMException("Runtime error: INDEX_SET on null target", instr.Line, instr.Col, instr.OriginFile);
+                    throw new VMException("Runtime error: INDEX_SET on null target", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                 default:
-                    throw new VMException("Runtime error: target is not index-assignable", instr.Line, instr.Col, instr.OriginFile);
+                    throw new VMException("Runtime error: target is not index-assignable", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
             }
         }
         private static void DeleteSliceOnTarget(ref object target, object startObj, object endObj, Instruction instr)
         {
             if (target is string)
-                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
             switch (target)
             {
                 case List<object> arr:
@@ -3052,7 +3033,7 @@ namespace CFGS_VM.VMCore
                     }
 
                 default:
-                    throw new VMException($"Runtime error: delete slice target must be array, dictionary, or string", instr.Line, instr.Col, instr.OriginFile);
+                    throw new VMException($"Runtime error: delete slice target must be array, dictionary, or string", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
             }
         }
 

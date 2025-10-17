@@ -28,7 +28,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v2.1.2-stable";
+    public static readonly string Version = "v2.1.3-stable";
 
     /// <summary>
     /// Defines the PluginsFolder
@@ -220,9 +220,9 @@ public class Program
                 CFSBinary.Save(name + ".cfb", bytecode, compiler._functions);
             if (debug)
             {
-                vm.DebugStream.Position = 0;
+                VM.DebugStream.Position = 0;
                 using FileStream file = File.Create("log_file.log");
-                vm.DebugStream.CopyTo(file);
+                VM.DebugStream.CopyTo(file);
             }
         }
         else
@@ -272,9 +272,9 @@ public class Program
             vm.Run(debug);
             if (debug)
             {
-                vm.DebugStream.Position = 0;
+                VM.DebugStream.Position = 0;
                 using FileStream file = File.Create("log_file.log");
-                vm.DebugStream.CopyTo(file);
+                VM.DebugStream.CopyTo(file);
             }
 
         }

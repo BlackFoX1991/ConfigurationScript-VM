@@ -1,0 +1,239 @@
+# CFGS Hardcore Try/Catch/Finally Tests (no str) - v2
+
+# --- Tiny test lib (no str) ---
+var __passed = 0;
+var __failed = 0;
+
+func assertEquals(name, actual, expected) {
+    if (actual == expected) { __passed += 1; print("OK  " + name); return; }
+    __failed += 1; print("FAIL " + name);
+}
+
+func assertArrayEq(name, a, b) {
+    if (len(a) != len(b)) { __failed += 1; print("FAIL " + name); return; }
+    var i = 0;
+    while (i < len(a)) {
+        if (a[i] != b[i]) { __failed += 1; print("FAIL " + name); return; }
+        i += 1;
+    }
+    __passed += 1; print("OK  " + name);
+}
+
+func summary() {
+    if (__failed == 0) print("SUMMARY ALL OK"); else print("SUMMARY FAIL");
+}
+
+func push(log, msg) { log[] = msg; }
+
+print("=== HARDCORE SELF-CHECK v2 START ===");
+
+# --- T1: return pending in try, finally throws -> outer catch (no inner catch) ---
+func t1_make_log_ext(log) {
+    try {
+        push(log, "t1.try");
+        return "R";
+    } catch (e) {
+        push(log, "t1.INNER_CATCH");   # should NOT run
+        return "C";
+    } finally {
+        push(log, "t1.finally");
+        throw "F";
+    }
+}
+func run_t1() {
+    var log = [];
+    try {
+        var r = t1_make_log_ext(log);
+        push(log, "t1.outer.after");
+    } catch (e) {
+        push(log, "t1.OUTER_CATCH");
+    } finally {
+        push(log, "t1.OUTER_FINALLY");
+    }
+    assertArrayEq("T1: return pending but finally throws -> outer catch",
+        ["t1.try","t1.finally","t1.OUTER_CATCH","t1.OUTER_FINALLY"],
+        log);
+}
+
+# --- T2: catch returns, but finally throws -> outer catch overrides return ---
+func t2_make_log_ext(log) {
+    try {
+        push(log, "t2.try");
+        throw "X";
+    } catch (e) {
+        push(log, "t2.catch");
+        return "C";
+    } finally {
+        push(log, "t2.finally");
+        throw "F";
+    }
+}
+func run_t2() {
+    var log = [];
+    try {
+        var r = t2_make_log_ext(log);
+        push(log, "t2.outer.after");
+    } catch (e) {
+        push(log, "t2.OUTER_CATCH");
+    } finally {
+        push(log, "t2.OUTER_FINALLY");
+    }
+    assertArrayEq("T2: catch return but finally throws -> outer catch",
+        ["t2.try","t2.catch","t2.finally","t2.OUTER_CATCH","t2.OUTER_FINALLY"],
+        log);
+}
+
+# --- T3: inner finally throws F1, outer finally throws F2 -> F2 wins; outer catch still runs ---
+func t3_make_log_outer(log) {
+    try {
+        try {
+            push(log, "t3.inner.try");
+        } catch (e) {
+            push(log, "t3.inner.catch");   # not expected
+        } finally {
+            push(log, "t3.inner.finally");
+            throw "F1";
+        }
+    } catch (e) {
+        push(log, "t3.outer.catch.seen");  # catch runs BEFORE outer finally
+    } finally {
+        push(log, "t3.outer.finally");
+        throw "F2";
+    }
+}
+func run_t3() {
+    var log = [];
+    try {
+        t3_make_log_outer(log);
+        push(log, "t3.top.after");
+    } catch (e) {
+        push(log, "t3.TOP_CATCH");
+    } finally {
+        push(log, "t3.TOP_FINALLY");
+    }
+    assertArrayEq("T3: inner finally throws, outer finally throws -> outer wins",
+        ["t3.inner.try","t3.inner.finally","t3.outer.catch.seen","t3.outer.finally","t3.TOP_CATCH","t3.TOP_FINALLY"],
+        log);
+}
+
+# --- T4: break pending but finally throws -> outer catch, loop aborts immediately ---
+func t4_make_log() {
+    var log = [];
+    try {
+        for (var i = 0; i < 3; i += 1;) {
+            if (i == 0) push(log, "t4.enter0");
+            if (i == 1) push(log, "t4.enter1");
+            if (i == 2) push(log, "t4.enter2");
+
+            try {
+                if (i == 0) { push(log, "t4.break"); break; }
+                if (i == 1) push(log, "t4.body1");
+                if (i == 2) push(log, "t4.body2");
+            } catch (e) {
+                if (i == 0) push(log, "t4.catch0");
+                if (i == 1) push(log, "t4.catch1");
+                if (i == 2) push(log, "t4.catch2");
+            } finally {
+                if (i == 0) push(log, "t4.finally0");
+                if (i == 1) push(log, "t4.finally1");
+                if (i == 2) push(log, "t4.finally2");
+                throw "F";  # overrides both normal and break
+            }
+
+            if (i == 0) push(log, "t4.after0");
+            if (i == 1) push(log, "t4.after1");
+            if (i == 2) push(log, "t4.after2");
+        }
+        push(log, "t4.after.loop");
+    } catch (e) {
+        push(log, "t4.OUTER_CATCH");
+    } finally {
+        push(log, "t4.OUTER_FINALLY");
+    }
+    return log;
+}
+func run_t4() {
+    var log = t4_make_log();
+    assertArrayEq("T4: break pending but finally throws -> outer catch and abort",
+        ["t4.enter0","t4.break","t4.finally0","t4.OUTER_CATCH","t4.OUTER_FINALLY"],
+        log);
+}
+
+# --- T5: continue pending from catch but finally (only for i==1) throws -> outer catch ---
+func t5_make_log() {
+    var log = [];
+    try {
+        for (var i = 0; i < 3; i += 1;) {
+            if (i == 0) push(log, "t5.enter0");
+            if (i == 1) push(log, "t5.enter1");
+            if (i == 2) push(log, "t5.enter2");
+
+            try {
+                if (i == 1) { throw "E"; }
+                if (i == 0) push(log, "t5.body0");
+                if (i == 2) push(log, "t5.body2");
+            } catch (e) {
+                if (i == 1) push(log, "t5.catch1");
+                continue;     # planned continue
+            } finally {
+                if (i == 0) push(log, "t5.finally0");
+                if (i == 1) push(log, "t5.finally1");
+                if (i == 2) push(log, "t5.finally2");
+                if (i == 1) throw "F";  # only at i==1 to test override of continue
+            }
+
+            if (i == 0) push(log, "t5.after0");
+            if (i == 2) push(log, "t5.after2");
+        }
+        push(log, "t5.after.loop");
+    } catch (e) {
+        push(log, "t5.OUTER_CATCH");
+    } finally {
+        push(log, "t5.OUTER_FINALLY");
+    }
+    return log;
+}
+func run_t5() {
+    var log = t5_make_log();
+    assertArrayEq("T5: continue pending from catch but finally throws -> outer catch",
+        ["t5.enter0","t5.body0","t5.finally0","t5.after0",
+         "t5.enter1","t5.catch1","t5.finally1",
+         "t5.OUTER_CATCH","t5.OUTER_FINALLY"],
+        log);
+}
+
+# --- T6: nested returns preserved across multiple finally (no throw) ---
+func t6_inner(log) {
+    try { push(log, "t6.inner.try"); return "R1"; }
+    catch (e) { push(log, "t6.inner.catch"); return "C1"; }
+    finally { push(log, "t6.inner.finally"); }
+}
+func t6_make_log() {
+    var log = [];
+    try {
+        var r = t6_inner(log);     # should be "R1"
+        if (r == "R1") push(log, "t6.outer.after.R1"); else push(log, "t6.outer.after.?");
+    } catch (e) {
+        push(log, "t6.outer.catch");
+    } finally {
+        push(log, "t6.outer.finally");
+    }
+    return log;
+}
+func run_t6() {
+    var log = t6_make_log();
+    assertArrayEq("T6: nested returns preserved across finally",
+        ["t6.inner.try","t6.inner.finally","t6.outer.after.R1","t6.outer.finally"],
+        log);
+}
+
+# --- RUN ALL ---
+run_t1();
+run_t2();
+run_t3();
+run_t4();
+run_t5();
+run_t6();
+
+summary();
+print("=== HARDCORE SELF-CHECK v2 END ===");

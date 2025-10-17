@@ -5,8 +5,8 @@ namespace CFGS_VM.VMCore.Extensions
     /// <summary>
     /// Defines the <see cref="VMException" />
     /// </summary>
-    public sealed class VMException(string message, int line, int column, string? fileSource)
-    : Exception(BuildMessage(message, line, column, fileSource))
+    public sealed class VMException(string message, int line, int column, string? fileSource, bool dbg, MemoryStream dbStream)
+    : Exception(BuildMessage(message, line, column, fileSource, dbg, dbStream))
     {
         /// <summary>
         /// Gets the Line
@@ -31,7 +31,7 @@ namespace CFGS_VM.VMCore.Extensions
         /// <param name="column">The column<see cref="int"/></param>
         /// <param name="fileSource">The fileSource<see cref="string?"/></param>
         /// <returns>The <see cref="string"/></returns>
-        private static string BuildMessage(string message, int line, int column, string? fileSource)
+        private static string BuildMessage(string message, int line, int column, string? fileSource, bool debug, MemoryStream dbgStream)
         {
             StringBuilder sb = new();
             if (!string.IsNullOrEmpty(message))
@@ -49,7 +49,12 @@ namespace CFGS_VM.VMCore.Extensions
 
             if (!string.IsNullOrWhiteSpace(fileSource))
                 sb.Append($" [Source : '{fileSource}']");
-
+            if (debug && dbgStream is not null)
+            {
+                VM.DebugStream.Position = 0;
+                using FileStream file = File.Create("log_file.log");
+                VM.DebugStream.CopyTo(file);
+            }
             return sb.ToString();
         }
     }

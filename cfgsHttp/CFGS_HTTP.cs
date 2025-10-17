@@ -113,7 +113,7 @@ namespace CFGS_VM.VMCore.CorePlugin
                 catch { }
 
                 if (!allowFile)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile);
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream);
 
                 using CancellationTokenSource cts = new(timeout);
                 byte[] bytes = _client.GetByteArrayAsync(url, cts.Token).GetAwaiter().GetResult();
@@ -344,7 +344,7 @@ namespace CFGS_VM.VMCore.CorePlugin
                     ActiveByPort.TryRemove(_port, out _);
                     throw new VMException(
                         $"Cannot start HTTP server on http://localhost:{_port}/: {ex.Message} (code {ex.ErrorCode})",
-                        0, 0, ""
+                        0, 0, "", VM.IsDebugging, VM.DebugStream
                     );
                 }
 
