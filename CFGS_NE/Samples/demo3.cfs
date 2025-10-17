@@ -1,0 +1,193 @@
+# CFGS Self-Check Test Harness (no str) – v2
+# Fix: Case1 uses external log passed into the callee, so we can assert after throw.
+
+# --- Tiny test lib ---
+var __passed = 0;
+var __failed = 0;
+
+func assertEquals(name, actual, expected) {
+    if (actual == expected) { __passed += 1; print("OK  " + name); return; }
+    __failed += 1; print("FAIL " + name);
+}
+
+func assertArrayEq(name, a, b) {
+    if (len(a) != len(b)) { __failed += 1; print("FAIL " + name); return; }
+    var i = 0;
+    while (i < len(a)) {
+        if (a[i] != b[i]) { __failed += 1; print("FAIL " + name); return; }
+        i += 1;
+    }
+    __passed += 1; print("OK  " + name);
+}
+
+func summary() {
+    if (__failed == 0) print("SUMMARY " + "ALL OK"); else print("SUMMARY " + "FAIL " + "count=" + __failed);
+}
+
+# --- Helpers ---
+func push(log, msg) { log[] = msg; }
+
+# --- Case 1 (fixed): throw in inner finally -> outer catch; no inner catch ---
+func test_throw_in_inner_finally_ext(log) {
+    try {
+        push(log, "inner.try");
+    } catch (e) {
+        push(log, "INNER_CATCH");  # should NOT happen
+    } finally {
+        push(log, "inner.finally");
+        throw "FIN";
+    }
+    # not reached
+}
+
+func run_case1() {
+    var log = [];
+    try {
+        test_throw_in_inner_finally_ext(log);
+        push(log, "outer.try.after");  # not reached
+    } catch (e) {
+        push(log, "OUTER_CATCH");
+        assertArrayEq("Case1 throw in finally → outer catch",
+            ["inner.try","inner.finally","OUTER_CATCH"], log);
+        return;
+    } finally {
+        0;
+    }
+}
+
+# --- Case 2a: return in finally overrides try ---
+func test_return_in_finally_overrides_try() {
+    try { return "TRY"; }
+    catch (e) { return "CATCH"; }
+    finally { return "FINALLY"; }
+}
+
+# --- Case 2b: return in finally overrides catch ---
+func test_return_in_finally_overrides_catch() {
+    try { throw "X"; }
+    catch (e) { return "CATCH"; }
+    finally { return "FINALLY"; }
+}
+
+# --- Case 3a: continue from catch: finally before continue ---
+func test_continue_from_catch_log() {
+    var log = [];
+    for (var i = 0; i < 3; i += 1;) {
+        if (i == 0) push(log, "enter0");
+        if (i == 1) push(log, "enter1");
+        if (i == 2) push(log, "enter2");
+
+        try {
+            if (i == 1) { throw "CONT"; }
+            if (i == 0) push(log, "body0");
+            if (i == 2) push(log, "body2");
+        } catch (e) {
+            if (i == 1) push(log, "catch1");
+            continue;
+        } finally {
+            if (i == 0) push(log, "finally0");
+            if (i == 1) push(log, "finally1");
+            if (i == 2) push(log, "finally2");
+        }
+
+        if (i == 0) push(log, "after0");
+        if (i == 2) push(log, "after2");
+    }
+    return log;
+}
+
+# --- Case 3b: break from catch: finally before break ---
+func test_break_from_catch_log() {
+    var log = [];
+    for (var j = 0; j < 3; j += 1;) {
+        if (j == 0) push(log, "enter0");
+        if (j == 1) push(log, "enter1");
+        if (j == 2) push(log, "enter2");
+
+        try {
+            if (j == 2) { throw "BRK"; }
+            if (j == 0) push(log, "body0");
+            if (j == 1) push(log, "body1");
+        } catch (e) {
+            if (j == 2) push(log, "catch2");
+            break;
+        } finally {
+            if (j == 0) push(log, "finally0");
+            if (j == 1) push(log, "finally1");
+            if (j == 2) push(log, "finally2");
+        }
+
+        if (j == 0) push(log, "after0");
+        if (j == 1) push(log, "after1");
+    }
+    return log;
+}
+
+# --- Case 4: cascade (inner return + inner throw) ---
+func inner_return_log(log) {
+    try {
+        push(log, "ir.try");
+        return "IR";
+    } catch (e) {
+        push(log, "ir.catch");
+        return "IRC";
+    } finally {
+        push(log, "ir.finally");
+    }
+}
+func inner_throw_log(log) {
+    try {
+        push(log, "it.try");
+        throw "IT";
+    } catch (e) {
+        push(log, "it.catch.rethrow");
+        throw e;
+    } finally {
+        push(log, "it.finally");
+    }
+}
+func test_cascade_log() {
+    var log = [];
+    var a = inner_return_log(log);
+    if (a == "IR") push(log, "outer.after.ir=IR"); else push(log, "outer.after.ir=?");
+    try {
+        inner_throw_log(log);
+        push(log, "outer.after.it");
+    } catch (e) {
+        push(log, "outer.catch=IT");
+    } finally {
+        push(log, "outer.finally");
+    }
+    return log;
+}
+
+# === RUN ===
+print("=== SELF-CHECK (no str) v2 START ===");
+
+run_case1();
+assertEquals("Case2a return in FINALLY > TRY", test_return_in_finally_overrides_try(), "FINALLY");
+assertEquals("Case2b return in FINALLY > CATCH", test_return_in_finally_overrides_catch(), "FINALLY");
+
+var c3a = test_continue_from_catch_log();
+assertArrayEq("Case3a continue from catch, finally before continue", 
+    ["enter0","body0","finally0","after0",
+     "enter1","catch1","finally1",
+     "enter2","body2","finally2","after2"],
+    c3a);
+
+var c3b = test_break_from_catch_log();
+assertArrayEq("Case3b break from catch, finally before break",
+    ["enter0","body0","finally0","after0",
+     "enter1","body1","finally1","after1",
+     "enter2","catch2","finally2"],
+    c3b);
+
+var c4 = test_cascade_log();
+assertArrayEq("Case4 cascade (inner return + throw + finally order)",
+    ["ir.try","ir.finally","outer.after.ir=IR",
+     "it.try","it.catch.rethrow","it.finally",
+     "outer.catch=IT","outer.finally"],
+    c4);
+
+summary();
+print("=== SELF-CHECK (no str) v2 END ===");

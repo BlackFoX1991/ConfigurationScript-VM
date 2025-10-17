@@ -772,52 +772,55 @@ namespace CFGS_VM.VMCore
 
                 case TryStmt ts:
                     {
-                        int tryStart = _insns.Count;
-
+                        int tryPushIdx = _insns.Count;
                         _insns.Add(new Instruction(OpCode.TRY_PUSH, null, ts.Line, ts.Col, ts.OriginFile));
 
                         CompileStmt(ts.TryBlock, insideFunction);
 
-                        int jmpAfterTryIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP, null, ts.Line, ts.Col, ts.OriginFile));
+                        int afterTryIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
 
-                        int catchStart = -1, finallyStart = -1;
-
+                        int catchStart = -1;
                         if (ts.CatchBlock != null)
                         {
                             catchStart = _insns.Count;
 
                             if (ts.CatchIdent != null)
+                            {
                                 _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, ts.Line, ts.Col, ts.OriginFile));
-
-                            if (ts.CatchIdent != null)
                                 _insns.Add(new Instruction(OpCode.VAR_DECL, ts.CatchIdent, ts.Line, ts.Col, ts.OriginFile));
+                            }
                             else
+                            {
                                 _insns.Add(new Instruction(OpCode.POP, null, ts.Line, ts.Col, ts.OriginFile));
+                            }
 
                             CompileStmt(ts.CatchBlock, insideFunction);
 
                             if (ts.CatchIdent != null)
                                 _insns.Add(new Instruction(OpCode.POP_SCOPE, null, ts.Line, ts.Col, ts.OriginFile));
+
+                            _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
                         }
 
+                        int finallyStart = -1;
                         if (ts.FinallyBlock != null)
                         {
                             finallyStart = _insns.Count;
+
+                            _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, ts.FinallyBlock.Line, ts.FinallyBlock.Col, ts.FinallyBlock.OriginFile));
                             CompileStmt(ts.FinallyBlock, insideFunction);
+                            _insns.Add(new Instruction(OpCode.POP_SCOPE, null, ts.FinallyBlock.Line, ts.FinallyBlock.Col, ts.FinallyBlock.OriginFile));
                         }
 
-                        int tryPopIdx = _insns.Count;
+                        int endTryPopIdx = _insns.Count;
                         _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
 
-                        _insns[tryStart] = new Instruction(
+                        _insns[tryPushIdx] = new Instruction(
                             OpCode.TRY_PUSH,
                             new object[] { catchStart, finallyStart },
                             ts.Line, ts.Col, ts.OriginFile
                         );
-
-                        int target = (finallyStart >= 0) ? finallyStart : tryPopIdx;
-                        _insns[jmpAfterTryIdx] = new Instruction(OpCode.JMP, target, ts.Line, ts.Col, ts.OriginFile);
 
                         break;
                     }

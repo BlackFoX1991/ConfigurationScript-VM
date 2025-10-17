@@ -1,0 +1,97 @@
+# CFGS Demo Script
+# Zeigt zentrale Sprachfeatures: Variablen, Arrays (Append/Slices), Dicts, Funktionen,
+# Klassen, if/while/for/foreach, try/catch/finally, match (Stmt & Expr), ??, ** usw.
+
+# --- Top-Level Variablen ---
+var title = "CFGS Demo";
+var count = 3 ** 2;    # right-associative power -> 9
+var maybe = null;
+var fallback = maybe ?? "Default-Wert";   # null-coalescing
+
+print("== " + title + " ==");
+print("count=" + str(count) + ", fallback=" + fallback);
+
+# --- Arrays & Append ---
+var nums = [1,2,3];
+nums[] = 4;            # append
+nums[] = 5;
+
+# Slices (a[~b], a[a~], a[a~b])
+var head3 = nums[~3];  # [1,2,3]
+var tail2 = nums[3~];  # [4,5]
+print("nums=" + nums + ", head3=" + head3 + ", tail2=" + tail2);
+
+# --- Dicts ---
+var user = {"name":"Ada","role":"dev"};
+print("user keys=" + user.keys());
+
+# --- Funktionen ---
+func sum(a, b) {
+    return a + b;
+}
+
+func describeNumber(n) {
+    # match als Ausdruck
+    return n match { 
+        0: "zero",
+        1: "one",
+        2: "two",
+        _: "many"
+    };
+}
+
+print("sum(7,5)=" + str(sum(7,5)) + ", describe(2)=" + describeNumber(2));
+
+# --- Klasse mit Feld + Methode ---
+class Counter() {
+    var value = 0;
+    func inc() { this.value += 1; }
+    func toString() { return "Counter(" + str(this.value) + ")"; }
+}
+
+var c = new Counter();
+c.inc(); c.inc();
+print(c.toString());
+
+# --- if / while ---
+if (len(nums) > 0) print("nums hat Elemente");
+var i = 0;
+while (i < 3) { print("while i=" + str(i)); i += 1; }
+
+# --- for: init/cond/step; (init/step sind Statements) ---
+for (var j = 0; j < 3; j += 1;) print("for j=" + str(j));
+
+# --- foreach über Array ---
+foreach (var n in nums) {
+    if (n == 3) continue;
+    print("foreach n=" + str(n));
+}
+
+# --- try/catch/finally & throw ---
+func safeDivide(a, b) {
+    if (b == 0) throw "Division by zero";
+    return a / b;
+}
+
+try {
+    print("10/2=" + str(safeDivide(10,2)));
+    print("10/0=" + str(safeDivide(10,0)));  # wirft
+} catch (e) {
+    print("Fehler: " + str(e));
+} finally {
+    print("finally: Aufräumen");
+}
+
+# --- match als Statement ---
+var cmd = "mul";
+match (cmd) {
+    case "sum":     { print("cmd=sum -> " + str(sum(2,3))); }
+    case "mul":     { print("cmd=mul -> " + str(2 * 3)); }
+    default:        { print("unbekanntes Kommando"); }
+}
+
+# --- Funktionen als Literale ---
+var adder = func(x) { return x + 10; };
+print("adder(5)=" + str(adder(5)));
+
+# Ende
