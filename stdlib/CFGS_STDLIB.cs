@@ -1,8 +1,11 @@
-﻿using CFGS_VM.VMCore.Plugin;
+﻿using CFGS_VM.VMCore.Extensions.Instance;
+using CFGS_VM.VMCore.Plugin;
 using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
+using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using static CFGS_VM.VMCore.VM;
 
 namespace CFGS_VM.VMCore.CorePlugin
@@ -54,10 +57,10 @@ namespace CFGS_VM.VMCore.CorePlugin
                 if (val is char) return "Char";
                 if (val is List<object>) return "Array";
                 if (val is Dictionary<string, object>) return "Dictionary";
-                if (val is CFGS_VM.VMCore.Extensions.ClassInstance ci) return ci.ClassName;
-                if (val is CFGS_VM.VMCore.Extensions.StaticInstance si) return si.ClassName;
-                if (val is Extensions.EnumInstance ei) return "Enum";
-                if (val is CFGS_VM.VMCore.VM.ExceptionObject) return "Exception";
+                if (val is ClassInstance ci) return ci.ClassName;
+                if (val is StaticInstance si) return si.ClassName;
+                if (val is EnumInstance ei) return "Enum";
+                if (val is ExceptionObject) return "Exception";
                 return val.GetType().Name;
             }));
 
@@ -256,8 +259,8 @@ namespace CFGS_VM.VMCore.CorePlugin
                     if (mode == 3) fs.Seek(0, SeekOrigin.End);
 
                     return (object)Activator.CreateInstance(
-                        Type.GetType("CFGS_VM.VMCore.VM+FileHandle, CFGS_VM") ??
-                        Type.GetType("CFGS_VM.VMCore.VM+FileHandle", throwOnError: true)!,
+                        Type.GetType("CFGS_VM.VMCore.Extensions.Intrinsics.Handles.FileHandle, CFGS_VM") ??
+                        Type.GetType("CFGS_VM.VMCore.Extensions.Intrinsics.Handles.FileHandle", throwOnError: true)!,
                         args: new object?[] { path, mode, fs, canRead, canWrite }
                     )!;
                 }
@@ -729,14 +732,14 @@ namespace CFGS_VM.VMCore.CorePlugin
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         private static void RegisterException(IIntrinsicRegistry intrinsics)
         {
-            Type T = typeof(CFGS_VM.VMCore.VM.ExceptionObject);
-            intrinsics.Register(T, new IntrinsicDescriptor("message", 0, 0, (r, a, i) => ((CFGS_VM.VMCore.VM.ExceptionObject)r).Message));
-            intrinsics.Register(T, new IntrinsicDescriptor("type", 0, 0, (r, a, i) => ((CFGS_VM.VMCore.VM.ExceptionObject)r).Type));
-            intrinsics.Register(T, new IntrinsicDescriptor("file", 0, 0, (r, a, i) => ((CFGS_VM.VMCore.VM.ExceptionObject)r).File));
-            intrinsics.Register(T, new IntrinsicDescriptor("line", 0, 0, (r, a, i) => ((CFGS_VM.VMCore.VM.ExceptionObject)r).Line));
-            intrinsics.Register(T, new IntrinsicDescriptor("col", 0, 0, (r, a, i) => ((CFGS_VM.VMCore.VM.ExceptionObject)r).Col));
-            intrinsics.Register(T, new IntrinsicDescriptor("stack", 0, 0, (r, a, i) => ((CFGS_VM.VMCore.VM.ExceptionObject)r).Stack));
-            intrinsics.Register(T, new IntrinsicDescriptor("toString", 0, 0, (r, a, i) => ((CFGS_VM.VMCore.VM.ExceptionObject)r).ToString()));
+            Type T = typeof(ExceptionObject);
+            intrinsics.Register(T, new IntrinsicDescriptor("message", 0, 0, (r, a, i) => ((ExceptionObject)r).Message));
+            intrinsics.Register(T, new IntrinsicDescriptor("type", 0, 0, (r, a, i) => ((ExceptionObject)r).Type));
+            intrinsics.Register(T, new IntrinsicDescriptor("file", 0, 0, (r, a, i) => ((ExceptionObject)r).File));
+            intrinsics.Register(T, new IntrinsicDescriptor("line", 0, 0, (r, a, i) => ((ExceptionObject)r).Line));
+            intrinsics.Register(T, new IntrinsicDescriptor("col", 0, 0, (r, a, i) => ((ExceptionObject)r).Col));
+            intrinsics.Register(T, new IntrinsicDescriptor("stack", 0, 0, (r, a, i) => ((ExceptionObject)r).Stack));
+            intrinsics.Register(T, new IntrinsicDescriptor("toString", 0, 0, (r, a, i) => ((ExceptionObject)r).ToString()));
         }
 
         /// <summary>
@@ -745,8 +748,8 @@ namespace CFGS_VM.VMCore.CorePlugin
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         private static void RegisterFile(IIntrinsicRegistry intrinsics)
         {
-            Type T = Type.GetType("CFGS_VM.VMCore.VM+FileHandle, CFGS_VM", throwOnError: false) ??
-                     Type.GetType("CFGS_VM.VMCore.VM+FileHandle");
+            Type T = Type.GetType("CFGS_VM.VMCore.Extensions.Intrinsics.Handles.FileHandle, CFGS_VM", throwOnError: false) ??
+                     Type.GetType("CFGS_VM.VMCore.Extensions.Intrinsics.Handles.FileHandle");
 
             if (T == null)
             {

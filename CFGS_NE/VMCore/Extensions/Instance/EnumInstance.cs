@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace CFGS_VM.VMCore.Extensions
+namespace CFGS_VM.VMCore.Extensions.Instance
 {
     public sealed class EnumInstance
     {

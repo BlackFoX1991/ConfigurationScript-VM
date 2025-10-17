@@ -1,5 +1,8 @@
-﻿using CFGS_VM.Analytic;
+﻿using CFGS_VM.Analytic.Core;
+using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore;
+using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Extensions.Core;
 using System.Globalization;
 
 /// <summary>
@@ -25,7 +28,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v2.1.1-stable";
+    public static readonly string Version = "v2.1.2-stable";
 
     /// <summary>
     /// Defines the PluginsFolder
@@ -207,14 +210,14 @@ public class Program
                 if (compiler._functions.Count > 0)
                 {
                     Console.WriteLine("=== Functions ===");
-                    foreach (KeyValuePair<string, CFGS_VM.VMCore.Extension.FunctionInfo> f in compiler._functions)
+                    foreach (KeyValuePair<string, FunctionInfo> f in compiler._functions)
                         Console.WriteLine(f.Key + " -> " + f.Value);
                     Console.WriteLine();
                 }
             }
             vm.Run(debug);
             if (SetCompile)
-                CFGS_VM.VMCore.IO.CFSBinary.Save(name + ".cfb", bytecode, compiler._functions);
+                CFSBinary.Save(name + ".cfb", bytecode, compiler._functions);
             if (debug)
             {
                 vm.DebugStream.Position = 0;
@@ -224,7 +227,7 @@ public class Program
         }
         else
         {
-            (bytecode, Dictionary<string, CFGS_VM.VMCore.Extension.FunctionInfo>? funcs) = CFGS_VM.VMCore.IO.CFSBinary.Load(name);
+            (bytecode, Dictionary<string, FunctionInfo>? funcs) = CFSBinary.Load(name);
             vm.LoadInstructions(bytecode);
             vm.LoadFunctions(funcs);
             vm.LoadPluginsFrom(PluginsFolder);
@@ -261,7 +264,7 @@ public class Program
                 if (vm._functions.Count > 0)
                 {
                     Console.WriteLine("=== Functions ===");
-                    foreach (KeyValuePair<string, CFGS_VM.VMCore.Extension.FunctionInfo> f in vm._functions)
+                    foreach (KeyValuePair<string, FunctionInfo> f in vm._functions)
                         Console.WriteLine(f.Key + " -> " + f.Value);
                     Console.WriteLine();
                 }

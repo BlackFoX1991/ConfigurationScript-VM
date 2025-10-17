@@ -1,853 +1,36 @@
 ﻿using CFGS_VM.VMCore.Command;
-using CFGS_VM.VMCore.Extension;
 using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Extensions.Core;
+using CFGS_VM.VMCore.Extensions.Instance;
+using CFGS_VM.VMCore.Extensions.Intrinsics.Core;
+using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Plugin;
 using System.Globalization;
 using System.Text;
 
 namespace CFGS_VM.VMCore
 {
-    /// <summary>
-    /// Defines the <see cref="VM" />
-    /// </summary>
     public class VM
     {
-        /// <summary>
-        /// Defines the <see cref="BuiltinCallable" />
-        /// </summary>
-        public sealed class BuiltinCallable
+
+        #region DatatypeHandler
+        private enum NumKind
         {
-            /// <summary>
-            /// Gets the Name
-            /// </summary>
-            public string Name { get; }
+            Int32,
 
-            /// <summary>
-            /// Gets the ArityMin
-            /// </summary>
-            public int ArityMin { get; }
+            Int64,
 
-            /// <summary>
-            /// Gets the ArityMax
-            /// </summary>
-            public int ArityMax { get; }
+            UInt64,
 
-            /// <summary>
-            /// Initializes a new instance of the <see cref="BuiltinCallable"/> class.
-            /// </summary>
-            /// <param name="name">The name<see cref="string"/></param>
-            /// <param name="min">The min<see cref="int"/></param>
-            /// <param name="max">The max<see cref="int"/></param>
-            public BuiltinCallable(string name, int min, int max)
-            {
-                Name = name; ArityMin = min; ArityMax = max;
-            }
+            Double,
 
-            /// <summary>
-            /// The ToString
-            /// </summary>
-            /// <returns>The <see cref="string"/></returns>
-            public override string ToString() => $"<builtin {Name}/{ArityMin}..{ArityMax}>";
+            Decimal
         }
 
-        /// <summary>
-        /// Gets the Builtins
-        /// </summary>
-        public BuiltinRegistry Builtins { get; } = new();
-
-        /// <summary>
-        /// Gets the Intrinsics
-        /// </summary>
-        public IntrinsicRegistry Intrinsics { get; } = new();
-
-        /// <summary>
-        /// Defines the <see cref="BoundType" />
-        /// </summary>
-        private sealed class BoundType
-        {
-            /// <summary>
-            /// Gets the Type
-            /// </summary>
-            public StaticInstance Type { get; }
-
-            /// <summary>
-            /// Gets the Outer
-            /// </summary>
-            public object Outer { get; }
-
-            /// <summary>
-            /// Initializes a new instance of the <see cref="BoundType"/> class.
-            /// </summary>
-            /// <param name="type">The type<see cref="StaticInstance"/></param>
-            /// <param name="outer">The outer<see cref="object"/></param>
-            public BoundType(StaticInstance type, object outer)
-            {
-                Type = type ?? throw new ArgumentNullException(nameof(type));
-                Outer = outer ?? throw new ArgumentNullException(nameof(outer));
-            }
-
-            /// <summary>
-            /// The ToString
-            /// </summary>
-            /// <returns>The <see cref="string"/></returns>
-            public override string ToString() => $"<boundtype {Type.ClassName}>";
-        }
-
-        /// <summary>
-        /// Defines the _program
-        /// </summary>
-        private List<Instruction>? _program;
-
-        /// <summary>
-        /// Gets or sets a value indicating whether AllowFileIO
-        /// </summary>
-        public static bool AllowFileIO { get; set; } = true;
-
-        /// <summary>
-        /// Defines the StepResult
-        /// </summary>
-        private enum StepResult
-        {
-            /// <summary>
-            /// Defines the Next
-            /// </summary>
-            Next,
-
-            /// <summary>
-            /// Defines the Continue
-            /// </summary>
-            Continue,
-
-            /// <summary>
-            /// Defines the Routed
-            /// </summary>
-            Routed,
-
-            /// <summary>
-            /// Defines the Halt
-            /// </summary>
-            Halt
-        }
-
-        /// <summary>
-        /// The IntrinsicInvoker
-        /// </summary>
-        /// <param name="receiver">The receiver<see cref="object"/></param>
-        /// <param name="args">The args<see cref="List{object}"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="object"/></returns>
-        private delegate object IntrinsicInvoker(object receiver, List<object> args, Instruction instr);
-
-        /// <summary>
-        /// Defines the <see cref="IntrinsicMethod" />
-        /// </summary>
-        private sealed class IntrinsicMethod
-        {
-            /// <summary>
-            /// Gets the Name
-            /// </summary>
-            public string Name { get; }
-
-            /// <summary>
-            /// Gets the ArityMin
-            /// </summary>
-            public int ArityMin { get; }
-
-            /// <summary>
-            /// Gets the ArityMax
-            /// </summary>
-            public int ArityMax { get; }
-
-            /// <summary>
-            /// Gets the Invoke
-            /// </summary>
-            public IntrinsicInvoker Invoke { get; }
-
-            /// <summary>
-            /// Initializes a new instance of the <see cref="IntrinsicMethod"/> class.
-            /// </summary>
-            /// <param name="name">The name<see cref="string"/></param>
-            /// <param name="arityMin">The arityMin<see cref="int"/></param>
-            /// <param name="arityMax">The arityMax<see cref="int"/></param>
-            /// <param name="invoke">The invoke<see cref="IntrinsicInvoker"/></param>
-            public IntrinsicMethod(string name, int arityMin, int arityMax, IntrinsicInvoker invoke)
-            {
-                Name = name; ArityMin = arityMin; ArityMax = arityMax; Invoke = invoke;
-            }
-
-            /// <summary>
-            /// The ToString
-            /// </summary>
-            /// <returns>The <see cref="string"/></returns>
-            public override string ToString() => $"<intrinsic {Name}>";
-        }
-
-        /// <summary>
-        /// Defines the <see cref="IntrinsicBound" />
-        /// </summary>
-        private sealed class IntrinsicBound
-        {
-            /// <summary>
-            /// Gets the Method
-            /// </summary>
-            public IntrinsicMethod Method { get; }
-
-            /// <summary>
-            /// Gets the Receiver
-            /// </summary>
-            public object Receiver { get; }
-
-            /// <summary>
-            /// Initializes a new instance of the <see cref="IntrinsicBound"/> class.
-            /// </summary>
-            /// <param name="m">The m<see cref="IntrinsicMethod"/></param>
-            /// <param name="recv">The recv<see cref="object"/></param>
-            public IntrinsicBound(IntrinsicMethod m, object recv)
-            {
-                Method = m; Receiver = recv;
-            }
-
-            /// <summary>
-            /// The ToString
-            /// </summary>
-            /// <returns>The <see cref="string"/></returns>
-            public override string ToString() => $"<bound {Method.Name}>";
-        }
-
-        /// <summary>
-        /// The ClampIndex
-        /// </summary>
-        /// <param name="idx">The idx<see cref="int"/></param>
-        /// <param name="len">The len<see cref="int"/></param>
-        /// <returns>The <see cref="int"/></returns>
-        private static int ClampIndex(int idx, int len)
-        {
-            if (idx < 0) idx += len;
-            if (idx < 0) idx = 0;
-            if (idx > len) idx = len;
-            return idx;
-        }
-
-        public sealed class FileHandle : IDisposable
-        {
-            public string Path { get; }
-            public int Mode { get; }
-            private FileStream? _fs;
-            private StreamReader? _reader;
-            private StreamWriter? _writer;
-
-            public bool IsOpen => _fs != null;
-
-            public FileHandle(string path, int mode, FileStream fs, bool canRead, bool canWrite)
-            {
-                Path = path;
-                Mode = mode;
-                _fs = fs;
-                if (canRead)
-                    _reader = new StreamReader(_fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
-                if (canWrite)
-                    _writer = new StreamWriter(_fs, Encoding.UTF8, bufferSize: 1024, leaveOpen: true) { AutoFlush = false };
-            }
-
-            public override string ToString() => _fs == null ? $"<file closed '{Path}'>" : $"<file '{Path}'>";
-
-            public void Dispose()
-            {
-                try { _writer?.Flush(); } catch { }
-                _writer?.Dispose(); _reader?.Dispose(); _fs?.Dispose();
-                _writer = null; _reader = null; _fs = null;
-                GC.SuppressFinalize(this);
-            }
-            ~FileHandle() { Dispose(); }
-
-            private FileStream FS => _fs ?? throw new ObjectDisposedException(nameof(FileHandle));
-            private StreamWriter Writer => _writer ?? throw new InvalidOperationException("file not opened for writing");
-            private StreamReader Reader => _reader ?? throw new InvalidOperationException("file not opened for reading");
-
-            public void Write(string s) { Writer.Write(s); }
-            public void Writeln(string s) { Writer.WriteLine(s); }
-            public string Read(int count)
-            {
-                if (count <= 0) return string.Empty;
-                char[] buf = new char[count];
-                int read = Reader.Read(buf, 0, count);
-                return new string(buf, 0, read);
-            }
-            public string ReadLine() => Reader.ReadLine() ?? "";
-            public void Flush() => Writer.Flush();
-            public long Tell() => FS.Position;
-            public bool Eof() => Reader.EndOfStream && FS.Position >= FS.Length;
-            public long Seek(long offset, SeekOrigin origin) => FS.Seek(offset, origin);
-            public void Close() => Dispose();
-        }
-        /// <summary>
-        /// Defines the <see cref="ExceptionObject" />
-        /// </summary>
-        public sealed class ExceptionObject
-        {
-            /// <summary>
-            /// Gets the Type
-            /// </summary>
-            public string Type { get; }
-
-            /// <summary>
-            /// Gets the Message
-            /// </summary>
-            public string Message { get; }
-
-            /// <summary>
-            /// Gets the File
-            /// </summary>
-            public string File { get; }
-
-            /// <summary>
-            /// Gets the Line
-            /// </summary>
-            public int Line { get; }
-
-            /// <summary>
-            /// Gets the Col
-            /// </summary>
-            public int Col { get; }
-
-            /// <summary>
-            /// Gets the Stack
-            /// </summary>
-            public string Stack { get; }
-
-            /// <summary>
-            /// Initializes a new instance of the <see cref="ExceptionObject"/> class.
-            /// </summary>
-            /// <param name="type">The type<see cref="string"/></param>
-            /// <param name="message">The message<see cref="string"/></param>
-            /// <param name="file">The file<see cref="string"/></param>
-            /// <param name="line">The line<see cref="int"/></param>
-            /// <param name="col">The col<see cref="int"/></param>
-            /// <param name="stack">The stack<see cref="string"/></param>
-            public ExceptionObject(string type, string message, string file, int line, int col, string stack = "")
-            {
-                Type = type;
-                Message = message;
-                File = file;
-                Line = line;
-                Col = col;
-                Stack = stack;
-            }
-
-            /// <summary>
-            /// The ToString
-            /// </summary>
-            /// <returns>The <see cref="string"/></returns>
-            public override string ToString()
-            {
-                return Message ?? base.ToString() ?? "";
-            }
-        }
-
-        /// <summary>
-        /// Defines the <see cref="Env" />
-        /// </summary>
-        private class Env
-        {
-            /// <summary>
-            /// Defines the Vars
-            /// </summary>
-            public Dictionary<string, object> Vars = new();
-
-            /// <summary>
-            /// Defines the Parent
-            /// </summary>
-            public Env? Parent;
-
-            /// <summary>
-            /// Initializes a new instance of the <see cref="Env"/> class.
-            /// </summary>
-            /// <param name="parent">The parent<see cref="Env?"/></param>
-            public Env(Env? parent)
-            {
-                Parent = parent;
-            }
-
-            /// <summary>
-            /// The TryGetValue
-            /// </summary>
-            /// <param name="name">The name<see cref="string"/></param>
-            /// <param name="value">The value<see cref="object?"/></param>
-            /// <returns>The <see cref="bool"/></returns>
-            public bool TryGetValue(string name, out object? value)
-            {
-                if (Vars.TryGetValue(name, out value)) return true;
-                if (Parent != null) return Parent.TryGetValue(name, out value);
-                value = null;
-                return false;
-            }
-
-            /// <summary>
-            /// The HasLocal
-            /// </summary>
-            /// <param name="name">The name<see cref="string"/></param>
-            /// <returns>The <see cref="bool"/></returns>
-            public bool HasLocal(string name) => Vars.ContainsKey(name);
-
-            /// <summary>
-            /// The Set
-            /// </summary>
-            /// <param name="name">The name<see cref="string"/></param>
-            /// <param name="value">The value<see cref="object"/></param>
-            /// <returns>The <see cref="bool"/></returns>
-            public bool Set(string name, object value)
-            {
-                if (Vars.ContainsKey(name))
-                {
-                    Vars[name] = value;
-                    return true;
-                }
-                if (Parent != null) return Parent.Set(name, value);
-                return false;
-            }
-
-            /// <summary>
-            /// The Define
-            /// </summary>
-            /// <param name="name">The name<see cref="string"/></param>
-            /// <param name="value">The value<see cref="object"/></param>
-            public void Define(string name, object value)
-            {
-                Vars[name] = value;
-            }
-
-            /// <summary>
-            /// The RemoveLocal
-            /// </summary>
-            /// <param name="name">The name<see cref="string"/></param>
-            /// <returns>The <see cref="bool"/></returns>
-            public bool RemoveLocal(string name) => Vars.Remove(name);
-        }
-
-        /// <summary>
-        /// Defines the <see cref="TryHandler" />
-        /// </summary>
-        private class TryHandler
-        {
-            /// <summary>
-            /// Defines the CallDepth
-            /// </summary>
-            public int CallDepth;
-
-            /// <summary>
-            /// Defines the CatchAddr
-            /// </summary>
-            public int CatchAddr;
-
-            /// <summary>
-            /// Defines the FinallyAddr
-            /// </summary>
-            public int FinallyAddr;
-
-            /// <summary>
-            /// Defines the Exception
-            /// </summary>
-            public object? Exception;
-
-            /// <summary>
-            /// Defines the ScopeDepthAtTry
-            /// </summary>
-            public int ScopeDepthAtTry;
-
-            /// <summary>
-            /// Defines the InFinally
-            /// </summary>
-            public bool InFinally;
-
-            /// <summary>
-            /// Defines the HasPendingReturn
-            /// </summary>
-            public bool HasPendingReturn;
-
-            /// <summary>
-            /// Defines the PendingReturnValue
-            /// </summary>
-            public object? PendingReturnValue;
-
-            /// <summary>
-            /// Defines the HasPendingLeave
-            /// </summary>
-            public bool HasPendingLeave;
-
-            /// <summary>
-            /// Defines the PendingLeaveTargetIp
-            /// </summary>
-            public int PendingLeaveTargetIp;
-
-            /// <summary>
-            /// Defines the PendingLeaveScopes
-            /// </summary>
-            public int PendingLeaveScopes;
-
-            /// <summary>
-            /// Initializes a new instance of the <see cref="TryHandler"/> class.
-            /// </summary>
-            /// <param name="catchAddr">The catchAddr<see cref="int"/></param>
-            /// <param name="finallyAddr">The finallyAddr<see cref="int"/></param>
-            /// <param name="scopeDepthAtTry">The scopeDepthAtTry<see cref="int"/></param>
-            /// <param name="callDepth">The callDepth<see cref="int"/></param>
-            public TryHandler(int catchAddr, int finallyAddr, int scopeDepthAtTry, int callDepth)
-            {
-                CatchAddr = catchAddr;
-                FinallyAddr = finallyAddr;
-                ScopeDepthAtTry = scopeDepthAtTry;
-                CallDepth = callDepth;
-                Exception = null;
-
-                InFinally = false;
-                HasPendingReturn = false;
-                PendingReturnValue = null;
-
-                HasPendingLeave = false;
-                PendingLeaveTargetIp = -1;
-                PendingLeaveScopes = 0;
-            }
-        }
-
-        /// <summary>
-        /// Defines the _tryHandlers
-        /// </summary>
-        private readonly Stack<TryHandler> _tryHandlers = new();
-
-        /// <summary>
-        /// Defines the <see cref="BoundMethod" />
-        /// </summary>
-        private sealed class BoundMethod
-        {
-            /// <summary>
-            /// Gets the Function
-            /// </summary>
-            public Closure Function { get; }
-
-            /// <summary>
-            /// Gets the Receiver
-            /// </summary>
-            public object Receiver { get; }
-
-            /// <summary>
-            /// Initializes a new instance of the <see cref="BoundMethod"/> class.
-            /// </summary>
-            /// <param name="function">The function<see cref="Closure"/></param>
-            /// <param name="receiver">The receiver<see cref="object"/></param>
-            public BoundMethod(Closure function, object receiver)
-            {
-                Function = function ?? throw new ArgumentNullException(nameof(function));
-                Receiver = receiver ?? throw new ArgumentNullException(nameof(receiver));
-            }
-
-            /// <summary>
-            /// The ToString
-            /// </summary>
-            /// <returns>The <see cref="string"/></returns>
-            public override string ToString() => $"<bound {Function}>";
-        }
-
-        /// <summary>
-        /// Defines the <see cref="Closure" />
-        /// </summary>
-        private class Closure
-        {
-            /// <summary>
-            /// Gets the Address
-            /// </summary>
-            public int Address { get; }
-
-            /// <summary>
-            /// Gets the Parameters
-            /// </summary>
-            public List<string> Parameters { get; }
-
-            /// <summary>
-            /// Gets the CapturedEnv
-            /// </summary>
-            public Env CapturedEnv { get; }
-
-            /// <summary>
-            /// Gets the Name
-            /// </summary>
-            public string Name { get; }
-
-            /// <summary>
-            /// Initializes a new instance of the <see cref="Closure"/> class.
-            /// </summary>
-            /// <param name="address">The address<see cref="int"/></param>
-            /// <param name="parameters">The parameters<see cref="List{string}"/></param>
-            /// <param name="env">The env<see cref="Env"/></param>
-            /// <param name="name">The name<see cref="string"/></param>
-            public Closure(int address, List<string> parameters, Env env, string name)
-            {
-                Address = address;
-                Parameters = parameters;
-                CapturedEnv = env;
-                Name = name ?? "<anon>";
-            }
-
-            /// <summary>
-            /// The ToString
-            /// </summary>
-            /// <returns>The <see cref="string"/></returns>
-            public override string ToString()
-            {
-                string paramList = string.Join(", ", Parameters);
-                string captured = "";
-                if (CapturedEnv != null && CapturedEnv.Vars.Count > 0)
-                {
-                    IEnumerable<string> pairs = CapturedEnv.Vars
-                        .OrderBy(kv => kv.Key, StringComparer.Ordinal)
-                        .Select(kvp =>
-                        {
-                            if (kvp.Value == null) return $"{kvp.Key}=null";
-                            if (kvp.Value is Closure) return $"{kvp.Key}=<closure>";
-                            if (kvp.Value is FunctionInfo fi) return $"{kvp.Key}=<fn:{fi.Address.ToString()}>";
-                            return $"{kvp.Key}={kvp.Value.GetType().Name}";
-                        });
-                    captured = $" captured: {{{string.Join(", ", pairs)}}}";
-                }
-                return $"<closure {Name} at {Address} ({paramList}){captured}>";
-            }
-        }
-
-        private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef);
-        /// <summary>
-        /// The PopScopesToBase
-        /// </summary>
-        /// <param name="baseDepth">The baseDepth<see cref="int"/></param>
-        private void PopScopesToBase(int baseDepth)
-        {
-            while (_scopes.Count > baseDepth)
-                _scopes.RemoveAt(_scopes.Count - 1);
-        }
-
-        /// <summary>
-        /// Gets the CurrentThis
-        /// </summary>
-        private object? CurrentThis => _callStack.Count > 0 ? _callStack.Peek().ThisRef : null;
-
-        /// <summary>
-        /// Defines the _stack
-        /// </summary>
-        private readonly Stack<object> _stack = new();
-
-        /// <summary>
-        /// The RequireStack
-        /// </summary>
-        /// <param name="needed">The needed<see cref="int"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <param name="opName">The opName<see cref="string?"/></param>
-        private void RequireStack(int needed, Instruction instr, string? opName = null)
-        {
-            if (_stack.Count < needed)
-                throw new VMException(
-                    $"Runtime error: {(opName ?? instr.Code.ToString())} needs {needed} stack values (have {_stack.Count})",
-                    instr.Line, instr.Col, instr.OriginFile);
-        }
-
-        /// <summary>
-        /// Defines the _scopes
-        /// </summary>
-        private readonly List<Env> _scopes = new() { new Env(null) };
-
-        /// <summary>
-        /// Defines the _functions
-        /// </summary>
-        public Dictionary<string, FunctionInfo> _functions = new();
-
-        /// <summary>
-        /// Defines the _callStack
-        /// </summary>
-        private readonly Stack<CallFrame> _callStack = new();
-
-        /// <summary>
-        /// Gets the DebugStream
-        /// </summary>
-        public MemoryStream DebugStream { get; private set; }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="VM"/> class.
-        /// </summary>
-        public VM()
-        {
-            DebugStream = new MemoryStream();
-        }
-
-        /// <summary>
-        /// The LoadPluginsFrom
-        /// </summary>
-        /// <param name="directory">The directory<see cref="string"/></param>
-        public void LoadPluginsFrom(string directory)
-        {
-            PluginLoader.LoadDirectory(directory, Builtins, Intrinsics);
-        }
-
-        /// <summary>
-        /// The DeleteSliceOnTarget
-        /// </summary>
-        /// <param name="target">The target<see cref="object"/></param>
-        /// <param name="startObj">The startObj<see cref="object"/></param>
-        /// <param name="endObj">The endObj<see cref="object"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        private static void DeleteSliceOnTarget(ref object target, object startObj, object endObj, Instruction instr)
-        {
-            if (target is string)
-                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
-            switch (target)
-            {
-                case List<object> arr:
-                    {
-                        int len = arr.Count;
-                        int start = startObj == null ? 0 : Convert.ToInt32(startObj);
-                        int end = endObj == null ? len : Convert.ToInt32(endObj);
-
-                        if (start < 0) start += len;
-                        if (end < 0) end += len;
-
-                        start = Math.Clamp(start, 0, len);
-                        end = Math.Clamp(end, 0, len);
-                        if (end < start) end = start;
-
-                        if (start < end)
-                            arr.RemoveRange(start, end - start);
-                        return;
-                    }
-
-                case Dictionary<string, object> dict:
-                    {
-                        List<string> keys = dict.Keys.ToList();
-                        int len = keys.Count;
-
-                        int start = startObj == null ? 0 : Convert.ToInt32(startObj);
-                        int end = endObj == null ? len : Convert.ToInt32(endObj);
-
-                        if (start < 0) start += len;
-                        if (end < 0) end += len;
-
-                        start = Math.Clamp(start, 0, len);
-                        end = Math.Clamp(end, 0, len);
-                        if (end < start) end = start;
-
-                        for (int i = end - 1; i >= start; i--)
-                            dict.Remove(keys[i]);
-
-                        return;
-                    }
-
-                case string s:
-                    {
-                        int len = s.Length;
-                        int start = startObj == null ? 0 : Convert.ToInt32(startObj);
-                        int end = endObj == null ? len : Convert.ToInt32(endObj);
-
-                        if (start < 0) start += len;
-                        if (end < 0) end += len;
-
-                        start = Math.Clamp(start, 0, len);
-                        end = Math.Clamp(end, 0, len);
-                        if (end < start) end = start;
-
-                        if (start < end)
-                        {
-                            target = s.Substring(0, start) + s.Substring(end);
-                        }
-                        return;
-                    }
-
-                default:
-                    throw new VMException($"Runtime error: delete slice target must be array, dictionary, or string", instr.Line, instr.Col, instr.OriginFile);
-            }
-        }
-
-        /// <summary>
-        /// The NormalizeSliceBounds
-        /// </summary>
-        /// <param name="startObj">The startObj<see cref="object?"/></param>
-        /// <param name="endObj">The endObj<see cref="object?"/></param>
-        /// <param name="len">The len<see cref="int"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="(int start, int endEx)"/></returns>
-        private static (int start, int endEx) NormalizeSliceBounds(object? startObj, object? endObj, int len, Instruction instr)
-        {
-            bool startIsNull = startObj == null;
-            int start = startIsNull ? 0 : Convert.ToInt32(startObj);
-            if (start < 0) start += len;
-
-            int endEx;
-            if (endObj == null)
-            {
-                endEx = len;
-            }
-            else
-            {
-                int rawEnd = Convert.ToInt32(endObj);
-
-                if (rawEnd == 0 && startIsNull)
-                {
-                    endEx = len;
-                }
-                else
-                {
-                    endEx = rawEnd;
-                    if (endEx < 0) endEx += len;
-                }
-            }
-
-            start = Math.Clamp(start, 0, len);
-            endEx = Math.Clamp(endEx, 0, len);
-            if (endEx < start) endEx = start;
-
-            return (start, endEx);
-        }
-
-        /// <summary>
-        /// The IsNumber
-        /// </summary>
-        /// <param name="x">The x<see cref="object"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         public static bool IsNumber(object x) =>
             x is sbyte or byte or short or ushort or int or uint or long or ulong
               or float or double or decimal or char;
 
-        /// <summary>
-        /// Defines the NumKind
-        /// </summary>
-        private enum NumKind
-        {
-            /// <summary>
-            /// Defines the Int32
-            /// </summary>
-            Int32,
-
-            /// <summary>
-            /// Defines the Int64
-            /// </summary>
-            Int64,
-
-            /// <summary>
-            /// Defines the UInt64
-            /// </summary>
-            UInt64,
-
-            /// <summary>
-            /// Defines the Double
-            /// </summary>
-            Double,
-
-            /// <summary>
-            /// Defines the Decimal
-            /// </summary>
-            Decimal
-        }
-
-        /// <summary>
-        /// The PromoteKind
-        /// </summary>
-        /// <param name="a">The a<see cref="object"/></param>
-        /// <param name="b">The b<see cref="object"/></param>
-        /// <returns>The <see cref="NumKind"/></returns>
         private static NumKind PromoteKind(object a, object b)
         {
             if (a is decimal || b is decimal) return NumKind.Decimal;
@@ -857,20 +40,9 @@ namespace CFGS_VM.VMCore
             return NumKind.Int32;
         }
 
-        /// <summary>
-        /// The CharToNumeric
-        /// </summary>
-        /// <param name="o">The o<see cref="object"/></param>
-        /// <returns>The <see cref="object"/></returns>
         internal static object CharToNumeric(object o)
     => o is char ch ? (char.IsDigit(ch) ? (int)(ch - '0') : (int)ch) : o;
 
-        /// <summary>
-        /// The CoercePair
-        /// </summary>
-        /// <param name="a">The a<see cref="object"/></param>
-        /// <param name="b">The b<see cref="object"/></param>
-        /// <returns>The <see cref="(object A, object B, NumKind K)"/></returns>
         private static (object A, object B, NumKind K) CoercePair(object a, object b)
         {
             a = a is char ? CharToNumeric(a) : a;
@@ -891,11 +63,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The CompareAsDecimal
-        /// </summary>
-        /// <param name="x">The x<see cref="object"/></param>
-        /// <returns>The <see cref="decimal"/></returns>
         public static decimal CompareAsDecimal(object x) => x switch
         {
             sbyte v => v,
@@ -913,10 +80,48 @@ namespace CFGS_VM.VMCore
             _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}"),
         };
 
-        /// <summary>
-        /// The LoadFunctions
-        /// </summary>
-        /// <param name="funcs">The funcs<see cref="Dictionary{string, FunctionInfo}"/></param>
+        private static bool ToBool(object? v)
+        {
+            if (v is null) return false;
+            if (v is bool b) return b;
+            if (v is int i) return i != 0;
+            if (v is long l) return l != 0L;
+            if (v is double d) return d != 0.0;
+            if (v is float f) return f != 0f;
+            if (v is string s) return s.Length != 0;
+            if (v is List<object> list) return list.Count != 0;
+            if (v is Dictionary<string, object> dict) return dict.Count != 0;
+            return true;
+        }
+        #endregion
+
+        #region EnvironmentHandler
+
+
+        private readonly Stack<TryHandler> _tryHandlers = new();
+
+        private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef);
+        private void PopScopesToBase(int baseDepth)
+        {
+            while (_scopes.Count > baseDepth)
+                _scopes.RemoveAt(_scopes.Count - 1);
+        }
+
+        private object? CurrentThis => _callStack.Count > 0 ? _callStack.Peek().ThisRef : null;
+
+        private readonly Stack<object> _stack = new();
+
+        private readonly List<Env> _scopes = new() { new Env(null) };
+
+        public Dictionary<string, FunctionInfo> _functions = new();
+
+        public BuiltinRegistry Builtins { get; } = new();
+
+        private readonly Stack<CallFrame> _callStack = new();
+        public void LoadPluginsFrom(string directory)
+        {
+            PluginLoader.LoadDirectory(directory, Builtins, Intrinsics);
+        }
         public void LoadFunctions(Dictionary<string, FunctionInfo> funcs)
         {
             foreach (KeyValuePair<string, FunctionInfo> kv in funcs)
@@ -927,128 +132,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The ToNumber
-        /// </summary>
-        /// <param name="val">The val<see cref="object?"/></param>
-        /// <returns>The <see cref="object"/></returns>
-        private static object ToNumber(object? val)
-        {
-            if (val is null) return 0;
-
-            switch (val)
-            {
-                case int or long or float or double or decimal:
-                    return val;
-                case bool b:
-                    return b ? 1 : 0;
-                case char ch:
-                    if (char.IsDigit(ch)) return (int)(ch - '0');
-                    return (int)ch;
-            }
-
-            string s = val.ToString() ?? "";
-            s = s.Trim();
-
-            if (s.Length == 0) return 0;
-
-            s = s.Replace("_", "");
-
-            if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-                return ParseIntegerRadix(s[2..], 16);
-            if (s.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
-                return ParseIntegerRadix(s[2..], 2);
-            if (s.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
-                return ParseIntegerRadix(s[2..], 8);
-
-            if (s.Contains(',')) s = s.Replace(',', '.');
-
-            bool looksFloat = s.IndexOfAny(new[] { '.', 'e', 'E' }) >= 0;
-
-            if (!looksFloat)
-            {
-                if (int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int i32))
-                    return i32;
-
-                if (long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out long i64))
-                    return i64;
-
-                if (decimal.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out decimal decInt))
-                    return decInt;
-
-                if (double.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out double dblInt))
-                    return dblInt;
-
-                throw new FormatException($"toi: '{s}' invalid number.");
-            }
-            else
-            {
-                if (decimal.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal dec))
-                    return dec;
-
-                if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double dbl))
-                    return dbl;
-
-                throw new FormatException($"toi: '{s}' invalid floating point number.");
-            }
-        }
-
-        /// <summary>
-        /// The ParseIntegerRadix
-        /// </summary>
-        /// <param name="digits">The digits<see cref="string"/></param>
-        /// <param name="radix">The radix<see cref="int"/></param>
-        /// <returns>The <see cref="object"/></returns>
-        private static object ParseIntegerRadix(string digits, int radix)
-        {
-            if (digits.Length == 0)
-                throw new FormatException("toi: leere Ziffernfolge.");
-
-            bool neg = false;
-            int idx = 0;
-            if (digits[0] == '+' || digits[0] == '-')
-            {
-                neg = digits[0] == '-';
-                idx = 1;
-                if (idx >= digits.Length)
-                    throw new FormatException("toi: nur Vorzeichen ohne Ziffern.");
-            }
-
-            long acc = 0;
-            checked
-            {
-                for (; idx < digits.Length; idx++)
-                {
-                    char c = digits[idx];
-                    int v =
-                        c is >= '0' and <= '9' ? (c - '0') :
-                        c is >= 'a' and <= 'f' ? (c - 'a' + 10) :
-                        c is >= 'A' and <= 'F' ? (c - 'A' + 10) :
-                        -1;
-
-                    if (v < 0 || v >= radix)
-                        throw new FormatException($"toi: ungültige Ziffer '{c}' für Basis {radix}.");
-
-                    acc = acc * radix + v;
-                }
-            }
-
-            if (neg) acc = -acc;
-
-            if (acc <= int.MaxValue && acc >= int.MinValue) return (int)acc;
-            return acc;
-        }
-
-        /// <summary>
-        /// Gets the CurrentReceiver
-        /// </summary>
-        private object? CurrentReceiver => _callStack.Count > 0 ? _callStack.Peek().ThisRef : null;
-
-        /// <summary>
-        /// The FindEnvWithLocal
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="Env?"/></returns>
         private Env? FindEnvWithLocal(string name)
         {
             for (Env? env = _scopes.Count > 0 ? _scopes[^1] : null; env != null; env = env.Parent)
@@ -1066,33 +149,23 @@ namespace CFGS_VM.VMCore
 
             return null;
         }
+        #endregion
 
-        /// <summary>
-        /// The ToBool
-        /// </summary>
-        /// <param name="v">The v<see cref="object?"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        private static bool ToBool(object? v)
+        #region InstructionHandler
+
+        public static bool AllowFileIO { get; set; } = true;
+
+        private List<Instruction>? _program;
+        private enum StepResult
         {
-            if (v is null) return false;
-            if (v is bool b) return b;
-            if (v is int i) return i != 0;
-            if (v is long l) return l != 0L;
-            if (v is double d) return d != 0.0;
-            if (v is float f) return f != 0f;
-            if (v is string s) return s.Length != 0;
-            if (v is List<object> list) return list.Count != 0;
-            if (v is Dictionary<string, object> dict) return dict.Count != 0;
-            return true;
-        }
+            Next,
 
-        /// <summary>
-        /// The HandleInstruction
-        /// </summary>
-        /// <param name="_ip">The _ip<see cref="int"/></param>
-        /// <param name="_insns">The _insns<see cref="List{Instruction}"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="StepResult"/></returns>
+            Continue,
+
+            Routed,
+
+            Halt
+        }
         private StepResult HandleInstruction(ref int _ip, List<Instruction> _insns, Instruction instr)
         {
             switch (instr.Code)
@@ -2374,7 +1447,7 @@ namespace CFGS_VM.VMCore
                     {
                         RequireStack(1, instr, "NOT");
                         object v = _stack.Pop();
-                        if (v is null) { _stack.Push(null); break; }
+                        if (v is null) { _stack.Push((v is null)); break; }
                         _stack.Push(!ToBool(v));
                         break;
                     }
@@ -3038,176 +2111,6 @@ namespace CFGS_VM.VMCore
             return StepResult.Next;
         }
 
-        /// <summary>
-        /// The LoadInstructions
-        /// </summary>
-        /// <param name="inst">The inst<see cref="List{Instruction}"/></param>
-        public void LoadInstructions(List<Instruction> inst)
-        {
-            _program = inst;
-        }
-
-        /// <summary>
-        /// The TryGetVar
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="value">The value<see cref="object?"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        public bool TryGetVar(string name, out object? value)
-        {
-            value = null;
-            if (string.IsNullOrWhiteSpace(name)) return false;
-
-            Env? env = FindEnvWithLocal(name);
-            if (env == null) return false;
-
-            return env.Vars.TryGetValue(name, out value);
-        }
-
-        /// <summary>
-        /// The GetVar
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="object?"/></returns>
-        public object? GetVar(string name)
-        {
-            if (TryGetVar(name, out object? v)) return v;
-            throw new VMException($"Runtime error: undefined variable '{name}'", 0, 0, "<host>");
-        }
-
-        /// <summary>
-        /// The GetVar
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="T"/></returns>
-        public T GetVar<T>(string name)
-        {
-            object? v = GetVar(name);
-            if (v is T t) return t;
-            throw new VMException($"Runtime error: variable '{name}' is not of type {typeof(T).Name}", 0, 0, "<host>");
-        }
-
-        /// <summary>
-        /// The SetVar
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="value">The value<see cref="object?"/></param>
-        /// <param name="defineIfMissing">The defineIfMissing<see cref="bool"/></param>
-        /// <param name="toGlobal">The toGlobal<see cref="bool"/></param>
-        public void SetVar(string name, object? value, bool defineIfMissing = true, bool toGlobal = false)
-        {
-            if (string.IsNullOrWhiteSpace(name))
-                throw new ArgumentException("Variable name must not be empty.", nameof(name));
-
-            if (string.Equals(name, "this", StringComparison.Ordinal))
-                throw new VMException("Runtime error: cannot assign/declare 'this'", 0, 0, "<host>");
-
-            Env? env = FindEnvWithLocal(name);
-            if (env != null)
-            {
-                env.Vars[name] = value!;
-                return;
-            }
-
-            if (!defineIfMissing)
-                throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", 0, 0, "<host>");
-
-            Env target = toGlobal ? _scopes[0] : _scopes[^1];
-            if (target.HasLocal(name))
-                target.Vars[name] = value!;
-            else
-                target.Define(name, value!);
-        }
-
-        /// <summary>
-        /// The SetVars
-        /// </summary>
-        /// <param name="vars">The vars<see cref="IDictionary{string, object?}"/></param>
-        /// <param name="defineIfMissing">The defineIfMissing<see cref="bool"/></param>
-        /// <param name="toGlobal">The toGlobal<see cref="bool"/></param>
-        public void SetVars(IDictionary<string, object?> vars, bool defineIfMissing = true, bool toGlobal = false)
-        {
-            foreach (KeyValuePair<string, object?> kv in vars)
-                SetVar(kv.Key, kv.Value, defineIfMissing, toGlobal);
-        }
-
-        /// <summary>
-        /// The CallFunction
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="args">The args<see cref="object?[]"/></param>
-        /// <returns>The <see cref="object?"/></returns>
-        public object? CallFunction(string name, params object?[] args)
-        {
-            int _ip = 0;
-            if (_program == null || _program.Count == 0)
-                throw new InvalidOperationException("No program loaded. Call LoadProgram(...) first.");
-
-            if (!_functions.TryGetValue(name, out FunctionInfo? fInfo))
-                throw new VMException($"Runtime error: function '{name}' not found.", 0, 0, "<host>");
-
-            if (fInfo.Parameters.Count > 0 && fInfo.Parameters[0] == "this")
-                throw new VMException(
-                    $"Runtime error: function '{name}' requires 'this'. Use CallFunctionWithThis(...).",
-                    0, 0, "<host>");
-
-            Closure clos = new(fInfo.Address, fInfo.Parameters, _scopes[^1], name);
-
-            if (args.Length < clos.Parameters.Count)
-                throw new VMException(
-                    $"Runtime error: insufficient args for '{name}' (need {clos.Parameters.Count}, have {args.Length})",
-                    0, 0, "<host>");
-
-            Env callEnv = new(clos.CapturedEnv);
-            for (int i = 0; i < clos.Parameters.Count; i++)
-                callEnv.Define(clos.Parameters[i], args[i]);
-
-            _scopes.Add(callEnv);
-            _callStack.Push(new CallFrame(-1, 1, null));
-
-            int savedIp = _ip;
-            _ip = clos.Address;
-
-            object? result = null;
-            bool finished = false;
-
-            try
-            {
-                while (true)
-                {
-                    if (_ip < 0)
-                    {
-                        result = _stack.Count > 0 ? _stack.Pop() : null;
-                        finished = true;
-                        break;
-                    }
-                    if (_ip >= _program.Count)
-                        throw new VMException("Runtime error: IP out of bounds during CallFunction", 0, 0, "<host>");
-
-                    Instruction instr = _program[_ip++];
-                    StepResult step = HandleInstruction(ref _ip, _program, instr);
-                    if (step == StepResult.Halt) { finished = true; break; }
-                }
-            }
-            finally
-            {
-                if (!finished)
-                {
-                    if (_scopes.Count > 0) _scopes.RemoveAt(_scopes.Count - 1);
-                    if (_callStack.Count > 0) _callStack.Pop();
-                }
-                _ip = savedIp;
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// The Run
-        /// </summary>
-        /// <param name="debugging">The debugging<see cref="bool"/></param>
-        /// <param name="lastPos">The lastPos<see cref="int"/></param>
         public void Run(bool debugging = false, int lastPos = 0)
         {
             if (_program is null || _program.Count == 0)
@@ -3330,40 +2233,11 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The BuildStackString
-        /// </summary>
-        /// <param name="insns">The insns<see cref="List{Instruction}"/></param>
-        /// <param name="current">The current<see cref="Instruction"/></param>
-        /// <returns>The <see cref="string"/></returns>
-        private string BuildStackString(List<Instruction> insns, Instruction current)
+        public void LoadInstructions(List<Instruction> inst)
         {
-            StringBuilder sb = new();
-
-            sb.Append("  at ")
-              .Append(current.OriginFile).Append(':')
-              .Append(current.Line).Append(':')
-              .Append(current.Col).AppendLine();
-
-            foreach (CallFrame? frame in _callStack.Reverse())
-            {
-                int ip = Math.Clamp(frame.ReturnIp, 0, insns.Count - 1);
-                Instruction i = insns[ip];
-                sb.Append("  at ")
-                  .Append(i.OriginFile).Append(':')
-                  .Append(i.Line).Append(':')
-                  .Append(i.Col).AppendLine();
-            }
-
-            return sb.ToString();
+            _program = inst;
         }
 
-        /// <summary>
-        /// The SafeCurrentInstr
-        /// </summary>
-        /// <param name="insns">The insns<see cref="List{Instruction}"/></param>
-        /// <param name="ip">The ip<see cref="int"/></param>
-        /// <returns>The <see cref="Instruction"/></returns>
         private static Instruction SafeCurrentInstr(List<Instruction> insns, int ip)
         {
             if (insns == null || insns.Count == 0)
@@ -3374,13 +2248,6 @@ namespace CFGS_VM.VMCore
             return insns[i];
         }
 
-        /// <summary>
-        /// The RouteExceptionToTryHandlers
-        /// </summary>
-        /// <param name="exPayload">The exPayload<see cref="object"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <param name="newIp">The newIp<see cref="int"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         private bool RouteExceptionToTryHandlers(object exPayload, Instruction instr, out int newIp)
         {
             while (_tryHandlers.Count > 0)
@@ -3437,51 +2304,96 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The BuildCrashReport
-        /// </summary>
-        /// <param name="scriptname">The scriptname<see cref="string"/></param>
-        /// <param name="instr">The instr<see cref="Instruction?"/></param>
-        /// <param name="ipAfterFetch">The ipAfterFetch<see cref="int"/></param>
-        /// <param name="ex">The ex<see cref="Exception"/></param>
-        /// <returns>The <see cref="string"/></returns>
-        private string BuildCrashReport(string scriptname, Instruction? instr, int ipAfterFetch, Exception ex)
-        {
-            StringBuilder sb = new();
-            int ipAtFault = Math.Max(0, ipAfterFetch - 1);
+        #endregion
 
-            sb.AppendLine($"  at IP={ipAtFault} {(instr != null ? instr.Code.ToString() : "<no-op>")}");
-            if (instr != null)
+        #region host_var_access
+        public bool TryGetVar(string name, out object? value)
+        {
+            value = null;
+            if (string.IsNullOrWhiteSpace(name)) return false;
+
+            Env? env = FindEnvWithLocal(name);
+            if (env == null) return false;
+
+            return env.Vars.TryGetValue(name, out value);
+        }
+
+        public object? GetVar(string name)
+        {
+            if (TryGetVar(name, out object? v)) return v;
+            throw new VMException($"Runtime error: undefined variable '{name}'", 0, 0, "<host>");
+        }
+
+        public T GetVar<T>(string name)
+        {
+            object? v = GetVar(name);
+            if (v is T t) return t;
+            throw new VMException($"Runtime error: variable '{name}' is not of type {typeof(T).Name}", 0, 0, "<host>");
+        }
+
+        public void SetVar(string name, object? value, bool defineIfMissing = true, bool toGlobal = false)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Variable name must not be empty.", nameof(name));
+
+            if (string.Equals(name, "this", StringComparison.Ordinal))
+                throw new VMException("Runtime error: cannot assign/declare 'this'", 0, 0, "<host>");
+
+            Env? env = FindEnvWithLocal(name);
+            if (env != null)
             {
-                sb.AppendLine($"  Operand: {instr.Operand ?? "null"}");
-                sb.AppendLine($"  Source : {instr.OriginFile ?? scriptname} [{instr.Line},{instr.Col}]");
+                env.Vars[name] = value!;
+                return;
             }
 
-            sb.AppendLine("  Stack  : " + DumpStack());
+            if (!defineIfMissing)
+                throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", 0, 0, "<host>");
 
-            sb.AppendLine("  Frames : " + DumpCallStack());
+            Env target = toGlobal ? _scopes[0] : _scopes[^1];
+            if (target.HasLocal(name))
+                target.Vars[name] = value!;
+            else
+                target.Define(name, value!);
+        }
 
-            sb.AppendLine($"  Cause  : {ex.GetType().Name}");
+        public void SetVars(IDictionary<string, object?> vars, bool defineIfMissing = true, bool toGlobal = false)
+        {
+            foreach (KeyValuePair<string, object?> kv in vars)
+                SetVar(kv.Key, kv.Value, defineIfMissing, toGlobal);
+        }
+        #endregion
+
+        #region StackHandler
+
+        public MemoryStream DebugStream { get; private set; }
+        private void RequireStack(int needed, Instruction instr, string? opName = null)
+        {
+            if (_stack.Count < needed)
+                throw new VMException(
+                    $"Runtime error: {(opName ?? instr.Code.ToString())} needs {needed} stack values (have {_stack.Count})",
+                    instr.Line, instr.Col, instr.OriginFile);
+        }
+        private string BuildStackString(List<Instruction> insns, Instruction current)
+        {
+            StringBuilder sb = new();
+
+            sb.Append("  at ")
+              .Append(current.OriginFile).Append(':')
+              .Append(current.Line).Append(':')
+              .Append(current.Col).AppendLine();
+
+            foreach (CallFrame? frame in _callStack.Reverse())
+            {
+                int ip = Math.Clamp(frame.ReturnIp, 0, insns.Count - 1);
+                Instruction i = insns[ip];
+                sb.Append("  at ")
+                  .Append(i.OriginFile).Append(':')
+                  .Append(i.Line).Append(':')
+                  .Append(i.Col).AppendLine();
+            }
+
             return sb.ToString();
         }
-
-        /// <summary>
-        /// The BuildCrashReport
-        /// </summary>
-        /// <param name="scriptname">The scriptname<see cref="string"/></param>
-        /// <param name="instr">The instr<see cref="Instruction?"/></param>
-        /// <param name="ipAfterFetch">The ipAfterFetch<see cref="int"/></param>
-        /// <param name="ex">The ex<see cref="VMException"/></param>
-        /// <returns>The <see cref="string"/></returns>
-        private string BuildCrashReport(string scriptname, Instruction? instr, int ipAfterFetch, VMException ex)
-        {
-            return BuildCrashReport(scriptname, instr, ipAfterFetch, (Exception)ex);
-        }
-
-        /// <summary>
-        /// The DumpStack
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         private string DumpStack()
         {
             if (_stack == null || _stack.Count == 0) return "<empty>";
@@ -3490,10 +2402,6 @@ namespace CFGS_VM.VMCore
             return string.Join(" | ", parts);
         }
 
-        /// <summary>
-        /// The DumpCallStack
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         private string DumpCallStack()
         {
             if (_callStack == null || _callStack.Count == 0) return "<empty>";
@@ -3516,12 +2424,9 @@ namespace CFGS_VM.VMCore
 
             return string.Join(" ; ", parts);
         }
+        #endregion
 
-        /// <summary>
-        /// The FormatVal
-        /// </summary>
-        /// <param name="v">The v<see cref="object?"/></param>
-        /// <returns>The <see cref="string"/></returns>
+        #region formatters
         private string FormatVal(object? v)
         {
             if (v == null) return "null";
@@ -3544,11 +2449,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The JsonEscapeString
-        /// </summary>
-        /// <param name="s">The s<see cref="string"/></param>
-        /// <returns>The <see cref="string"/></returns>
         private static string JsonEscapeString(string s)
         {
             StringBuilder sb = new(s.Length + 8);
@@ -3574,13 +2474,6 @@ namespace CFGS_VM.VMCore
             return sb.ToString();
         }
 
-        /// <summary>
-        /// The WriteJsonValue
-        /// </summary>
-        /// <param name="v">The v<see cref="object?"/></param>
-        /// <param name="w">The w<see cref="TextWriter"/></param>
-        /// <param name="seen">The seen<see cref="HashSet{object}?"/></param>
-        /// <param name="mode">The mode<see cref="int"/></param>
         private static void WriteJsonValue(object? v, TextWriter w, HashSet<object>? seen = null, int mode = 2)
         {
             seen ??= new HashSet<object>(ReferenceEqualityComparer.Instance);
@@ -3666,12 +2559,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The JsonStringify
-        /// </summary>
-        /// <param name="v">The v<see cref="object?"/></param>
-        /// <param name="mode">The mode<see cref="int"/></param>
-        /// <returns>The <see cref="string"/></returns>
         public static string JsonStringify(object? v, int mode = 2)
         {
             StringBuilder sb = new();
@@ -3680,14 +2567,6 @@ namespace CFGS_VM.VMCore
             return sb.ToString();
         }
 
-        /// <summary>
-        /// The PrintValue
-        /// </summary>
-        /// <param name="v">The v<see cref="object"/></param>
-        /// <param name="w">The w<see cref="TextWriter"/></param>
-        /// <param name="mode">The mode<see cref="int"/></param>
-        /// <param name="seen">The seen<see cref="HashSet{object}?"/></param>
-        /// <param name="escapeNewlines">The escapeNewlines<see cref="bool"/></param>
         public static void PrintValue(object v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false)
         {
             static string UnescapeForPrinting(string s)
@@ -3789,36 +2668,43 @@ namespace CFGS_VM.VMCore
             }
             w.Flush();
         }
+        #endregion
 
-        /// <summary>
-        /// The TryBindIntrinsic
-        /// </summary>
-        /// <param name="receiver">The receiver<see cref="object"/></param>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="bound">The bound<see cref="IntrinsicBound"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        private bool TryBindIntrinsic(object receiver, string name, out IntrinsicBound bound, Instruction instr)
+        #region index_access
+
+        private static int RequireIntIndex(object idxObj, Instruction instr)
         {
-            Type t = receiver?.GetType() ?? typeof(object);
-            if (Intrinsics.TryGet(t, name, out IntrinsicDescriptor? desc))
+            if (idxObj is int i) return i;
+            if (idxObj is long l)
             {
-                IntrinsicMethod adapted = new(desc.Name, desc.ArityMin, desc.ArityMax,
-                    (recv, args, ins) => desc.Invoke(recv, args, ins));
-                bound = new IntrinsicBound(adapted, receiver);
-                return true;
+                if (l < int.MinValue || l > int.MaxValue)
+                    throw new VMException($"Runtime error: index {l} outside Int32 range", instr.Line, instr.Col, instr.OriginFile);
+                return (int)l;
             }
-            bound = null!;
-            return false;
+            if (idxObj is short s) return (int)s;
+            if (idxObj is byte b) return (int)b;
+
+            if (idxObj is string sVal && int.TryParse(sVal, out int parsed))
+                return parsed;
+
+            throw new VMException($"Runtime error: index must be an integer, got '{idxObj?.GetType().Name ?? "null"}'", instr.Line, instr.Col, instr.OriginFile);
         }
 
-        /// <summary>
-        /// The GetIndexedValue
-        /// </summary>
-        /// <param name="target">The target<see cref="object"/></param>
-        /// <param name="idxObj">The idxObj<see cref="object"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="object"/></returns>
+        private static VMException CreateIndexException(object target, object idxObj, Instruction instr)
+        {
+            string tid = target?.GetType().FullName ?? "null";
+            string tval; try { tval = target?.ToString() ?? "null"; } catch { tval = "<ToString() failed>"; }
+
+            string iid = idxObj?.GetType().FullName ?? "null";
+            string ival; try { ival = idxObj?.ToString() ?? "null"; } catch { ival = "<ToString() failed>"; }
+
+            return new VMException(
+                "Runtime error: INDEX_GET target is not indexable.\n" +
+                $"  target type: {tid}\n  target value: {tval}\n" +
+                $"  index type: {iid}\n  index value: {ival}",
+                instr.Line, instr.Col, instr.OriginFile
+            );
+        }
         private object GetIndexedValue(object target, object idxObj, Instruction instr)
         {
             switch (target)
@@ -4025,13 +2911,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The SetIndexedValue
-        /// </summary>
-        /// <param name="target">The target<see cref="object"/></param>
-        /// <param name="idxObj">The idxObj<see cref="object"/></param>
-        /// <param name="value">The value<see cref="object"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
         private void SetIndexedValue(ref object target, object idxObj, object value, Instruction instr)
         {
             switch (target)
@@ -4107,117 +2986,140 @@ namespace CFGS_VM.VMCore
                     throw new VMException("Runtime error: target is not index-assignable", instr.Line, instr.Col, instr.OriginFile);
             }
         }
-
-        /// <summary>
-        /// The RequireIntIndex
-        /// </summary>
-        /// <param name="idxObj">The idxObj<see cref="object"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="int"/></returns>
-        private static int RequireIntIndex(object idxObj, Instruction instr)
+        private static void DeleteSliceOnTarget(ref object target, object startObj, object endObj, Instruction instr)
         {
-            if (idxObj is int i) return i;
-            if (idxObj is long l)
+            if (target is string)
+                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile);
+            switch (target)
             {
-                if (l < int.MinValue || l > int.MaxValue)
-                    throw new VMException($"Runtime error: index {l} outside Int32 range", instr.Line, instr.Col, instr.OriginFile);
-                return (int)l;
+                case List<object> arr:
+                    {
+                        int len = arr.Count;
+                        int start = startObj == null ? 0 : Convert.ToInt32(startObj);
+                        int end = endObj == null ? len : Convert.ToInt32(endObj);
+
+                        if (start < 0) start += len;
+                        if (end < 0) end += len;
+
+                        start = Math.Clamp(start, 0, len);
+                        end = Math.Clamp(end, 0, len);
+                        if (end < start) end = start;
+
+                        if (start < end)
+                            arr.RemoveRange(start, end - start);
+                        return;
+                    }
+
+                case Dictionary<string, object> dict:
+                    {
+                        List<string> keys = dict.Keys.ToList();
+                        int len = keys.Count;
+
+                        int start = startObj == null ? 0 : Convert.ToInt32(startObj);
+                        int end = endObj == null ? len : Convert.ToInt32(endObj);
+
+                        if (start < 0) start += len;
+                        if (end < 0) end += len;
+
+                        start = Math.Clamp(start, 0, len);
+                        end = Math.Clamp(end, 0, len);
+                        if (end < start) end = start;
+
+                        for (int i = end - 1; i >= start; i--)
+                            dict.Remove(keys[i]);
+
+                        return;
+                    }
+
+                case string s:
+                    {
+                        int len = s.Length;
+                        int start = startObj == null ? 0 : Convert.ToInt32(startObj);
+                        int end = endObj == null ? len : Convert.ToInt32(endObj);
+
+                        if (start < 0) start += len;
+                        if (end < 0) end += len;
+
+                        start = Math.Clamp(start, 0, len);
+                        end = Math.Clamp(end, 0, len);
+                        if (end < start) end = start;
+
+                        if (start < end)
+                        {
+                            target = s.Substring(0, start) + s.Substring(end);
+                        }
+                        return;
+                    }
+
+                default:
+                    throw new VMException($"Runtime error: delete slice target must be array, dictionary, or string", instr.Line, instr.Col, instr.OriginFile);
             }
-            if (idxObj is short s) return (int)s;
-            if (idxObj is byte b) return (int)b;
-
-            if (idxObj is string sVal && int.TryParse(sVal, out int parsed))
-                return parsed;
-
-            throw new VMException($"Runtime error: index must be an integer, got '{idxObj?.GetType().Name ?? "null"}'", instr.Line, instr.Col, instr.OriginFile);
         }
 
-        /// <summary>
-        /// The IsReservedIntrinsicName
-        /// </summary>
-        /// <param name="receiver">The receiver<see cref="object"/></param>
-        /// <param name="idxObj">The idxObj<see cref="object"/></param>
-        /// <returns>The <see cref="bool"/></returns>
+        private static (int start, int endEx) NormalizeSliceBounds(object? startObj, object? endObj, int len, Instruction instr)
+        {
+            bool startIsNull = startObj == null;
+            int start = startIsNull ? 0 : Convert.ToInt32(startObj);
+            if (start < 0) start += len;
+
+            int endEx;
+            if (endObj == null)
+            {
+                endEx = len;
+            }
+            else
+            {
+                int rawEnd = Convert.ToInt32(endObj);
+
+                if (rawEnd == 0 && startIsNull)
+                {
+                    endEx = len;
+                }
+                else
+                {
+                    endEx = rawEnd;
+                    if (endEx < 0) endEx += len;
+                }
+            }
+
+            start = Math.Clamp(start, 0, len);
+            endEx = Math.Clamp(endEx, 0, len);
+            if (endEx < start) endEx = start;
+
+            return (start, endEx);
+        }
+        #endregion
+
+        #region intrinsic
+
+        public IntrinsicRegistry Intrinsics { get; } = new();
+
+        private bool TryBindIntrinsic(object receiver, string name, out IntrinsicBound bound, Instruction instr)
+        {
+            Type t = receiver?.GetType() ?? typeof(object);
+            if (Intrinsics.TryGet(t, name, out IntrinsicDescriptor? desc))
+            {
+                IntrinsicMethod adapted = new(desc.Name, desc.ArityMin, desc.ArityMax,
+                    (recv, args, ins) => desc.Invoke(recv, args, ins));
+                bound = new IntrinsicBound(adapted, receiver);
+                return true;
+            }
+            bound = null!;
+            return false;
+        }
+
         private bool IsReservedIntrinsicName(object receiver, object idxObj)
         {
             if (idxObj is not string name) return false;
             Type t = receiver?.GetType() ?? typeof(object);
             return Intrinsics.TryGet(t, name, out _);
         }
+        #endregion
 
-        /// <summary>
-        /// The CreateIndexException
-        /// </summary>
-        /// <param name="target">The target<see cref="object"/></param>
-        /// <param name="idxObj">The idxObj<see cref="object"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="VMException"/></returns>
-        private static VMException CreateIndexException(object target, object idxObj, Instruction instr)
+
+        public VM()
         {
-            string tid = target?.GetType().FullName ?? "null";
-            string tval; try { tval = target?.ToString() ?? "null"; } catch { tval = "<ToString() failed>"; }
-
-            string iid = idxObj?.GetType().FullName ?? "null";
-            string ival; try { ival = idxObj?.ToString() ?? "null"; } catch { ival = "<ToString() failed>"; }
-
-            return new VMException(
-                "Runtime error: INDEX_GET target is not indexable.\n" +
-                $"  target type: {tid}\n  target value: {tval}\n" +
-                $"  index type: {iid}\n  index value: {ival}",
-                instr.Line, instr.Col, instr.OriginFile
-            );
-        }
-    }
-
-    /// <summary>
-    /// Defines the <see cref="VMException" />
-    /// </summary>
-    public sealed class VMException(string message, int line, int column, string? fileSource)
-    : Exception(BuildMessage(message, line, column, fileSource))
-    {
-        /// <summary>
-        /// Gets the Line
-        /// </summary>
-        public int Line { get; } = line;
-
-        /// <summary>
-        /// Gets the Column
-        /// </summary>
-        public int Column { get; } = column;
-
-        /// <summary>
-        /// Gets the FileSource
-        /// </summary>
-        public string? FileSource { get; } = fileSource;
-
-        /// <summary>
-        /// The BuildMessage
-        /// </summary>
-        /// <param name="message">The message<see cref="string"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="column">The column<see cref="int"/></param>
-        /// <param name="fileSource">The fileSource<see cref="string?"/></param>
-        /// <returns>The <see cref="string"/></returns>
-        private static string BuildMessage(string message, int line, int column, string? fileSource)
-        {
-            StringBuilder sb = new();
-            if (!string.IsNullOrEmpty(message))
-            {
-                sb.Append(message.TrimEnd());
-                if (!message.TrimEnd().EndsWith(".")) sb.Append('.');
-            }
-
-            bool hasLine = line >= 0;
-            bool hasCol = column >= 0;
-
-            if (hasLine && hasCol) sb.Append($" ( Line : {line}, Column : {column} )");
-            else if (hasLine) sb.Append($" ( Line : {line} )");
-            else if (hasCol) sb.Append($" ( Column : {column} )");
-
-            if (!string.IsNullOrWhiteSpace(fileSource))
-                sb.Append($" [Source : '{fileSource}']");
-
-            return sb.ToString();
+            DebugStream = new MemoryStream();
         }
     }
 }

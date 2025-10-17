@@ -1,6 +1,6 @@
-﻿using CFGS_VM.Analytic.TTypes;
+﻿using CFGS_VM.Analytic.Tokens;
 
-namespace CFGS_VM.Analytic
+namespace CFGS_VM.Analytic.Tree
 {
     /// <summary>
     /// Defines the <see cref="Node" />

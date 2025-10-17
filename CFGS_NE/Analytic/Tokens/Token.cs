@@ -1,4 +1,4 @@
-﻿using CFGS_VM.Analytic.TTypes;
+﻿using CFGS_VM.Analytic.Tokens;
 
 /// <summary>
 /// Defines the <see cref="Token" />

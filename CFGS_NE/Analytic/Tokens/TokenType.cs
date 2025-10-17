@@ -1,4 +1,4 @@
-﻿namespace CFGS_VM.Analytic.TTypes
+﻿namespace CFGS_VM.Analytic.Tokens
 {
     /// <summary>
     /// Defines the TokenType
