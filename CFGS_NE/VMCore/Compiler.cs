@@ -1,7 +1,7 @@
-﻿using CFGS_VM.Analytic;
-using CFGS_VM.Analytic.TTypes;
+﻿using CFGS_VM.Analytic.Tokens;
+using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore.Command;
-using CFGS_VM.VMCore.Extension;
+using CFGS_VM.VMCore.Extensions.Core;
 
 namespace CFGS_VM.VMCore
 {

@@ -1,8 +1,8 @@
 ﻿using CFGS_VM.VMCore.Command;
-using CFGS_VM.VMCore.Extension;
+using CFGS_VM.VMCore.Extensions.Core;
 using System.Text;
 
-namespace CFGS_VM.VMCore.IO
+namespace CFGS_VM.VMCore.Extensions
 {
     /// <summary>
     /// Defines the <see cref="CFSBinary" />

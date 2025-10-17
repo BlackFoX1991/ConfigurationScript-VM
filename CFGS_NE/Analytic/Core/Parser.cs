@@ -1,8 +1,10 @@
-﻿using CFGS_VM.Analytic.TTypes;
+﻿using CFGS_VM.Analytic.Ex;
+using CFGS_VM.Analytic.Tokens;
+using CFGS_VM.Analytic.Tree;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace CFGS_VM.Analytic
+namespace CFGS_VM.Analytic.Core
 {
     /// <summary>
     /// Defines the <see cref="Parser" />
@@ -1771,9 +1773,4 @@ namespace CFGS_VM.Analytic
             return new ReturnStmt(value, _current.Line, _current.Column, _current.Filename);
         }
     }
-
-    /// <summary>
-    /// Defines the <see cref="ParserException" />
-    /// </summary>
-    public sealed class ParserException(string message, int line, int column, string filename) : Exception($"{message}. ( Line : {line}, Column : {column} ) : [Source : '{filename}']");
 }

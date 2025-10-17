@@ -2,7 +2,7 @@
   "profiles": {
     "CFGS_NE": {
       "commandName": "Project",
-      "commandLineArgs": "match.cfs -d",
+      "commandLineArgs": "md_render_test.cfs",
       "workingDirectory": ".\\Samples"
     }
   }

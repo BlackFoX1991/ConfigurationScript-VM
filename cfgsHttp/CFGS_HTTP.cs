@@ -1,4 +1,5 @@
 ﻿using CFGS_VM.VMCore.Plugin;
+using CFGS_VM.VMCore.Extensions;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;

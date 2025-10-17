@@ -1,5 +1,5 @@
 ﻿// BuiltinFunc.cs
-namespace CFGS_VM.VMCore.Extension
+namespace CFGS_VM.VMCore.Extensions.Core
 {
     // A delegate type for your built-in functions
     public delegate object BuiltinFunctionDelegate(object[] args);

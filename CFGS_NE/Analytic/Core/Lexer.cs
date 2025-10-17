@@ -1,4 +1,4 @@
-﻿using CFGS_VM.Analytic.TTypes;
+﻿using CFGS_VM.Analytic.Tokens;
 using System.Globalization;
 
 /// <summary>
@@ -443,44 +443,5 @@ public class Lexer
             };
         }
         return MakeToken(TokenType.EOF, "");
-    }
-}
-
-/// <summary>
-/// Defines the <see cref="LexerException" />
-/// </summary>
-public sealed class LexerException(string message, int line, int column, string filename) : Exception($"{message}. ( Line : {line}, Column : {column} ) : [Source : '{filename}']");
-
-/// <summary>
-/// Defines the <see cref="SourceLocation" />
-/// </summary>
-public class SourceLocation
-{
-    /// <summary>
-    /// Gets the FileName
-    /// </summary>
-    public string FileName { get; }
-
-    /// <summary>
-    /// Gets the Line
-    /// </summary>
-    public int Line { get; }
-
-    /// <summary>
-    /// Gets the Column
-    /// </summary>
-    public int Column { get; }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SourceLocation"/> class.
-    /// </summary>
-    /// <param name="file">The file<see cref="string"/></param>
-    /// <param name="line">The line<see cref="int"/></param>
-    /// <param name="column">The column<see cref="int"/></param>
-    public SourceLocation(string file, int line, int column)
-    {
-        FileName = file;
-        Line = line;
-        Column = column;
     }
 }
