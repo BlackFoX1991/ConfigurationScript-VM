@@ -780,6 +780,9 @@ namespace CFGS_VM.VMCore
                         int afterTryIdx = _insns.Count;
                         _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
 
+                        int jmpAfterTryToEndIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP, null, ts.Line, ts.Col, ts.OriginFile));
+
                         int catchStart = -1;
                         if (ts.CatchBlock != null)
                         {
@@ -787,18 +790,18 @@ namespace CFGS_VM.VMCore
 
                             if (ts.CatchIdent != null)
                             {
-                                _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, ts.Line, ts.Col, ts.OriginFile));
-                                _insns.Add(new Instruction(OpCode.VAR_DECL, ts.CatchIdent, ts.Line, ts.Col, ts.OriginFile));
+                                _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, ts.CatchBlock.Line, ts.CatchBlock.Col, ts.CatchBlock.OriginFile));
+                                _insns.Add(new Instruction(OpCode.VAR_DECL, ts.CatchIdent, ts.CatchBlock.Line, ts.CatchBlock.Col, ts.CatchBlock.OriginFile));
                             }
                             else
                             {
-                                _insns.Add(new Instruction(OpCode.POP, null, ts.Line, ts.Col, ts.OriginFile));
+                                _insns.Add(new Instruction(OpCode.POP, null, ts.CatchBlock.Line, ts.CatchBlock.Col, ts.CatchBlock.OriginFile));
                             }
 
                             CompileStmt(ts.CatchBlock, insideFunction);
 
                             if (ts.CatchIdent != null)
-                                _insns.Add(new Instruction(OpCode.POP_SCOPE, null, ts.Line, ts.Col, ts.OriginFile));
+                                _insns.Add(new Instruction(OpCode.POP_SCOPE, null, ts.CatchBlock.Line, ts.CatchBlock.Col, ts.CatchBlock.OriginFile));
 
                             _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
                         }
@@ -819,6 +822,12 @@ namespace CFGS_VM.VMCore
                         _insns[tryPushIdx] = new Instruction(
                             OpCode.TRY_PUSH,
                             new object[] { catchStart, finallyStart },
+                            ts.Line, ts.Col, ts.OriginFile
+                        );
+
+                        _insns[jmpAfterTryToEndIdx] = new Instruction(
+                            OpCode.JMP,
+                            endTryPopIdx,
                             ts.Line, ts.Col, ts.OriginFile
                         );
 
