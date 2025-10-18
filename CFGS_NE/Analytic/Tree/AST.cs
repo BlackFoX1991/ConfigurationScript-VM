@@ -364,29 +364,6 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
-    /// Defines the <see cref="PrintStmt" />
-    /// </summary>
-    public class PrintStmt : Stmt
-    {
-        /// <summary>
-        /// Defines the Expression
-        /// </summary>
-        public Expr Expression;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="PrintStmt"/> class.
-        /// </summary>
-        /// <param name="e">The e<see cref="Expr"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public PrintStmt(Expr e, int line, int col, string fname) : base(line, col, fname)
-        {
-            Expression = e;
-        }
-    }
-
-    /// <summary>
     /// Defines the <see cref="ExprStmt" />
     /// </summary>
     public class ExprStmt : Stmt
