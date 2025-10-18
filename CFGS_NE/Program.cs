@@ -174,55 +174,62 @@ public class Program
             ast = parser.Parse();
             compiler = new(name);
             bytecode = compiler.Compile(ast);
-            vm.LoadPluginsFrom(PluginsFolder);
-            vm.LoadFunctions(compiler._functions);
-            vm.LoadInstructions(bytecode);
-            if (debug)
+            if (!SetCompile)
             {
-                Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
-
-                int opCodeWidth = Math.Max(bytecode.Max(i => i.Code.ToString().Length), "OpCode".Length);
-                int operandWidth = Math.Max(bytecode.Max(i => i.Operand?.ToString()?.Length ?? 4), "Operand".Length);
-
-                string header = "| " + "Line,Col".PadRight(15)
-                              + " | " + "Instr#".PadRight(8)
-                              + " | " + "OpCode".PadRight(opCodeWidth)
-                              + " | " + "Operand".PadRight(operandWidth)
-                              + " |";
-                Console.WriteLine(header);
-
-                Console.WriteLine(new string('-', header.Length));
-
-                for (int idx = 0; idx < bytecode.Count; idx++)
+                vm.LoadPluginsFrom(PluginsFolder);
+                vm.LoadFunctions(compiler._functions);
+                vm.LoadInstructions(bytecode);
+                if (debug)
                 {
-                    Instruction ins = bytecode[idx];
+                    Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
 
-                    string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
-                    string instrNum = $"[{idx + 1:00000}]";
-                    string opCode = ins.Code.ToString().PadRight(opCodeWidth);
-                    string operand = (ins.Operand?.ToString() ?? "null").PadRight(operandWidth);
+                    int opCodeWidth = Math.Max(bytecode.Max(i => i.Code.ToString().Length), "OpCode".Length);
+                    int operandWidth = Math.Max(bytecode.Max(i => i.Operand?.ToString()?.Length ?? 4), "Operand".Length);
 
-                    Console.WriteLine($"| {lineCol} | {instrNum} | {opCode} | {operand} |");
+                    string header = "| " + "Line,Col".PadRight(15)
+                                  + " | " + "Instr#".PadRight(8)
+                                  + " | " + "OpCode".PadRight(opCodeWidth)
+                                  + " | " + "Operand".PadRight(operandWidth)
+                                  + " |";
+                    Console.WriteLine(header);
+
+                    Console.WriteLine(new string('-', header.Length));
+
+                    for (int idx = 0; idx < bytecode.Count; idx++)
+                    {
+                        Instruction ins = bytecode[idx];
+
+                        string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
+                        string instrNum = $"[{idx + 1:00000}]";
+                        string opCode = ins.Code.ToString().PadRight(opCodeWidth);
+                        string operand = (ins.Operand?.ToString() ?? "null").PadRight(operandWidth);
+
+                        Console.WriteLine($"| {lineCol} | {instrNum} | {opCode} | {operand} |");
+                    }
+
+                    Console.WriteLine("=== END ===");
+
+                    if (compiler._functions.Count > 0)
+                    {
+                        Console.WriteLine("=== Functions ===");
+                        foreach (KeyValuePair<string, FunctionInfo> f in compiler._functions)
+                            Console.WriteLine(f.Key + " -> " + f.Value);
+                        Console.WriteLine();
+                    }
                 }
+                vm.Run(debug);
 
-                Console.WriteLine("=== END ===");
-
-                if (compiler._functions.Count > 0)
+                if (debug)
                 {
-                    Console.WriteLine("=== Functions ===");
-                    foreach (KeyValuePair<string, FunctionInfo> f in compiler._functions)
-                        Console.WriteLine(f.Key + " -> " + f.Value);
-                    Console.WriteLine();
+                    VM.DebugStream.Position = 0;
+                    using FileStream file = File.Create("log_file.log");
+                    VM.DebugStream.CopyTo(file);
                 }
             }
-            vm.Run(debug);
-            if (SetCompile)
-                CFSBinary.Save(name + ".cfb", bytecode, compiler._functions);
-            if (debug)
+            else
             {
-                VM.DebugStream.Position = 0;
-                using FileStream file = File.Create("log_file.log");
-                VM.DebugStream.CopyTo(file);
+                CFSBinary.Save(Path.ChangeExtension(name, ".cfb"), bytecode, compiler._functions);
+                Console.WriteLine($"Compiled script '{name}' -> '{Path.ChangeExtension(name, ".cfb")}");
             }
         }
         else
