@@ -27,6 +27,36 @@ namespace CFGS_VM.Analytic.Core
         private Token _next;
 
         /// <summary>
+        /// Defines the _funcOrClassDepth
+        /// </summary>
+        private int _funcOrClassDepth = 0;
+
+        /// <summary>
+        /// Gets a value indicating whether IsInFunctionOrClass
+        /// </summary>
+        private bool IsInFunctionOrClass { get => (_funcOrClassDepth > 0); }
+
+        /// <summary>
+        /// Defines the _funcDepth
+        /// </summary>
+        private int _funcDepth = 0;
+
+        /// <summary>
+        /// Gets a value indicating whether IsInFunction
+        /// </summary>
+        private bool IsInFunction { get => (_funcDepth > 0); }
+
+        /// <summary>
+        /// Defines the _loopDepth
+        /// </summary>
+        private int _loopDepth = 0;
+
+        /// <summary>
+        /// Gets a value indicating whether IsInLoop
+        /// </summary>
+        private bool IsInLoop { get => (_loopDepth > 0); }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="Parser"/> class.
         /// </summary>
         /// <param name="lexer">The lexer<see cref="Lexer"/></param>
@@ -320,29 +350,45 @@ namespace CFGS_VM.Analytic.Core
         /// <returns>The <see cref="Stmt"/></returns>
         private Stmt Statement()
         {
+
+            if (IsInFunctionOrClass)
+            {
+                return _current.Type switch
+                {
+                    TokenType.Print => ParsePrint,
+                    TokenType.ForEach => ParseForeach(),
+                    TokenType.Try => ParseTry(),
+                    TokenType.Throw => ParseThrow(),
+                    TokenType.Return => ParseReturnStmt(),
+                    TokenType.Delete => ParseDelete,
+                    TokenType.Match => ParseMatch(),
+                    TokenType.LBrace => ParseBlock(),
+                    TokenType.If => ParseIf(),
+                    TokenType.While => ParseWhile(),
+                    TokenType.Break => ParseBreak,
+                    TokenType.Continue => ParseContinue,
+                    TokenType.For => ParseFor(),
+                    TokenType.Semi => ParseEmptyStmt,
+                    TokenType.Var => ParseVarDecl,
+                    TokenType.Ident => ParseAssignOrIndexAssignOrPushOrExpr(),
+                    TokenType.Func => ParseFuncDecl(),
+                    TokenType.Class => ParseClassDecl(),
+                    TokenType.Enum => ParseEnumDecl(),
+                    _ => ParseExprStmt
+                };
+            }
+
             return _current.Type switch
             {
-                TokenType.Semi => ParseEmptyStmt,
                 TokenType.Print => ParsePrint,
+                TokenType.Semi => ParseEmptyStmt,
                 TokenType.Var => ParseVarDecl,
                 TokenType.Ident => ParseAssignOrIndexAssignOrPushOrExpr(),
-                TokenType.LBrace => ParseBlock(),
-                TokenType.If => ParseIf(),
-                TokenType.While => ParseWhile(),
-                TokenType.Break => ParseBreak,
-                TokenType.Continue => ParseContinue,
-                TokenType.For => ParseFor(),
                 TokenType.Func => ParseFuncDecl(),
-                TokenType.Return => ParseReturnStmt(),
-                TokenType.Delete => ParseDelete,
-                TokenType.Match => ParseMatch(),
                 TokenType.Class => ParseClassDecl(),
                 TokenType.Enum => ParseEnumDecl(),
-                TokenType.ForEach => ParseForeach(),
-                TokenType.Try => ParseTry(),
-                TokenType.Throw => ParseThrow(),
+                _ => throw new ParserException($"{_current.Type} can be only used in function or class", _current.Line, _current.Column, _current.Filename)
 
-                _ => ParseExprStmt
             };
         }
 
@@ -598,6 +644,7 @@ namespace CFGS_VM.Analytic.Core
                 }
             }
 
+            _funcOrClassDepth++;
             Eat(TokenType.LBrace);
 
             List<FuncDeclStmt> methods = new();
@@ -674,7 +721,7 @@ namespace CFGS_VM.Analytic.Core
             }
 
             Eat(TokenType.RBrace);
-
+            _funcOrClassDepth--;
             return new ClassDeclStmt(
                 name,
                 methods,
@@ -802,6 +849,8 @@ namespace CFGS_VM.Analytic.Core
         {
             get
             {
+                if (!IsInLoop)
+                    throw new ParserException("continue can only be used in loops", _current.Line, _current.Column, _current.Filename);
                 Eat(TokenType.Break);
                 Eat(TokenType.Semi);
                 return new BreakStmt(_current.Line, _current.Column, _current.Filename);
@@ -815,6 +864,8 @@ namespace CFGS_VM.Analytic.Core
         {
             get
             {
+                if (!IsInLoop)
+                    throw new ParserException("continue can only be used in loops", _current.Line, _current.Column, _current.Filename);
                 Eat(TokenType.Continue);
                 Eat(TokenType.Semi);
                 return new ContinueStmt(_current.Line, _current.Column, _current.Filename);
@@ -1149,7 +1200,9 @@ namespace CFGS_VM.Analytic.Core
             Eat(TokenType.LParen);
             Expr cond = Expr();
             Eat(TokenType.RParen);
+            _loopDepth++;
             BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
+            _loopDepth--;
             return new WhileStmt(cond, body, _current.Line, _current.Column, _current.Filename);
         }
 
@@ -1187,9 +1240,9 @@ namespace CFGS_VM.Analytic.Core
             Expr iterable = Expr();
 
             Eat(TokenType.RParen);
-
+            _loopDepth++;
             Stmt body = ParseEmbeddedBlockOrSingleStatement();
-
+            _loopDepth--;
             return new ForeachStmt(name, declare, iterable, body, line, col, _current.Filename);
         }
 
@@ -1217,8 +1270,9 @@ namespace CFGS_VM.Analytic.Core
             if (_current.Type != TokenType.RParen)
                 inc = Statement();
             Eat(TokenType.RParen);
-
+            _loopDepth++;
             BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
+            _loopDepth--;
             return new ForStmt(init, cond, inc, body, _current.Line, _current.Column, _current.Filename);
         }
 
@@ -1554,8 +1608,11 @@ namespace CFGS_VM.Analytic.Core
                 }
 
                 Eat(TokenType.RParen);
+                _funcOrClassDepth++;
+                _funcDepth++;
                 BlockStmt body = ParseBlock();
-
+                _funcOrClassDepth--;
+                _funcDepth--;
                 node = new FuncExpr(parameters, body, _current.Line, _current.Column, _current.Filename);
             }
             else
@@ -1732,6 +1789,7 @@ namespace CFGS_VM.Analytic.Core
         /// <returns>The <see cref="FuncDeclStmt"/></returns>
         private FuncDeclStmt ParseFuncDecl()
         {
+
             Eat(TokenType.Func);
             string name = _current.Value.ToString() ?? "";
             Eat(TokenType.Ident);
@@ -1753,8 +1811,11 @@ namespace CFGS_VM.Analytic.Core
             }
 
             Eat(TokenType.RParen);
+            _funcOrClassDepth++;
+            _funcDepth++;
             BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
-
+            _funcOrClassDepth--;
+            _funcDepth--;
             return new FuncDeclStmt(name, parameters, body, _current.Line, _current.Column, _current.Filename);
         }
 
@@ -1764,6 +1825,8 @@ namespace CFGS_VM.Analytic.Core
         /// <returns>The <see cref="ReturnStmt"/></returns>
         private ReturnStmt ParseReturnStmt()
         {
+            if (!IsInFunction)
+                throw new ParserException("return can only be used in function statements", _current.Line, _current.Column, _current.Filename);
             Eat(TokenType.Return);
             Expr? value = null;
             if (_current.Type != TokenType.Semi)

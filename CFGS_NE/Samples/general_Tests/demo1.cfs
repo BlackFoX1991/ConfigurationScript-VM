@@ -1,0 +1,228 @@
+# CFGS Try/Catch/Finally – Edge Case Suite (funktional verpackt)
+
+print("=== TRY/CATCH/FINALLY EDGE TESTS START ===");
+
+# Helper
+func sep(name) { print("-- " + name + " --"); }
+
+# A) Kein Fehler im try: catch übersprungen, finally läuft
+func testA() {
+    try {
+        print("A.try");
+    } catch (e) {
+        print("A.catch (sollte NICHT laufen)");
+    } finally {
+        print("A.finally (sollte laufen)");
+    }
+}
+
+# B) Fehler im try: catch läuft, danach finally
+func testB() {
+    try {
+        print("B.try (wirft gleich)");
+        throw "B-Err";
+    } catch (e) {
+        print("B.catch e=" + str(e));
+    } finally {
+        print("B.finally");
+    }
+}
+
+# C) Fehler im Callee: Callee-Catch rethrow, Caller fängt, beide finallys
+func testC() {
+    func callee_throw_and_rethrow() {
+        try {
+            print("C.callee.try (wirft)");
+            throw "C-Err";
+        } catch (e) {
+            print("C.callee.catch (rethrow)");
+            throw e;
+        } finally {
+            print("C.callee.finally");
+        }
+    }
+
+    try {
+        print("C.caller.try (ruft callee)");
+        callee_throw_and_rethrow();
+        print("C.caller.try (nach call) (sollte NICHT laufen)");
+    } catch (e) {
+        print("C.caller.catch e=" + str(e));
+    } finally {
+        print("C.caller.finally");
+    }
+}
+
+# D) return im try: finally MUSS vor Rückkehr laufen
+func ret_in_try() {
+    try {
+        print("D.func.try (return gleich)");
+        return "D.T";
+    } catch (e) {
+        print("D.func.catch (sollte NICHT)");
+        return "D.C";
+    } finally {
+        print("D.func.finally (sollte VOR Rückkehr laufen)");
+    }
+}
+func testD() {
+    var d = ret_in_try();
+    print("D.result=" + str(d));
+}
+
+# E) return im catch: finally läuft dennoch
+func ret_in_catch() {
+    try {
+        print("E.func.try (wirft)");
+        throw "E-Err";
+    } catch (e) {
+        print("E.func.catch (return jetzt)");
+        return "E.C";
+    } finally {
+        print("E.func.finally (trotz return)");
+    }
+}
+func testE() {
+    var e = ret_in_catch();
+    print("E.result=" + str(e));
+}
+
+# F) Verschachtelt: innerer try fängt, inner finally vor outer finally
+func testF() {
+    try {
+        print("F.outer.try (start)");
+        try {
+            print("F.inner.try (wirft)");
+            throw "F-Err";
+        } catch (e) {
+            print("F.inner.catch e=" + str(e));
+        } finally {
+            print("F.inner.finally");
+        }
+        print("F.outer.try (nach inner)");
+    } catch (e) {
+        print("F.outer.catch (sollte NICHT)");
+    } finally {
+        print("F.outer.finally");
+    }
+}
+
+# G) break im try innerhalb einer Schleife -> finally vor break
+func testG() {
+    for (var i = 0; i < 3; i += 1;) {
+        print("G.loop i=" + str(i) + " (enter)");
+        try {
+            print("G.try in loop");
+            if (i == 1) {
+                print("G.break now");
+                break;
+            }
+            print("G.after cond (i=" + str(i) + ")");
+        } catch (e) {
+            print("G.catch (sollte NICHT)");
+        } finally {
+            print("G.finally (muss vor Sprung laufen)");
+        }
+        print("G.loop i=" + str(i) + " (after try)");
+    }
+    print("G.after loop");
+}
+
+# H) continue im try innerhalb einer Schleife -> finally vor continue
+func testH() {
+    for (var j = 0; j < 3; j += 1;) {
+        print("H.loop j=" + str(j) + " (enter)");
+        try {
+            print("H.try in loop");
+            if (j == 1) {
+                print("H.continue now");
+                continue;
+            }
+            print("H.after cond (j=" + str(j) + ")");
+        } catch (e) {
+            print("H.catch (sollte NICHT)");
+        } finally {
+            print("H.finally (muss vor Sprung laufen)");
+        }
+        print("H.loop j=" + str(j) + " (after try)");
+    }
+    print("H.after loop");
+}
+
+# I) Rethrow im catch -> outer catch -> outer finally
+func testI() {
+    try {
+        try {
+            print("I.inner.try (wirft)");
+            throw "I-Err";
+        } catch (e) {
+            print("I.inner.catch (rethrow)");
+            throw e;
+        } finally {
+            print("I.inner.finally");
+        }
+        print("I.outer.try (nach inner) (sollte NICHT)");
+    } catch (e) {
+        print("I.outer.catch e=" + str(e));
+    } finally {
+        print("I.outer.finally");
+    }
+}
+
+# J) Mehrere finally in Kaskade (return im inneren try)
+func kaskade() {
+    try {
+        print("J.outer.try (start)");
+        try {
+            print("J.inner.try (return gleich)");
+            return "J.R";
+        } catch (e) {
+            print("J.inner.catch (sollte NICHT)");
+            return "J.C";
+        } finally {
+            print("J.inner.finally");
+        }
+    } catch (e) {
+        print("J.outer.catch (sollte NICHT)");
+        return "J.OC";
+    } finally {
+        print("J.outer.finally");
+    }
+}
+func testJ() {
+    var j = kaskade();
+    print("J.result=" + str(j));
+}
+
+# --- Aufrufe (Top-Level erlaubt: print/var/func + Funktionsaufrufe) ---
+sep("A: normaler Pfad (kein Fehler)");
+testA();
+
+sep("B: Fehler im try, catch greift, finally danach");
+testB();
+
+sep("C: Throw im Callee -> rethrow -> Caller catch -> beide finally");
+testC();
+
+sep("D: return im try -> finally läuft vor Rückkehr");
+testD();
+
+sep("E: return im catch -> finally läuft trotzdem");
+testE();
+
+sep("F: verschachtelt (inner catch/finally) -> outer finally");
+testF();
+
+sep("G: break im try -> finally vor Sprung");
+testG();
+
+sep("H: continue im try -> finally vor Sprung");
+testH();
+
+sep("I: rethrow im catch -> outer catch -> outer finally");
+testI();
+
+sep("J: return im inneren try -> inner finally -> outer finally -> Rückkehr");
+testJ();
+
+print("=== TRY/CATCH/FINALLY EDGE TESTS END ===");

@@ -1,4 +1,4 @@
-# spec_sanity_edge.cfgs
+# ===== spec_sanity_edge.cfgs (funktional verpackt) =====
 # Edge-case suite focusing on precedence, associativity, short-circuiting,
 # loops/break/continue/finally, closures/classes/nested `outer` binding,
 # slicing (incl. negatives), array/dict/string intrinsics, and error paths.
@@ -71,23 +71,29 @@ var z = true ? onlyThen() : onlyElse();
 test("ternary evaluates single branch", z == 11 && t == 1);
 
 # ----------------------------- Loops & Flow --------------------------------
-# continue skips body, break exits, finally runs on break
-var s = "";
-for (var k = 0; k < 5; k = k + 1;) {
-  if (k % 2 == 0) { continue; }  # skip even
-  s = s + str(k);
-}
-test("continue skips evens", s == "13");
-
-# finally must run on break
-var logF = "";
-while (true) {
-  try { 
-   break; 
+# continue: kapseln und Ergebnis zurückgeben
+func do_continue_skips_evens() {
+  var s = "";
+  for (var k = 0; k < 5; k = k + 1;) {
+    if (k % 2 == 0) { continue; }  # skip even
+    s = s + str(k);
   }
-  finally { logF = logF + "F"; }
+  return s;
 }
-test("finally runs on break", logF == "F");
+test("continue skips evens", do_continue_skips_evens() == "13");
+
+# finally must run on break: in Funktion mit while/try/finally
+func do_finally_runs_on_break() {
+  var logF = "";
+  while (true) {
+    try { 
+      break; 
+    }
+    finally { logF = logF + "F"; }
+  }
+  return logF;
+}
+test("finally runs on break", do_finally_runs_on_break() == "F");
 
 # ------------------------- Arrays / Dicts / Strings ------------------------
 # Array bounds should throw
@@ -95,11 +101,11 @@ var arr = [1,2];
 assertThrows("array oob read throws", func(){ var _ = arr[5]; });
 
 # remove_range boundaries (no-op & full clear)
-var b = [1,2,3,4];
-b.remove_range(1,1);   # no-op
-test("remove_range no-op", b[0] == 1 && b[1] == 2 && b[2] == 3 && b[3] == 4);
-b.remove_range(0, b.len());
-test("remove_range full clear", b.len() == 0);
+var rb = [1,2,3,4];
+rb.remove_range(1,1);   # no-op
+test("remove_range no-op", rb[0] == 1 && rb[1] == 2 && rb[2] == 3 && rb[3] == 4);
+rb.remove_range(0, rb.len());
+test("remove_range full clear", rb.len() == 0);
 
 # String replace_range boundaries
 var ss = "abcdef";
@@ -133,14 +139,15 @@ var IType = Outer.Inner;
 var in2 = IType(null);
 assertThrows("inner w/o outer: who() throws", func(){ return in2.who(); });
 
-# Pre/post ++ inside methods not tested here—covered by index tests above.
-
 # -------------------------- Dangling else binding --------------------------
-var x = 0;
-if (true) 
-  if (false) x = 1;
-  else x = 2;      # should bind to inner if -> executes, x=2
-test("dangling else binds to nearest if", x == 2);
+func compute_dangling_else() {
+  var x = 0;
+  if (true) 
+    if (false) x = 1;
+    else x = 2;      # should bind to inner if -> executes, x=2
+  return x;
+}
+test("dangling else binds to nearest if", compute_dangling_else() == 2);
 
 # ------------------------------ Optional -----------------------------------
 # NOTE: Uncomment these if the features are enabled in your build.
@@ -164,6 +171,9 @@ test("dangling else binds to nearest if", x == 2);
 # test("delete slice array", delA.len() == 2 && delA[0]==1 && delA[1]==4);
 
 # ------------------------------- Summary -----------------------------------
-print("TOTAL=" + total);
-print("FAILED=" + failed);
-if (failed == 0) print("ALL OK");
+func summary() {
+  print("TOTAL=" + total);
+  print("FAILED=" + failed);
+  if (failed == 0) print("ALL OK");
+}
+summary();

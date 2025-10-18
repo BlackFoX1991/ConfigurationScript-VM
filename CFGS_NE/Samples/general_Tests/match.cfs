@@ -9,11 +9,14 @@ print(toText(7));
 func f(x) { return x match { 1:"one" }; }
 print(f(2));  # null
 
-
-var p = 3;
-# 3) Statement-match mit Seiteneffekten
-match (2) {
-  case 1: { print("one"); }
-  case 2: { print("two"); }
-  default: { print("other"); }
+func main()
+{
+  var p = 3;
+  # 3) Statement-match mit Seiteneffekten
+  match (2) {
+    case 1: { print("one"); }
+    case 2: { print("two"); }
+    default: { print("other"); }
+  }
 }
+main();

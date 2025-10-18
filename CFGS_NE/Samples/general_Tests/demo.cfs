@@ -54,18 +54,32 @@ c.inc(); c.inc();
 print(c.toString());
 
 # --- if / while ---
-if (len(nums) > 0) print("nums hat Elemente");
-var i = 0;
-while (i < 3) { print("while i=" + str(i)); i += 1; }
+
+func ifwhileTest()
+{
+	if (len(nums) > 0) print("nums hat Elemente");
+	var i = 0;
+	while (i < 3) { print("while i=" + str(i)); i += 1; }
+}
+ifwhileTest();
+
 
 # --- for: init/cond/step; (init/step sind Statements) ---
-for (var j = 0; j < 3; j += 1;) print("for j=" + str(j));
+func forTest()
+{
+	for (var j = 0; j < 3; j += 1;) print("for j=" + str(j));
+}
+forTest();
 
 # --- foreach über Array ---
-foreach (var n in nums) {
-    if (n == 3) continue;
-    print("foreach n=" + str(n));
+func forEachTest()
+{
+	foreach (var n in nums) {
+		if (n == 3) continue;
+		print("foreach n=" + str(n));
+	}
 }
+forEachTest();
 
 # --- try/catch/finally & throw ---
 func safeDivide(a, b) {
@@ -73,22 +87,33 @@ func safeDivide(a, b) {
     return a / b;
 }
 
-try {
-    print("10/2=" + str(safeDivide(10,2)));
-    print("10/0=" + str(safeDivide(10,0)));  # wirft
-} catch (e) {
-    print("Fehler: " + str(e));
-} finally {
-    print("finally: Aufräumen");
+func tcatchTest()
+{
+	try {
+		print("10/2=" + str(safeDivide(10,2)));
+		print("10/0=" + str(safeDivide(10,0)));  # wirft
+	} catch (e) {
+		print("Fehler: " + str(e));
+	} finally {
+		print("finally: Aufräumen");
+	}
 }
+tcatchTest();
+
 
 # --- match als Statement ---
-var cmd = "mul";
-match (cmd) {
-    case "sum":     { print("cmd=sum -> " + str(sum(2,3))); }
-    case "mul":     { print("cmd=mul -> " + str(2 * 3)); }
-    default:        { print("unbekanntes Kommando"); }
+
+func cMatchTest()
+{
+	var cmd = "mul";
+	match (cmd) {
+		case "sum":     { print("cmd=sum -> " + str(sum(2,3))); }
+		case "mul":     { print("cmd=mul -> " + str(2 * 3)); }
+		default:        { print("unbekanntes Kommando"); }
+	}	
 }
+cMatchTest();
+
 
 # --- Funktionen als Literale ---
 var adder = func(x) { return x + 10; };
