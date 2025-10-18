@@ -2,7 +2,7 @@
   "profiles": {
     "CFGS_NE": {
       "commandName": "Project",
-      "commandLineArgs": "md_render_test.cfs",
+      "commandLineArgs": "bloomRepl.cfs",
       "workingDirectory": ".\\Samples"
     }
   }

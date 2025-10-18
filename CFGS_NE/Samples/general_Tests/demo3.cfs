@@ -1,5 +1,4 @@
-# CFGS Self-Check Test Harness (no str) – v2
-# Fix: Case1 uses external log passed into the callee, so we can assert after throw.
+# CFGS Self-Check Test Harness (no str) – v2 (funktional verpackt)
 
 # --- Tiny test lib ---
 var __passed = 0;
@@ -37,14 +36,13 @@ func test_throw_in_inner_finally_ext(log) {
         push(log, "inner.finally");
         throw "FIN";
     }
-    # not reached
 }
 
 func run_case1() {
     var log = [];
     try {
         test_throw_in_inner_finally_ext(log);
-        push(log, "outer.try.after");  # not reached
+        push(log, "outer.try.after");
     } catch (e) {
         push(log, "OUTER_CATCH");
         assertArrayEq("Case1 throw in finally → outer catch",
@@ -161,33 +159,38 @@ func test_cascade_log() {
     return log;
 }
 
-# === RUN ===
-print("=== SELF-CHECK (no str) v2 START ===");
+# === RUN: alles in Funktion kapseln und dann aufrufen ===
+func run_all() {
+    print("=== SELF-CHECK (no str) v2 START ===");
 
-run_case1();
-assertEquals("Case2a return in FINALLY > TRY", test_return_in_finally_overrides_try(), "FINALLY");
-assertEquals("Case2b return in FINALLY > CATCH", test_return_in_finally_overrides_catch(), "FINALLY");
+    run_case1();
+    assertEquals("Case2a return in FINALLY > TRY", test_return_in_finally_overrides_try(), "FINALLY");
+    assertEquals("Case2b return in FINALLY > CATCH", test_return_in_finally_overrides_catch(), "FINALLY");
 
-var c3a = test_continue_from_catch_log();
-assertArrayEq("Case3a continue from catch, finally before continue", 
-    ["enter0","body0","finally0","after0",
-     "enter1","catch1","finally1",
-     "enter2","body2","finally2","after2"],
-    c3a);
+    var c3a = test_continue_from_catch_log();
+    assertArrayEq("Case3a continue from catch, finally before continue", 
+        ["enter0","body0","finally0","after0",
+         "enter1","catch1","finally1",
+         "enter2","body2","finally2","after2"],
+        c3a);
 
-var c3b = test_break_from_catch_log();
-assertArrayEq("Case3b break from catch, finally before break",
-    ["enter0","body0","finally0","after0",
-     "enter1","body1","finally1","after1",
-     "enter2","catch2","finally2"],
-    c3b);
+    var c3b = test_break_from_catch_log();
+    assertArrayEq("Case3b break from catch, finally before break",
+        ["enter0","body0","finally0","after0",
+         "enter1","body1","finally1","after1",
+         "enter2","catch2","finally2"],
+        c3b);
 
-var c4 = test_cascade_log();
-assertArrayEq("Case4 cascade (inner return + throw + finally order)",
-    ["ir.try","ir.finally","outer.after.ir=IR",
-     "it.try","it.catch.rethrow","it.finally",
-     "outer.catch=IT","outer.finally"],
-    c4);
+    var c4 = test_cascade_log();
+    assertArrayEq("Case4 cascade (inner return + throw + finally order)",
+        ["ir.try","ir.finally","outer.after.ir=IR",
+         "it.try","it.catch.rethrow","it.finally",
+         "outer.catch=IT","outer.finally"],
+        c4);
 
-summary();
-print("=== SELF-CHECK (no str) v2 END ===");
+    summary();
+    print("=== SELF-CHECK (no str) v2 END ===");
+}
+
+# Top-Level: nur erlaubte Dinge
+run_all();

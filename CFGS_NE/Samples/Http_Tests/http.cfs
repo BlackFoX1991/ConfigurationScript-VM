@@ -125,67 +125,71 @@ func qv(q, key, def) {
     return val;
 }
 
-print("Starte Server auf http://localhost:" + str(PORT) + "/");
-var srv = http_server(PORT).start();   # dot-style start()
+func main()
+{
+    print("Starte Server auf http://localhost:" + str(PORT) + "/");
+    var srv = http_server(PORT).start();   # dot-style start()
 
-# Demo Client
-var r_get = http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"});
-print("GET status: " + str(r_get.status) + " " + r_get.reason);
+    # Demo Client
+    var r_get = http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"});
+    print("GET status: " + str(r_get.status) + " " + r_get.reason);
 
-var r_post = http_post("https://httpbin.org/post", "{\"msg\":\"Hallo\"}", {"Content-Type":"application/json"});
-print("POST status: " + str(r_post.status));
+    var r_post = http_post("https://httpbin.org/post", "{\"msg\":\"Hallo\"}", {"Content-Type":"application/json"});
+    print("POST status: " + str(r_post.status));
 
-var enc = urlencode("a b&c=1");
-var dec = urldecode(enc);
-print("urlencode/urldecode: " + enc + " -> " + dec);
+    var enc = urlencode("a b&c=1");
+    var dec = urldecode(enc);
+    print("urlencode/urldecode: " + enc + " -> " + dec);
 
-# Loop
-while (srv.is_running()) {
-    var req = srv.poll(1000);
-    if (req == null) {
-        put("");
-    } else {
-        var method = req.method;
-        var path = req.path;
-        var q = req.query;
+    # Loop
+    while (srv.is_running()) {
+        var req = srv.poll(1000);
+        if (req == null) {
+            put("");
+        } else {
+            var method = req.method;
+            var path = req.path;
+            var q = req.query;
 
-        if (method == "GET" && path == "/") {
-            var body = html(home());
-            srv.respond(req.id, 200, body, {"Content-Type":"text/html; charset=utf-8"});
-        }
-        else if (method == "GET" && path == "/exit"){
-            break;
-        }
-        else if (method == "GET" && path == "/echo") {
-            var name = qv(q, "name", "Stranger");
-            var msg = "Hello, " + name + "!";
-            srv.respond(req.id, 200, msg, {"Content-Type":"text/plain; charset=utf-8"});
-        }
-        else if (method == "GET" && path == "/add") {
-            var a = toi32(qv(q, "a", "0"));
-            var b = toi32(qv(q, "b", "0"));
-            var sum = a + b;
-            var body = "{\"a\":" + str(a) + ",\"b\":" + str(b) + ",\"sum\":" + str(sum) + "}";
-            srv.respond(req.id, 200, body, {"Content-Type":"application/json"});
-        }
-        else if (method == "POST" && path == "/mirror") {
-            var ctype = q.contains("_ctype") ? q["_ctype"] : "text/plain; charset=utf-8";
-            srv.respond(req.id, 200, req.body, {"Content-Type":ctype});
-        }
-        else if (method == "GET" && path == "/getbin") {
-            var r = http_get("https://httpbin.org/uuid");
-            if (r.status == 200) {
-                srv.respond(req.id, 200, r.body, {"Content-Type":"application/json"});
-            } else {
-                srv.respond(req.id, 502, "{\"error\":\"upstream\"}", {"Content-Type":"application/json"});
+            if (method == "GET" && path == "/") {
+                var body = html(home());
+                srv.respond(req.id, 200, body, {"Content-Type":"text/html; charset=utf-8"});
+            }
+            else if (method == "GET" && path == "/exit"){
+                break;
+            }
+            else if (method == "GET" && path == "/echo") {
+                var name = qv(q, "name", "Stranger");
+                var msg = "Hello, " + name + "!";
+                srv.respond(req.id, 200, msg, {"Content-Type":"text/plain; charset=utf-8"});
+            }
+            else if (method == "GET" && path == "/add") {
+                var a = toi32(qv(q, "a", "0"));
+                var b = toi32(qv(q, "b", "0"));
+                var sum = a + b;
+                var body = "{\"a\":" + str(a) + ",\"b\":" + str(b) + ",\"sum\":" + str(sum) + "}";
+                srv.respond(req.id, 200, body, {"Content-Type":"application/json"});
+            }
+            else if (method == "POST" && path == "/mirror") {
+                var ctype = q.contains("_ctype") ? q["_ctype"] : "text/plain; charset=utf-8";
+                srv.respond(req.id, 200, req.body, {"Content-Type":ctype});
+            }
+            else if (method == "GET" && path == "/getbin") {
+                var r = http_get("https://httpbin.org/uuid");
+                if (r.status == 200) {
+                    srv.respond(req.id, 200, r.body, {"Content-Type":"application/json"});
+                } else {
+                    srv.respond(req.id, 502, "{\"error\":\"upstream\"}", {"Content-Type":"application/json"});
+                }
+            }
+            else {
+                srv.respond(req.id, 404, "Not Found", {"Content-Type":"text/plain; charset=utf-8"});
             }
         }
-        else {
-            srv.respond(req.id, 404, "Not Found", {"Content-Type":"text/plain; charset=utf-8"});
-        }
     }
-}
 
-srv.stop();
-srv.close();
-print("Server beendet.");
+    srv.stop();
+    srv.close();
+    print("Server beendet.");
+}
+main();

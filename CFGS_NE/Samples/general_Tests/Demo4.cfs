@@ -1,4 +1,4 @@
-# CFGS Hardcore Try/Catch/Finally Tests (no str) - v2
+# CFGS Hardcore Try/Catch/Finally Tests (no str) - v2 (funktional verpackt)
 
 # --- Tiny test lib (no str) ---
 var __passed = 0;
@@ -24,8 +24,6 @@ func summary() {
 }
 
 func push(log, msg) { log[] = msg; }
-
-print("=== HARDCORE SELF-CHECK v2 START ===");
 
 # --- T1: return pending in try, finally throws -> outer catch (no inner catch) ---
 func t1_make_log_ext(log) {
@@ -227,13 +225,18 @@ func run_t6() {
         log);
 }
 
-# --- RUN ALL ---
-run_t1();
-run_t2();
-run_t3();
-run_t4();
-run_t5();
-run_t6();
+# --- RUN ALL in einer Funktion ---
+func run_all() {
+    print("=== HARDCORE SELF-CHECK v2 START ===");
+    run_t1();
+    run_t2();
+    run_t3();
+    run_t4();
+    run_t5();
+    run_t6();
+    summary();
+    print("=== HARDCORE SELF-CHECK v2 END ===");
+}
 
-summary();
-print("=== HARDCORE SELF-CHECK v2 END ===");
+# Top-Level: nur erlaubte Dinge
+run_all();

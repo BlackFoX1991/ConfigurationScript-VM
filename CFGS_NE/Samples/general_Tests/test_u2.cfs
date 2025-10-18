@@ -75,30 +75,33 @@ assert_eq("dict_set_b",         d["b"],        2);
 d[] = {"c": 3};
 assert_eq("dict_push_c",        d["c"],        3);
 
-# String-Slice read ok, write verboten → read mit ~, write via try/catch
-var strx = "hello";
-assert_eq("string_slice_read",  strx[1~4],     "ell");
+# String-Slice read ok, write verboten → read mit ~, write via try/catch (in Funktion)
+func test_string_slice_write_forbidden() {
+    var strx = "hello";
+    assert_eq("string_slice_read",  strx[1~4],  "ell");
 
-var string_write_failed = 0;
-try {
-    strx[0~2] = "XY";   # sollte Fehler werfen
-} catch(e) {
-    string_write_failed = 1;
+    var string_write_failed = 0;
+    try {
+        strx[0~2] = "XY";   # sollte Fehler werfen
+    } catch(e) {
+        string_write_failed = 1;
+    }
+    assert_eq("string_slice_write_forbidden", string_write_failed, 1);
 }
-assert_eq("string_slice_write_forbidden", string_write_failed, 1);
+test_string_slice_write_forbidden();
 
 # ===== 3) Operatoren / Kurzschluss / Vergleich =====
 assert_eq("arith_prec",         2 + 3 * 4,     14);
-assert_eq("pow_right_assoc",    2 ** 3 ** 2,     512);
-assert_eq("unary_vs_pow",       -3**2,          -9);      # -(3^2)
-assert_eq("paren_pow",          (-3)**2,        9);
+assert_eq("pow_right_assoc",    2 ** 3 ** 2,   512);
+assert_eq("unary_vs_pow",       -3**2,         -9);      # -(3^2)
+assert_eq("paren_pow",          (-3)**2,       9);
 
 assert_eq("cmp_lt",             1 < 2,         true);
 assert_eq("cmp_ge",             3 >= 4,        false);
 
 # Kurzschluss: rechts wird nur bei Bedarf evaluiert
 func side_effect() { failed = failed + 1000; return true; }
-assert_eq("short_or_true_left", (1 < 2) || side_effect(), true);
+assert_eq("short_or_true_left",   (1 < 2) || side_effect(), true);
 assert_eq("short_and_false_left", (1 > 2) && side_effect(), false);
 
 # ===== 4) Klassen / static(type) / Instanz(this) / Enums =====
@@ -134,8 +137,6 @@ assert_eq("static_count_still1",Point.Count,   1);
 p.inc();
 assert_eq("static_count_2",     Point.Count,   2);
 
-
-
 # ===== 5) Closures (capturing) =====
 func make_adder(base) {
     var add = func (x) { return base + x; };
@@ -145,22 +146,25 @@ var add10 = make_adder(10);
 assert_eq("closure_add",        add10(5),      15);
 
 # ===== 6) try/catch/finally/throw =====
-var tc = 0;
-try
-{
-    tc = tc + 1;       # 1
-    throw "boom";
-    tc = tc + 100;     # nicht erreicht
+func test_try_catch_finally_block() {
+    var tc = 0;
+    try
+    {
+        tc = tc + 1;       # 1
+        throw "boom";
+        tc = tc + 100;     # nicht erreicht
+    }
+    catch(e)
+    {
+        tc = tc + 10;      # 11
+    }
+    finally
+    {
+        tc = tc + 100;     # 111
+    }
+    assert_eq("try_catch_finally",  tc,        111);
 }
-catch(e)
-{
-    tc = tc + 10;      # 11
-}
-finally
-{
-    tc = tc + 100;     # 111
-}
-assert_eq("try_catch_finally",  tc,            111);
+test_try_catch_finally_block();
 
 # ===== 7) Truthiness quick sanity =====
 assert_eq("truthy_zero",        !0,            true);
@@ -176,9 +180,12 @@ var snap = {};
 snap["cnt"] = Point.Count;
 assert_eq("snapshot_cnt",       snap["cnt"],   2);
 
-# ===== Abschluss =====
-if (failed == 0) {
-    print("ALL TESTS PASSED");
-} else {
-    print("TESTS FAILED: " + str(failed));
+# ===== Abschluss (in Funktion, kein Top-Level-if) =====
+func print_summary() {
+    if (failed == 0) {
+        print("ALL TESTS PASSED");
+    } else {
+        print("TESTS FAILED: " + str(failed));
+    }
 }
+print_summary();

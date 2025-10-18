@@ -1,6 +1,0 @@
-var dict = [3,2,1,[5,5,3],12];
-
-foreach (var kvp in dict)
-{
-	print(kvp);
-}

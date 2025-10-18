@@ -1,0 +1,12 @@
+func test()
+{
+	class wb(a,b)
+	{
+		var p = a;
+		var t = b;
+		func getRes()return this.p+this.t;
+	}
+	print(new wb(20,30).getRes());
+}
+
+test();
