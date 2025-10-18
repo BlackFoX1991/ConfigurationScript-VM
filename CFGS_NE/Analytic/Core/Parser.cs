@@ -134,6 +134,44 @@ namespace CFGS_VM.Analytic.Core
         }
 
         /// <summary>
+        /// The ComputeSha256
+        /// </summary>
+        /// <param name="data">The data<see cref="byte[]"/></param>
+        /// <returns>The <see cref="string"/></returns>
+        private static string ComputeSha256(byte[] data)
+        {
+            using SHA256 sha = SHA256.Create();
+            byte[] hash = sha.ComputeHash(data);
+            StringBuilder sb = new(hash.Length * 2);
+            foreach (byte b in hash) sb.Append(b.ToString("x2"));
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Defines the _http
+        /// </summary>
+        private static readonly HttpClient _http = new(new HttpClientHandler
+        {
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 5
+        });
+
+        /// <summary>
+        /// The IsHttpUrl
+        /// </summary>
+        /// <param name="s">The s<see cref="string?"/></param>
+        /// <param name="uri">The uri<see cref="Uri"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsHttpUrl(string? s, out Uri uri)
+        {
+            if (Uri.TryCreate(s, UriKind.Absolute, out uri!) &&
+                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+                return true;
+            uri = default!;
+            return false;
+        }
+
+        /// <summary>
         /// The IndexTopLevelSymbols
         /// </summary>
         /// <param name="stmts">The stmts<see cref="IEnumerable{Stmt}"/></param>
@@ -247,6 +285,107 @@ namespace CFGS_VM.Analytic.Core
         /// <returns>The <see cref="List{Stmt}"/></returns>
         private List<Stmt> GetImports(string path, int ln, int col, string fsname, string specClass = "")
         {
+            if (IsHttpUrl(path, out Uri? uri))
+            {
+                List<Stmt> uresult = new();
+                string resourceId = uri.ToString();
+
+                if (!string.IsNullOrWhiteSpace(fsname) &&
+                    string.Equals(resourceId, fsname, StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.Error.WriteLine($"Import Warning: Ignoring self-import of '{resourceId}'.");
+                    return uresult;
+                }
+
+                if (_importStack.Contains(resourceId))
+                {
+                    string chain = string.Join(" -> ", _importStack.Reverse().Append(resourceId));
+                    throw new ParserException($"Import cycle detected: {chain}", ln, col, fsname);
+                }
+
+                byte[] bytes;
+                try
+                {
+                    using HttpResponseMessage resp = _http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead)
+                                          .GetAwaiter().GetResult();
+                    if (!resp.IsSuccessStatusCode)
+                        throw new IOException($"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}");
+
+                    bytes = resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+                }
+                catch (Exception ex)
+                {
+                    throw new ParserException($"failed to download '{resourceId}': {ex.Message}", ln, col, fsname);
+                }
+
+                string xh;
+                try { xh = ComputeSha256(bytes); }
+                catch (Exception ex)
+                {
+                    throw new ParserException($"failed to hash '{resourceId}': {ex.Message}", ln, col, fsname);
+                }
+
+                if (_astByHash.TryGetValue(xh, out List<Stmt>? cachedAst))
+                {
+                    if (!string.IsNullOrWhiteSpace(specClass))
+                    {
+                        Stmt? cls = cachedAst.FirstOrDefault(s => s is ClassDeclStmt c && c.Name == specClass);
+                        if (cls is null)
+                            throw new ParserException($"Could not find class '{specClass}' in import '{path}'", ln, col, fsname);
+                        uresult.Add(cls);
+                    }
+                    else
+                    {
+                        uresult.AddRange(cachedAst);
+                    }
+
+                    uresult = FilterDuplicateTopLevel(uresult);
+                    IndexTopLevelSymbols(uresult);
+                    return uresult;
+                }
+
+                _importStack.Push(resourceId);
+                try
+                {
+                    string nsrc;
+                    using (MemoryStream ms = new(bytes, writable: false))
+                    using (StreamReader sr = new(ms, detectEncodingFromByteOrderMarks: true))
+                        nsrc = sr.ReadToEnd();
+
+                    Lexer lex = new(resourceId, nsrc);
+                    Parser prs = new(lex);
+                    List<Stmt> importedAst = prs.Parse();
+
+                    _astByHash[xh] = importedAst;
+                    _importedHashes.Add(xh);
+
+                    if (!string.IsNullOrWhiteSpace(specClass))
+                    {
+                        Stmt? cls = importedAst.FirstOrDefault(s => s is ClassDeclStmt c && c.Name == specClass);
+                        if (cls is null)
+                            throw new ParserException($"Could not find class '{specClass}' in import '{path}'", ln, col, fsname);
+                        uresult.Add(cls);
+                    }
+                    else
+                    {
+                        uresult.AddRange(importedAst);
+                    }
+
+                    uresult = FilterDuplicateTopLevel(uresult);
+                    IndexTopLevelSymbols(uresult);
+                    return uresult;
+                }
+                catch (ParserException) { throw; }
+                catch (Exception pex)
+                {
+                    throw new ParserException(pex.Message, _current.Line, _current.Column, _current.Filename);
+                }
+                finally
+                {
+                    _importStack.Pop();
+                }
+            }
+
             List<Stmt> result = new();
             string baseDir = string.IsNullOrWhiteSpace(fsname)
                 ? Directory.GetCurrentDirectory()
@@ -279,11 +418,11 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException($"failed to hash '{fullPath}': {ex.Message}", ln, col, fsname);
             }
 
-            if (_astByHash.TryGetValue(h, out List<Stmt>? cachedAst))
+            if (_astByHash.TryGetValue(h, out List<Stmt>? cachedAstFile))
             {
                 if (!string.IsNullOrWhiteSpace(specClass))
                 {
-                    Stmt? cls = cachedAst.FirstOrDefault(s => s is ClassDeclStmt c && c.Name == specClass);
+                    Stmt? cls = cachedAstFile.FirstOrDefault(s => s is ClassDeclStmt c && c.Name == specClass);
                     if (cls is null)
                         throw new ParserException($"Could not find class '{specClass}' in import file '{path}'", ln, col, fsname);
 
@@ -291,7 +430,7 @@ namespace CFGS_VM.Analytic.Core
                 }
                 else
                 {
-                    result.AddRange(cachedAst);
+                    result.AddRange(cachedAstFile);
                 }
 
                 result = FilterDuplicateTopLevel(result);
@@ -355,7 +494,6 @@ namespace CFGS_VM.Analytic.Core
             {
                 return _current.Type switch
                 {
-                    TokenType.Print => ParsePrint,
                     TokenType.ForEach => ParseForeach(),
                     TokenType.Try => ParseTry(),
                     TokenType.Throw => ParseThrow(),
@@ -380,14 +518,14 @@ namespace CFGS_VM.Analytic.Core
 
             return _current.Type switch
             {
-                TokenType.Print => ParsePrint,
                 TokenType.Semi => ParseEmptyStmt,
                 TokenType.Var => ParseVarDecl,
                 TokenType.Ident => ParseAssignOrIndexAssignOrPushOrExpr(),
                 TokenType.Func => ParseFuncDecl(),
+                TokenType.LBrace => ParseBlock(),
                 TokenType.Class => ParseClassDecl(),
                 TokenType.Enum => ParseEnumDecl(),
-                _ => throw new ParserException($"{_current.Type} can be only used in function or class", _current.Line, _current.Column, _current.Filename)
+                _ => throw new ParserException($"invalid top-level statement {_current.Type}", _current.Line, _current.Column, _current.Filename)
 
             };
         }
@@ -869,22 +1007,6 @@ namespace CFGS_VM.Analytic.Core
                 Eat(TokenType.Continue);
                 Eat(TokenType.Semi);
                 return new ContinueStmt(_current.Line, _current.Column, _current.Filename);
-            }
-        }
-
-        /// <summary>
-        /// Gets the ParsePrint
-        /// </summary>
-        private Stmt ParsePrint
-        {
-            get
-            {
-                Eat(TokenType.Print);
-                Eat(TokenType.LParen);
-                Expr e = Expr();
-                Eat(TokenType.RParen);
-                Eat(TokenType.Semi);
-                return new PrintStmt(e, _current.Line, _current.Column, _current.Filename);
             }
         }
 
