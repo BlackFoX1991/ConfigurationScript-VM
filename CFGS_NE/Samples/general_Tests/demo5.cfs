@@ -1,0 +1,25 @@
+func main()
+{
+
+	# null-coalescing
+	var a = null;
+	var b = a ?? 42;
+	print("a??42 -> " + b);          # Erwartet: 42
+
+	# Vergleiche mit null (sollte syntaktisch ok sein)
+	if (a == null) { print("a ist null"); }
+
+	# 'match' nach null (ist erlaubt)
+	print( null match { _: "null ist null" } );
+
+	# Korrekte Aufrufe/Indexe auf nicht-null
+	var arr = [10,20,30];
+	print("arr[1]=" + arr[1]);
+	arr[] = 40;
+	print("arr nach append=" + arr);
+
+	var user = {"name":"Ada"};
+	print("user keys=" + user.keys());
+	print("user name=" + user["name"]);
+}
+main();
