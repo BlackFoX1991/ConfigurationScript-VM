@@ -11,6 +11,42 @@ public class Lexer
     /// </summary>
     public string FileName { get; set; }
 
+    public static readonly Dictionary<string, TokenType> Keywords = new(StringComparer.Ordinal)
+        {
+            { "var", TokenType.Var },
+            { "if", TokenType.If },
+            { "else", TokenType.Else },
+            { "delete", TokenType.Delete },
+            { "while", TokenType.While },
+            { "for", TokenType.For },
+            { "break", TokenType.Break },
+            { "continue", TokenType.Continue },
+            { "func", TokenType.Func },
+            { "return", TokenType.Return },
+            { "match", TokenType.Match },
+            { "case", TokenType.Case },
+            { "default", TokenType.Default },
+            { "try", TokenType.Try },
+            { "catch", TokenType.Catch },
+            { "finally", TokenType.Finally },
+            { "throw", TokenType.Throw },
+            { "class", TokenType.Class },
+            { "new", TokenType.New },
+            { "null", TokenType.Null },
+            { "true", TokenType.True },
+            { "false", TokenType.False },
+            { "import", TokenType.Import },
+            { "enum", TokenType.Enum },
+            { "from", TokenType.From },
+            { "static", TokenType.Static },
+            { "in", TokenType.In },
+            { "foreach", TokenType.ForEach },
+            {"super",TokenType.Ident },
+            {"this",TokenType.Ident },
+            {"outer", TokenType.Ident },
+            {"type", TokenType.Ident }
+        };
+
     /// <summary>
     /// The MakeToken
     /// </summary>
@@ -354,38 +390,10 @@ public class Lexer
             {
                 string id = "";
                 while (char.IsLetterOrDigit(Current) || Current == '_') { id += Current; SyncPos(); }
-                return id switch
-                {
-                    "var" => MakeToken(TokenType.Var, id),
-                    "if" => MakeToken(TokenType.If, id),
-                    "else" => MakeToken(TokenType.Else, id),
-                    "delete" => MakeToken(TokenType.Delete, id),
-                    "while" => MakeToken(TokenType.While, id),
-                    "for" => MakeToken(TokenType.For, id),
-                    "break" => MakeToken(TokenType.Break, id),
-                    "continue" => MakeToken(TokenType.Continue, id),
-                    "func" => MakeToken(TokenType.Func, id),
-                    "return" => MakeToken(TokenType.Return, id),
-                    "match" => MakeToken(TokenType.Match, id),
-                    "case" => MakeToken(TokenType.Case, id),
-                    "default" => MakeToken(TokenType.Default, id),
-                    "try" => MakeToken(TokenType.Try, id),
-                    "catch" => MakeToken(TokenType.Catch, id),
-                    "finally" => MakeToken(TokenType.Finally, id),
-                    "throw" => MakeToken(TokenType.Throw, id),
-                    "class" => MakeToken(TokenType.Class, id),
-                    "new" => MakeToken(TokenType.New, id),
-                    "null" => MakeToken(TokenType.Null, id),
-                    "true" => MakeToken(TokenType.True, id),
-                    "false" => MakeToken(TokenType.False, id),
-                    "import" => MakeToken(TokenType.Import, id),
-                    "enum" => MakeToken(TokenType.Enum, id),
-                    "from" => MakeToken(TokenType.From, id),
-                    "static" => MakeToken(TokenType.Static, id),
-                    "in" => MakeToken(TokenType.In, id),
-                    "foreach" => MakeToken(TokenType.ForEach, id),
-                    _ => MakeToken(TokenType.Ident, id)
-                };
+                if (Keywords.ContainsKey(id))
+                    return MakeToken(Keywords[id], id);
+                else
+                    return MakeToken(TokenType.Ident, id);
 
             }
 

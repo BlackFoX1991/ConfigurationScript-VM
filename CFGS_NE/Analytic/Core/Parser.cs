@@ -84,7 +84,7 @@ namespace CFGS_VM.Analytic.Core
         private void Eat(TokenType type)
         {
             if (_current.Type != type)
-                throw new ParserException($"Expected {type}, got {_current.Type} ", _current.Line, _current.Column, _current.Filename);
+                throw new ParserException($"Expected {type}, got {_current.Type} -> '{_current.Value}'", _current.Line, _current.Column, _current.Filename);
             Advance();
         }
 
@@ -201,14 +201,13 @@ namespace CFGS_VM.Analytic.Core
                 switch (s)
                 {
                     case FuncDeclStmt f when _seenFunctions.Contains(f.Name):
-                        Console.Error.WriteLine($"Import Warning: Skipping duplicate function '{f.Name}' in line {f.Line}, position {f.Col}.");
-                        break;
+                        throw new ParserException($"duplicate function '{f.Name}'", f.Line, f.Col, f.OriginFile);
+
                     case ClassDeclStmt c when _seenClasses.Contains(c.Name):
-                        Console.Error.WriteLine($"Import Warning: Skipping duplicate class '{c.Name}' in line {c.Line}, position {c.Col}.");
-                        break;
+                        throw new ParserException($"duplicate class '{c.Name}'", c.Line, c.Col, c.OriginFile);
+
                     case EnumDeclStmt e when _seenEnums.Contains(e.Name):
-                        Console.Error.WriteLine($"Import Warning: Skipping duplicate enum '{e.Name}' in line {e.Line}, position {e.Col}.");
-                        break;
+                        throw new ParserException($"duplicate enum '{e.Name}'", e.Line, e.Col, e.OriginFile);
                     default:
                         filtered.Add(s);
                         break;
@@ -392,16 +391,15 @@ namespace CFGS_VM.Analytic.Core
                 : Path.GetDirectoryName(Path.GetFullPath(fsname)) ?? Directory.GetCurrentDirectory();
 
             string candidate = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(baseDir, path));
-            if (!File.Exists(candidate)) return result;
+            if (!File.Exists(candidate))
+                throw new ParserException($"import path not found '{candidate}'", ln, col, fsname);
 
             string fullPath = Path.GetFullPath(candidate);
 
             string? thisFile = string.IsNullOrWhiteSpace(fsname) ? null : Path.GetFullPath(fsname);
             if (thisFile != null && string.Equals(fullPath, thisFile, StringComparison.OrdinalIgnoreCase))
-            {
-                Console.Error.WriteLine($"Import Warning: Ignoring self-import of '{fullPath}'.");
-                return result;
-            }
+                throw new ParserException($"self-import of '{fullPath}'.", ln, col, fsname);
+
             if (_importStack.Contains(fullPath))
             {
                 string chain = string.Join(" -> ", _importStack.Reverse().Append(fullPath));
@@ -565,6 +563,10 @@ namespace CFGS_VM.Analytic.Core
                 if (_current.Type == TokenType.Ident)
                 {
                     catchIdent = _current.Value!.ToString();
+
+                    if (catchIdent is not null && Lexer.Keywords.ContainsKey(catchIdent))
+                        throw new ParserException($"invalid symbol declaration name '{catchIdent}'", _current.Line, _current.Column, _current.Filename);
+
                     Advance();
                 }
                 else if (_current.Type != TokenType.RParen)
@@ -620,6 +622,10 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException("expected enum name", declLine, declCol, _current.Filename);
 
             string name = _current.Value.ToString() ?? "";
+
+            if (Lexer.Keywords.ContainsKey(name))
+                throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
+
             Eat(TokenType.Ident);
 
             Eat(TokenType.LBrace);
@@ -639,13 +645,15 @@ namespace CFGS_VM.Analytic.Core
                     throw new ParserException("expected identifier in enum body", memberLine, memberCol, _current.Filename);
 
                 string memberName = _current.Value.ToString() ?? "";
+                if (Lexer.Keywords.ContainsKey(memberName))
+                    throw new ParserException($"invalid symbol declaration name '{memberName}'", _current.Line, _current.Column, _current.Filename);
                 Eat(TokenType.Ident);
 
                 int value;
                 if (_current.Type == TokenType.Assign)
                 {
                     Eat(TokenType.Assign);
-                    if (_current.Type != TokenType.Number)
+                    if (_current.Type != TokenType.Number || _current.Value is not int iv)
                         throw new ParserException("expected number after '='", _current.Line, _current.Column, _current.Filename);
 
                     value = Convert.ToInt32(_current.Value);
@@ -721,31 +729,11 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException($"expected class name", line, col, _current.Filename);
 
             string name = _current.Value.ToString() ?? "";
+            if (Lexer.Keywords.ContainsKey(name))
+                throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
             Eat(TokenType.Ident);
 
-            List<string> ctorParams = new();
-            if (_current.Type == TokenType.LParen)
-            {
-                Eat(TokenType.LParen);
-
-                if (_current.Type != TokenType.RParen)
-                {
-                    do
-                    {
-                        string paramName = _current.Value.ToString() ?? "";
-                        Eat(TokenType.Ident);
-                        ctorParams.Add(paramName);
-
-                        if (_current.Type == TokenType.Comma)
-                            Eat(TokenType.Comma);
-                        else
-                            break;
-                    }
-                    while (true);
-                }
-
-                Eat(TokenType.RParen);
-            }
+            List<string> ctorParams = ParseParams();
 
             string? baseName = null;
             List<Expr> baseArgs = new();
@@ -757,6 +745,10 @@ namespace CFGS_VM.Analytic.Core
                     throw new ParserException("expected base class name after ':'", line, col, _current.Filename);
 
                 baseName = _current.Value.ToString() ?? "";
+
+                if (baseName == name)
+                    throw new ParserException("self inheritance not allowed", _current.Line, _current.Column, _current.Filename);
+
                 Eat(TokenType.Ident);
 
                 if (_current.Type == TokenType.LParen)
@@ -791,8 +783,15 @@ namespace CFGS_VM.Analytic.Core
             List<FuncDeclStmt> staticMethods = new();
             Dictionary<string, Expr?> staticFields = new();
             List<EnumDeclStmt> staticEnums = new();
-
             List<ClassDeclStmt> nestedClasses = new();
+
+            bool CheckFieldNames(string nm) =>
+                (from sm in staticMethods where sm.Name == nm select sm).Any() ||
+                (from en in staticEnums where en.Name == nm select en).Any() ||
+                (from sf in staticFields where sf.Key == nm select sf).Any() ||
+                (from mt in methods where mt.Name == nm select mt).Any() ||
+                (from fld in fields where fld.Key == nm select fld).Any() ||
+                (from nsc in nestedClasses where nsc.Name == nm select nsc).Any();
 
             while (_current.Type != TokenType.RBrace)
             {
@@ -807,6 +806,8 @@ namespace CFGS_VM.Analytic.Core
                 {
                     Eat(TokenType.Var);
                     string fieldName = _current.Value.ToString() ?? "";
+                    if (CheckFieldNames(fieldName))
+                        throw new ParserException($"Field '{fieldName}' already declared in class '{name}'", _current.Line, _current.Column, _current.Filename);
                     Eat(TokenType.Ident);
 
                     Expr? init = null;
@@ -827,6 +828,9 @@ namespace CFGS_VM.Analytic.Core
                     if (StaticSet)
                         throw new ParserException("nested classes cannot be static", _current.Line, _current.Column, _current.Filename);
                     ClassDeclStmt inner = ParseClassDecl();
+
+                    if (CheckFieldNames(inner.Name))
+                        throw new ParserException($"Field '{inner.Name}' already declared in class '{name}'", _current.Line, _current.Column, _current.Filename);
                     inner = new ClassDeclStmt(
                         inner.Name, inner.Methods, inner.Enums,
                         inner.Fields, inner.StaticFields, inner.StaticMethods,
@@ -839,11 +843,15 @@ namespace CFGS_VM.Analytic.Core
                 else if (_current.Type == TokenType.Enum)
                 {
                     EnumDeclStmt enm = ParseEnumDecl();
+                    if (CheckFieldNames(enm.Name))
+                        throw new ParserException($"Field '{enm.Name}' already declared in class '{name}'", _current.Line, _current.Column, _current.Filename);
                     staticEnums.Add(enm);
                 }
                 else if (_current.Type == TokenType.Func)
                 {
                     FuncDeclStmt func = ParseFuncDecl();
+                    if (CheckFieldNames(func.Name))
+                        throw new ParserException($"Field '{func.Name}' already declared in class '{name}'", _current.Line, _current.Column, _current.Filename);
                     if (StaticSet)
                         staticMethods.Add(func);
                     else
@@ -925,25 +933,6 @@ namespace CFGS_VM.Analytic.Core
         }
 
         /// <summary>
-        /// The ParseExprList
-        /// </summary>
-        /// <returns>The <see cref="List{Expr}"/></returns>
-        private List<Expr> ParseExprList()
-        {
-            List<Expr> list = new();
-
-            list.Add(Expr());
-
-            while (_current.Type == TokenType.Comma)
-            {
-                Eat(TokenType.Comma);
-                list.Add(Expr());
-            }
-
-            return list;
-        }
-
-        /// <summary>
         /// The ParseMatch
         /// </summary>
         /// <returns>The <see cref="MatchStmt"/></returns>
@@ -970,6 +959,8 @@ namespace CFGS_VM.Analytic.Core
                 }
                 else if (_current.Type == TokenType.Default)
                 {
+                    if (defaultCase is not null)
+                        throw new ParserException("multiple default case not allowed", _current.Line, _current.Column, _current.Filename);
                     Eat(TokenType.Default);
                     Eat(TokenType.Colon);
                     defaultCase = ParseEmbeddedBlockOrSingleStatement();
@@ -988,7 +979,7 @@ namespace CFGS_VM.Analytic.Core
             get
             {
                 if (!IsInLoop)
-                    throw new ParserException("continue can only be used in loops", _current.Line, _current.Column, _current.Filename);
+                    throw new ParserException("break can only be used in loops", _current.Line, _current.Column, _current.Filename);
                 Eat(TokenType.Break);
                 Eat(TokenType.Semi);
                 return new BreakStmt(_current.Line, _current.Column, _current.Filename);
@@ -1019,6 +1010,8 @@ namespace CFGS_VM.Analytic.Core
             {
                 Eat(TokenType.Var);
                 string name = _current.Value.ToString() ?? "";
+                if (Lexer.Keywords.ContainsKey(name))
+                    throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
                 Eat(TokenType.Ident);
                 Expr? v = null;
                 if (_current.Type == TokenType.Assign)
@@ -1111,14 +1104,7 @@ namespace CFGS_VM.Analytic.Core
                     Eat(TokenType.LParen);
                     List<Expr> args = new();
                     if (_current.Type != TokenType.RParen)
-                    {
-                        args.Add(Expr());
-                        while (_current.Type == TokenType.Comma)
-                        {
-                            Eat(TokenType.Comma);
-                            args.Add(Expr());
-                        }
-                    }
+                        args.AddRange(ParseExprList());
                     Eat(TokenType.RParen);
 
                     target = new CallExpr(target, args, line, col, fsname);
@@ -1276,7 +1262,12 @@ namespace CFGS_VM.Analytic.Core
 
             Eat(TokenType.LBrace);
             while (_current.Type != TokenType.RBrace)
+            {
+                if (_current.Type == TokenType.EOF)
+                    throw new ParserException("expected '}' before end of file", _current.Line, _current.Column, _current.Filename);
                 stmts.Add(Statement());
+            }
+
             Eat(TokenType.RBrace);
 
             return new BlockStmt(stmts, _current.Line, _current.Column, _current.Filename);
@@ -1379,7 +1370,13 @@ namespace CFGS_VM.Analytic.Core
 
             Stmt? init = null;
             if (_current.Type != TokenType.Semi)
-                init = Statement();
+            {
+                if (_current.Type == TokenType.Var)
+                    init = ParseVarDecl;
+                else
+                    init = ParseAssignOrIndexAssignOrPushOrExpr();
+            }
+
             else
                 Eat(TokenType.Semi);
 
@@ -1390,7 +1387,29 @@ namespace CFGS_VM.Analytic.Core
 
             Stmt? inc = null;
             if (_current.Type != TokenType.RParen)
+            {
+                switch (_current.Type)
+                {
+                    case TokenType.Var:
+                    case TokenType.Delete:
+                    case TokenType.Func:
+                    case TokenType.Class:
+                    case TokenType.Enum:
+                    case TokenType.Return:
+                    case TokenType.Break:
+                    case TokenType.Continue:
+                    case TokenType.Try:
+                    case TokenType.Throw:
+                    case TokenType.If:
+                    case TokenType.While:
+                    case TokenType.For:
+                    case TokenType.ForEach:
+                    case TokenType.Match:
+                        throw new ParserException("invalid expression in for statement", _current.Line, _current.Column, _current.Filename);
+
+                }
                 inc = Statement();
+            }
             Eat(TokenType.RParen);
             _loopDepth++;
             BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
@@ -1626,7 +1645,7 @@ namespace CFGS_VM.Analytic.Core
             }
             else if (_current.Type == TokenType.Null)
             {
-                node = null;
+                node = new NullExpr(_current.Line, _current.Column, _current.Filename);
                 Eat(TokenType.Null);
             }
             else if (_current.Type == TokenType.True)
@@ -1674,14 +1693,8 @@ namespace CFGS_VM.Analytic.Core
                 Eat(TokenType.LBracket);
                 List<Expr> elems = new();
                 if (_current.Type != TokenType.RBracket)
-                {
-                    elems.Add(Expr());
-                    while (_current.Type == TokenType.Comma)
-                    {
-                        Eat(TokenType.Comma);
-                        elems.Add(Expr());
-                    }
-                }
+                    elems.AddRange(ParseExprList());
+
                 Eat(TokenType.RBracket);
                 node = new ArrayExpr(elems, _current.Line, _current.Column, _current.Filename);
             }
@@ -1712,24 +1725,9 @@ namespace CFGS_VM.Analytic.Core
             else if (_current.Type == TokenType.Func)
             {
                 Eat(TokenType.Func);
-                Eat(TokenType.LParen);
 
-                List<string> parameters = new();
-                if (_current.Type != TokenType.RParen)
-                {
-                    do
-                    {
-                        string paramName = _current.Value.ToString() ?? "";
-                        Eat(TokenType.Ident);
-                        parameters.Add(paramName);
-                        if (_current.Type == TokenType.Comma)
-                            Eat(TokenType.Comma);
-                        else
-                            break;
-                    } while (true);
-                }
+                List<string> parameters = ParseParams();
 
-                Eat(TokenType.RParen);
                 _funcOrClassDepth++;
                 _funcDepth++;
                 BlockStmt body = ParseBlock();
@@ -1746,24 +1744,20 @@ namespace CFGS_VM.Analytic.Core
             {
                 if (_current.Type == TokenType.LParen)
                 {
+                    if (node is NullExpr)
+                        throw new ParserException("invalid access on null reference", _current.Line, _current.Column, _current.Filename);
                     Eat(TokenType.LParen);
                     List<Expr> args = new();
                     if (_current.Type != TokenType.RParen)
-                    {
-                        do
-                        {
-                            args.Add(Expr());
-                            if (_current.Type == TokenType.Comma)
-                                Eat(TokenType.Comma);
-                            else
-                                break;
-                        } while (true);
-                    }
+                        args.AddRange(ParseExprList());
+
                     Eat(TokenType.RParen);
                     node = new CallExpr(node, args, _current.Line, _current.Column, _current.Filename);
                 }
                 else if (_current.Type == TokenType.LBracket)
                 {
+                    if (node is NullExpr)
+                        throw new ParserException("invalid access on null reference", _current.Line, _current.Column, _current.Filename);
                     Eat(TokenType.LBracket);
 
                     Expr? start = null;
@@ -1799,6 +1793,8 @@ namespace CFGS_VM.Analytic.Core
 
                 else if (_current.Type == TokenType.Dot)
                 {
+                    if (node is NullExpr)
+                        throw new ParserException("invalid access on null reference", _current.Line, _current.Column, _current.Filename);
                     Eat(TokenType.Dot);
                     if (_current.Type != TokenType.Ident)
                         throw new ParserException("expected identifier after '.'", _current.Line, _current.Column, _current.Filename);
@@ -1858,6 +1854,8 @@ namespace CFGS_VM.Analytic.Core
                 }
                 else if (_current.Type == TokenType.PlusPlus || _current.Type == TokenType.MinusMinus)
                 {
+                    if (node is NullExpr)
+                        throw new ParserException("invalid access on null reference", _current.Line, _current.Column, _current.Filename);
                     TokenType op = _current.Type;
                     Eat(op);
                     node = new PostfixExpr(node, op, _current.Line, _current.Column, _current.Filename);
@@ -1914,25 +1912,12 @@ namespace CFGS_VM.Analytic.Core
 
             Eat(TokenType.Func);
             string name = _current.Value.ToString() ?? "";
+            if (Lexer.Keywords.ContainsKey(name))
+                throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
             Eat(TokenType.Ident);
-            Eat(TokenType.LParen);
 
-            List<string> parameters = new();
-            if (_current.Type != TokenType.RParen)
-            {
-                do
-                {
-                    string paramName = _current.Value.ToString() ?? "";
-                    Eat(TokenType.Ident);
-                    parameters.Add(paramName);
-                    if (_current.Type == TokenType.Comma)
-                        Eat(TokenType.Comma);
-                    else
-                        break;
-                } while (true);
-            }
+            List<string> parameters = ParseParams();
 
-            Eat(TokenType.RParen);
             _funcOrClassDepth++;
             _funcDepth++;
             BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
@@ -1956,6 +1941,100 @@ namespace CFGS_VM.Analytic.Core
 
             Eat(TokenType.Semi);
             return new ReturnStmt(value, _current.Line, _current.Column, _current.Filename);
+        }
+
+        /// <summary>
+        /// The ParseExprList
+        /// </summary>
+        /// <returns>The <see cref="List{Expr}"/></returns>
+        private List<Expr> ParseExprList()
+        {
+            List<Expr> list = new();
+            list.Add(Expr());
+            while (_current.Type == TokenType.Comma)
+            {
+                Eat(TokenType.Comma);
+                list.Add(Expr());
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// The ParseParams
+        /// </summary>
+        /// <param name="requireParens">The requireParens<see cref="bool"/></param>
+        /// <param name="allowTrailingComma">The allowTrailingComma<see cref="bool"/></param>
+        /// <returns>The <see cref="List{string}"/></returns>
+        private List<string> ParseParams(bool requireParens = true, bool allowTrailingComma = false)
+        {
+            List<string> parameters = new();
+            if (_current.Type != TokenType.LParen) return parameters;
+            HashSet<string> seen = new(StringComparer.Ordinal);
+
+            if (requireParens || _current.Type == TokenType.LParen)
+                Eat(TokenType.LParen);
+            else
+                return parameters;
+
+            if (_current.Type == TokenType.RParen)
+            {
+                Eat(TokenType.RParen);
+                return parameters;
+            }
+
+            bool expectParam = true;
+
+            while (true)
+            {
+                if (_current.Type == TokenType.Ident)
+                {
+                    if (!expectParam)
+                        throw new ParserException("Erwarte ',' oder ')'", _current.Line, _current.Column, _current.Filename);
+
+                    string name = _current.Value?.ToString()
+                                  ?? throw new ParserException("invalid parameter name", _current.Line, _current.Column, _current.Filename);
+
+                    if (Lexer.Keywords.ContainsKey(name))
+                        throw new ParserException($"invalid parameter name '{name}'", _current.Line, _current.Column, _current.Filename);
+
+                    if (!seen.Add(name))
+                        throw new ParserException($"duplicate parameter name '{name}'", _current.Line, _current.Column, _current.Filename);
+
+                    parameters.Add(name);
+                    Eat(TokenType.Ident);
+                    expectParam = false;
+                }
+                else if (_current.Type == TokenType.Comma)
+                {
+                    if (expectParam)
+                        throw new ParserException("Expected parameter before ','", _current.Line, _current.Column, _current.Filename);
+
+                    Eat(TokenType.Comma);
+
+                    if (allowTrailingComma && _current.Type == TokenType.RParen)
+                    {
+                        expectParam = false;
+                        break;
+                    }
+
+                    expectParam = true;
+                }
+                else if (_current.Type == TokenType.RParen)
+                {
+                    if (expectParam && parameters.Count > 0)
+                        throw new ParserException("Expected parameter after ','", _current.Line, _current.Column, _current.Filename);
+
+                    break;
+                }
+                else
+                {
+                    throw new ParserException($"invalid token {_current.Type} in parameters",
+                                               _current.Line, _current.Column, _current.Filename);
+                }
+            }
+
+            Eat(TokenType.RParen);
+            return parameters;
         }
     }
 }
