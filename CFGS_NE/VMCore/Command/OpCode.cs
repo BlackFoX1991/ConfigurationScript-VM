@@ -358,6 +358,11 @@
         /// <summary>
         /// Defines the PUSH_CLOSURE
         /// </summary>
-        PUSH_CLOSURE
+        PUSH_CLOSURE,
+
+        /// <summary>
+        /// Defines the AWAIT
+        /// </summary>
+        AWAIT,
     }
 }

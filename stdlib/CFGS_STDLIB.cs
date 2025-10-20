@@ -1,11 +1,11 @@
-﻿using CFGS_VM.VMCore.Extensions.Instance;
+﻿using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Extensions.Instance;
+using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Plugin;
 using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
-using CFGS_VM.VMCore.Extensions;
-using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using static CFGS_VM.VMCore.VM;
 
 namespace CFGS_VM.VMCore.CorePlugin
@@ -19,6 +19,27 @@ namespace CFGS_VM.VMCore.CorePlugin
         /// Gets or sets a value indicating whether AllowFileIO
         /// </summary>
         public static bool AllowFileIO { get; set; } = true;
+
+        /// <summary>
+        /// The FriendlyTypeName
+        /// </summary>
+        /// <param name="t">The t<see cref="Type"/></param>
+        /// <returns>The <see cref="string"/></returns>
+        internal static string FriendlyTypeName(Type t)
+        {
+            if (t == typeof(void)) return "Void";
+            if (t == typeof(bool)) return "Boolean";
+            if (t == typeof(int)) return "Int";
+            if (t == typeof(long)) return "Long";
+            if (t == typeof(double)) return "Double";
+            if (t == typeof(float)) return "Float";
+            if (t == typeof(decimal)) return "Decimal";
+            if (t == typeof(string)) return "String";
+            if (t == typeof(char)) return "Char";
+            if (t == typeof(List<object>)) return "Array";
+            if (t == typeof(Dictionary<string, object>)) return "Dictionary";
+            return t.Name;
+        }
 
         /// <summary>
         /// The Register
@@ -43,11 +64,26 @@ namespace CFGS_VM.VMCore.CorePlugin
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         private static void RegisterBuiltins(IBuiltinRegistry builtins)
         {
+
             builtins.Register(new BuiltinDescriptor("typeof", 1, 1, (args, instr) =>
             {
                 object val = args[0];
                 if (val == null) return "Null";
-                if (val is bool) return "Bool";
+
+                Type vt = val.GetType();
+
+                if (val is System.Threading.Tasks.Task)
+                {
+                    if (vt.IsGenericType)
+                        return $"Task<{FriendlyTypeName(vt.GetGenericArguments()[0])}>";
+                    return "Task";
+                }
+                if (vt == typeof(System.Threading.Tasks.ValueTask))
+                    return "ValueTask";
+                if (vt.IsGenericType && vt.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<>))
+                    return $"ValueTask<{FriendlyTypeName(vt.GetGenericArguments()[0])}>";
+
+                if (val is bool) return "Boolean";
                 if (val is int) return "Int";
                 if (val is long) return "Long";
                 if (val is double) return "Double";
@@ -59,9 +95,10 @@ namespace CFGS_VM.VMCore.CorePlugin
                 if (val is Dictionary<string, object>) return "Dictionary";
                 if (val is ClassInstance ci) return ci.ClassName;
                 if (val is StaticInstance si) return si.ClassName;
-                if (val is EnumInstance ei) return "Enum";
+                if (val is EnumInstance) return "Enum";
                 if (val is ExceptionObject) return "Exception";
-                return val.GetType().Name;
+
+                return vt.Name;
             }));
 
             builtins.Register(new BuiltinDescriptor("len", 1, 1, (args, instr) =>
@@ -141,7 +178,6 @@ namespace CFGS_VM.VMCore.CorePlugin
 
             builtins.Register(new BuiltinDescriptor("cmdArgs", 0, 0, (args, instr) =>
             {
-
                 return Environment.GetCommandLineArgs().Skip(1).ToList<object>();
             }));
 
@@ -295,6 +331,58 @@ namespace CFGS_VM.VMCore.CorePlugin
                         instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream);
                 }
             }));
+
+            builtins.Register(new BuiltinDescriptor("sleep", 1, 1, (args, instr) =>
+            {
+                int ms = Convert.ToInt32(args[0], CultureInfo.InvariantCulture);
+                return Task.Run<object?>(async () => { await Task.Delay(ms).ConfigureAwait(false); return null; });
+            }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("nextTick", 0, 0, (args, instr) =>
+            {
+                return Task.Run<object?>(async () => { await Task.Yield(); return null; });
+            }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("getlAsync", 0, 0, (args, instr) =>
+            {
+                return Task.Run<object?>(async () => await Console.In.ReadLineAsync().ConfigureAwait(false));
+            }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("getcAsync", 0, 0, (args, instr) =>
+            {
+                return Task.Run<object?>(async () =>
+                {
+                    char[] buf = new char[1];
+                    int n = await Console.In.ReadAsync(buf, 0, 1).ConfigureAwait(false);
+                    return n <= 0 ? -1 : (int)buf[0];
+                });
+            }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("readTextAsync", 1, 1, (args, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream);
+                string path = args[0]?.ToString() ?? "";
+                return Task.Run<object?>(async () => await File.ReadAllTextAsync(path).ConfigureAwait(false));
+            }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("writeTextAsync", 2, 2, (args, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream);
+                string path = args[0]?.ToString() ?? "";
+                string text = args[1]?.ToString() ?? "";
+                return Task.Run<object?>(async () => { await File.WriteAllTextAsync(path, text).ConfigureAwait(false); return 1; });
+            }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("appendTextAsync", 2, 2, (args, instr) =>
+            {
+                if (!AllowFileIO)
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream);
+                string path = args[0]?.ToString() ?? "";
+                string text = args[1]?.ToString() ?? "";
+                return Task.Run<object?>(async () => { await File.AppendAllTextAsync(path, text).ConfigureAwait(false); return 1; });
+            }, smartAwait: true));
         }
 
         /// <summary>
@@ -787,6 +875,31 @@ namespace CFGS_VM.VMCore.CorePlugin
             intrinsics.Register(T, new IntrinsicDescriptor("tell", 0, 0, (recv, a, i) => { dynamic fh = recv; return (long)fh.Tell(); }));
             intrinsics.Register(T, new IntrinsicDescriptor("eof", 0, 0, (recv, a, i) => { dynamic fh = recv; return (bool)fh.Eof(); }));
             intrinsics.Register(T, new IntrinsicDescriptor("close", 0, 0, (recv, a, i) => { dynamic fh = recv; fh.Close(); return 1; }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("writeAsync", 1, 1, (recv, a, i) =>
+            {
+                return Task.Run<object?>(() => { dynamic fh = recv; fh.Write(a[0]?.ToString() ?? ""); return recv; });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("writelnAsync", 1, 1, (recv, a, i) =>
+            {
+                return Task.Run<object?>(() => { dynamic fh = recv; fh.Writeln(a[0]?.ToString() ?? ""); return recv; });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("flushAsync", 0, 0, (recv, a, i) =>
+            {
+                return Task.Run<object?>(() => { dynamic fh = recv; fh.Flush(); return recv; });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("readAsync", 1, 1, (recv, a, i) =>
+            {
+                return Task.Run<object?>(() => { dynamic fh = recv; return (string)fh.Read(Convert.ToInt32(a[0])); });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("readlineAsync", 0, 0, (recv, a, i) =>
+            {
+                return Task.Run<object?>(() => { dynamic fh = recv; return (string)fh.ReadLine(); });
+            }, smartAwait: true));
         }
 
         /// <summary>

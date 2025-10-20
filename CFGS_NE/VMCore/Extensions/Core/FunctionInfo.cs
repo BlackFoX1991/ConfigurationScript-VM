@@ -15,15 +15,19 @@
         /// </summary>
         public int Address { get; }
 
+        public bool isAsync { get; }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="FunctionInfo"/> class.
         /// </summary>
         /// <param name="parameters">The parameters<see cref="List{string}"/></param>
         /// <param name="address">The address<see cref="int"/></param>
-        public FunctionInfo(List<string> parameters, int address)
+        public FunctionInfo(List<string> parameters, int address, bool isAsync = false)
         {
             Parameters = parameters;
             Address = address;
+            this.isAsync = isAsync;
+
         }
     }
 

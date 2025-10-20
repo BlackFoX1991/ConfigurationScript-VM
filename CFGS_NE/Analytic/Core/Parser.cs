@@ -1725,7 +1725,6 @@ namespace CFGS_VM.Analytic.Core
             else if (_current.Type == TokenType.Func)
             {
                 Eat(TokenType.Func);
-
                 List<string> parameters = ParseParams();
 
                 _funcOrClassDepth++;
@@ -1874,6 +1873,12 @@ namespace CFGS_VM.Analytic.Core
         /// <returns>The <see cref="Expr"/></returns>
         private Expr Unary()
         {
+            if (_current.Type == TokenType.Await)
+            {
+                Eat(TokenType.Await);
+                Expr awaited = Unary();
+                return new AwaitExpr(awaited, _current.Line, _current.Column, _current.Filename);
+            }
 
             if (_current.Type == TokenType.Minus)
             {
@@ -1906,14 +1911,20 @@ namespace CFGS_VM.Analytic.Core
         /// <summary>
         /// The ParseFuncDecl
         /// </summary>
+        /// <param name="isAsync">The isAsync<see cref="bool"/></param>
         /// <returns>The <see cref="FuncDeclStmt"/></returns>
         private FuncDeclStmt ParseFuncDecl()
         {
+            int line = _current.Line;
+            int col = _current.Column;
+
 
             Eat(TokenType.Func);
+
+            if (_current.Type != TokenType.Ident)
+                throw new ParserException("expected function name", line, col, _current.Filename);
+
             string name = _current.Value.ToString() ?? "";
-            if (Lexer.Keywords.ContainsKey(name))
-                throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
             Eat(TokenType.Ident);
 
             List<string> parameters = ParseParams();
@@ -1921,9 +1932,10 @@ namespace CFGS_VM.Analytic.Core
             _funcOrClassDepth++;
             _funcDepth++;
             BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
-            _funcOrClassDepth--;
             _funcDepth--;
-            return new FuncDeclStmt(name, parameters, body, _current.Line, _current.Column, _current.Filename);
+            _funcOrClassDepth--;
+
+            return new FuncDeclStmt(name, parameters, body, line, col, _current.Filename);
         }
 
         /// <summary>
