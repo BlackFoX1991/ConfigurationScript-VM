@@ -10,27 +10,57 @@ using System.Text;
 
 namespace CFGS_VM.VMCore
 {
+    /// <summary>
+    /// Defines the <see cref="VM" />
+    /// </summary>
     public class VM
     {
-
-        #region DatatypeHandler
+        /// <summary>
+        /// Defines the NumKind
+        /// </summary>
         private enum NumKind
         {
+            /// <summary>
+            /// Defines the Int32
+            /// </summary>
             Int32,
 
+            /// <summary>
+            /// Defines the Int64
+            /// </summary>
             Int64,
 
+            /// <summary>
+            /// Defines the UInt64
+            /// </summary>
             UInt64,
 
+            /// <summary>
+            /// Defines the Double
+            /// </summary>
             Double,
 
+            /// <summary>
+            /// Defines the Decimal
+            /// </summary>
             Decimal
         }
 
+        /// <summary>
+        /// The IsNumber
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
         public static bool IsNumber(object x) =>
             x is sbyte or byte or short or ushort or int or uint or long or ulong
               or float or double or decimal or char;
 
+        /// <summary>
+        /// The PromoteKind
+        /// </summary>
+        /// <param name="a">The a<see cref="object"/></param>
+        /// <param name="b">The b<see cref="object"/></param>
+        /// <returns>The <see cref="NumKind"/></returns>
         private static NumKind PromoteKind(object a, object b)
         {
             if (a is decimal || b is decimal) return NumKind.Decimal;
@@ -40,9 +70,20 @@ namespace CFGS_VM.VMCore
             return NumKind.Int32;
         }
 
+        /// <summary>
+        /// The CharToNumeric
+        /// </summary>
+        /// <param name="o">The o<see cref="object"/></param>
+        /// <returns>The <see cref="object"/></returns>
         internal static object CharToNumeric(object o)
     => o is char ch ? (char.IsDigit(ch) ? (int)(ch - '0') : (int)ch) : o;
 
+        /// <summary>
+        /// The CoercePair
+        /// </summary>
+        /// <param name="a">The a<see cref="object"/></param>
+        /// <param name="b">The b<see cref="object"/></param>
+        /// <returns>The <see cref="(object A, object B, NumKind K)"/></returns>
         private static (object A, object B, NumKind K) CoercePair(object a, object b)
         {
             a = a is char ? CharToNumeric(a) : a;
@@ -63,6 +104,11 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The CompareAsDecimal
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="decimal"/></returns>
         public static decimal CompareAsDecimal(object x) => x switch
         {
             sbyte v => v,
@@ -80,6 +126,11 @@ namespace CFGS_VM.VMCore
             _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}"),
         };
 
+        /// <summary>
+        /// The ToBool
+        /// </summary>
+        /// <param name="v">The v<see cref="object?"/></param>
+        /// <returns>The <see cref="bool"/></returns>
         private static bool ToBool(object? v)
         {
             if (v is null) return false;
@@ -93,35 +144,66 @@ namespace CFGS_VM.VMCore
             if (v is Dictionary<string, object> dict) return dict.Count != 0;
             return true;
         }
-        #endregion
 
-        #region EnvironmentHandler
-
-
+        /// <summary>
+        /// Defines the _tryHandlers
+        /// </summary>
         private readonly Stack<TryHandler> _tryHandlers = new();
 
         private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef);
+        /// <summary>
+        /// The PopScopesToBase
+        /// </summary>
+        /// <param name="baseDepth">The baseDepth<see cref="int"/></param>
         private void PopScopesToBase(int baseDepth)
         {
             while (_scopes.Count > baseDepth)
                 _scopes.RemoveAt(_scopes.Count - 1);
         }
 
+        /// <summary>
+        /// Gets the CurrentThis
+        /// </summary>
         private object? CurrentThis => _callStack.Count > 0 ? _callStack.Peek().ThisRef : null;
 
+        /// <summary>
+        /// Defines the _stack
+        /// </summary>
         private readonly Stack<object> _stack = new();
 
+        /// <summary>
+        /// Defines the _scopes
+        /// </summary>
         private readonly List<Env> _scopes = new() { new Env(null) };
 
+        /// <summary>
+        /// Defines the _functions
+        /// </summary>
         public Dictionary<string, FunctionInfo> _functions = new();
 
+        /// <summary>
+        /// Gets the Builtins
+        /// </summary>
         public BuiltinRegistry Builtins { get; } = new();
 
+        /// <summary>
+        /// Defines the _callStack
+        /// </summary>
         private readonly Stack<CallFrame> _callStack = new();
+
+        /// <summary>
+        /// The LoadPluginsFrom
+        /// </summary>
+        /// <param name="directory">The directory<see cref="string"/></param>
         public void LoadPluginsFrom(string directory)
         {
             PluginLoader.LoadDirectory(directory, Builtins, Intrinsics);
         }
+
+        /// <summary>
+        /// The LoadFunctions
+        /// </summary>
+        /// <param name="funcs">The funcs<see cref="Dictionary{string, FunctionInfo}"/></param>
         public void LoadFunctions(Dictionary<string, FunctionInfo> funcs)
         {
             foreach (KeyValuePair<string, FunctionInfo> kv in funcs)
@@ -132,6 +214,11 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The FindEnvWithLocal
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="Env?"/></returns>
         private Env? FindEnvWithLocal(string name)
         {
             for (Env? env = _scopes.Count > 0 ? _scopes[^1] : null; env != null; env = env.Parent)
@@ -149,25 +236,70 @@ namespace CFGS_VM.VMCore
 
             return null;
         }
-        #endregion
 
-        #region InstructionHandler
-
+        /// <summary>
+        /// Gets or sets a value indicating whether AllowFileIO
+        /// </summary>
         public static bool AllowFileIO { get; set; } = true;
 
+        /// <summary>
+        /// Gets or sets a value indicating whether IsDebugging
+        /// </summary>
         public static bool IsDebugging { get; set; } = false;
 
+        /// <summary>
+        /// Defines the _program
+        /// </summary>
         private List<Instruction>? _program;
+
+        /// <summary>
+        /// Defines the _awaitTask
+        /// </summary>
+        private Task<object?>? _awaitTask;
+
+        /// <summary>
+        /// Defines the _awaitResumeIp
+        /// </summary>
+        private int _awaitResumeIp;
+
+        /// <summary>
+        /// Defines the StepResult
+        /// </summary>
         private enum StepResult
         {
+            /// <summary>
+            /// Defines the Next
+            /// </summary>
             Next,
 
+            /// <summary>
+            /// Defines the Continue
+            /// </summary>
             Continue,
 
+            /// <summary>
+            /// Defines the Routed
+            /// </summary>
             Routed,
 
-            Halt
+            /// <summary>
+            /// Defines the Halt
+            /// </summary>
+            Halt,
+
+            /// <summary>
+            /// Defines the Await
+            /// </summary>
+            Await
         }
+
+        /// <summary>
+        /// The HandleInstruction
+        /// </summary>
+        /// <param name="_ip">The _ip<see cref="int"/></param>
+        /// <param name="_insns">The _insns<see cref="List{Instruction}"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="StepResult"/></returns>
         private StepResult HandleInstruction(ref int _ip, List<Instruction> _insns, Instruction instr)
         {
             switch (instr.Code)
@@ -237,7 +369,6 @@ namespace CFGS_VM.VMCore
                         int targetIp = Convert.ToInt32(arr[0]);
                         int scopesToPop = Convert.ToInt32(arr[1]);
 
-
                         TryHandler? nextFinally = null;
                         foreach (TryHandler th in _tryHandlers)
                         {
@@ -262,7 +393,6 @@ namespace CFGS_VM.VMCore
                             return StepResult.Routed;
                         }
 
-
                         for (int i = 0; i < scopesToPop; i++)
                         {
                             if (_scopes.Count <= 1)
@@ -273,8 +403,6 @@ namespace CFGS_VM.VMCore
                         _ip = targetIp;
                         return StepResult.Continue;
                     }
-
-
 
                 case OpCode.NEW_OBJECT:
                     {
@@ -1554,6 +1682,67 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case OpCode.AWAIT:
+                    {
+                        RequireStack(1, instr, "AWAIT");
+                        object? awaited = _stack.Pop();
+
+                        if (!AwaitableAdapter.TryGetTask(awaited, out Task<object?>? task))
+                        {
+                            _stack.Push(awaited);
+                            break;
+                        }
+
+                        if (task.IsCompleted)
+                        {
+                            if (task.IsFaulted)
+                            {
+                                Exception ex = task.Exception?.InnerException ?? task.Exception ?? new Exception("await faulted");
+                                ExceptionObject payload = new(
+                                    type: "AwaitError",
+                                    message: ex.Message,
+                                    file: instr.OriginFile,
+                                    line: instr.Line,
+                                    col: instr.Col,
+                                    stack: BuildStackString(_insns, instr)
+                                );
+
+                                if (RouteExceptionToTryHandlers(payload, instr, out int nip))
+                                {
+                                    _ip = nip;
+                                    return StepResult.Routed;
+                                }
+                                throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+                            }
+
+                            if (task.IsCanceled)
+                            {
+                                ExceptionObject payload = new(
+                                    type: "AwaitCanceled",
+                                    message: "await canceled",
+                                    file: instr.OriginFile,
+                                    line: instr.Line,
+                                    col: instr.Col,
+                                    stack: BuildStackString(_insns, instr)
+                                );
+
+                                if (RouteExceptionToTryHandlers(payload, instr, out int nip))
+                                {
+                                    _ip = nip;
+                                    return StepResult.Routed;
+                                }
+                                throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+                            }
+
+                            _stack.Push(task.Result);
+                            break;
+                        }
+
+                        _awaitTask = task;
+                        _awaitResumeIp = _ip;
+                        return StepResult.Await;
+                    }
+
                 case OpCode.HALT:
                     return StepResult.Halt;
 
@@ -1600,8 +1789,8 @@ namespace CFGS_VM.VMCore
                                         throw new VMException($"Runtime error: insufficient args for {funcName}()", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                                     args.Insert(0, _stack.Pop());
                                 }
-                                object result = desc.Invoke(args, instr);
-                                _stack.Push(result);
+                                object? ret = desc.Invoke(args, instr);
+                                _stack.Push(ret);
                                 break;
                             }
 
@@ -1656,7 +1845,7 @@ namespace CFGS_VM.VMCore
                                         instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
                                     );
 
-                                object result = ib_ex.Method.Invoke(ib_ex.Receiver, argsList, instr);
+                                object? result = ib_ex.Method.Invoke(ib_ex.Receiver, argsList, instr);
                                 _stack.Push(result);
                                 return StepResult.Continue;
                             }
@@ -1670,9 +1859,11 @@ namespace CFGS_VM.VMCore
                                         $"Runtime error: builtin '{bc.Name}' expects {desc.ArityMin}..{desc.ArityMax} args, got {explicitArgCount}",
                                         instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
-                                object result = desc.Invoke(argsList, instr);
+                                object? result = desc.Invoke(argsList, instr);
                                 _stack.Push(result);
+
                                 return StepResult.Continue;
+
                             }
                             else if (callee is BoundMethod bm)
                             {
@@ -1770,10 +1961,12 @@ namespace CFGS_VM.VMCore
                                 for (int i = 0; i < need; i++)
                                 {
                                     if (_stack.Count == 0)
-                                        throw new VMException("Runtime error: insufficient args for intrinsic call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+                                        throw new VMException("Runtime error: insufficient args for intrinsic call",
+                                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
                                     argsB.Add(_stack.Pop());
                                 }
-                                object result = ib.Method.Invoke(ib.Receiver, argsB, instr);
+
+                                object? result = ib.Method.Invoke(ib.Receiver, argsB, instr);
                                 _stack.Push(result);
                                 return StepResult.Continue;
                             }
@@ -1792,9 +1985,12 @@ namespace CFGS_VM.VMCore
                                 }
                                 argsB.Reverse();
 
-                                object result = desc.Invoke(argsB, instr);
+                                object? result = desc.Invoke(argsB, instr);
+
                                 _stack.Push(result);
+
                                 return StepResult.Continue;
+
                             }
 
                             else if (callee is BoundMethod bm)
@@ -1902,7 +2098,6 @@ namespace CFGS_VM.VMCore
                     {
                         object? retVal = _stack.Count > 0 ? _stack.Pop() : null;
 
-
                         TryHandler? nextFinally = null;
                         foreach (TryHandler th in _tryHandlers)
                         {
@@ -1942,8 +2137,6 @@ namespace CFGS_VM.VMCore
                         return StepResult.Continue;
                     }
 
-
-
                 case OpCode.TRY_PUSH:
                     {
                         object[] arr = (object[])instr.Operand!;
@@ -1968,7 +2161,6 @@ namespace CFGS_VM.VMCore
 
                         TryHandler h = _tryHandlers.Peek();
 
-
                         if (!h.InFinally && h.FinallyAddr >= 0)
                         {
                             if (h.FinallyAddr >= _ip)
@@ -1986,13 +2178,11 @@ namespace CFGS_VM.VMCore
                             }
                         }
 
-
                         if (h.HasPendingReturn)
                         {
                             object? retVal = h.PendingReturnValue;
 
                             _tryHandlers.Pop();
-
 
                             TryHandler? outerWithFinally = null;
                             foreach (TryHandler th in _tryHandlers)
@@ -2009,7 +2199,7 @@ namespace CFGS_VM.VMCore
                                 outerWithFinally.HasPendingReturn = true;
                                 outerWithFinally.PendingReturnValue = retVal;
                                 outerWithFinally.InFinally = true;
-                                outerWithFinally.CatchAddr = -1;   // catch deaktivieren
+                                outerWithFinally.CatchAddr = -1;
 
                                 int nip = outerWithFinally.FinallyAddr;
                                 outerWithFinally.FinallyAddr = -1;
@@ -2032,7 +2222,6 @@ namespace CFGS_VM.VMCore
                             _stack.Push(retVal);
                             return StepResult.Continue;
                         }
-
 
                         if (h.HasPendingLeave)
                         {
@@ -2076,7 +2265,6 @@ namespace CFGS_VM.VMCore
                             return StepResult.Continue;
                         }
 
-
                         if (h.Exception is object ex)
                         {
                             _tryHandlers.Pop();
@@ -2094,8 +2282,6 @@ namespace CFGS_VM.VMCore
                         _tryHandlers.Pop();
                         break;
                     }
-
-
 
                 case OpCode.THROW:
                     {
@@ -2136,6 +2322,11 @@ namespace CFGS_VM.VMCore
             return StepResult.Next;
         }
 
+        /// <summary>
+        /// The Run
+        /// </summary>
+        /// <param name="debugging">The debugging<see cref="bool"/></param>
+        /// <param name="lastPos">The lastPos<see cref="int"/></param>
         public void Run(bool debugging = false, int lastPos = 0)
         {
             if (_program is null || _program.Count == 0)
@@ -2253,11 +2444,217 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// Defines the RunStopReason
+        /// </summary>
+        private enum RunStopReason
+        {
+            /// <summary>
+            /// Defines the Halted
+            /// </summary>
+            Halted,
+
+            /// <summary>
+            /// Defines the AwaitPending
+            /// </summary>
+            AwaitPending
+        }
+
+        /// <summary>
+        /// The RunUntilAwaitOrHalt
+        /// </summary>
+        /// <param name="debugging">The debugging<see cref="bool"/></param>
+        /// <param name="lastPos">The lastPos<see cref="int"/></param>
+        /// <returns>The <see cref="RunStopReason"/></returns>
+        private RunStopReason RunUntilAwaitOrHalt(bool debugging = false, int lastPos = 0)
+        {
+            if (_program is null || _program.Count == 0)
+                return RunStopReason.Halted;
+
+            bool routed = false;
+
+            IsDebugging = debugging;
+            int _ip = lastPos;
+
+            while (_ip < _program.Count)
+            {
+                try
+                {
+                    if (debugging)
+                    {
+                        int di = Math.Clamp(_ip, 0, _program.Count - 1);
+                        Instruction dinstr = _program[di];
+                        DebugStream.Write(System.Text.Encoding.Default.GetBytes(
+                            $"[DEBUG] {dinstr.Line} ->  IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
+                        DebugStream.Write(System.Text.Encoding.Default.GetBytes(
+                            $"[DEBUG] {dinstr} (Line {dinstr.Line}, Col {dinstr.Col})\n"));
+                    }
+
+                    Instruction instr = _program[_ip++];
+                    _ip = Math.Clamp(_ip, 0, _program.Count - 1);
+                    StepResult res = HandleInstruction(ref _ip, _program, instr);
+
+                    if (res == StepResult.Halt) return RunStopReason.Halted;
+                    if (res == StepResult.Await) return RunStopReason.AwaitPending;
+                    if (res == StepResult.Continue) continue;
+                    if (res == StepResult.Routed) routed = true;
+                }
+                catch (VMException ex)
+                {
+                    int safeIp = Math.Min(_ip, _program.Count - 1);
+
+                    ExceptionObject payload = new(
+                        type: "RuntimeError",
+                        message: ex.Message,
+                        file: _program[safeIp].OriginFile,
+                        line: _program[safeIp].Line,
+                        col: _program[safeIp].Col,
+                        stack: BuildStackString(_program, _program[safeIp])
+                    );
+
+                    if (RouteExceptionToTryHandlers(payload, _program[safeIp], out int nip))
+                    {
+                        _ip = nip;
+                        routed = true;
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                catch (Exception sysEx)
+                {
+                    int safeIp = Math.Min(_ip, _program.Count - 1);
+                    ExceptionObject payload = new(
+                        type: "SystemError",
+                        message: sysEx.Message,
+                        file: _program[safeIp].OriginFile,
+                        line: _program[safeIp].Line,
+                        col: _program[safeIp].Col,
+                        stack: BuildStackString(_program, _program[safeIp])
+                    );
+
+                    if (RouteExceptionToTryHandlers(payload, _program[safeIp], out int nip))
+                    {
+                        _ip = nip;
+                        routed = true;
+                    }
+                    else
+                    {
+                        throw new VMException($"Uncaught system exception : " + sysEx.Message,
+                            _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream);
+                    }
+                }
+
+                if (routed)
+                {
+                    int safeIp = Math.Min(_ip, _program.Count - 1);
+                    routed = false;
+
+                    if (_tryHandlers.Count > 0)
+                    {
+                        TryHandler top = _tryHandlers.Peek();
+
+                        if (top.Exception is object deferredEx && !top.InFinally)
+                        {
+                            top.Exception = null;
+
+                            if (RouteExceptionToTryHandlers(deferredEx, _program[safeIp], out int nip2))
+                            {
+                                _ip = nip2;
+                                routed = true;
+                            }
+                            else
+                            {
+                                if (debugging)
+                                {
+                                    DebugStream.Position = 0;
+                                    using FileStream file = File.Create("log_file.log");
+                                    DebugStream.CopyTo(file);
+                                }
+                                throw new VMException("Uncaught system exception : ",
+                                    _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream);
+                            }
+                        }
+                    }
+
+                    continue;
+                }
+            }
+
+            return RunStopReason.Halted;
+        }
+
+        /// <summary>
+        /// The RunAsync
+        /// </summary>
+        /// <param name="debugging">The debugging<see cref="bool"/></param>
+        /// <param name="lastPos">The lastPos<see cref="int"/></param>
+        /// <param name="ct">The ct<see cref="CancellationToken"/></param>
+        /// <returns>The <see cref="Task"/></returns>
+        public async Task RunAsync(bool debugging = false, int lastPos = 0, CancellationToken ct = default)
+        {
+            DebugStream = new MemoryStream();
+
+            int startIp = lastPos;
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                RunStopReason reason = RunUntilAwaitOrHalt(debugging, startIp);
+                if (reason == RunStopReason.Halted)
+                    return;
+
+                Task<object?> task = _awaitTask!;
+                try
+                {
+                    object? res = await task.ConfigureAwait(false);
+                    _stack.Push(res);
+                }
+                catch (Exception ex)
+                {
+                    int safeIp = Math.Min(_awaitResumeIp, (_program?.Count ?? 1) - 1);
+                    Instruction at = SafeCurrentInstr(_program!, _awaitResumeIp);
+
+                    ExceptionObject payload = new(
+                        type: "AwaitError",
+                        message: ex.Message,
+                        file: at.OriginFile,
+                        line: at.Line,
+                        col: at.Col,
+                        stack: BuildStackString(_program!, at)
+                    );
+
+                    if (RouteExceptionToTryHandlers(payload, at, out int nip))
+                    {
+                        startIp = nip;
+                        _awaitTask = null;
+                        continue;
+                    }
+
+                    throw new VMException(payload.ToString()!, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream);
+                }
+
+                startIp = _awaitResumeIp;
+                _awaitTask = null;
+            }
+        }
+
+        /// <summary>
+        /// The LoadInstructions
+        /// </summary>
+        /// <param name="inst">The inst<see cref="List{Instruction}"/></param>
         public void LoadInstructions(List<Instruction> inst)
         {
             _program = inst;
         }
 
+        /// <summary>
+        /// The SafeCurrentInstr
+        /// </summary>
+        /// <param name="insns">The insns<see cref="List{Instruction}"/></param>
+        /// <param name="ip">The ip<see cref="int"/></param>
+        /// <returns>The <see cref="Instruction"/></returns>
         private static Instruction SafeCurrentInstr(List<Instruction> insns, int ip)
         {
             if (insns == null || insns.Count == 0)
@@ -2268,12 +2665,18 @@ namespace CFGS_VM.VMCore
             return insns[i];
         }
 
+        /// <summary>
+        /// The RouteExceptionToTryHandlers
+        /// </summary>
+        /// <param name="exPayload">The exPayload<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <param name="newIp">The newIp<see cref="int"/></param>
+        /// <returns>The <see cref="bool"/></returns>
         private bool RouteExceptionToTryHandlers(object exPayload, Instruction instr, out int newIp)
         {
             while (_tryHandlers.Count > 0)
             {
                 TryHandler h = _tryHandlers.Peek();
-
 
                 if (h.InFinally)
                 {
@@ -2282,7 +2685,6 @@ namespace CFGS_VM.VMCore
                 }
 
                 PopScopesToBase(h.ScopeDepthAtTry);
-
 
                 if (h.CatchAddr >= 0)
                 {
@@ -2306,12 +2708,10 @@ namespace CFGS_VM.VMCore
                     return true;
                 }
 
-
                 if (h.FinallyAddr >= 0)
                 {
                     h.Exception = exPayload;
                     newIp = h.FinallyAddr;
-
 
                     h.FinallyAddr = -1;
                     h.InFinally = true;
@@ -2331,7 +2731,6 @@ namespace CFGS_VM.VMCore
                     return true;
                 }
 
-
                 _tryHandlers.Pop();
             }
 
@@ -2339,14 +2738,17 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-
-
-        #endregion
-
-
-        #region StackHandler
-
+        /// <summary>
+        /// Gets the DebugStream
+        /// </summary>
         public static MemoryStream DebugStream { get; private set; }
+
+        /// <summary>
+        /// The RequireStack
+        /// </summary>
+        /// <param name="needed">The needed<see cref="int"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <param name="opName">The opName<see cref="string?"/></param>
         private void RequireStack(int needed, Instruction instr, string? opName = null)
         {
             if (_stack.Count < needed)
@@ -2354,6 +2756,13 @@ namespace CFGS_VM.VMCore
                     $"Runtime error: {(opName ?? instr.Code.ToString())} needs {needed} stack values (have {_stack.Count})",
                     instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
         }
+
+        /// <summary>
+        /// The BuildStackString
+        /// </summary>
+        /// <param name="insns">The insns<see cref="List{Instruction}"/></param>
+        /// <param name="current">The current<see cref="Instruction"/></param>
+        /// <returns>The <see cref="string"/></returns>
         private string BuildStackString(List<Instruction> insns, Instruction current)
         {
             StringBuilder sb = new();
@@ -2375,6 +2784,11 @@ namespace CFGS_VM.VMCore
 
             return sb.ToString();
         }
+
+        /// <summary>
+        /// The DumpStack
+        /// </summary>
+        /// <returns>The <see cref="string"/></returns>
         private string DumpStack()
         {
             if (_stack == null || _stack.Count == 0) return "<empty>";
@@ -2383,6 +2797,10 @@ namespace CFGS_VM.VMCore
             return string.Join(" | ", parts);
         }
 
+        /// <summary>
+        /// The DumpCallStack
+        /// </summary>
+        /// <returns>The <see cref="string"/></returns>
         private string DumpCallStack()
         {
             if (_callStack == null || _callStack.Count == 0) return "<empty>";
@@ -2405,9 +2823,12 @@ namespace CFGS_VM.VMCore
 
             return string.Join(" ; ", parts);
         }
-        #endregion
 
-        #region formatters
+        /// <summary>
+        /// The FormatVal
+        /// </summary>
+        /// <param name="v">The v<see cref="object?"/></param>
+        /// <returns>The <see cref="string"/></returns>
         private string FormatVal(object? v)
         {
             if (v == null) return "null";
@@ -2430,6 +2851,11 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The JsonEscapeString
+        /// </summary>
+        /// <param name="s">The s<see cref="string"/></param>
+        /// <returns>The <see cref="string"/></returns>
         private static string JsonEscapeString(string s)
         {
             StringBuilder sb = new(s.Length + 8);
@@ -2455,6 +2881,13 @@ namespace CFGS_VM.VMCore
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The WriteJsonValue
+        /// </summary>
+        /// <param name="v">The v<see cref="object?"/></param>
+        /// <param name="w">The w<see cref="TextWriter"/></param>
+        /// <param name="seen">The seen<see cref="HashSet{object}?"/></param>
+        /// <param name="mode">The mode<see cref="int"/></param>
         private static void WriteJsonValue(object? v, TextWriter w, HashSet<object>? seen = null, int mode = 2)
         {
             seen ??= new HashSet<object>(ReferenceEqualityComparer.Instance);
@@ -2540,6 +2973,12 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The JsonStringify
+        /// </summary>
+        /// <param name="v">The v<see cref="object?"/></param>
+        /// <param name="mode">The mode<see cref="int"/></param>
+        /// <returns>The <see cref="string"/></returns>
         public static string JsonStringify(object? v, int mode = 2)
         {
             StringBuilder sb = new();
@@ -2548,6 +2987,14 @@ namespace CFGS_VM.VMCore
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The PrintValue
+        /// </summary>
+        /// <param name="v">The v<see cref="object"/></param>
+        /// <param name="w">The w<see cref="TextWriter"/></param>
+        /// <param name="mode">The mode<see cref="int"/></param>
+        /// <param name="seen">The seen<see cref="HashSet{object}?"/></param>
+        /// <param name="escapeNewlines">The escapeNewlines<see cref="bool"/></param>
         public static void PrintValue(object v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false)
         {
             static string UnescapeForPrinting(string s)
@@ -2649,10 +3096,13 @@ namespace CFGS_VM.VMCore
             }
             w.Flush();
         }
-        #endregion
 
-        #region index_access
-
+        /// <summary>
+        /// The RequireIntIndex
+        /// </summary>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="int"/></returns>
         private static int RequireIntIndex(object idxObj, Instruction instr)
         {
             if (idxObj is int i) return i;
@@ -2671,6 +3121,13 @@ namespace CFGS_VM.VMCore
             throw new VMException($"Runtime error: index must be an integer, got '{idxObj?.GetType().Name ?? "null"}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
         }
 
+        /// <summary>
+        /// The CreateIndexException
+        /// </summary>
+        /// <param name="target">The target<see cref="object"/></param>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="VMException"/></returns>
         private static VMException CreateIndexException(object target, object idxObj, Instruction instr)
         {
             string tid = target?.GetType().FullName ?? "null";
@@ -2686,6 +3143,14 @@ namespace CFGS_VM.VMCore
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream
             );
         }
+
+        /// <summary>
+        /// The GetIndexedValue
+        /// </summary>
+        /// <param name="target">The target<see cref="object"/></param>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="object"/></returns>
         private object GetIndexedValue(object target, object idxObj, Instruction instr)
         {
             switch (target)
@@ -2892,6 +3357,13 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The SetIndexedValue
+        /// </summary>
+        /// <param name="target">The target<see cref="object"/></param>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <param name="value">The value<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
         private void SetIndexedValue(ref object target, object idxObj, object value, Instruction instr)
         {
             switch (target)
@@ -2967,6 +3439,14 @@ namespace CFGS_VM.VMCore
                     throw new VMException("Runtime error: target is not index-assignable", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
             }
         }
+
+        /// <summary>
+        /// The DeleteSliceOnTarget
+        /// </summary>
+        /// <param name="target">The target<see cref="object"/></param>
+        /// <param name="startObj">The startObj<see cref="object"/></param>
+        /// <param name="endObj">The endObj<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
         private static void DeleteSliceOnTarget(ref object target, object startObj, object endObj, Instruction instr)
         {
             if (target is string)
@@ -3037,6 +3517,14 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// The NormalizeSliceBounds
+        /// </summary>
+        /// <param name="startObj">The startObj<see cref="object?"/></param>
+        /// <param name="endObj">The endObj<see cref="object?"/></param>
+        /// <param name="len">The len<see cref="int"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="(int start, int endEx)"/></returns>
         private static (int start, int endEx) NormalizeSliceBounds(object? startObj, object? endObj, int len, Instruction instr)
         {
             bool startIsNull = startObj == null;
@@ -3069,19 +3557,32 @@ namespace CFGS_VM.VMCore
 
             return (start, endEx);
         }
-        #endregion
 
-        #region intrinsic
-
+        /// <summary>
+        /// Gets the Intrinsics
+        /// </summary>
         public IntrinsicRegistry Intrinsics { get; } = new();
 
+        /// <summary>
+        /// The TryBindIntrinsic
+        /// </summary>
+        /// <param name="receiver">The receiver<see cref="object"/></param>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="bound">The bound<see cref="IntrinsicBound"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="bool"/></returns>
         private bool TryBindIntrinsic(object receiver, string name, out IntrinsicBound bound, Instruction instr)
         {
             Type t = receiver?.GetType() ?? typeof(object);
             if (Intrinsics.TryGet(t, name, out IntrinsicDescriptor? desc))
             {
-                IntrinsicMethod adapted = new(desc.Name, desc.ArityMin, desc.ArityMax,
-                    (recv, args, ins) => desc.Invoke(recv, args, ins));
+                IntrinsicMethod adapted = new(
+                    desc.Name,
+                    desc.ArityMin,
+                    desc.ArityMax,
+                    (recv, args, ins) => desc.Invoke(recv, args, ins),
+                    smartAwait: desc.SmartAwait
+                );
                 bound = new IntrinsicBound(adapted, receiver);
                 return true;
             }
@@ -3089,15 +3590,22 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
+        /// <summary>
+        /// The IsReservedIntrinsicName
+        /// </summary>
+        /// <param name="receiver">The receiver<see cref="object"/></param>
+        /// <param name="idxObj">The idxObj<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
         private bool IsReservedIntrinsicName(object receiver, object idxObj)
         {
             if (idxObj is not string name) return false;
             Type t = receiver?.GetType() ?? typeof(object);
             return Intrinsics.TryGet(t, name, out _);
         }
-        #endregion
 
-
+        /// <summary>
+        /// Initializes a new instance of the <see cref="VM"/> class.
+        /// </summary>
         public VM()
         {
             DebugStream = new MemoryStream();

@@ -1,5 +1,5 @@
-﻿using CFGS_VM.VMCore.Plugin;
-using CFGS_VM.VMCore.Extensions;
+﻿using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Plugin;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
@@ -61,18 +61,24 @@ namespace CFGS_VM.VMCore.CorePlugin
                 Dictionary<string, object> headers = args.Count >= 2 && args[1] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
 
-                using CancellationTokenSource cts = new(timeout);
-                using HttpRequestMessage req = new(HttpMethod.Get, url);
+                return Task.Run<object?>(async () =>
+                {
+                    using CancellationTokenSource cts = new(timeout);
+                    using HttpRequestMessage req = new(HttpMethod.Get, url);
 
-                if (HasContentType(headers))
-                    req.Content = new ByteArrayContent(Array.Empty<byte>());
+                    if (HasContentType(headers))
+                        req.Content = new ByteArrayContent(Array.Empty<byte>());
 
-                ApplyHeaders(req, headers);
+                    ApplyHeaders(req, headers);
 
-                HttpResponseMessage resp = _client.Send(req, HttpCompletionOption.ResponseContentRead, cts.Token);
-                string body = resp.Content.ReadAsStringAsync(cts.Token).GetAwaiter().GetResult();
-                return ToVmResponse(resp, body);
-            }));
+                    using HttpResponseMessage resp = await _client
+                        .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
+                        .ConfigureAwait(false);
+
+                    string body = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+                    return ToVmResponse(resp, body);
+                });
+            }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("http_post", 2, 4, (args, instr) =>
             {
@@ -81,17 +87,23 @@ namespace CFGS_VM.VMCore.CorePlugin
                 Dictionary<string, object> headers = args.Count >= 3 && args[2] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
 
-                using CancellationTokenSource cts = new(timeout);
-                using HttpRequestMessage req = new(HttpMethod.Post, url);
+                return Task.Run<object?>(async () =>
+                {
+                    using CancellationTokenSource cts = new(timeout);
+                    using HttpRequestMessage req = new(HttpMethod.Post, url);
 
-                req.Content = new StringContent(body, Encoding.UTF8, "text/plain");
+                    req.Content = new StringContent(body, Encoding.UTF8, "text/plain");
 
-                ApplyHeaders(req, headers);
+                    ApplyHeaders(req, headers);
 
-                HttpResponseMessage resp = _client.Send(req, HttpCompletionOption.ResponseContentRead, cts.Token);
-                string respBody = resp.Content.ReadAsStringAsync(cts.Token).GetAwaiter().GetResult();
-                return ToVmResponse(resp, respBody);
-            }));
+                    using HttpResponseMessage resp = await _client
+                        .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
+                        .ConfigureAwait(false);
+
+                    string respBody = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+                    return ToVmResponse(resp, respBody);
+                });
+            }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("http_download", 2, 3, (args, instr) =>
             {
@@ -115,12 +127,15 @@ namespace CFGS_VM.VMCore.CorePlugin
                 if (!allowFile)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream);
 
-                using CancellationTokenSource cts = new(timeout);
-                byte[] bytes = _client.GetByteArrayAsync(url, cts.Token).GetAwaiter().GetResult();
-                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".");
-                File.WriteAllBytes(path, bytes);
-                return bytes.LongLength;
-            }));
+                return Task.Run<object?>(async () =>
+                {
+                    using CancellationTokenSource cts = new(timeout);
+                    byte[] bytes = await _client.GetByteArrayAsync(url, cts.Token).ConfigureAwait(false);
+                    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".");
+                    await File.WriteAllBytesAsync(path, bytes, cts.Token).ConfigureAwait(false);
+                    return (long)bytes.LongLength;
+                });
+            }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("urlencode", 1, 1, (args, instr) =>
             {
@@ -305,7 +320,6 @@ namespace CFGS_VM.VMCore.CorePlugin
                 if (port <= 0 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port));
                 _port = port;
                 _listener.Prefixes.Add($"http://localhost:{_port}/");
-
                 _listener.IgnoreWriteExceptions = true;
             }
 

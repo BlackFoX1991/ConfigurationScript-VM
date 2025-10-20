@@ -44,7 +44,8 @@ public class Lexer
             {"super",TokenType.Ident },
             {"this",TokenType.Ident },
             {"outer", TokenType.Ident },
-            {"type", TokenType.Ident }
+            {"type", TokenType.Ident },
+            {"await", TokenType.Await}
         };
 
     /// <summary>

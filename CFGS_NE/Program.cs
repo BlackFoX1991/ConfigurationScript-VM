@@ -28,12 +28,16 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v2.2.7-stbl";
+    public static readonly string Version = "v2.3.7-stbl";
 
     /// <summary>
     /// Defines the PluginsFolder
     /// </summary>
     public static string PluginsFolder = "plugins";
+
+    /// <summary>
+    /// Defines the CLIPath
+    /// </summary>
     public static string CLIPath = string.Empty;
 
     /// <summary>
@@ -120,7 +124,6 @@ public class Program
                     Environment.CurrentDirectory = Path.GetDirectoryName(Path.GetFullPath(file)) ?? Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
                     RunSource(input, file, IsDebug, BinaryRun);
 
-
                 }
             }
             else
@@ -152,13 +155,20 @@ public class Program
     }
 
     /// <summary>
-    /// The RunSource
+    /// The RunSourceAsync
     /// </summary>
     /// <param name="source">The source<see cref="string"/></param>
     /// <param name="name">The name<see cref="string"/></param>
     /// <param name="debug">The debug<see cref="bool"/></param>
     /// <param name="binaryRun">The binaryRun<see cref="bool"/></param>
-    private static void RunSource(string source, string name, bool debug = false, bool binaryRun = false)
+    /// <param name="ct">The ct<see cref="CancellationToken"/></param>
+    /// <returns>The <see cref="Task"/></returns>
+    private static async Task RunSourceAsync(
+    string source,
+    string name,
+    bool debug = false,
+    bool binaryRun = false,
+    CancellationToken ct = default)
     {
         Lexer? lexer = null;
         Parser? parser = null;
@@ -172,13 +182,16 @@ public class Program
             lexer = new(name, source);
             parser = new(lexer);
             ast = parser.Parse();
+
             compiler = new(name);
             bytecode = compiler.Compile(ast);
+
             if (!SetCompile)
             {
                 vm.LoadPluginsFrom(PluginsFolder);
                 vm.LoadFunctions(compiler._functions);
                 vm.LoadInstructions(bytecode);
+
                 if (debug)
                 {
                     Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
@@ -192,18 +205,15 @@ public class Program
                                   + " | " + "Operand".PadRight(operandWidth)
                                   + " |";
                     Console.WriteLine(header);
-
                     Console.WriteLine(new string('-', header.Length));
 
                     for (int idx = 0; idx < bytecode.Count; idx++)
                     {
                         Instruction ins = bytecode[idx];
-
                         string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
                         string instrNum = $"[{idx + 1:00000}]";
                         string opCode = ins.Code.ToString().PadRight(opCodeWidth);
                         string operand = (ins.Operand?.ToString() ?? "null").PadRight(operandWidth);
-
                         Console.WriteLine($"| {lineCol} | {instrNum} | {opCode} | {operand} |");
                     }
 
@@ -217,7 +227,8 @@ public class Program
                         Console.WriteLine();
                     }
                 }
-                vm.Run(debug);
+
+                await vm.RunAsync(debug, 0, ct);
 
                 if (debug)
                 {
@@ -228,8 +239,9 @@ public class Program
             }
             else
             {
-                CFSBinary.Save(Path.ChangeExtension(name, ".cfb"), bytecode, compiler._functions);
-                Console.WriteLine($"Compiled script '{name}' -> '{Path.ChangeExtension(name, ".cfb")}");
+                string outPath = Path.ChangeExtension(name, ".cfb");
+                CFSBinary.Save(outPath, bytecode, compiler._functions);
+                Console.WriteLine($"Compiled script '{name}' -> '{outPath}'");
             }
         }
         else
@@ -238,6 +250,7 @@ public class Program
             vm.LoadInstructions(bytecode);
             vm.LoadFunctions(funcs);
             vm.LoadPluginsFrom(PluginsFolder);
+
             if (debug)
             {
                 Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
@@ -251,18 +264,15 @@ public class Program
                               + " | " + "Operand".PadRight(operandWidth)
                               + " |";
                 Console.WriteLine(header);
-
                 Console.WriteLine(new string('-', header.Length));
 
                 for (int idx = 0; idx < bytecode.Count; idx++)
                 {
                     Instruction ins = bytecode[idx];
-
                     string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
                     string instrNum = $"[{idx + 1:00000}]";
                     string opCode = ins.Code.ToString().PadRight(opCodeWidth);
                     string operand = (ins.Operand?.ToString() ?? "null").PadRight(operandWidth);
-
                     Console.WriteLine($"| {lineCol} | {instrNum} | {opCode} | {operand} |");
                 }
 
@@ -276,16 +286,27 @@ public class Program
                     Console.WriteLine();
                 }
             }
-            vm.Run(debug);
+
+            await vm.RunAsync(debug, 0, ct);
+
             if (debug)
             {
                 VM.DebugStream.Position = 0;
                 using FileStream file = File.Create("log_file.log");
                 VM.DebugStream.CopyTo(file);
             }
-
         }
     }
+
+    /// <summary>
+    /// The RunSource
+    /// </summary>
+    /// <param name="source">The source<see cref="string"/></param>
+    /// <param name="name">The name<see cref="string"/></param>
+    /// <param name="debug">The debug<see cref="bool"/></param>
+    /// <param name="binaryRun">The binaryRun<see cref="bool"/></param>
+    private static void RunSource(string source, string name, bool debug = false, bool binaryRun = false)
+        => RunSourceAsync(source, name, debug, binaryRun).GetAwaiter().GetResult();
 
     /// <summary>
     /// The ReadMultilineInput

@@ -42,6 +42,8 @@ namespace CFGS_VM.VMCore.Plugin
         /// </summary>
         public BuiltinInvoker Invoke { get; }
 
+        public bool smartAwait { get; }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="BuiltinDescriptor"/> class.
         /// </summary>
@@ -49,12 +51,14 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="arityMin">The arityMin<see cref="int"/></param>
         /// <param name="arityMax">The arityMax<see cref="int"/></param>
         /// <param name="invoke">The invoke<see cref="BuiltinInvoker"/></param>
-        public BuiltinDescriptor(string name, int arityMin, int arityMax, BuiltinInvoker invoke)
+        public BuiltinDescriptor(string name, int arityMin, int arityMax, BuiltinInvoker invoke, bool smartAwait = true)
         {
             Name = name ?? throw new ArgumentNullException(nameof(name));
             ArityMin = arityMin;
             ArityMax = arityMax;
             Invoke = invoke ?? throw new ArgumentNullException(nameof(invoke));
+            this.smartAwait = smartAwait;
+
         }
 
         /// <summary>
@@ -89,6 +93,8 @@ namespace CFGS_VM.VMCore.Plugin
         /// </summary>
         public IntrinsicInvoker Invoke { get; }
 
+        public bool SmartAwait { get; }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="IntrinsicDescriptor"/> class.
         /// </summary>
@@ -96,12 +102,14 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="arityMin">The arityMin<see cref="int"/></param>
         /// <param name="arityMax">The arityMax<see cref="int"/></param>
         /// <param name="invoke">The invoke<see cref="IntrinsicInvoker"/></param>
-        public IntrinsicDescriptor(string name, int arityMin, int arityMax, IntrinsicInvoker invoke)
+        public IntrinsicDescriptor(string name, int arityMin, int arityMax, IntrinsicInvoker invoke, bool smartAwait = true)
         {
             Name = name ?? throw new ArgumentNullException(nameof(name));
             ArityMin = arityMin;
             ArityMax = arityMax;
             Invoke = invoke ?? throw new ArgumentNullException(nameof(invoke));
+            SmartAwait = smartAwait;
+
         }
 
         /// <summary>

@@ -1,0 +1,46 @@
+func main()
+{
+    print("== Async/Await Tests starten ==");
+
+    # 1) Direkt awaited: OK
+    var r1 = await http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"});
+    print("1) awaited: status=" + str(r1.status) + ", reason=" + r1.reason);
+
+    # 2) Ohne await zuerst -> Task speichern, dann awaiten
+    var r2_task = http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"});
+    print("2) typeof(r2_task) = " + typeof(r2_task));
+    var r2 = await r2_task;
+    print("2a) nach await: status=" + str(r2.status) + ", reason=" + r2.reason);
+
+    # 3) Parallel starten, später awaiten
+    var t1 = http_get("https://httpbin.org/delay/1", {"User-Agent":"CFGS_HTTP/1.0"});
+    var t2 = http_get("https://httpbin.org/delay/2", {"User-Agent":"CFGS_HTTP/1.0"});
+    print("3) gestartet: t1 & t2 (keine awaits bisher)");
+
+
+    var r_t1 = await t1;
+    print("3a) nach await t1: status=" + str(r_t1.status));
+
+    var r_t2 = await t2;
+    print("3b) nach await t2: status=" + str(r_t2.status));
+
+    # 4) Await in async-Funktion
+    func fetch(u) {
+        return http_get(u, {"User-Agent":"CFGS_HTTP/1.0"});
+    }
+    var rf = await fetch("https://httpbin.org/get");
+    print("4) func fetch(): status=" + str(rf.status));
+
+    # 5) Task speichern, später awaiten
+    var t3 = http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"});
+    print("5) t3 gespeichert (noch nicht awaited), typeof(t3) = " + typeof(t3));
+    var r3 = await t3;
+    print("5) nach await t3: status=" + str(r3.status));
+
+    # 6) Inline-await in Ausdruck (Demo)
+    print("6) inline await status=" + str((await http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"})).status));
+
+    print("== Async/Await Tests fertig ==");
+}
+
+main();

@@ -376,11 +376,14 @@
         Return,
 
         /// <summary>
+        /// Defines the Await
+        /// </summary>
+        Await,
+
+        /// <summary>
         /// Defines the EOF
         /// </summary>
-        EOF,
+        EOF
     }
-
-
 
 }

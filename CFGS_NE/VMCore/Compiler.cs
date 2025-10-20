@@ -1095,6 +1095,13 @@ namespace CFGS_VM.VMCore
                     CompileLValue(pre.Target, load: true);
                     break;
 
+                case AwaitExpr aw:
+                    {
+
+                        CompileExpr(aw.Inner);
+                        _insns.Add(new Instruction(OpCode.AWAIT, null, e.Line, e.Col, e.OriginFile));
+                        break;
+                    }
                 case CallExpr call:
                     {
                         if (call.Target is IndexExpr ie)

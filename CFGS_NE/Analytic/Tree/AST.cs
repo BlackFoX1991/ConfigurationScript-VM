@@ -1377,6 +1377,30 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
+    /// Defines the <see cref="AwaitExpr" />
+    /// </summary>
+    public sealed class AwaitExpr : Expr
+    {
+        /// <summary>
+        /// Gets the Inner
+        /// </summary>
+        public Expr Inner { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AwaitExpr"/> class.
+        /// </summary>
+        /// <param name="inner">The inner<see cref="Expr"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public AwaitExpr(Expr inner, int line, int col, string file)
+            : base(line, col, file)
+        {
+            Inner = inner;
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="TryStmt" />
     /// </summary>
     public class TryStmt : Stmt
@@ -1504,6 +1528,7 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
+        /// <param name="isAsync">The isAsync<see cref="bool"/></param>
         public FuncDeclStmt(string name, List<string> parameters, BlockStmt body, int line, int col, string fname) : base(line, col, fname)
         {
             Name = name;
@@ -1535,6 +1560,7 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
+        /// <param name="isAsync">The isAsync<see cref="bool"/></param>
         public FuncExpr(List<string> parameters, BlockStmt body, int line, int col, string fname)
             : base(line, col, fname)
         {
