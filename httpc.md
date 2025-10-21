@@ -1,36 +1,46 @@
-# CFGS_HTTP – HTTP Plugin for the CFGS VM
-
+# HTTP Builtins / Intrinsics
 
 ## Table of Contents
-- [Quick Start](#quick-start)
-  - [GET](#get)
-  - [POST (JSON)](#post-json)
-  - [Download](#download)
-  - [URL Encode/Decode](#url-encodedeocode)
-- [API – Client Built-ins](#api--client-built-ins)
-  - [`http_get(url, [headers], [timeoutMs])`](#http_geturl-headers-timeoutms)
-  - [`http_post(url, body, [headers], [timeoutMs])`](#http_posturl-body-headers-timeoutms)
-  - [`http_download(url, path, [timeoutMs])`](#http_downloadurl-path-timeoutms)
-  - [`urlencode(text)` / `urldecode(text)`](#urlencodetext--urldecodetext)
-- [API – Local HTTP Server](#api--local-http-server)
-  - [`http_server(port)` → ServerHandle](#http_serverport--serverhandle)
-  - [ServerHandle Intrinsics](#serverhandle-intrinsics)
-  - [Request object from `poll`](#request-object-from-poll)
-- [Server Examples](#server-examples)
-  - [Hello World](#hello-world)
-  - [Echo Endpoint (JSON + Query)](#echo-endpoint-json--query)
-  - [Graceful Shutdown](#graceful-shutdown)
-- [Errors, Timeouts & Notes](#errors-timeouts--notes)
+
+* [Quick Start](#quick-start)
+
+  * [GET](#get)
+  * [POST (JSON)](#post-json)
+  * [Download](#download)
+  * [URL Encode/Decode](#url-encodedeocode)
+  * [Await semantics](#await-semantics)
+* [API – Client Built-ins](#api--client-built-ins)
+
+  * [`http_get(url, [headers], [timeoutMs])`](#http_geturl-headers-timeoutms)
+  * [`http_post(url, body, [headers], [timeoutMs])`](#http_posturl-body-headers-timeoutms)
+  * [`http_download(url, path, [timeoutMs])`](#http_downloadurl-path-timeoutms)
+  * [`urlencode(text)` / `urldecode(text)`](#urlencodetext--urldecodetext)
+* [API – Local HTTP Server](#api--local-http-server)
+
+  * [`http_server(port)` → ServerHandle](#http_serverport--serverhandle)
+  * [ServerHandle Intrinsics](#serverhandle-intrinsics)
+  * [Request object from `poll`](#request-object-from-poll)
+* [Server Examples](#server-examples)
+
+  * [Hello World](#hello-world)
+  * [Echo Endpoint (JSON + Query)](#echo-endpoint-json--query)
+  * [Graceful Shutdown](#graceful-shutdown)
+* [Errors, Timeouts & Notes](#errors-timeouts--notes)
 
 ---
 
 ## Quick Start
 
 ### GET
+
 ```cfgs
-var resp = http_get("https://httpbin.org/get");
+# If your VM requires explicit awaiting:
+var resp = await http_get("https://httpbin.org/get");
+
+# If your VM auto-resolves built-ins (SmartAwait):
+# var resp = http_get("https://httpbin.org/get");
+
 if (resp["status"] == 200) {
-    # Access reason, headers, body
     print(resp["reason"]);
     print(resp["headers"]["Content-Type"]);
     print(resp["body"]);
@@ -38,11 +48,12 @@ if (resp["status"] == 200) {
 ```
 
 ### POST (JSON)
+
 ```cfgs
 var headers = { "Content-Type": "application/json", "X-Token": "abc123" };
 var payload = "{ \"hello\": \"world\" }";
 
-var resp = http_post("https://httpbin.org/post", payload, headers, 8000);
+var resp = await http_post("https://httpbin.org/post", payload, headers, 8000);
 if (resp["status"] >= 200 && resp["status"] < 300) {
     print(resp["body"]);
 } else {
@@ -51,19 +62,28 @@ if (resp["status"] >= 200 && resp["status"] < 300) {
 ```
 
 ### Download
+
 ```cfgs
 # Note: requires CFGS_STDLIB.AllowFileIO == true
-var bytes = http_download("https://example.com/logo.png", "./out/logo.png");
+var bytes = await http_download("https://example.com/logo.png", "./out/logo.png");
 print("Saved bytes: " + bytes);
 ```
 
 ### URL Encode/Decode
+
 ```cfgs
 var q = urlencode("name=Max Mustermann & city=Köln");
 var url = "https://example.com/search?q=" + q;
-var resp = http_get(url);
+var resp = await http_get(url);
 var original = urldecode(q);
 ```
+
+### Await semantics
+
+All client built-ins (`http_get`, `http_post`, `http_download`) are **asynchronous** and return a task.
+
+* If your VM is configured to **require explicit `await`**, you **must** write `await http_get(...)`.
+* If your VM enables **SmartAwait** for built-ins, you **may** call them without `await`, and the VM will run them to completion before returning a value.
 
 ---
 
@@ -71,24 +91,26 @@ var original = urldecode(q);
 
 ### `http_get(url, [headers], [timeoutMs])`
 
-- **url** `string`
-- **headers** `dict<string,string>` *(optional)*  
-  If `Content-Type` is specified on a GET, an **empty** content body is attached so the header is actually sent.
-- **timeoutMs** `int` *(optional, default **100000**)*
+* **url** `string`
+* **headers** `dict<string,string>` *(optional)*
+  If `Content-Type` is set on a GET, an **empty** content body is attached so the header is sent.
+* **timeoutMs** `int` *(optional, default **100000**)*
 
-**Returns**: `dict`
+**Returns**: `Task<dict>` → when awaited:
+
 ```cfgs
 {
   "status": int,                   # HTTP status code
   "reason": string,                # reason phrase
   "headers": dict<string,string>,  # merged response + content headers
-  "body": string                   # response body as UTF-8 text
+  "body": string                   # response body as text (UTF-8)
 }
 ```
 
 **Example (headers & timeout):**
+
 ```cfgs
-var resp = http_get(
+var resp = await http_get(
     "https://api.example.com/v1/items",
     { "Accept": "application/json", "User-Agent": "CFGS-VM/1.0" },
     5000
@@ -102,19 +124,20 @@ if (resp["status"] == 200) {
 
 ### `http_post(url, body, [headers], [timeoutMs])`
 
-- **url** `string`
-- **body** `string` (UTF-8). Default content type is `"text/plain"` unless overridden via `headers`.
-- **headers** `dict<string,string>` *(optional)*
-- **timeoutMs** `int` *(optional, default **100000**)*
+* **url** `string`
+* **body** `string` (UTF-8). Default content type is `"text/plain"` unless overridden via `headers`.
+* **headers** `dict<string,string>` *(optional)*
+* **timeoutMs** `int` *(optional, default **100000**)*
 
-**Returns**: same as `http_get`.
+**Returns**: `Task<dict>` (same shape as `http_get` result).
 
 **Example (JSON POST):**
+
 ```cfgs
 var payload = "{ \"name\": \"Ada\", \"age\": 42 }";
 var headers = { "Content-Type": "application/json" };
 
-var resp = http_post("https://httpbin.org/post", payload, headers);
+var resp = await http_post("https://httpbin.org/post", payload, headers);
 print(resp["status"]);
 print(resp["body"]);
 ```
@@ -123,18 +146,19 @@ print(resp["body"]);
 
 ### `http_download(url, path, [timeoutMs])`
 
-- **url** `string`
-- **path** `string` (relative/absolute). Missing directories are created.
-- **timeoutMs** `int` *(optional, default **100000**)*
+* **url** `string`
+* **path** `string` (relative/absolute). Missing directories are created.
+* **timeoutMs** `int` *(optional, default **100000**)*
 
-**Security**: Honors `CFGS_STDLIB.AllowFileIO`. If `false`, it throws a `VMException`:  
+**Security**: Honors `CFGS_STDLIB.AllowFileIO`. If `false`, throws a `VMException`:
 `Runtime error: file I/O is disabled (AllowFileIO=false)`
 
-**Returns**: `int64` – number of bytes written to disk.
+**Returns**: `Task<int64>` – number of bytes written.
 
 **Example:**
+
 ```cfgs
-var n = http_download("https://example.com/file.bin", "./data/file.bin", 15000);
+var n = await http_download("https://example.com/file.bin", "./data/file.bin", 15000);
 print("OK: " + n + " bytes");
 ```
 
@@ -142,7 +166,7 @@ print("OK: " + n + " bytes");
 
 ### `urlencode(text)` / `urldecode(text)`
 
-Light wrappers around `WebUtility.UrlEncode/Decode`.
+Wrapper around `WebUtility.UrlEncode/Decode`.
 
 ```cfgs
 var v = "a+b c";
@@ -163,17 +187,17 @@ var srv = http_server(8080);
 srv.start();
 ```
 
-> **Note:** Binding is restricted to `localhost`. Requests from other machines are **not** accepted.
+> **Note:** Binding is restricted to `localhost`. Requests from other machines are not accepted.
 
 ### ServerHandle Intrinsics
 
-- `srv.start()` → Start listener (idempotent).
-- `srv.stop()` → Stop accepting new requests (can be started again).
-- `srv.close()` → Fully close & dispose resources.
-- `srv.is_running()` → `bool`
-- `srv.pending_count()` → `int` (queue length of unpolled requests)
-- `srv.poll([timeoutMs])` → `dict | null` (next pending request; optional wait)
-- `srv.respond(id, status, body, [headers])` → `int` (`1` on success, `0` if `id` unknown/expired)
+* `srv.start()` → Start listener (idempotent).
+* `srv.stop()` → Stop accepting new requests (can be started again).
+* `srv.close()` → Fully close & dispose resources.
+* `srv.is_running()` → `bool`
+* `srv.pending_count()` → `int` (queued, unpolled requests)
+* `srv.poll([timeoutMs])` → `dict | null` (dequeues next request; optional wait)
+* `srv.respond(id, status, body, [headers])` → `int` (`1` if responded, `0` if `id` unknown/expired)
 
 ### Request object from `poll`
 
@@ -194,6 +218,7 @@ srv.start();
 ## Server Examples
 
 ### Hello World
+
 ```cfgs
 var srv = http_server(8080);
 srv.start();
@@ -207,6 +232,7 @@ while (srv.is_running()) {
 ```
 
 ### Echo Endpoint (JSON + Query)
+
 ```cfgs
 var srv = http_server(8080);
 srv.start();
@@ -227,6 +253,7 @@ while (true) {
 ```
 
 ### Graceful Shutdown
+
 ```cfgs
 var srv = http_server(9090);
 srv.start();
@@ -251,12 +278,12 @@ srv.close();
 
 ## Errors, Timeouts & Notes
 
-- **Timeouts (client):** All client ops (`http_get`, `http_post`, `http_download`) accept `timeoutMs`. Each call creates a `CancellationTokenSource` with that value.
-- **Header application (client):** Headers are applied to `req.Headers`; if that fails, to `req.Content.Headers` (content is created on demand). If you set `Content-Type` on `http_get`, an **empty** content is attached so the header is sent.
-- **Response headers (client):** `resp.Headers` and `resp.Content.Headers` are merged into a case-insensitive dictionary.
-- **Server IDs:** `respond(id, ...)` returns `0` if the request id is unknown (already answered/expired).
-- **File I/O:** `http_download` is allowed only if `CFGS_STDLIB.AllowFileIO == true`; otherwise a `VMException` is thrown.
-- **Port validation:** `http_server(port)` accepts only `1..65535` and always binds `http://localhost:{port}/`.
+* **Async client ops:** `http_get`, `http_post`, and `http_download` run with a per-call `CancellationTokenSource(timeoutMs)`. Await them (or rely on SmartAwait if enabled).
+* **Header application (client):** Headers go to `req.Headers`; if not accepted there, they’re applied to `req.Content.Headers` (creating an empty content as needed). Setting `Content-Type` on `http_get` attaches an empty body so the header is sent.
+* **Response headers (client):** `resp.Headers` and `resp.Content.Headers` are merged into a case-insensitive dictionary.
+* **Server IDs:** `respond(id, ...)` returns `0` if the request id is unknown (already answered/expired).
+* **File I/O:** `http_download` is allowed only if `CFGS_STDLIB.AllowFileIO == true`; otherwise a `VMException` is thrown.
+* **Port validation:** `http_server(port)` accepts only `1..65535` and binds `http://localhost:{port}/`.
 
 ---
 

@@ -633,4 +633,4 @@ import ClassName from "path/to/file.ext";
 
 ---
 
-[Samples](CFGS_NE/Samples/) · [File-IO Functions](fileio.md)  · [HTTP Functions](httpc.md)  ·  [Built-in Functions](builtin.md) · [Creating Plugins](plugins.md) 
+[Samples](CFGS_NE/Samples/) · [Standard Builtins/ Intrinsics](fileio.md)  · [HTTP Functions](httpc.md)  · [Creating Plugins](plugins.md) 
