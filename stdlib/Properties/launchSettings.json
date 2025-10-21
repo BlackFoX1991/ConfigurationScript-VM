@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "stdlib": {
-      "commandName": "Project",
-      "commandLineArgs": "-d Documentation.cfs"
-    }
-  }
-}

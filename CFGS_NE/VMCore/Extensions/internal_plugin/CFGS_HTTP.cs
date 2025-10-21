@@ -6,7 +6,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 
-namespace CFGS_VM.VMCore.CorePlugin
+namespace CFGS_VM.VMCore.Extensions.internal_plugin
 {
     /// <summary>
     /// Defines the <see cref="CFGS_HTTP" />

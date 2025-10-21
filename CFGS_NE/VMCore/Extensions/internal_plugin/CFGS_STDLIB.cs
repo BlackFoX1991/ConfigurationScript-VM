@@ -8,7 +8,7 @@ using System.Text.Json;
 using System.Text.Unicode;
 using static CFGS_VM.VMCore.VM;
 
-namespace CFGS_VM.VMCore.CorePlugin
+namespace CFGS_VM.VMCore.Extensions.internal_plugin
 {
     /// <summary>
     /// Defines the <see cref="CFGS_STDLIB" />

@@ -197,6 +197,7 @@ namespace CFGS_VM.VMCore
         /// <param name="directory">The directory<see cref="string"/></param>
         public void LoadPluginsFrom(string directory)
         {
+
             PluginLoader.LoadDirectory(directory, Builtins, Intrinsics);
         }
 
@@ -3609,6 +3610,11 @@ namespace CFGS_VM.VMCore
         public VM()
         {
             DebugStream = new MemoryStream();
+            new CFGS_VM.VMCore.Extensions.internal_plugin.CFGS_STDLIB()
+                .Register(Builtins, Intrinsics);
+
+            new CFGS_VM.VMCore.Extensions.internal_plugin.CFGS_HTTP()
+                .Register(Builtins, Intrinsics);
         }
     }
 }
