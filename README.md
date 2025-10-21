@@ -17,6 +17,23 @@ This project also served to **deepen my compiler engineering knowledge**.
 
 [Here is a short Introduction](https://github.com/BlackFoX1991/ConfigurationScript-VM/blob/af7cb4bd74b0ef7b580d12349cd174a6a0f059a1/CFGS_NE/Tutorial/Introduction.md)
 
+
+**Top-Level Quick Note**
+
+**Allowed:**
+
+* Function definitions: `func … { … }`
+* `class …`, `enum …`
+* Variable declarations: `var x = …;`
+* Executable statements in order: calls/expressions, assignments, `if / while / for`, `try { … } catch { … } finally { … }`
+* `await` on awaitable values (e.g., `sleep(...)`, ...)
+
+**Additional**
+
+* `return` outside of functions
+* `break` / `continue` outside of loops
+
+
 ---
 
 ## Table of Contents
