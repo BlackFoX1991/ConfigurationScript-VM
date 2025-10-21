@@ -18,21 +18,34 @@ This project also served to **deepen my compiler engineering knowledge**.
 [Here is a short Introduction](https://github.com/BlackFoX1991/ConfigurationScript-VM/blob/af7cb4bd74b0ef7b580d12349cd174a6a0f059a1/CFGS_NE/Tutorial/Introduction.md)
 
 
-**Top-Level Quick Note**
+### Allowed at top level
 
-**Allowed:**
+* **Empty statement:** `;`
+* **Variable declarations:** `var x = ...;`
+* **Function declarations:** `func name(args) { ... }`
+* **Class and enum declarations:** `class ... { ... }`, `enum ... { ... }`
+* **Identifier-leading statements**
 
-* Function definitions: `func … { … }`
-* `class …`, `enum …`
-* Variable declarations: `var x = …;`
-* Executable statements in order: calls/expressions, assignments, `if / while / for`, `try { … } catch { … } finally { … }`
-* `await` on awaitable values (e.g., `sleep(...)`, ...)
+  * Calls: `print("hi");`
+  * Assignments: `x = 1;`
+  * Index / push ops that begin with an identifier
+* **Block `{ ... }`** (but still treated as top level: the same restrictions apply inside unless you’re inside a function/class)
 
-**Additional**
+### Not allowed at top level
 
-* `return` outside of functions
-* `break` / `continue` outside of loops
+* **Control flow & exceptions:** `if`, `while`, `for`, `foreach`, `match`, `try/catch`, `throw`
+* **Function/loop control:** `return`, `break`, `continue`
+* **`delete`**
+* **Non-identifier-leading expression statements**, e.g.:
 
+  * Leading `await`: `await sleep(100);` ✗
+    (Use it embedded: `var x = await foo();` or `print(await foo());`)
+  * Bare literals: `"hi";`, `123;` ✗
+
+### Rule of thumb
+
+Top level is for **declarations** and **statements that start with an identifier**.
+All control flow, exception handling, `return`/`break`/`continue`, `throw`, and `delete` are only valid **inside function or class bodies**.
 
 ---
 
