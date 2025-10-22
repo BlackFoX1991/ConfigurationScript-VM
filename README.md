@@ -13,7 +13,7 @@ This project also served to **deepen my compiler engineering knowledge**.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 [Here is a short Introduction](https://github.com/BlackFoX1991/ConfigurationScript-VM/blob/af7cb4bd74b0ef7b580d12349cd174a6a0f059a1/CFGS_NE/Tutorial/Introduction.md)
 
