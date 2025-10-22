@@ -1001,6 +1001,7 @@ namespace CFGS_VM.Analytic.Core
             }
         }
 
+
         /// <summary>
         /// Gets the ParseVarDecl
         /// </summary>

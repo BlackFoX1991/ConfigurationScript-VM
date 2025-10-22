@@ -5,7 +5,9 @@ using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Core;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Plugin;
+using System.Collections;
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 
 namespace CFGS_VM.VMCore
@@ -43,7 +45,12 @@ namespace CFGS_VM.VMCore
             /// <summary>
             /// Defines the Decimal
             /// </summary>
-            Decimal
+            Decimal,
+
+            /// <summary>
+            /// Defines the Maximal
+            /// </summary>
+            Maximal,
         }
 
         /// <summary>
@@ -53,7 +60,38 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="bool"/></returns>
         public static bool IsNumber(object x) =>
             x is sbyte or byte or short or ushort or int or uint or long or ulong
-              or float or double or decimal or char;
+              or float or double or decimal or char or BigInteger;
+
+        /// <summary>
+        /// The IsSignedIntegral
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsSignedIntegral(object x) =>
+            x is sbyte or short or int or long or nint;
+
+        /// <summary>
+        /// The IsUnsignedIntegral
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsUnsignedIntegral(object x) =>
+            x is byte or ushort or uint or ulong or nuint or char;
+
+        /// <summary>
+        /// The IsNegative
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsNegative(object x) => x switch
+        {
+            sbyte v => v < 0,
+            short v => v < 0,
+            int v => v < 0,
+            long v => v < 0,
+            nint v => v < 0,
+            _ => false
+        };
 
         /// <summary>
         /// The PromoteKind
@@ -63,10 +101,24 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="NumKind"/></returns>
         private static NumKind PromoteKind(object a, object b)
         {
+            if (a is BigInteger || b is BigInteger) return NumKind.Maximal;
+
             if (a is decimal || b is decimal) return NumKind.Decimal;
+
             if (a is double || b is double || a is float || b is float) return NumKind.Double;
+
+            bool aUWide = a is ulong || a is nuint;
+            bool bUWide = b is ulong || b is nuint;
+            if ((aUWide && IsSignedIntegral(b) && IsNegative(b)) ||
+                (bUWide && IsSignedIntegral(a) && IsNegative(a)))
+                return NumKind.Maximal;
+
             if (a is ulong || b is ulong) return NumKind.UInt64;
-            if (a is long || b is long) return NumKind.Int64;
+            if (a is nuint || b is nuint)
+                return NumKind.Int64;
+
+            if (a is long || b is long || a is nint || b is nint) return NumKind.Int64;
+
             return NumKind.Int32;
         }
 
@@ -76,7 +128,7 @@ namespace CFGS_VM.VMCore
         /// <param name="o">The o<see cref="object"/></param>
         /// <returns>The <see cref="object"/></returns>
         internal static object CharToNumeric(object o)
-    => o is char ch ? (char.IsDigit(ch) ? (int)(ch - '0') : (int)ch) : o;
+        => o is char ch ? (char.IsDigit(ch) ? (int)(ch - '0') : (int)ch) : o;
 
         /// <summary>
         /// The CoercePair
@@ -88,21 +140,148 @@ namespace CFGS_VM.VMCore
         {
             a = a is char ? CharToNumeric(a) : a;
             b = b is char ? CharToNumeric(b) : b;
+
             NumKind k = PromoteKind(a, b);
+
             switch (k)
             {
+                case NumKind.Maximal:
+                    return (ToBigIntegerInvariant(a), ToBigIntegerInvariant(b), k);
+
                 case NumKind.Decimal:
-                    return (Convert.ToDecimal(a), Convert.ToDecimal(b), k);
+                    return (ToDecimalInvariant(a), ToDecimalInvariant(b), k);
+
                 case NumKind.Double:
-                    return (Convert.ToDouble(a), Convert.ToDouble(b), k);
+                    return (ToDoubleInvariant(a), ToDoubleInvariant(b), k);
+
                 case NumKind.UInt64:
-                    return (Convert.ToUInt64(a), Convert.ToUInt64(b), k);
+                    try
+                    {
+                        return (ToUInt64Invariant(a), ToUInt64Invariant(b), k);
+                    }
+                    catch (OverflowException)
+                    {
+                        return (ToBigIntegerInvariant(a), ToBigIntegerInvariant(b), NumKind.Maximal);
+                    }
+
                 case NumKind.Int64:
-                    return (Convert.ToInt64(a), Convert.ToInt64(b), k);
+                    try
+                    {
+                        return (ToInt64Invariant(a), ToInt64Invariant(b), k);
+                    }
+                    catch (OverflowException)
+                    {
+                        return (ToBigIntegerInvariant(a), ToBigIntegerInvariant(b), NumKind.Maximal);
+                    }
+
                 default:
-                    return (Convert.ToInt32(a), Convert.ToInt32(b), k);
+                    try
+                    {
+                        return (ToInt32Invariant(a), ToInt32Invariant(b), NumKind.Int32);
+                    }
+                    catch (OverflowException)
+                    {
+                        try
+                        {
+                            return (ToInt64Invariant(a), ToInt64Invariant(b), NumKind.Int64);
+                        }
+                        catch (OverflowException)
+                        {
+                            return (ToBigIntegerInvariant(a), ToBigIntegerInvariant(b), NumKind.Maximal);
+                        }
+                    }
             }
         }
+
+        /// <summary>
+        /// The ToInt32Invariant
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="int"/></returns>
+        private static int ToInt32Invariant(object x) => x switch
+        {
+            string s => int.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture),
+            IConvertible _ => Convert.ToInt32(x, CultureInfo.InvariantCulture),
+            _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
+        };
+
+        /// <summary>
+        /// The ToInt64Invariant
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="long"/></returns>
+        private static long ToInt64Invariant(object x) => x switch
+        {
+            string s => long.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture),
+            IConvertible _ => Convert.ToInt64(x, CultureInfo.InvariantCulture),
+            _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
+        };
+
+        /// <summary>
+        /// The ToUInt64Invariant
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="ulong"/></returns>
+        private static ulong ToUInt64Invariant(object x) => x switch
+        {
+            string s => ulong.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture),
+            IConvertible _ => Convert.ToUInt64(x, CultureInfo.InvariantCulture),
+            _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
+        };
+
+        /// <summary>
+        /// The ToDoubleInvariant
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="double"/></returns>
+        private static double ToDoubleInvariant(object x) => x switch
+        {
+            string s => double.Parse(s, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture),
+            IConvertible _ => Convert.ToDouble(x, CultureInfo.InvariantCulture),
+            _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
+        };
+
+        /// <summary>
+        /// The ToDecimalInvariant
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="decimal"/></returns>
+        private static decimal ToDecimalInvariant(object x) => x switch
+        {
+            string s => decimal.Parse(s, NumberStyles.Number, CultureInfo.InvariantCulture),
+            IConvertible _ => Convert.ToDecimal(x, CultureInfo.InvariantCulture),
+            _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
+        };
+
+        /// <summary>
+        /// The ToBigIntegerInvariant
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="BigInteger"/></returns>
+        private static BigInteger ToBigIntegerInvariant(object x) => x switch
+        {
+            null => throw new InvalidOperationException("Not numeric: null"),
+
+            BigInteger bi => bi,
+
+            string s => BigInteger.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture),
+
+            sbyte v => new BigInteger(v),
+            byte v => new BigInteger(v),
+            short v => new BigInteger(v),
+            ushort v => new BigInteger(v),
+            int v => new BigInteger(v),
+            uint v => new BigInteger(v),
+            long v => new BigInteger(v),
+            ulong v => new BigInteger(v),
+            char v => new BigInteger((uint)v),
+
+            float => throw new InvalidOperationException("Cannot coerce floating-point to BigInteger without explicit rounding."),
+            double => throw new InvalidOperationException("Cannot coerce floating-point to BigInteger without explicit rounding."),
+            decimal => throw new InvalidOperationException("Cannot coerce decimal to BigInteger without explicit rounding."),
+
+            _ => throw new InvalidOperationException($"Not numeric: {x.GetType().Name}")
+        };
 
         /// <summary>
         /// The CompareAsDecimal
@@ -123,8 +302,71 @@ namespace CFGS_VM.VMCore
             double v => (decimal)v,
             decimal v => v,
             char v => (decimal)v,
-            _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}"),
+            BigInteger v when v >= (BigInteger)decimal.MinValue && v <= (BigInteger)decimal.MaxValue
+                => (decimal)v,
+            BigInteger _
+                => throw new OverflowException("BigInteger value is outside the representable decimal range."),
+            null
+                => throw new InvalidOperationException("Not numeric: null"),
+            _
+                => throw new InvalidOperationException($"Not numeric: {x.GetType().Name}")
         };
+
+        /// <summary>
+        /// The IsIntegralLike
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsIntegralLike(object x) =>
+    x is sbyte or byte or short or ushort or int or uint or long or ulong or char or BigInteger;
+
+        /// <summary>
+        /// The ToBigInt
+        /// </summary>
+        /// <param name="x">The x<see cref="object"/></param>
+        /// <returns>The <see cref="BigInteger"/></returns>
+        private static BigInteger ToBigInt(object x) => x switch
+        {
+            BigInteger bi => bi,
+            sbyte v => new BigInteger(v),
+            byte v => new BigInteger(v),
+            short v => new BigInteger(v),
+            ushort v => new BigInteger(v),
+            int v => new BigInteger(v),
+            uint v => new BigInteger(v),
+            long v => new BigInteger(v),
+            ulong v => new BigInteger(v),
+            char v => new BigInteger((uint)v),
+            _ => throw new InvalidOperationException($"Not integral: {x?.GetType().Name ?? "null"}")
+        };
+
+        /// <summary>
+        /// The PowBigIntegerOrThrow
+        /// </summary>
+        /// <param name="a">The a<see cref="BigInteger"/></param>
+        /// <param name="b">The b<see cref="BigInteger"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="object"/></returns>
+        private static object PowBigIntegerOrThrow(BigInteger a, BigInteger b, Instruction instr)
+        {
+            if (b.Sign < 0)
+                throw new VMException("EXPO with BigInteger requires non-negative exponent", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+            if (b > int.MaxValue)
+                throw new VMException("EXPO exponent too large for BigInteger.Pow", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+            return BigInteger.Pow(a, (int)b);
+        }
+
+        /// <summary>
+        /// The ToInt32ForRepeat
+        /// </summary>
+        /// <param name="n">The n<see cref="object"/></param>
+        /// <returns>The <see cref="int"/></returns>
+        private static int ToInt32ForRepeat(object n)
+        {
+            BigInteger bi = n is BigInteger B ? B : ToBigInt(n);
+            if (bi.Sign < 0) throw new VMException("repeat count must be non-negative", 0, 0, null, IsDebugging, DebugStream);
+            return checked((int)bi);
+        }
 
         /// <summary>
         /// The ToBool
@@ -133,16 +375,45 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="bool"/></returns>
         private static bool ToBool(object? v)
         {
-            if (v is null) return false;
-            if (v is bool b) return b;
-            if (v is int i) return i != 0;
-            if (v is long l) return l != 0L;
-            if (v is double d) return d != 0.0;
-            if (v is float f) return f != 0f;
-            if (v is string s) return s.Length != 0;
-            if (v is List<object> list) return list.Count != 0;
-            if (v is Dictionary<string, object> dict) return dict.Count != 0;
-            return true;
+            switch (v)
+            {
+                case null: return false;
+
+                case bool b: return b;
+
+                case sbyte x: return x != 0;
+                case byte x: return x != 0;
+                case short x: return x != 0;
+                case ushort x: return x != 0;
+                case int x: return x != 0;
+                case uint x: return x != 0;
+                case long x: return x != 0L;
+                case ulong x: return x != 0UL;
+                case nint x: return x != 0;
+                case nuint x: return x != 0;
+
+                case BigInteger bi: return !bi.IsZero;
+                case decimal dec: return dec != 0m;
+
+                case double d: return d != 0.0 || double.IsNaN(d);
+                case float f: return f != 0f || float.IsNaN(f);
+
+                case char ch: return ch != '\0';
+
+                case string s: return s.Length != 0;
+                case Array arr: return arr.Length != 0;
+
+                case ICollection c: return c.Count != 0;
+
+                case IEnumerable en:
+                    {
+                        IEnumerator e = en.GetEnumerator();
+                        try { return e.MoveNext(); } finally { (e as IDisposable)?.Dispose(); }
+                    }
+
+                default:
+                    return true;
+            }
         }
 
         /// <summary>
@@ -328,6 +599,11 @@ namespace CFGS_VM.VMCore
                 case OpCode.PUSH_DEC:
                     if (instr.Operand is null) _stack.Push((decimal)0);
                     else _stack.Push((decimal)instr.Operand);
+                    break;
+
+                case OpCode.PUSH_SPC:
+                    if (instr.Operand is null) _stack.Push((BigInteger)0);
+                    else _stack.Push((BigInteger)instr.Operand);
                     break;
 
                 case OpCode.PUSH_STR:
@@ -1159,6 +1435,7 @@ namespace CFGS_VM.VMCore
                                 NumKind.Double => (double)A + (double)B,
                                 NumKind.UInt64 => (ulong)A + (ulong)B,
                                 NumKind.Int64 => (long)A + (long)B,
+                                NumKind.Maximal => (BigInteger)A + (BigInteger)B,
                                 _ => (int)A + (int)B,
                             };
                             _stack.Push(res);
@@ -1168,13 +1445,9 @@ namespace CFGS_VM.VMCore
                         if (l is null || r is null)
                         {
                             if (l is string || r is string)
-                            {
                                 _stack.Push((l as string ?? "") + (r as string ?? ""));
-                            }
                             else
-                            {
                                 _stack.Push(null);
-                            }
                             break;
                         }
 
@@ -1209,6 +1482,7 @@ namespace CFGS_VM.VMCore
                             NumKind.Double => (double)A - (double)B,
                             NumKind.UInt64 => (ulong)A - (ulong)B,
                             NumKind.Int64 => (long)A - (long)B,
+                            NumKind.Maximal => (BigInteger)A - (BigInteger)B,
                             _ => (int)A - (int)B,
                         };
                         _stack.Push(res);
@@ -1224,9 +1498,15 @@ namespace CFGS_VM.VMCore
                         if (l is null || r is null)
                         {
                             if (l is string && IsNumber(r))
-                            { _stack.Push(string.Concat(Enumerable.Repeat(l as string ?? "", Convert.ToInt32(r)))); break; }
+                            {
+                                _stack.Push(string.Concat(Enumerable.Repeat(l as string ?? "", checked((int)ToInt32ForRepeat(r)))));
+                                break;
+                            }
                             if (r is string && IsNumber(l))
-                            { _stack.Push(string.Concat(Enumerable.Repeat(r as string ?? "", Convert.ToInt32(l)))); break; }
+                            {
+                                _stack.Push(string.Concat(Enumerable.Repeat(r as string ?? "", checked((int)ToInt32ForRepeat(l)))));
+                                break;
+                            }
                             _stack.Push(null);
                             break;
                         }
@@ -1240,17 +1520,18 @@ namespace CFGS_VM.VMCore
                                 NumKind.Double => (double)A * (double)B,
                                 NumKind.UInt64 => (ulong)A * (ulong)B,
                                 NumKind.Int64 => (long)A * (long)B,
+                                NumKind.Maximal => (BigInteger)A * (BigInteger)B,
                                 _ => (int)A * (int)B,
                             };
                             _stack.Push(res);
                         }
                         else if (l is string && IsNumber(r))
                         {
-                            _stack.Push(string.Concat(Enumerable.Repeat(l as string ?? "", Convert.ToInt32(r))));
+                            _stack.Push(string.Concat(Enumerable.Repeat(l as string ?? "", checked((int)ToInt32ForRepeat(r)))));
                         }
                         else if (r is string && IsNumber(l))
                         {
-                            _stack.Push(string.Concat(Enumerable.Repeat(r as string ?? "", Convert.ToInt32(l))));
+                            _stack.Push(string.Concat(Enumerable.Repeat(r as string ?? "", checked((int)ToInt32ForRepeat(l)))));
                         }
                         else
                         {
@@ -1270,10 +1551,16 @@ namespace CFGS_VM.VMCore
                             throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         (object A, object B, NumKind K) = CoercePair(l, r);
-                        if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
-                         || K == NumKind.Int64 && Convert.ToInt64(r) == 0
-                         || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
-                         || K == NumKind.Decimal && Convert.ToDecimal(r) == 0m)
+                        bool isZero = K switch
+                        {
+                            NumKind.Int32 => Convert.ToInt32(r) == 0,
+                            NumKind.Int64 => Convert.ToInt64(r) == 0L,
+                            NumKind.UInt64 => Convert.ToUInt64(r) == 0UL,
+                            NumKind.Decimal => Convert.ToDecimal(r) == 0m,
+                            NumKind.Maximal => ((BigInteger)B).IsZero,
+                            _ => false
+                        };
+                        if (isZero)
                             throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         object res = K switch
@@ -1282,6 +1569,7 @@ namespace CFGS_VM.VMCore
                             NumKind.Double => (double)A % (double)B,
                             NumKind.UInt64 => (ulong)A % (ulong)B,
                             NumKind.Int64 => (long)A % (long)B,
+                            NumKind.Maximal => (BigInteger)A % (BigInteger)B,
                             _ => (int)A % (int)B,
                         };
                         _stack.Push(res);
@@ -1300,10 +1588,16 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         (object A, object B, NumKind K) = CoercePair(l, r);
-                        if (K == NumKind.Int32 && Convert.ToInt32(r) == 0
-                         || K == NumKind.Int64 && Convert.ToInt64(r) == 0
-                         || K == NumKind.UInt64 && Convert.ToUInt64(r) == 0UL
-                         || K == NumKind.Decimal && Convert.ToDecimal(r) == 0m)
+                        bool isZero = K switch
+                        {
+                            NumKind.Int32 => Convert.ToInt32(r) == 0,
+                            NumKind.Int64 => Convert.ToInt64(r) == 0L,
+                            NumKind.UInt64 => Convert.ToUInt64(r) == 0UL,
+                            NumKind.Decimal => Convert.ToDecimal(r) == 0m,
+                            NumKind.Maximal => ((BigInteger)B).IsZero,
+                            _ => false
+                        };
+                        if (isZero)
                             throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
 
                         object res = K switch
@@ -1312,6 +1606,7 @@ namespace CFGS_VM.VMCore
                             NumKind.Double => (double)A / (double)B,
                             NumKind.UInt64 => (ulong)A / (ulong)B,
                             NumKind.Int64 => (long)A / (long)B,
+                            NumKind.Maximal => (BigInteger)A / (BigInteger)B,
                             _ => (int)A / (int)B,
                         };
                         _stack.Push(res);
@@ -1335,6 +1630,9 @@ namespace CFGS_VM.VMCore
                             NumKind.Double => Math.Pow((double)A, (double)B),
                             NumKind.UInt64 => (ulong)Math.Pow((double)(ulong)A, (double)(ulong)B),
                             NumKind.Int64 => (long)Math.Pow((double)(long)A, (double)(long)B),
+
+                            NumKind.Maximal => PowBigIntegerOrThrow((BigInteger)A, (BigInteger)B, instr),
+
                             _ => (int)Math.Pow((double)(int)A, (double)(int)B),
                         };
                         _stack.Push(res);
@@ -1348,9 +1646,13 @@ namespace CFGS_VM.VMCore
                         if (l is null || r is null) { _stack.Push(null); break; }
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
-                        if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
-                            throw new VMException("BIT_AND requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
-                        if (l is ulong || r is ulong || l is long || r is long)
+
+                        if (!(IsIntegralLike(l) && IsIntegralLike(r)))
+                            throw new VMException("BIT_AND requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+
+                        if (l is BigInteger || r is BigInteger)
+                            _stack.Push(ToBigInt(l) & ToBigInt(r));
+                        else if (l is long or ulong || r is long or ulong)
                             _stack.Push(Convert.ToInt64(l) & Convert.ToInt64(r));
                         else
                             _stack.Push(Convert.ToInt32(l) & Convert.ToInt32(r));
@@ -1364,9 +1666,13 @@ namespace CFGS_VM.VMCore
                         if (l is null || r is null) { _stack.Push(null); break; }
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
-                        if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
-                            throw new VMException("BIT_OR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
-                        if (l is ulong || r is ulong || l is long || r is long)
+
+                        if (!(IsIntegralLike(l) && IsIntegralLike(r)))
+                            throw new VMException("BIT_OR requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+
+                        if (l is BigInteger || r is BigInteger)
+                            _stack.Push(ToBigInt(l) | ToBigInt(r));
+                        else if (l is long or ulong || r is long or ulong)
                             _stack.Push(Convert.ToInt64(l) | Convert.ToInt64(r));
                         else
                             _stack.Push(Convert.ToInt32(l) | Convert.ToInt32(r));
@@ -1380,9 +1686,13 @@ namespace CFGS_VM.VMCore
                         if (l is null || r is null) { _stack.Push(null); break; }
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
-                        if (!(l is int || l is long || l is uint || l is ulong) || !(r is int || r is long || r is uint || r is ulong))
-                            throw new VMException("BIT_XOR requires integral types (int/long/uint/ulong)", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
-                        if (l is ulong || r is ulong || l is long || r is long)
+
+                        if (!(IsIntegralLike(l) && IsIntegralLike(r)))
+                            throw new VMException("BIT_XOR requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+
+                        if (l is BigInteger || r is BigInteger)
+                            _stack.Push(ToBigInt(l) ^ ToBigInt(r));
+                        else if (l is long or ulong || r is long or ulong)
                             _stack.Push(Convert.ToInt64(l) ^ Convert.ToInt64(r));
                         else
                             _stack.Push(Convert.ToInt32(l) ^ Convert.ToInt32(r));
@@ -1396,10 +1706,14 @@ namespace CFGS_VM.VMCore
                         if (l is null || r is null) { _stack.Push(null); break; }
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
-                        if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
-                            throw new VMException("SHL requires (int|long|uint|ulong) << int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+
+                        if (!(IsIntegralLike(l) && IsNumber(r)))
+                            throw new VMException("SHL requires (integral) << int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+
                         int sh = Convert.ToInt32(r) & 0x3F;
-                        if (l is long or ulong)
+                        if (l is BigInteger)
+                            _stack.Push(((BigInteger)l) << sh);
+                        else if (l is long or ulong)
                             _stack.Push(Convert.ToInt64(l) << sh);
                         else
                             _stack.Push(Convert.ToInt32(l) << (sh & 0x1F));
@@ -1413,16 +1727,19 @@ namespace CFGS_VM.VMCore
                         if (l is null || r is null) { _stack.Push(null); break; }
                         r = r is char ? CharToNumeric(r) : r;
                         l = l is char ? CharToNumeric(l) : l;
-                        if (!(l is int || l is long || l is uint || l is ulong) || !IsNumber(r))
-                            throw new VMException("SHR requires (int|long|uint|ulong) >> int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+
+                        if (!(IsIntegralLike(l) && IsNumber(r)))
+                            throw new VMException("SHR requires (integral) >> int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream);
+
                         int sh = Convert.ToInt32(r) & 0x3F;
-                        if (l is long or ulong)
+                        if (l is BigInteger)
+                            _stack.Push(((BigInteger)l) >> sh);
+                        else if (l is long or ulong)
                             _stack.Push(Convert.ToInt64(l) >> sh);
                         else
                             _stack.Push(Convert.ToInt32(l) >> (sh & 0x1F));
                         break;
                     }
-
                 case OpCode.EQ:
                     {
                         RequireStack(2, instr, "EQ");
@@ -2404,7 +2721,7 @@ namespace CFGS_VM.VMCore
                     }
                     else
                     {
-                        throw new VMException($"Uncaught system exception : " + sysEx.Message, _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream);
+                        throw new VMException($"Uncaught system exception : " + sysEx.Message + "\n" + sysEx.Source, _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream);
                     }
                 }
 
@@ -2434,7 +2751,7 @@ namespace CFGS_VM.VMCore
                                     using FileStream file = File.Create("log_file.log");
                                     DebugStream.CopyTo(file);
                                 }
-                                throw new VMException("Uncaught system exception : ", _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream);
+                                throw new VMException("Uncaught system exception", _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream);
                             }
                         }
                     }
@@ -2542,7 +2859,7 @@ namespace CFGS_VM.VMCore
                     }
                     else
                     {
-                        throw new VMException($"Uncaught system exception : " + sysEx.Message,
+                        throw new VMException($"Uncaught system exception : " + sysEx.Message + "\n" + sysEx.Source,
                             _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream);
                     }
                 }
@@ -2573,7 +2890,7 @@ namespace CFGS_VM.VMCore
                                     using FileStream file = File.Create("log_file.log");
                                     DebugStream.CopyTo(file);
                                 }
-                                throw new VMException("Uncaught system exception : ",
+                                throw new VMException("Uncaught system exception",
                                     _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream);
                             }
                         }

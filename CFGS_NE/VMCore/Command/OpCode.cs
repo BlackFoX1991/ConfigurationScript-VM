@@ -31,6 +31,11 @@
         PUSH_DEC,
 
         /// <summary>
+        /// Defines the PUSH_SPC
+        /// </summary>
+        PUSH_SPC,
+
+        /// <summary>
         /// Defines the PUSH_STR
         /// </summary>
         PUSH_STR,

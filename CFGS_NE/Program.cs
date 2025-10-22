@@ -3,7 +3,6 @@ using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
-using CFGS_VM.VMCore.Plugin;
 using System.Globalization;
 
 /// <summary>
@@ -29,7 +28,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v2.3.7-stbl";
+    public static readonly string Version = "v2.3.8";
 
     /// <summary>
     /// Defines the PluginsFolder
@@ -76,7 +75,6 @@ public class Program
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
         List<string> files = new();
-
 
         foreach (string arg in args)
         {
