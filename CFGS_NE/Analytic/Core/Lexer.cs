@@ -1,5 +1,6 @@
 ﻿using CFGS_VM.Analytic.Tokens;
 using System.Globalization;
+using System.Numerics;
 
 /// <summary>
 /// Defines the <see cref="Lexer" />
@@ -11,6 +12,9 @@ public class Lexer
     /// </summary>
     public string FileName { get; set; }
 
+    /// <summary>
+    /// Defines the Keywords
+    /// </summary>
     public static readonly Dictionary<string, TokenType> Keywords = new(StringComparer.Ordinal)
         {
             { "var", TokenType.Var },
@@ -45,7 +49,8 @@ public class Lexer
             {"this",TokenType.Ident },
             {"outer", TokenType.Ident },
             {"type", TokenType.Ident },
-            {"await", TokenType.Await}
+            {"await", TokenType.Await},
+
         };
 
     /// <summary>
@@ -275,6 +280,31 @@ public class Lexer
                 bool seenExp = false;
                 bool expectExpSign = false;
 
+                static BigInteger ParseBaseBigInteger(string digits, int radix)
+                {
+                    BigInteger acc = BigInteger.Zero;
+                    foreach (char ch in digits)
+                    {
+                        int v = ch switch
+                        {
+                            >= '0' and <= '9' => ch - '0',
+                            >= 'A' and <= 'Z' => ch - 'A' + 10,
+                            >= 'a' and <= 'z' => ch - 'a' + 10,
+                            _ => -1
+                        };
+                        if (v < 0 || v >= radix) throw new FormatException($"invalid digit '{ch}' for base {radix}");
+                        acc = acc * radix + v;
+                    }
+                    return acc;
+                }
+
+                static object NarrowIntOrBig(BigInteger bi)
+                {
+                    if (bi <= int.MaxValue && bi >= int.MinValue) return (int)bi;
+                    if (bi <= long.MaxValue && bi >= long.MinValue) return (long)bi;
+                    return bi;
+                }
+
                 if (Current == '0')
                 {
                     raw.Append(Current); SyncPos();
@@ -288,11 +318,17 @@ public class Lexer
                             SyncPos();
                         }
                         if (hex.Length == 0) throw new LexerException("invalid hex literal", startLine, startCol, FileName);
-                        object nval;
-                        try { nval = Convert.ToInt64(hex, 16); }
-                        catch { nval = decimal.Parse(Convert.ToUInt64(hex, 16).ToString(System.Globalization.CultureInfo.InvariantCulture), System.Globalization.CultureInfo.InvariantCulture); }
 
-                        return MakeToken(TokenType.Number, nval);
+                        try
+                        {
+                            long l = Convert.ToInt64(hex, 16);
+                            return MakeToken(TokenType.Number, l <= int.MaxValue ? (object)(int)l : l);
+                        }
+                        catch
+                        {
+                            BigInteger bi = BigInteger.Parse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
+                            return MakeToken(TokenType.Number, NarrowIntOrBig(bi));
+                        }
                     }
                     else if (Current == 'b' || Current == 'B')
                     {
@@ -305,7 +341,16 @@ public class Lexer
                         }
                         if (bin.Length == 0) throw new LexerException("invalid binary literal", startLine, startCol, FileName);
 
-                        return MakeToken(TokenType.Number, Convert.ToInt64(bin, 2));
+                        try
+                        {
+                            long l = Convert.ToInt64(bin, 2);
+                            return MakeToken(TokenType.Number, l <= int.MaxValue ? (object)(int)l : l);
+                        }
+                        catch
+                        {
+                            BigInteger bi = ParseBaseBigInteger(bin, 2);
+                            return MakeToken(TokenType.Number, NarrowIntOrBig(bi));
+                        }
                     }
                     else if (Current == 'o' || Current == 'O')
                     {
@@ -318,7 +363,16 @@ public class Lexer
                         }
                         if (oct.Length == 0) throw new LexerException("invalid octal literal", startLine, startCol, FileName);
 
-                        return MakeToken(TokenType.Number, Convert.ToInt64(oct, 8));
+                        try
+                        {
+                            long l = Convert.ToInt64(oct, 8);
+                            return MakeToken(TokenType.Number, l <= int.MaxValue ? (object)(int)l : l);
+                        }
+                        catch
+                        {
+                            BigInteger bi = ParseBaseBigInteger(oct, 8);
+                            return MakeToken(TokenType.Number, NarrowIntOrBig(bi));
+                        }
                     }
                     else
                     {
@@ -369,20 +423,24 @@ public class Lexer
 
                 string num = raw.ToString().Replace("_", "");
                 object val;
-                CultureInfo ci = System.Globalization.CultureInfo.InvariantCulture;
+                CultureInfo ci = CultureInfo.InvariantCulture;
 
                 if (isFloat || num.Contains("e") || num.Contains("E") || num.Contains("."))
                 {
-                    if (double.TryParse(num, System.Globalization.NumberStyles.Float, ci, out double d)) val = d;
-                    else if (decimal.TryParse(num, System.Globalization.NumberStyles.Float, ci, out decimal m)) val = m;
+                    if (double.TryParse(num, NumberStyles.Float, ci, out double d)) val = d;
+                    else if (decimal.TryParse(num, NumberStyles.Float, ci, out decimal m)) val = m;
                     else throw new LexerException($"invalid number literal '{num}'", startLine, startCol, FileName);
                 }
                 else
                 {
-                    if (int.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out int i)) val = i;
-                    else if (long.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out long l)) val = l;
-                    else if (decimal.TryParse(num, System.Globalization.NumberStyles.Integer, ci, out decimal m)) val = m;
-                    else throw new LexerException($"invalid number literal '{num}'", startLine, startCol, FileName);
+                    if (int.TryParse(num, NumberStyles.Integer, ci, out int i)) val = i;
+                    else if (long.TryParse(num, NumberStyles.Integer, ci, out long l)) val = l;
+                    else
+                    {
+                        if (!BigInteger.TryParse(num, NumberStyles.Integer, ci, out BigInteger bi))
+                            throw new LexerException($"invalid number literal '{num}'", startLine, startCol, FileName);
+                        val = NarrowIntOrBig(bi);
+                    }
                 }
                 return MakeToken(TokenType.Number, val);
             }

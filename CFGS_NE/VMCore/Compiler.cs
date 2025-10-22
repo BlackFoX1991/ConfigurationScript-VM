@@ -2,6 +2,7 @@
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions.Core;
+using System.Numerics;
 
 namespace CFGS_VM.VMCore
 {
@@ -925,6 +926,8 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(OpCode.PUSH_DBL, n.Value, e.Line, e.Col, e.OriginFile));
                     else if (n.Value is decimal)
                         _insns.Add(new Instruction(OpCode.PUSH_DEC, n.Value, e.Line, e.Col, e.OriginFile));
+                    else if (n.Value is BigInteger)
+                        _insns.Add(new Instruction(OpCode.PUSH_SPC, n.Value, e.Line, e.Col, e.OriginFile));
                     else
                         throw new CompilerException("invalid number value", n.Line, n.Col, e.OriginFile);
                     break;

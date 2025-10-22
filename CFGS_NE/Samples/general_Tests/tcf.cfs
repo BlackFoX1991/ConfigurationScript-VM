@@ -1,0 +1,18 @@
+func safeDivide(a, b) {
+    if (b == 0) throw "Division by zero";
+    return a / b;
+}
+
+func devider()
+{
+    try {
+        print("10/2=" + str(safeDivide(10,2)));
+        print("10/0=" + str(safeDivide(10,0)));  # wirft
+    } catch (e) {
+        print("Fehler: " + str(e));
+    } finally {
+        print("finally: Aufräumen");
+    }
+}
+
+devider();
