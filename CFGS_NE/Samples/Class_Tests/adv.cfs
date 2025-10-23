@@ -1,0 +1,50 @@
+class character
+{
+	var health;
+	var damage;
+	var name;
+	
+	func init(Name, Health, Damage)
+	{
+		this.name = Name;
+		this.health = Health;
+		this.damage = Damage;
+	}
+	
+	func AttackOn(Player)
+	{
+		try
+		{
+			if(typeof(Player.__base) != "character")
+				throw "Non character object";
+			
+			Player.Hit(this);
+			print(this.name + " damaged " + Player.name);
+		}
+		catch(e)
+		{
+			print("Error : " + e);
+		}
+	}
+	
+	func Hit(Source)
+	{
+		this.health -= Source.damage;
+		print(this.name + " got hit by " + Source.name + ". New HP : " + this.health);
+	}
+}
+
+class MainPlayer(Name, Health, Damage) : character(Name,Health,Damage){ }
+
+class NPCPlayer(Name, Health, Damage) : character(Name, Health, Damage) { }
+
+
+func main()
+{
+	var Hero = new MainPlayer("Superman", 100, 30);
+	var vil = new NPCPlayer("Joker", 100,20);
+	
+	Hero.AttackOn(vil);
+}
+
+main();

@@ -57,7 +57,7 @@
         /// <returns>The <see cref="string"/></returns>
         public override string ToString()
         {
-            return Message ?? base.ToString() ?? "";
+            return $"{Message}\n{Type}\n -> {File} at {Line}, position {Col}.";
         }
     }
 }

@@ -4,6 +4,7 @@ using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
 using System.Globalization;
+using System.Text;
 
 /// <summary>
 /// Defines the <see cref="Program" />
@@ -28,7 +29,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v2.3.8";
+    public static readonly string Version = "v2.4.0";
 
     /// <summary>
     /// Defines the PluginsFolder
@@ -43,26 +44,27 @@ public class Program
     /// <summary>
     /// Defines the logo
     /// </summary>
-    private static readonly string logo = $@"                         
+    private static readonly string logo = $@"
+=====================================================================================================
                       #####                    
             ####     ##:::::+#####             
-           ############......::::=###          
-           ############..........:::*##        
-     ############     #.............:::##      
-    ##########        #...............::##     
-      ######         %#+++.............::##    
-      #####        ####+++++++.........:::##   
-  ########        #####++++++++.........::##   
+           ############......::::=###           [ Configuration-Language ] [ Version {Version}      ]
+           ############..........:::*##         [ Enter your code or use the following commands     ]     
+     ############     #.............:::##       [ cls/ clear to clear the console                   ]  
+    ##########        #...............::##      [ debug to enable/disable the debug mode            ]
+      ######         %#+++.............::##     =====================================================
+      #####        ####+++++++.........:::##    [ Commands : -d(ebug) -c(ompile) -b(inary) -p(arams)]
+  ########        #####++++++++.........::##    https://github.com/BlackFoX1991/ConfigurationScript-VM
   ########        #####+++++++++........::##   
-      #####        ####++++++++*.......::-##   
-      ######        *##++++++**........::##    
-    ##########        #******........:::##     
-     ############     #.:...........::###   [ Configuration-Language ] [ Version {Version} ]  
-           ############..........:::###     [ REPL - Enter your code or use exit/quit to leave ]   
-            ###########......::::####          
-            *###     ##:::::#####              
-                      #####                    
-";
+      #####        ####++++++++*.......::-##    [--------------REPL INFO----------------------------]   
+      ######        *##++++++**........::##     [ Use Ctrl+Enter to run the entered code            ]
+    ##########        #******........:::##      [ Use Ctrl+Backspace to clear the code              ]
+     ############     #.:...........::###       [ Enter $L <Line> <Content> to edit a specific Line ]
+           ############..........:::###         [ Use Arrow Up/Down to trigger $L command           ]
+            ###########......::::####           [---------------------------------------------------]
+            *###     ##:::::#####           
+                      #####                  
+=====================================================================================================";
 
     /// <summary>
     /// The Main
@@ -76,25 +78,71 @@ public class Program
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
         List<string> files = new();
 
+        bool setMode = false;
+        string setCommand = string.Empty;
         foreach (string arg in args)
         {
-            switch (arg)
+            if (setMode)
             {
-                case "-d":
-                case "--debug":
-                    IsDebug = true;
-                    break;
-                case "-c":
-                    SetCompile = true;
-                    break;
+                if (setCommand == string.Empty) setCommand = arg;
+                else
+                {
+                    switch (setCommand)
+                    {
+                        case "buffer":
+                            if (int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out int buf))
+                            {
+                                VM.DEBUG_BUFFER = buf;
+                                Console.WriteLine($"[SETTINGS] Debug-Buffer set to {VM.DEBUG_BUFFER}");
+                                setCommand = string.Empty;
+                                setMode = false;
+                            }
+                            break;
+                        default:
+                            Console.Error.WriteLine($"invalid command for -s(et) '{setCommand}'");
+                            setCommand = string.Empty;
+                            setMode = false;
+                            break;
+                    }
+                }
+                continue;
+            }
 
-                case "-b":
-                    BinaryRun = true;
-                    break;
+            if (arg.Trim().StartsWith("-"))
+            {
+                switch (arg.Trim())
+                {
+                    case "-d":
+                    case "-debug":
+                        IsDebug = true;
+                        break;
+                    case "-c":
+                    case "-compile":
+                        SetCompile = true;
+                        break;
+                    case "-b":
+                    case "-binary":
+                        BinaryRun = true;
+                        break;
+                    case "-p":
+                    case "-params":
+                        break;
+                    case "-s":
+                    case "-set":
+                        setMode = true;
+                        break;
 
-                default:
+                    default:
+                        Console.Error.WriteLine($"Invalid command {arg.Trim()}.");
+                        break;
+                }
+            }
+            else
+            {
+                if (File.Exists(arg))
                     files.Add(arg);
-                    break;
+                else
+                    Console.WriteLine($"Could not load the script-file : '{arg}'");
             }
 
         }
@@ -105,14 +153,7 @@ public class Program
             {
                 foreach (string file in files)
                 {
-                    if (!File.Exists(file))
-                    {
-                        Console.WriteLine($"Script-file not found '{file}'.");
-                        continue;
-                    }
-
                     string input = File.ReadAllText(file);
-
                     if (file.EndsWith(".cfb", StringComparison.OrdinalIgnoreCase))
                     {
                         BinaryRun = true;
@@ -189,58 +230,27 @@ public class Program
             if (!SetCompile)
             {
                 vm.LoadPluginsFrom(PluginsFolder);
-                vm.LoadFunctions(compiler._functions);
+                vm.LoadFunctions(compiler.Functions);
                 vm.LoadInstructions(bytecode);
 
                 if (debug)
-                {
-                    Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
-
-                    int opCodeWidth = Math.Max(bytecode.Max(i => i.Code.ToString().Length), "OpCode".Length);
-                    int operandWidth = Math.Max(bytecode.Max(i => i.Operand?.ToString()?.Length ?? 4), "Operand".Length);
-
-                    string header = "| " + "Line,Col".PadRight(15)
-                                  + " | " + "Instr#".PadRight(8)
-                                  + " | " + "OpCode".PadRight(opCodeWidth)
-                                  + " | " + "Operand".PadRight(operandWidth)
-                                  + " |";
-                    Console.WriteLine(header);
-                    Console.WriteLine(new string('-', header.Length));
-
-                    for (int idx = 0; idx < bytecode.Count; idx++)
-                    {
-                        Instruction ins = bytecode[idx];
-                        string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
-                        string instrNum = $"[{idx + 1:00000}]";
-                        string opCode = ins.Code.ToString().PadRight(opCodeWidth);
-                        string operand = (ins.Operand?.ToString() ?? "null").PadRight(operandWidth);
-                        Console.WriteLine($"| {lineCol} | {instrNum} | {opCode} | {operand} |");
-                    }
-
-                    Console.WriteLine("=== END ===");
-
-                    if (compiler._functions.Count > 0)
-                    {
-                        Console.WriteLine("=== Functions ===");
-                        foreach (KeyValuePair<string, FunctionInfo> f in compiler._functions)
-                            Console.WriteLine(f.Key + " -> " + f.Value);
-                        Console.WriteLine();
-                    }
-                }
+                    PrintInstructions(name, bytecode, compiler.Functions);
 
                 await vm.RunAsync(debug, 0, ct);
 
                 if (debug)
                 {
-                    VM.DebugStream.Position = 0;
-                    using FileStream file = File.Create("log_file.log");
+                    VM.DebugStream!.Position = 0;
+                    string lpath = $"{Environment.CurrentDirectory}\\log_file.log";
+                    using FileStream file = File.Create(lpath);
                     VM.DebugStream.CopyTo(file);
+                    Console.WriteLine($"[DEBUG] log-file created : {lpath}");
                 }
             }
             else
             {
                 string outPath = Path.ChangeExtension(name, ".cfb");
-                CFSBinary.Save(outPath, bytecode, compiler._functions);
+                CFSBinary.Save(outPath, bytecode, compiler.Functions);
                 Console.WriteLine($"Compiled script '{name}' -> '{outPath}'");
             }
         }
@@ -252,49 +262,62 @@ public class Program
             vm.LoadPluginsFrom(PluginsFolder);
 
             if (debug)
-            {
-                Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
-
-                int opCodeWidth = Math.Max(bytecode.Max(i => i.Code.ToString().Length), "OpCode".Length);
-                int operandWidth = Math.Max(bytecode.Max(i => i.Operand?.ToString()?.Length ?? 4), "Operand".Length);
-
-                string header = "| " + "Line,Col".PadRight(15)
-                              + " | " + "Instr#".PadRight(8)
-                              + " | " + "OpCode".PadRight(opCodeWidth)
-                              + " | " + "Operand".PadRight(operandWidth)
-                              + " |";
-                Console.WriteLine(header);
-                Console.WriteLine(new string('-', header.Length));
-
-                for (int idx = 0; idx < bytecode.Count; idx++)
-                {
-                    Instruction ins = bytecode[idx];
-                    string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
-                    string instrNum = $"[{idx + 1:00000}]";
-                    string opCode = ins.Code.ToString().PadRight(opCodeWidth);
-                    string operand = (ins.Operand?.ToString() ?? "null").PadRight(operandWidth);
-                    Console.WriteLine($"| {lineCol} | {instrNum} | {opCode} | {operand} |");
-                }
-
-                Console.WriteLine("=== END ===");
-
-                if (vm._functions.Count > 0)
-                {
-                    Console.WriteLine("=== Functions ===");
-                    foreach (KeyValuePair<string, FunctionInfo> f in vm._functions)
-                        Console.WriteLine(f.Key + " -> " + f.Value);
-                    Console.WriteLine();
-                }
-            }
+                PrintInstructions(name, bytecode, vm.Functions);
 
             await vm.RunAsync(debug, 0, ct);
 
             if (debug)
             {
-                VM.DebugStream.Position = 0;
-                using FileStream file = File.Create("log_file.log");
+                VM.DebugStream!.Position = 0;
+                string lpath = $"{Environment.CurrentDirectory}\\log_file.log";
+                using FileStream file = File.Create(lpath);
                 VM.DebugStream.CopyTo(file);
+                Console.WriteLine($"[DEBUG] log-file created : {lpath}");
             }
+        }
+    }
+
+    /// <summary>
+    /// The PrintInstructions
+    /// </summary>
+    /// <param name="name">The name<see cref="string"/></param>
+    /// <param name="bytecode">The bytecode<see cref="List{Instruction}"/></param>
+    /// <param name="_functions">The _functions<see cref="Dictionary{string, FunctionInfo}"/></param>
+    private static void PrintInstructions(string name, List<Instruction> bytecode, Dictionary<string, FunctionInfo> _functions)
+    {
+        Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
+
+        int opCodeWidth = Math.Max(bytecode.Max(i => i.Code.ToString().Length), "OpCode".Length);
+        int operandWidth = Math.Max(bytecode.Max(i => i.Operand?.ToString()?.Length ?? 4), "Operand".Length);
+
+        string header = "| " + "Line,Col".PadRight(15)
+                      + " | " + "Instr#".PadRight(8)
+                      + " | " + "OpCode".PadRight(opCodeWidth)
+                      + " | " + "Operand".PadRight(operandWidth)
+                      + " |";
+        Console.WriteLine(header);
+        Console.WriteLine(new string('-', header.Length));
+
+        for (int idx = 0; idx < bytecode.Count; idx++)
+        {
+            Instruction ins = bytecode[idx];
+            string lineCol = $"[{ins.Line:00000},{ins.Col:00000}]";
+            string instrNum = $"[{idx + 1:00000}]";
+            string opCode = ins.Code.ToString().PadRight(opCodeWidth);
+            string opval = (ins.Operand?.ToString() ?? "null");
+            string operand = (opval.Length > 10 ? opval[..10] : opval).PadRight(operandWidth);
+            opval = string.Empty;
+            Console.WriteLine($"| {lineCol} | {instrNum} | {opCode} | {operand} |");
+        }
+
+        Console.WriteLine("=== END ===");
+
+        if (_functions.Count > 0)
+        {
+            Console.WriteLine("=== Functions ===");
+            foreach (KeyValuePair<string, FunctionInfo> f in _functions)
+                Console.WriteLine(f.Key + " -> " + f.Value);
+            Console.WriteLine();
         }
     }
 
@@ -315,69 +338,193 @@ public class Program
     private static string? ReadMultilineInput()
     {
         List<string> buffer = new();
+        StringBuilder line = new();
         string prompt = "> ";
+
+        int? lSelect = null;
+
+        void WritePrompt() => Console.Write(prompt);
+
+        void SetCurrentLine(string text)
+        {
+            while (line.Length > 0) { Console.Write("\b \b"); line.Length--; }
+            line.Append(text);
+            Console.Write(text);
+        }
+
+        void RedrawAll()
+        {
+            Console.Clear();
+            Console.WriteLine(logo);
+            for (int i = 0; i < buffer.Count; i++)
+            {
+                string pr = (i == 0) ? "> " : "> ";
+                Console.Write(pr);
+                Console.WriteLine(buffer[i]);
+            }
+            prompt = (buffer.Count == 0) ? "> " : "> ";
+            WritePrompt();
+        }
+
+        void DoClear()
+        {
+            buffer.Clear();
+            line.Clear();
+            lSelect = null;
+            RedrawAll();
+        }
+
+        WritePrompt();
 
         while (true)
         {
-            Console.Write(prompt);
-            string? line = Console.ReadLine();
-            if (line == null) return null;
+            ConsoleKeyInfo key = Console.ReadKey(intercept: true);
 
-            string trimmed = line.Trim();
-
-            if (buffer.Count == 0)
+            if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Control) != 0)
             {
-                if (trimmed.Equals("exit", StringComparison.OrdinalIgnoreCase) ||
-                    trimmed.Equals("quit", StringComparison.OrdinalIgnoreCase))
-                    return null;
-
-                if (trimmed.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
-                    trimmed.Equals("cls", StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.Clear();
-                    Console.WriteLine(logo);
-                    continue;
-                }
-
-                if (trimmed.Equals("debug", StringComparison.OrdinalIgnoreCase))
-                {
-                    IsDebug = !IsDebug;
-                    Console.WriteLine($"Debug mode is now {(IsDebug ? "Enabled" : "Disabled")}");
-                    continue;
-                }
+                Console.WriteLine();
+                if (line.Length > 0)
+                    buffer.Add(line.ToString());
+                return string.Join("\n", buffer);
             }
 
-            buffer.Add(line);
+            if (key.Key == ConsoleKey.Backspace && (key.Modifiers & ConsoleModifiers.Control) != 0)
+            {
+                DoClear();
+                continue;
+            }
 
-            string joined = string.Join("\n", buffer);
+            if (key.Key == ConsoleKey.UpArrow)
+            {
+                if (buffer.Count > 0)
+                {
+                    if (lSelect is null) lSelect = buffer.Count;
+                    lSelect = Math.Max(1, lSelect.Value - 1);
+                    SetCurrentLine($"$L {lSelect.Value} ");
+                }
+                continue;
+            }
 
-            bool looksTerminated =
-                trimmed.EndsWith(";") ||
-                trimmed.EndsWith("}") ||
-                trimmed.Length == 0;
+            if (key.Key == ConsoleKey.DownArrow)
+            {
+                if (lSelect is null) lSelect = Math.Max(1, buffer.Count);
+                lSelect = Math.Min(buffer.Count + 1, lSelect.Value + 1);
+                SetCurrentLine($"$L {lSelect.Value} ");
+                continue;
+            }
 
-            if (BracketsBalanced(joined) && looksTerminated)
-                return joined;
+            if (key.Key == ConsoleKey.Enter)
+            {
+                string current = line.ToString();
+                string trimmed = current.Trim();
 
-            prompt = "... ";
+                if (trimmed.StartsWith("$L", StringComparison.OrdinalIgnoreCase))
+                {
+                    string rest = trimmed.Substring(2).TrimStart();
+                    int spaceIdx = rest.IndexOf(' ');
+                    string numStr = (spaceIdx >= 0) ? rest.Substring(0, spaceIdx) : rest;
+                    string newContent = (spaceIdx >= 0) ? rest.Substring(spaceIdx + 1) : string.Empty;
+
+                    if (int.TryParse(numStr, out int oneBased) && oneBased >= 1)
+                    {
+                        int idx = oneBased - 1;
+
+                        if (idx < buffer.Count)
+                        {
+                            buffer[idx] = newContent;
+                            line.Clear();
+                            lSelect = null;
+                            RedrawAll();
+                            continue;
+                        }
+                        else if (idx == buffer.Count)
+                        {
+                            buffer.Add(newContent);
+                            line.Clear();
+                            lSelect = null;
+                            RedrawAll();
+                            continue;
+                        }
+                        else
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine($"# Zeilennummer {oneBased} ist außerhalb des gültigen Bereichs (1..{buffer.Count + 1}).");
+                            prompt = (buffer.Count == 0) ? "> " : "> ";
+                            WritePrompt();
+                            line.Clear();
+                            lSelect = null;
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("# Invalid usage : $L <Zeilennummer> <Inhalt>");
+                        prompt = (buffer.Count == 0) ? "> " : "> ";
+                        WritePrompt();
+                        line.Clear();
+                        lSelect = null;
+                        continue;
+                    }
+                }
+
+                if (buffer.Count == 0)
+                {
+                    if (trimmed.Equals("exit", StringComparison.OrdinalIgnoreCase) ||
+                        trimmed.Equals("quit", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine();
+                        return null;
+                    }
+
+                    if (trimmed.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
+                        trimmed.Equals("cls", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine();
+                        DoClear();
+                        continue;
+                    }
+
+                    if (trimmed.Equals("debug", StringComparison.OrdinalIgnoreCase))
+                    {
+                        IsDebug = !IsDebug;
+                        Console.WriteLine();
+                        Console.WriteLine($"Debug mode is now {(IsDebug ? "Enabled" : "Disabled")}");
+                        buffer.Clear();
+                        line.Clear();
+                        lSelect = null;
+                        prompt = "> ";
+                        WritePrompt();
+                        continue;
+                    }
+                }
+
+                buffer.Add(current);
+                line.Clear();
+                lSelect = null;
+                Console.WriteLine();
+                prompt = "> ";
+                WritePrompt();
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (line.Length > 0)
+                {
+                    line.Length--;
+                    Console.Write("\b \b");
+                }
+                lSelect = null;
+                continue;
+            }
+
+            if (!char.IsControl(key.KeyChar))
+            {
+                line.Append(key.KeyChar);
+                Console.Write(key.KeyChar);
+                lSelect = null;
+            }
         }
-    }
-
-    /// <summary>
-    /// The BracketsBalanced
-    /// </summary>
-    /// <param name="code">The code<see cref="string"/></param>
-    /// <returns>The <see cref="bool"/></returns>
-    private static bool BracketsBalanced(string code)
-    {
-        int round = 0, curly = 0;
-        foreach (char c in code)
-        {
-            if (c == '(') round++;
-            if (c == ')') round--;
-            if (c == '{') curly++;
-            if (c == '}') curly--;
-        }
-        return round <= 0 && curly <= 0;
     }
 }
