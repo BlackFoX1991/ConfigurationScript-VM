@@ -74,3 +74,6 @@ All control flow, exception handling, `return`/`break`/`continue`, `throw`, and 
 20. [Examples](examples.md)
 
 ---
+
+## Additional
+[Samples](CFGS_NE/Samples/) · [Standard Builtins/ Intrinsics](fileio.md)  · [HTTP Functions](httpc.md)  · [Creating Plugins](plugins.md) 
