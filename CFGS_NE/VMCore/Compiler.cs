@@ -39,7 +39,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Defines the _functions
         /// </summary>
-        public Dictionary<string, FunctionInfo> _functions = [];
+        public Dictionary<string, FunctionInfo> Functions { get; } = [];
 
         /// <summary>
         /// The Compile
@@ -51,17 +51,17 @@ namespace CFGS_VM.VMCore
             try
             {
                 _insns.Clear();
-                _functions.Clear();
+                Functions.Clear();
 
                 List<FuncDeclStmt> funcDecls = new();
                 foreach (Stmt s in program)
                 {
                     if (s is FuncDeclStmt f)
                     {
-                        if (_functions.ContainsKey(f.Name))
+                        if (Functions.ContainsKey(f.Name))
                             throw new CompilerException($"duplicate function '{f.Name}'", f.Line, f.Col, f.OriginFile);
 
-                        _functions[f.Name] = new FunctionInfo(f.Parameters, -1);
+                        Functions[f.Name] = new FunctionInfo(f.Parameters, -1);
                         funcDecls.Add(f);
                     }
                 }
@@ -75,7 +75,7 @@ namespace CFGS_VM.VMCore
                     try
                     {
                         int funcStart = _insns.Count;
-                        _functions[fd.Name] = new FunctionInfo(fd.Parameters, funcStart);
+                        Functions[fd.Name] = new FunctionInfo(fd.Parameters, funcStart);
 
                         if (fd.Body is BlockStmt b)
                             b.IsFunctionBody = true;
@@ -313,7 +313,7 @@ namespace CFGS_VM.VMCore
                             ctorParams.Insert(0, "__outer");
 
                         int ctorStart = _insns.Count;
-                        _functions[$"__ctor_{cds.Name}"] = new FunctionInfo(ctorParams, ctorStart);
+                        Functions[$"__ctor_{cds.Name}"] = new FunctionInfo(ctorParams, ctorStart);
 
                         const string SELF = "__obj";
                         _insns.Add(new Instruction(OpCode.NEW_OBJECT, cds.Name, cds.Line, cds.Col, s.OriginFile));
@@ -878,7 +878,7 @@ namespace CFGS_VM.VMCore
 
                         int funcStart = _insns.Count;
                         string internalName = $"__local_{fd.Name}_{_anonCounter++}";
-                        _functions[internalName] = new FunctionInfo(fd.Parameters, funcStart);
+                        Functions[internalName] = new FunctionInfo(fd.Parameters, funcStart);
 
                         if (fd.Body is BlockStmt fb) fb.IsFunctionBody = true;
                         CompileStmt(fd.Body, insideFunction: true);
@@ -1173,7 +1173,7 @@ namespace CFGS_VM.VMCore
                         int funcStart = _insns.Count;
 
                         string anonName = $"__anon_{_anonCounter++}";
-                        _functions[anonName] = new FunctionInfo(fe.Parameters, funcStart);
+                        Functions[anonName] = new FunctionInfo(fe.Parameters, funcStart);
 
                         CompileStmt(fe.Body, insideFunction: true);
 

@@ -125,7 +125,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                 catch { }
 
                 if (!allowFile)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream);
+                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
 
                 return Task.Run<object?>(async () =>
                 {
@@ -241,7 +241,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
             intrinsics.Register(T, new IntrinsicDescriptor("poll", 0, 1, (recv, a, i) =>
             {
                 int? timeout = a.Count >= 1 ? Convert.ToInt32(a[0], CultureInfo.InvariantCulture) : (int?)null;
-                return ((ServerHandle)recv).Poll(timeout);
+                return ((ServerHandle)recv).Poll(timeout)!;
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("respond", 3, 4, (recv, a, i) =>
@@ -358,7 +358,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                     ActiveByPort.TryRemove(_port, out _);
                     throw new VMException(
                         $"Cannot start HTTP server on http://localhost:{_port}/: {ex.Message} (code {ex.ErrorCode})",
-                        0, 0, "", VM.IsDebugging, VM.DebugStream
+                        0, 0, "", VM.IsDebugging, VM.DebugStream!
                     );
                 }
 
@@ -555,8 +555,8 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                 catch { }
 
                 Dictionary<string, object> headers = new(StringComparer.OrdinalIgnoreCase);
-                foreach (string key in req.Headers.AllKeys)
-                    headers[key] = req.Headers[key] ?? "";
+                foreach (string? key in req.Headers.AllKeys)
+                    headers[key!] = req.Headers[key] ?? "";
 
                 Dictionary<string, object> query = ParseQuery(req.Url?.Query);
 
