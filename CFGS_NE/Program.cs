@@ -80,69 +80,76 @@ public class Program
 
         bool setMode = false;
         string setCommand = string.Empty;
+        bool ignoreMode = false;
         foreach (string arg in args)
         {
-            if (setMode)
+
+            if (!ignoreMode)
             {
-                if (setCommand == string.Empty) setCommand = arg;
-                else
+                if (setMode)
                 {
-                    switch (setCommand)
+                    if (setCommand == string.Empty) setCommand = arg;
+                    else
                     {
-                        case "buffer":
-                            if (int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out int buf))
-                            {
-                                VM.DEBUG_BUFFER = buf;
-                                Console.WriteLine($"[SETTINGS] Debug-Buffer set to {VM.DEBUG_BUFFER}");
+                        switch (setCommand)
+                        {
+                            case "buffer":
+                                if (int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out int buf))
+                                {
+                                    VM.DEBUG_BUFFER = buf;
+                                    Console.WriteLine($"[SETTINGS] Debug-Buffer set to {VM.DEBUG_BUFFER}");
+                                    setCommand = string.Empty;
+                                    setMode = false;
+                                }
+                                break;
+                            default:
+                                Console.Error.WriteLine($"invalid command for -s(et) '{setCommand}'");
                                 setCommand = string.Empty;
                                 setMode = false;
-                            }
+                                break;
+                        }
+                    }
+                    continue;
+                }
+
+                if (arg.Trim().StartsWith("-"))
+                {
+                    switch (arg.Trim())
+                    {
+                        case "-d":
+                        case "-debug":
+                            IsDebug = true;
                             break;
+                        case "-c":
+                        case "-compile":
+                            SetCompile = true;
+                            break;
+                        case "-b":
+                        case "-binary":
+                            BinaryRun = true;
+                            break;
+                        case "-p":
+                        case "-params":
+                            ignoreMode = true;
+                            break;
+                        case "-s":
+                        case "-set":
+                            setMode = true;
+                            break;
+
                         default:
-                            Console.Error.WriteLine($"invalid command for -s(et) '{setCommand}'");
-                            setCommand = string.Empty;
-                            setMode = false;
+                            Console.Error.WriteLine($"Invalid command {arg.Trim()}.");
                             break;
                     }
                 }
-                continue;
-            }
-
-            if (arg.Trim().StartsWith("-"))
-            {
-                switch (arg.Trim())
-                {
-                    case "-d":
-                    case "-debug":
-                        IsDebug = true;
-                        break;
-                    case "-c":
-                    case "-compile":
-                        SetCompile = true;
-                        break;
-                    case "-b":
-                    case "-binary":
-                        BinaryRun = true;
-                        break;
-                    case "-p":
-                    case "-params":
-                        break;
-                    case "-s":
-                    case "-set":
-                        setMode = true;
-                        break;
-
-                    default:
-                        Console.Error.WriteLine($"Invalid command {arg.Trim()}.");
-                        break;
-                }
-            }
-            else
-            {
-                if (File.Exists(arg))
-                    files.Add(arg);
                 else
-                    Console.WriteLine($"Could not load the script-file : '{arg}'");
+                {
+                    if (File.Exists(arg))
+                        files.Add(arg);
+                    else
+                        Console.WriteLine($"Could not load the script-file : '{arg}'");
+                }
+
             }
 
         }
