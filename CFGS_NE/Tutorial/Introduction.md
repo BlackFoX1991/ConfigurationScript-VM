@@ -29,9 +29,13 @@ Extract the latest release and start **CFGS** to open the **REPL** (*Read–Eval
 
 ![REPL0.PNG](REPL0.PNG)
 
+---
+
 Enter your code. Use **Enter** for a new line and **Ctrl+Enter** to submit the entire block.
 
 ![REPL1.PNG](REPL1.PNG)
+
+---
 
 Multiline input is indicated by the continued prompt. You can edit previous lines inline (see `$L` below).
 
@@ -44,20 +48,11 @@ $L <lineNumber> <content>
 ```
 `lineNumber` is **1‑based**. If you specify `bufferLength + 1`, the line is **appended**. After a successful edit, the REPL **redraws** the buffer.
 
-![REPL3.PNG](REPL3.PNG)
-
 ![REPL4.PNG](REPL4.PNG)
-
-### Clearing quickly
-Press **Ctrl+Backspace** to clear the screen (same as typing `clear`/`cls` on the first line).
 
 ![REPL5.PNG](REPL5.PNG)
 
-Submit the block with **Ctrl+Enter**. Output appears and the prompt returns.
-
 ![REPL6.PNG](REPL6.PNG)
-
-Another example of multiline entry & submission:
 
 ![REPL7.PNG](REPL7.PNG)
 
@@ -105,7 +100,7 @@ Other useful flags:
 Notes:
 - The legacy `-b` flag is obsolete; CFGS auto‑detects `.cfb` now.
 - When compiling `.cfs`, imports are bundled into one `.cfb`.
-- Compiled `.cfb` requires CFGS and any used libraries (e.g., `stdlib`, `httplib` in the `plugins` folder).
+- Compiled `.cfb` requires CFGS and any used libraries.
 
 ---
 
@@ -115,20 +110,55 @@ Notes:
 - `exit` / `quit` — leave the REPL
 - `clear` / `cls` — clear screen and reprint the header
 - `debug` — toggle debug mode
-- `-set <key> <value>` — adjust settings (e.g., buffer)
 
 **Keyboard shortcuts**:
 - **Enter** — new line
 - **Ctrl+Enter** — submit the current multiline block
 - **Ctrl+Backspace** — clear screen (same as `clear`/`cls`)
 - **↑ / ↓** — pre‑fill input with `$L <N> ` to target a line for editing (↑ decreases N, ↓ increases N)
-- **Tab** — insert 4 spaces
-- **←/→**, **Home/End** — move within the current line
 
 **Line editing with `$L`**:
 - `$L <N> <content>` — replace line **N** (1‑based)
 - `$L <N>` where `N = buffer length + 1` — append a new last line
 The REPL redraws the buffer after a `$L` edit.
+
+
+## Writing and running code from cfs file
+
+You don’t have to use the REPL—CFGS scripts can be written as **`.cfs`** files and executed from the command line.
+
+![code\_sample](code_sample.PNG)
+
+### Workflow
+
+1. **Create a file** `myscript.cfs` in any editor ( for example Notepad++ )
+2. **Write CFGS code**
+3. **Run it** with CFGS:
+
+   ```bash
+   cfgs.exe path\to\myscript.cfs
+   ```
+4. (Optional) **Debug mode**:
+
+   ```bash
+   cfgs.exe path\to\myscript.cfs -d
+   ```
+5. (Optional) **Compile to bytecode** (`.cfb`):
+
+   ```bash
+   cfgs.exe path\to\myscript.cfs -c
+   ```
+
+   The compiled file runs with CFGS and any required plugins you've used.
+
+### Tips
+
+Here’s a cleaner version:
+
+* You can pass **multiple files** as arguments.
+* **Flags apply to every file** in the argument list.
+* To pass parameters to `cmdArgs`, include **`-p`** or **`-params`**; **everything that follows** is forwarded to `cmdArgs`. So make sure you've set this Flag in the right order!
+
 
 ---
 
