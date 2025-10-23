@@ -70,8 +70,7 @@ All control flow, exception handling, `return`/`break`/`continue`, `throw`, and 
 16. [Closures / Functions as Values](closures-functions-as-values.md)
 17. [Classes (Instances, Statics, Inheritance)](classes-instances-statics-inheritance.md)
 18. [Enums](enums.md)
-19. [Built-ins (selected)](built-ins-selected.md)
-20. [Examples](examples.md)
+19. [Examples](examples.md)
 
 ---
 
