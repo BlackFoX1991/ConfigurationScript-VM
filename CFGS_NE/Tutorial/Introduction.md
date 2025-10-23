@@ -122,6 +122,44 @@ Notes:
 - `$L <N>` where `N = buffer length + 1` — append a new last line
 The REPL redraws the buffer after a `$L` edit.
 
+
+## Writing and running code from cfs file
+
+You don’t have to use the REPL—CFGS scripts can be written as **`.cfs`** files and executed from the command line.
+
+![code\_sample](code_sample.PNG)
+
+### Workflow
+
+1. **Create a file** `myscript.cfs` in any editor ( for example Notepad++ )
+2. **Write CFGS code**
+3. **Run it** with CFGS:
+
+   ```bash
+   cfgs.exe path\to\myscript.cfs
+   ```
+4. (Optional) **Debug mode**:
+
+   ```bash
+   cfgs.exe path\to\myscript.cfs -d
+   ```
+5. (Optional) **Compile to bytecode** (`.cfb`):
+
+   ```bash
+   cfgs.exe path\to\myscript.cfs -c
+   ```
+
+   The compiled file runs with CFGS and any required plugins you've used.
+
+### Tips
+
+Here’s a cleaner version:
+
+* You can pass **multiple files** as arguments.
+* **Flags apply to every file** in the argument list.
+* To pass parameters to `cmdArgs`, include **`-p`** or **`-params`**; **everything that follows** is forwarded to `cmdArgs`. So make sure you've set this Flag in the right order!
+
+
 ---
 
 # Have fun!
