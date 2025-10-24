@@ -203,6 +203,18 @@ public class Lexer
                             }
                             sb.Append((char)Convert.ToInt32(hex, 16));
                         }
+                        else if (esc == 'x' || esc == 'X')
+                        {
+                            string hex = "";
+                            for (int i = 0; i < 2; i++)
+                            {
+                                SyncPos();
+                                if (!Uri.IsHexDigit(Current))
+                                    throw new LexerException("invalid \\x escape in string (expected 2 hex digits)", startLine, startCol, FileName);
+                                hex += Current;
+                            }
+                            sb.Append((char)Convert.ToInt32(hex, 16));
+                        }
                         else
                         {
                             throw new LexerException($"unknown escape '\\{esc}' in string", startLine, startCol, FileName);
@@ -249,6 +261,18 @@ public class Lexer
                         {
                             SyncPos();
                             if (!Uri.IsHexDigit(Current)) throw new LexerException("invalid \\u escape in char literal", startLine, startCol, FileName);
+                            hex += Current;
+                        }
+                        ch = (char)Convert.ToInt32(hex, 16);
+                    }
+                    else if (esc == 'x' || esc == 'X')
+                    {
+                        string hex = "";
+                        for (int i = 0; i < 2; i++)
+                        {
+                            SyncPos();
+                            if (!Uri.IsHexDigit(Current))
+                                throw new LexerException("invalid \\x escape in string (expected 2 hex digits)", startLine, startCol, FileName);
                             hex += Current;
                         }
                         ch = (char)Convert.ToInt32(hex, 16);

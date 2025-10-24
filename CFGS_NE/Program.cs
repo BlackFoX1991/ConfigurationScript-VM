@@ -4,7 +4,73 @@ using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
+
+/// <summary>
+/// Defines the <see cref="AnsiConsole" />
+/// </summary>
+internal static class AnsiConsole
+{
+    /// <summary>
+    /// Defines the STD_OUTPUT_HANDLE
+    /// </summary>
+    internal const int STD_OUTPUT_HANDLE = -11;
+
+    /// <summary>
+    /// Defines the ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    /// </summary>
+    internal const int ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
+
+    /// <summary>
+    /// The GetStdHandle
+    /// </summary>
+    /// <param name="nStdHandle">The nStdHandle<see cref="int"/></param>
+    /// <returns>The <see cref="IntPtr"/></returns>
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr GetStdHandle(int nStdHandle);
+
+    /// <summary>
+    /// The GetConsoleMode
+    /// </summary>
+    /// <param name="hConsoleHandle">The hConsoleHandle<see cref="IntPtr"/></param>
+    /// <param name="lpMode">The lpMode<see cref="int"/></param>
+    /// <returns>The <see cref="bool"/></returns>
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern bool GetConsoleMode(IntPtr hConsoleHandle, out int lpMode);
+
+    /// <summary>
+    /// The SetConsoleMode
+    /// </summary>
+    /// <param name="hConsoleHandle">The hConsoleHandle<see cref="IntPtr"/></param>
+    /// <param name="dwMode">The dwMode<see cref="int"/></param>
+    /// <returns>The <see cref="bool"/></returns>
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern bool SetConsoleMode(IntPtr hConsoleHandle, int dwMode);
+
+    /// <summary>
+    /// The EnableAnsi
+    /// </summary>
+    public static void EnableAnsi()
+    {
+        nint hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hOut == IntPtr.Zero) return;
+        if (!GetConsoleMode(hOut, out int mode)) return;
+        SetConsoleMode(hOut, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
+
+    /// <summary>
+    /// The DisableAnsi
+    /// </summary>
+    public static void DisableAnsi()
+    {
+        nint hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hOut == IntPtr.Zero) return;
+        if (!GetConsoleMode(hOut, out int mode)) return;
+        mode &= ~ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        SetConsoleMode(hOut, mode);
+    }
+}
 
 /// <summary>
 /// Defines the <see cref="Program" />
@@ -29,12 +95,17 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v2.4.0";
+    public static readonly string Version = "v2.4.2";
 
     /// <summary>
     /// Defines the PluginsFolder
     /// </summary>
     public static string PluginsFolder = "plugins";
+
+    /// <summary>
+    /// Defines the AnsiMode
+    /// </summary>
+    public static bool AnsiMode = true;
 
     /// <summary>
     /// Defines the CLIPath
@@ -44,25 +115,27 @@ public class Program
     /// <summary>
     /// Defines the logo
     /// </summary>
-    private static readonly string logo = $@"
+    private static readonly string header_text = $"[ Configuration-Language ] [ Version {Version} ]\n Enter your code, 'help' or 'exit/quit'\n Visit : https://github.com/BlackFoX1991/ConfigurationScript-VM";
+
+    private static readonly string help_diag = @"
 =====================================================================================================
                       #####                    
-            ####     ##:::::+#####             
-           ############......::::=###           [ Configuration-Language ] [ Version {Version}      ]
-           ############..........:::*##         [ Enter your code or use the following commands     ]     
+            ####     ##:::::+#####              [===================HELP============================]
+           ############......::::=###           [ Enter your code or use the following commands     ]
+           ############..........:::*##         [ buffer:length to set the logfile max. output      ]
      ############     #.............:::##       [ cls/ clear to clear the console                   ]  
     ##########        #...............::##      [ debug to enable/disable the debug mode            ]
-      ######         %#+++.............::##     =====================================================
-      #####        ####+++++++.........:::##    [ Commands : -d(ebug) -c(ompile) -b(inary) -p(arams)]
-  ########        #####++++++++.........::##    https://github.com/BlackFoX1991/ConfigurationScript-VM
-  ########        #####+++++++++........::##   
-      #####        ####++++++++*.......::-##    [--------------REPL INFO----------------------------]   
-      ######        *##++++++**........::##     [ Use Ctrl+Enter to run the entered code            ]
-    ##########        #******........:::##      [ Use Ctrl+Backspace to clear the code              ]
-     ############     #.:...........::###       [ Enter $L <Line> <Content> to edit a specific Line ]
-           ############..........:::###         [ Use Arrow Up/Down to trigger $L command           ]
-            ###########......::::####           [---------------------------------------------------]
-            *###     ##:::::#####           
+      ######         %#+++.............::##     [ ansi to enable or disable Ansi-Console-Mode       ]
+      #####        ####+++++++.........:::##    =====================================================
+  ########        #####++++++++.........::##    [ Commands : -d(ebug) -c(ompile) -b(inary) -p(arams)]
+  ########        #####+++++++++........::##    [            -s(et) buffer  maxlen                  ]
+      #####        ####++++++++*.......::-##    [                   ansi    1 or 0 to en/dis-able   ]   
+      ######        *##++++++**........::##     [--------------REPL INFO----------------------------]
+    ##########        #******........:::##      [ Use Ctrl+Enter to run the entered code            ]
+     ############     #.:...........::###       [ Use Ctrl+Backspace to clear the code              ]
+           ############..........:::###         [ Enter $L <Line> <Content> to edit a specific Line ]
+            ###########......::::####           [ Use Arrow Up/Down to trigger $L command           ]
+            *###     ##:::::#####               [---------------------------------------------------]
                       #####                  
 =====================================================================================================";
 
@@ -72,6 +145,8 @@ public class Program
     /// <param name="args">The args<see cref="string[]"/></param>
     public static void Main(string[] args)
     {
+        if (OperatingSystem.IsWindows())
+            AnsiConsole.EnableAnsi();
         CLIPath = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
         PluginsFolder = CLIPath + "\\" + PluginsFolder;
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
@@ -100,6 +175,13 @@ public class Program
                                     Console.WriteLine($"[SETTINGS] Debug-Buffer set to {VM.DEBUG_BUFFER}");
                                     setCommand = string.Empty;
                                     setMode = false;
+                                }
+                                break;
+                            case "ansi":
+                                if (int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out int aMode))
+                                {
+                                    AnsiMode = Convert.ToBoolean(aMode);
+                                    Console.WriteLine("Ansi-Mode " + (AnsiMode ? "enabled" : "disabled"));
                                 }
                                 break;
                             default:
@@ -176,7 +258,7 @@ public class Program
             }
             else
             {
-                Console.WriteLine(logo);
+                Console.WriteLine(header_text);
                 while (true)
                 {
                     string? code = ReadMultilineInput();
@@ -348,21 +430,54 @@ public class Program
         StringBuilder line = new();
         string prompt = "> ";
 
+        int indentTabs = 0;
+        const int TabSize = 4;
+
+        int visibleLen = 0;
+
         int? lSelect = null;
+
+        static string IndentStr(int tabs, int size) => new(' ', tabs * size);
+
+        (int tabs, string content) SplitIndent(string s)
+        {
+            int i = 0;
+            while (i < s.Length && s[i] == ' ') i++;
+            int tabs = i / TabSize;
+            int leftover = i - tabs * TabSize;
+            string content = new string(' ', leftover) + s.Substring(i);
+            return (tabs, content);
+        }
 
         void WritePrompt() => Console.Write(prompt);
 
+        void RenderCurrent()
+        {
+            while (visibleLen > 0) { Console.Write("\b \b"); visibleLen--; }
+
+            string composed = IndentStr(indentTabs, TabSize) + line.ToString();
+            Console.Write(composed);
+            visibleLen = composed.Length;
+        }
+
         void SetCurrentLine(string text)
         {
-            while (line.Length > 0) { Console.Write("\b \b"); line.Length--; }
+            line.Clear();
             line.Append(text);
-            Console.Write(text);
+            RenderCurrent();
+        }
+
+        void StartNewInputLine()
+        {
+            WritePrompt();
+            visibleLen = 0;
+            RenderCurrent();
         }
 
         void RedrawAll()
         {
             Console.Clear();
-            Console.WriteLine(logo);
+            Console.WriteLine(header_text);
             for (int i = 0; i < buffer.Count; i++)
             {
                 string pr = (i == 0) ? "> " : "> ";
@@ -370,18 +485,20 @@ public class Program
                 Console.WriteLine(buffer[i]);
             }
             prompt = (buffer.Count == 0) ? "> " : "> ";
-            WritePrompt();
+            StartNewInputLine();
         }
 
         void DoClear()
         {
             buffer.Clear();
             line.Clear();
+            indentTabs = 0;
             lSelect = null;
+            visibleLen = 0;
             RedrawAll();
         }
 
-        WritePrompt();
+        StartNewInputLine();
 
         while (true)
         {
@@ -390,8 +507,8 @@ public class Program
             if (key.Key == ConsoleKey.Enter && (key.Modifiers & ConsoleModifiers.Control) != 0)
             {
                 Console.WriteLine();
-                if (line.Length > 0)
-                    buffer.Add(line.ToString());
+                if (line.Length > 0 || indentTabs > 0)
+                    buffer.Add(IndentStr(indentTabs, TabSize) + line.ToString());
                 return string.Join("\n", buffer);
             }
 
@@ -401,12 +518,30 @@ public class Program
                 continue;
             }
 
+            if (key.Key == ConsoleKey.Tab && (key.Modifiers & ConsoleModifiers.Control) != 0)
+            {
+                if (indentTabs > 0)
+                {
+                    indentTabs--;
+                    RenderCurrent();
+                }
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.Tab)
+            {
+                indentTabs++;
+                RenderCurrent();
+                continue;
+            }
+
             if (key.Key == ConsoleKey.UpArrow)
             {
                 if (buffer.Count > 0)
                 {
                     if (lSelect is null) lSelect = buffer.Count;
                     lSelect = Math.Max(1, lSelect.Value - 1);
+                    indentTabs = 0;
                     SetCurrentLine($"$L {lSelect.Value} ");
                 }
                 continue;
@@ -416,13 +551,14 @@ public class Program
             {
                 if (lSelect is null) lSelect = Math.Max(1, buffer.Count);
                 lSelect = Math.Min(buffer.Count + 1, lSelect.Value + 1);
+                indentTabs = 0;
                 SetCurrentLine($"$L {lSelect.Value} ");
                 continue;
             }
 
             if (key.Key == ConsoleKey.Enter)
             {
-                string current = line.ToString();
+                string current = IndentStr(indentTabs, TabSize) + line.ToString();
                 string trimmed = current.Trim();
 
                 if (trimmed.StartsWith("$L", StringComparison.OrdinalIgnoreCase))
@@ -441,7 +577,8 @@ public class Program
                             buffer[idx] = newContent;
                             line.Clear();
                             lSelect = null;
-                            RedrawAll();
+                            Console.WriteLine();
+                            StartNewInputLine();
                             continue;
                         }
                         else if (idx == buffer.Count)
@@ -449,15 +586,15 @@ public class Program
                             buffer.Add(newContent);
                             line.Clear();
                             lSelect = null;
-                            RedrawAll();
+                            Console.WriteLine();
+                            StartNewInputLine();
                             continue;
                         }
                         else
                         {
                             Console.WriteLine();
                             Console.WriteLine($"# Zeilennummer {oneBased} ist außerhalb des gültigen Bereichs (1..{buffer.Count + 1}).");
-                            prompt = (buffer.Count == 0) ? "> " : "> ";
-                            WritePrompt();
+                            StartNewInputLine();
                             line.Clear();
                             lSelect = null;
                             continue;
@@ -467,8 +604,7 @@ public class Program
                     {
                         Console.WriteLine();
                         Console.WriteLine("# Invalid usage : $L <Zeilennummer> <Inhalt>");
-                        prompt = (buffer.Count == 0) ? "> " : "> ";
-                        WritePrompt();
+                        StartNewInputLine();
                         line.Clear();
                         lSelect = null;
                         continue;
@@ -501,7 +637,73 @@ public class Program
                         line.Clear();
                         lSelect = null;
                         prompt = "> ";
-                        WritePrompt();
+                        StartNewInputLine();
+                        continue;
+                    }
+
+                    if (trimmed.Equals("ansi", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (AnsiMode)
+                            AnsiConsole.DisableAnsi();
+                        else
+                            AnsiConsole.EnableAnsi();
+                        AnsiMode = !AnsiMode;
+                        Console.WriteLine();
+                        Console.WriteLine("Ansi-Mode is " + (AnsiMode ? "enabled" : "disabled"));
+                        buffer.Clear();
+                        line.Clear();
+                        lSelect = null;
+                        prompt = "> ";
+                        StartNewInputLine();
+                        continue;
+                    }
+
+                    if (trimmed.Equals("help", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine(help_diag);
+                        buffer.Clear();
+                        line.Clear();
+                        lSelect = null;
+                        prompt = "> ";
+                        StartNewInputLine();
+                        continue;
+                    }
+
+                    if (trimmed.StartsWith("buffer", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int restPos = trimmed.IndexOf(":");
+                        if (restPos == -1)
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine("Usage : buffer:len");
+                            goto abort_buf;
+                        }
+                        string lenStr = trimmed.Substring(restPos + 1);
+                        if (lenStr.Trim() == string.Empty)
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine("Usage : buffer:len");
+                            goto abort_buf;
+                        }
+                        if (int.TryParse(lenStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out restPos))
+                        {
+                            VM.DEBUG_BUFFER = restPos;
+                            Console.WriteLine();
+                            Console.WriteLine($"[SETTINGS] Debug-Buffer set to {VM.DEBUG_BUFFER}");
+                        }
+                        else
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine("Error : Buffer length only takes integers");
+                        }
+
+                        abort_buf:
+                        buffer.Clear();
+                        line.Clear();
+                        lSelect = null;
+                        prompt = "> ";
+                        StartNewInputLine();
                         continue;
                     }
                 }
@@ -510,8 +712,7 @@ public class Program
                 line.Clear();
                 lSelect = null;
                 Console.WriteLine();
-                prompt = "> ";
-                WritePrompt();
+                StartNewInputLine();
                 continue;
             }
 
@@ -520,8 +721,29 @@ public class Program
                 if (line.Length > 0)
                 {
                     line.Length--;
-                    Console.Write("\b \b");
+                    RenderCurrent();
                 }
+                else if (indentTabs > 0)
+                {
+                    indentTabs--;
+                    RenderCurrent();
+                }
+                else
+                {
+                    if (buffer.Count > 0)
+                    {
+                        string last = buffer[buffer.Count - 1];
+                        buffer.RemoveAt(buffer.Count - 1);
+
+                        (int tabs, string content) split = SplitIndent(last);
+                        indentTabs = split.tabs;
+                        line.Clear();
+                        line.Append(split.content);
+
+                        RedrawAll();
+                    }
+                }
+
                 lSelect = null;
                 continue;
             }
@@ -529,7 +751,7 @@ public class Program
             if (!char.IsControl(key.KeyChar))
             {
                 line.Append(key.KeyChar);
-                Console.Write(key.KeyChar);
+                RenderCurrent();
                 lSelect = null;
             }
         }
