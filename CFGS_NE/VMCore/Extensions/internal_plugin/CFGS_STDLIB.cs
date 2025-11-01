@@ -399,6 +399,22 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
         private static void RegisterString(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(string);
+            intrinsics.Register(T, new IntrinsicDescriptor("trim", 0, 0, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                return s.Trim();
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("rtrim", 0, 0, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                return s.TrimEnd();
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("ltrim", 0, 0, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                return s.TrimStart();
+            }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("len", 0, 0, (recv, a, i) => ((string)(recv ?? ""))!.Length));
             intrinsics.Register(T, new IntrinsicDescriptor("contains", 1, 1, (recv, a, i) => ((string)(recv ?? ""))!.Contains(a[0].ToString()! ?? "")));
