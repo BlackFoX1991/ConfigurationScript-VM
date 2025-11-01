@@ -244,6 +244,147 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                 h.Rollback();
                 return 1;
             }));
+
+            RegisterSchemaFunctions(T, intrinsics);
+        }
+
+        /// <summary>
+        /// The RegisterSchemaFunctions
+        /// </summary>
+        /// <param name="T">The T<see cref="Type"/></param>
+        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
+        private static void RegisterSchemaFunctions(Type T, IIntrinsicRegistry intrinsics)
+        {
+            intrinsics.Register(T, new IntrinsicDescriptor("tables", 0, 0, (recv, a, instr) =>
+            {
+                SqlHandle h = (SqlHandle)recv;
+                h.EnsureOpen();
+                List<object> list = new();
+                DataTable tables = h.Connection.GetSchema("Tables");
+                foreach (DataRow row in tables.Rows)
+                {
+                    list.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["name"] = row["TABLE_NAME"],
+                        ["schema"] = row["TABLE_SCHEMA"],
+                        ["type"] = row["TABLE_TYPE"]
+                    });
+                }
+                return list;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("columns", 1, 1, (recv, a, instr) =>
+            {
+                SqlHandle h = (SqlHandle)recv;
+                string table = a[0]?.ToString() ?? "";
+                if (string.IsNullOrWhiteSpace(table))
+                    throw new VMException("columns(tableName): tableName darf nicht leer sein",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+
+                List<object> cols = new();
+                DataTable columns = h.Connection.GetSchema("Columns", new string[] { null, null, table });
+                foreach (DataRow row in columns.Rows)
+                {
+                    cols.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["name"] = row["COLUMN_NAME"],
+                        ["type"] = row["DATA_TYPE"],
+                        ["nullable"] = row["IS_NULLABLE"],
+                        ["max_length"] = row["CHARACTER_MAXIMUM_LENGTH"]
+                    });
+                }
+                return cols;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("views", 0, 0, (recv, a, instr) =>
+            {
+                SqlHandle h = (SqlHandle)recv;
+                h.EnsureOpen();
+                List<object> views = new();
+                DataTable dt = h.Connection.GetSchema("Views");
+                foreach (DataRow row in dt.Rows)
+                {
+                    views.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["name"] = row["TABLE_NAME"],
+                        ["schema"] = row["TABLE_SCHEMA"]
+                    });
+                }
+                return views;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("procedures", 0, 0, (recv, a, instr) =>
+            {
+                SqlHandle h = (SqlHandle)recv;
+                h.EnsureOpen();
+                List<object> list = new();
+                DataTable procs = h.Connection.GetSchema("Procedures");
+                foreach (DataRow row in procs.Rows)
+                {
+                    list.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["name"] = row["SPECIFIC_NAME"],
+                        ["schema"] = row["SPECIFIC_SCHEMA"],
+                        ["type"] = row["ROUTINE_TYPE"]
+                    });
+                }
+                return list;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("procedure_info", 1, 1, (recv, a, instr) =>
+            {
+                SqlHandle h = (SqlHandle)recv;
+                string proc = a[0]?.ToString() ?? "";
+                if (string.IsNullOrWhiteSpace(proc))
+                    throw new VMException("procedure_info(procName): procName darf nicht leer sein",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+
+                h.EnsureOpen();
+                List<object> parameters = new();
+
+                using SqlCommand cmd = new(@"
+        SELECT 
+            PARAMETER_NAME,
+            DATA_TYPE,
+            CHARACTER_MAXIMUM_LENGTH,
+            PARAMETER_MODE
+        FROM INFORMATION_SCHEMA.PARAMETERS
+        WHERE SPECIFIC_NAME = @proc", h.Connection);
+
+                cmd.Parameters.AddWithValue("@proc", proc);
+                using SqlDataReader reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    parameters.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["name"] = reader["PARAMETER_NAME"],
+                        ["type"] = reader["DATA_TYPE"],
+                        ["length"] = reader["CHARACTER_MAXIMUM_LENGTH"],
+                        ["mode"] = reader["PARAMETER_MODE"]
+                    });
+                }
+                return parameters;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("view_definition", 1, 1, (recv, a, instr) =>
+            {
+                SqlHandle h = (SqlHandle)recv;
+                string view = a[0]?.ToString() ?? "";
+                if (string.IsNullOrWhiteSpace(view))
+                    throw new VMException("view_definition(viewName): viewName darf nicht leer sein",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+
+                h.EnsureOpen();
+
+                using SqlCommand cmd = new(@"
+        SELECT VIEW_DEFINITION 
+        FROM INFORMATION_SCHEMA.VIEWS
+        WHERE TABLE_NAME = @view", h.Connection);
+                cmd.Parameters.AddWithValue("@view", view);
+                object? def = cmd.ExecuteScalar();
+
+                return def ?? "";
+            }));
         }
 
         /// <summary>
@@ -345,12 +486,72 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
             foreach (KeyValuePair<string, object> kvp in vmParams)
             {
                 string name = kvp.Key.StartsWith("@") ? kvp.Key : "@" + kvp.Key;
-                object value = kvp.Value ?? DBNull.Value;
-                if (value is bool b)
-                    value = b ? 1 : 0;
+                object paramValue = kvp.Value ?? DBNull.Value;
 
-                cmd.Parameters.AddWithValue(name, value);
+                SqlParameter p = cmd.CreateParameter();
+                p.ParameterName = name;
+
+                if (paramValue is Dictionary<string, object> pdesc)
+                {
+                    if (pdesc.TryGetValue("value", out object? v))
+                        p.Value = v ?? DBNull.Value;
+                    if (pdesc.TryGetValue("type", out object? t))
+                        p.SqlDbType = ParseSqlType(t.ToString()!);
+                }
+                else
+                {
+                    p.Value = paramValue is bool b ? (b ? 1 : 0) : paramValue;
+                }
+
+                cmd.Parameters.Add(p);
             }
+        }
+
+        /// <summary>
+        /// The ParseSqlType
+        /// </summary>
+        /// <param name="type">The type<see cref="string"/></param>
+        /// <returns>The <see cref="SqlDbType"/></returns>
+        private static SqlDbType ParseSqlType(string type)
+        {
+            type = type.ToLowerInvariant();
+
+            return type switch
+            {
+                "bigint" => SqlDbType.BigInt,
+                "binary" => SqlDbType.Binary,
+                "bit" => SqlDbType.Bit,
+                "char" => SqlDbType.Char,
+                "date" => SqlDbType.Date,
+                "datetime" => SqlDbType.DateTime,
+                "datetime2" => SqlDbType.DateTime2,
+                "datetimeoffset" => SqlDbType.DateTimeOffset,
+                "decimal" => SqlDbType.Decimal,
+                "float" => SqlDbType.Float,
+                "image" => SqlDbType.Image,
+                "int" => SqlDbType.Int,
+                "money" => SqlDbType.Money,
+                "nchar" => SqlDbType.NChar,
+                "ntext" => SqlDbType.NText,
+                "numeric" => SqlDbType.Decimal,
+                "nvarchar" => SqlDbType.NVarChar,
+                "real" => SqlDbType.Real,
+                "smalldatetime" => SqlDbType.SmallDateTime,
+                "smallint" => SqlDbType.SmallInt,
+                "smallmoney" => SqlDbType.SmallMoney,
+                "structured" => SqlDbType.Structured,
+                "text" => SqlDbType.Text,
+                "time" => SqlDbType.Time,
+                "timestamp" => SqlDbType.Timestamp,
+                "tinyint" => SqlDbType.TinyInt,
+                "udt" => SqlDbType.Udt,
+                "uniqueidentifier" => SqlDbType.UniqueIdentifier,
+                "varbinary" => SqlDbType.VarBinary,
+                "varchar" => SqlDbType.VarChar,
+                "variant" => SqlDbType.Variant,
+                "xml" => SqlDbType.Xml,
+                _ => SqlDbType.Variant
+            };
         }
     }
 }
