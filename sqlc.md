@@ -15,7 +15,7 @@ func main()
 
         // Blocking query
         var rows = sql.execute("SELECT TOP 5 * FROM dbo.Kunde");
-        for (var row in rows)
+        foreach (var row in rows)
             print(row["Vorname"] + " " + row["Nachname"]);
 
         // Asynchronous query
@@ -163,7 +163,7 @@ print(count[0]["Anzahl"]);
 
 ```c
 var rows = sql.execute("SELECT TOP 10 * FROM Kunde");
-for (var row in rows)
+foreach (var row in rows)
     print(row["Vorname"] + " " + row["Nachname"]);
 ```
 
@@ -178,8 +178,8 @@ print(result[0]["Vorname"]);
 ### Schema Inspection
 
 ```c
-for (var t in sql.tables()) print(t["name"]);
-for (var c in sql.columns("Kunde")) print(c["name"] + " " + c["type"]);
+foreach (var t in sql.tables()) print(t["name"]);
+foreach (var c in sql.columns("Kunde")) print(c["name"] + " " + c["type"]);
 ```
 
 ### Transaction
