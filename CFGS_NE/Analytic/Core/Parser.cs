@@ -57,6 +57,11 @@ namespace CFGS_VM.Analytic.Core
         private bool IsInLoop { get => (_loopDepth > 0); }
 
         /// <summary>
+        /// Defines the multipleVarDecl
+        /// </summary>
+        private bool multipleVarDecl = false;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="Parser"/> class.
         /// </summary>
         /// <param name="lexer">The lexer<see cref="Lexer"/></param>
@@ -487,45 +492,89 @@ namespace CFGS_VM.Analytic.Core
         /// <returns>The <see cref="Stmt"/></returns>
         private Stmt Statement()
         {
+            if (multipleVarDecl)
+                return ParseVarDecl;
 
-            if (IsInFunctionOrClass)
+            return IsInFunctionOrClass
+                ? ParseStatementInMemberScope()
+                : ParseStatementTopLevel();
+        }
+
+        /// <summary>
+        /// The TryParseCommonStatement
+        /// </summary>
+        /// <param name="stmt">The stmt<see cref="Stmt"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool TryParseCommonStatement(out Stmt stmt)
+        {
+            switch (_current.Type)
             {
-                return _current.Type switch
-                {
-                    TokenType.ForEach => ParseForeach(),
-                    TokenType.Try => ParseTry(),
-                    TokenType.Throw => ParseThrow(),
-                    TokenType.Return => ParseReturnStmt(),
-                    TokenType.Delete => ParseDelete,
-                    TokenType.Match => ParseMatch(),
-                    TokenType.LBrace => ParseBlock(),
-                    TokenType.If => ParseIf(),
-                    TokenType.While => ParseWhile(),
-                    TokenType.Break => ParseBreak,
-                    TokenType.Continue => ParseContinue,
-                    TokenType.For => ParseFor(),
-                    TokenType.Semi => ParseEmptyStmt,
-                    TokenType.Var => ParseVarDecl,
-                    TokenType.Ident => ParseAssignOrIndexAssignOrPushOrExpr(),
-                    TokenType.Func => ParseFuncDecl(),
-                    TokenType.Class => ParseClassDecl(),
-                    TokenType.Enum => ParseEnumDecl(),
-                    _ => ParseExprStmt
-                };
+                case TokenType.Semi:
+                    stmt = ParseEmptyStmt;
+                    return true;
+                case TokenType.Var:
+                    stmt = ParseVarDecl;
+                    return true;
+                case TokenType.Ident:
+                    stmt = ParseAssignOrIndexAssignOrPushOrExpr();
+                    return true;
+                case TokenType.Func:
+                    stmt = ParseFuncDecl();
+                    return true;
+                case TokenType.LBrace:
+                    stmt = ParseBlock();
+                    return true;
+                case TokenType.Class:
+                    stmt = ParseClassDecl();
+                    return true;
+                case TokenType.Enum:
+                    stmt = ParseEnumDecl();
+                    return true;
+                default:
+                    stmt = default!;
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The ParseStatementInMemberScope
+        /// </summary>
+        /// <returns>The <see cref="Stmt"/></returns>
+        private Stmt ParseStatementInMemberScope()
+        {
+            switch (_current.Type)
+            {
+                case TokenType.ForEach: return ParseForeach();
+                case TokenType.Try: return ParseTry();
+                case TokenType.Throw: return ParseThrow();
+                case TokenType.Return: return ParseReturnStmt();
+                case TokenType.Delete: return ParseDelete;
+                case TokenType.Match: return ParseMatch();
+                case TokenType.If: return ParseIf();
+                case TokenType.While: return ParseWhile();
+                case TokenType.Break: return ParseBreak;
+                case TokenType.Continue: return ParseContinue;
+                case TokenType.For: return ParseFor();
             }
 
-            return _current.Type switch
-            {
-                TokenType.Semi => ParseEmptyStmt,
-                TokenType.Var => ParseVarDecl,
-                TokenType.Ident => ParseAssignOrIndexAssignOrPushOrExpr(),
-                TokenType.Func => ParseFuncDecl(),
-                TokenType.LBrace => ParseBlock(),
-                TokenType.Class => ParseClassDecl(),
-                TokenType.Enum => ParseEnumDecl(),
-                _ => throw new ParserException($"invalid top-level statement {_current.Type}", _current.Line, _current.Column, _current.Filename)
+            if (TryParseCommonStatement(out Stmt stmt))
+                return stmt;
 
-            };
+            return ParseExprStmt;
+        }
+
+        /// <summary>
+        /// The ParseStatementTopLevel
+        /// </summary>
+        /// <returns>The <see cref="Stmt"/></returns>
+        private Stmt ParseStatementTopLevel()
+        {
+            if (TryParseCommonStatement(out Stmt stmt))
+                return stmt;
+
+            throw new ParserException(
+                $"invalid top-level statement {_current.Type}",
+                _current.Line, _current.Column, _current.Filename);
         }
 
         /// <summary>
@@ -1001,7 +1050,6 @@ namespace CFGS_VM.Analytic.Core
             }
         }
 
-
         /// <summary>
         /// Gets the ParseVarDecl
         /// </summary>
@@ -1009,7 +1057,7 @@ namespace CFGS_VM.Analytic.Core
         {
             get
             {
-                Eat(TokenType.Var);
+                if (!multipleVarDecl) Eat(TokenType.Var);
                 string name = _current.Value.ToString() ?? "";
                 if (Lexer.Keywords.ContainsKey(name))
                     throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
@@ -1020,7 +1068,17 @@ namespace CFGS_VM.Analytic.Core
                     Eat(TokenType.Assign);
                     v = Expr();
                 }
-                Eat(TokenType.Semi);
+                if (_current.Type == TokenType.Comma)
+                {
+                    multipleVarDecl = true;
+                    Eat(TokenType.Comma);
+                }
+                else
+                {
+                    multipleVarDecl = false;
+                    Eat(TokenType.Semi);
+                }
+
                 return new VarDecl(name, v, _current.Line, _current.Column, _current.Filename);
             }
         }
@@ -1912,13 +1970,11 @@ namespace CFGS_VM.Analytic.Core
         /// <summary>
         /// The ParseFuncDecl
         /// </summary>
-        /// <param name="isAsync">The isAsync<see cref="bool"/></param>
         /// <returns>The <see cref="FuncDeclStmt"/></returns>
         private FuncDeclStmt ParseFuncDecl()
         {
             int line = _current.Line;
             int col = _current.Column;
-
 
             Eat(TokenType.Func);
 
