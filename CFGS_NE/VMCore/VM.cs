@@ -3945,6 +3945,9 @@ namespace CFGS_VM.VMCore
             new CFGS_VM.VMCore.Extensions.internal_plugin.CFGS_HTTP()
                 .Register(Builtins, Intrinsics);
 
+            new CFGS_VM.VMCore.Extensions.internal_plugin.CFGS_STDLIB_MSSQL()
+                .Register(Builtins, Intrinsics);
+
 
         }
     }
