@@ -95,7 +95,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v2.4.2";
+    public static readonly string Version = "v2.5.4";
 
     /// <summary>
     /// Defines the PluginsFolder
@@ -147,6 +147,7 @@ public class Program
     {
         if (OperatingSystem.IsWindows())
             AnsiConsole.EnableAnsi();
+
         CLIPath = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
         PluginsFolder = CLIPath + "\\" + PluginsFolder;
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
