@@ -37,7 +37,7 @@ namespace CFGS_VM.VMCore
         private readonly Stack<List<int>> _continueLists = new();
 
         /// <summary>
-        /// Defines the _functions
+        /// Gets the Functions
         /// </summary>
         public Dictionary<string, FunctionInfo> Functions { get; } = [];
 
@@ -607,7 +607,7 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
-                    case ForStmt fs:
+                case ForStmt fs:
                     {
                         _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col, s.OriginFile));
 
@@ -1195,6 +1195,37 @@ namespace CFGS_VM.VMCore
                         _insns[jmpOverFuncIdx] = new Instruction(OpCode.JMP, _insns.Count, e.Line, e.Col, e.OriginFile);
 
                         _insns.Add(new Instruction(OpCode.PUSH_CLOSURE, new object[] { funcStart, anonName }, e.Line, e.Col, e.OriginFile));
+                        break;
+                    }
+
+                case OutExpr ox:
+                    {
+                        List<Stmt> stmts = ox.Body.Statements;
+
+                        int lastExprIdx = -1;
+                        for (int i = stmts.Count - 1; i >= 0; i--)
+                            if (stmts[i] is ExprStmt) { lastExprIdx = i; break; }
+
+                        _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, ox.Line, ox.Col, ox.OriginFile));
+
+                        for (int i = 0; i < stmts.Count; i++)
+                        {
+                            if (stmts[i] is ExprStmt es)
+                            {
+                                CompileExpr(es.Expression);
+                                if (i != lastExprIdx)
+                                    _insns.Add(new Instruction(OpCode.POP, null, es.Line, es.Col, es.OriginFile));
+                            }
+                            else
+                            {
+                                CompileStmt(stmts[i], insideFunction: false);
+                            }
+                        }
+
+                        if (lastExprIdx == -1)
+                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, ox.Line, ox.Col, ox.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.POP_SCOPE, null, ox.Line, ox.Col, ox.OriginFile));
                         break;
                     }
 

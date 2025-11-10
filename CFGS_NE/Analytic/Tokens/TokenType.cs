@@ -316,6 +316,11 @@
         From,
 
         /// <summary>
+        /// Defines the Out
+        /// </summary>
+        Out,
+
+        /// <summary>
         /// Defines the New
         /// </summary>
         New,

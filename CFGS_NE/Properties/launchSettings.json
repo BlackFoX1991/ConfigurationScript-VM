@@ -2,6 +2,7 @@
   "profiles": {
     "CFGS_NE": {
       "commandName": "Project",
+      "commandLineArgs": "C:\\Users\\loewe\\Desktop\\task.cfs",
       "workingDirectory": ".\\Samples"
     }
   }
