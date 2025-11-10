@@ -95,7 +95,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public static readonly string Version = "v2.5.7";
+    public static readonly string Version = "v2.5.8";
 
     /// <summary>
     /// Defines the PluginsFolder
