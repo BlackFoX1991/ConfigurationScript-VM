@@ -61,6 +61,10 @@ namespace CFGS_VM.Analytic.Core
         /// </summary>
         private bool multipleVarDecl = false;
 
+
+        private int _outBlock = 0;
+        private bool IsInOutBlock { get => _outBlock > 0; }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="Parser"/> class.
         /// </summary>
@@ -1796,7 +1800,9 @@ namespace CFGS_VM.Analytic.Core
             else if (_current.Type == TokenType.Out)
             {
                 Eat(TokenType.Out);
+                _outBlock++;
                 BlockStmt body = ParseBlock();
+                _outBlock--;
                 node = new OutExpr(body, body.Line, body.Col, body.OriginFile);
             }
 
@@ -2010,6 +2016,10 @@ namespace CFGS_VM.Analytic.Core
         {
             if (!IsInFunction)
                 throw new ParserException("return can only be used in function statements", _current.Line, _current.Column, _current.Filename);
+
+            if (IsInOutBlock)
+                throw new ParserException("return can not be used in out-Block", _current.Line, _current.Column, _current.Filename);
+
             Eat(TokenType.Return);
             Expr? value = null;
             if (_current.Type != TokenType.Semi)
