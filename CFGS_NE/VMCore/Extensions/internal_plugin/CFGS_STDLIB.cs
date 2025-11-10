@@ -2,6 +2,7 @@
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Plugin;
 using System.Globalization;
+using System.Numerics;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
@@ -117,6 +118,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                 if (val is bool) return "Boolean";
                 if (val is int) return "Int";
                 if (val is long) return "Long";
+                if (val is BigInteger) return "BigInt";
                 if (val is double) return "Double";
                 if (val is float) return "Float";
                 if (val is decimal) return "Decimal";
@@ -176,6 +178,90 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
             {
                 if (args[0] is null) return null!;
                 return args[0].ToString() ?? "";
+            }));
+
+            builtins.Register(new BuiltinDescriptor("string", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                return args[0].ToString() ?? "";
+            }));
+
+            builtins.Register(new BuiltinDescriptor("int", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                return Convert.ToInt32(args[0], CultureInfo.InvariantCulture);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("long", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                return Convert.ToInt64(args[0], CultureInfo.InvariantCulture);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("double", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                return Convert.ToDouble(args[0], CultureInfo.InvariantCulture);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("float", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                return Convert.ToSingle(args[0], CultureInfo.InvariantCulture);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("decimal", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                return Convert.ToDecimal(args[0], CultureInfo.InvariantCulture);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("char", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                return Convert.ToChar(args[0], CultureInfo.InvariantCulture);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("bool", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                return Convert.ToBoolean(args[0], CultureInfo.InvariantCulture);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("bigint", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                object v = args[0];
+
+                if (v is sbyte or byte or short or ushort or int or uint or long or ulong)
+                    return new System.Numerics.BigInteger(Convert.ToInt64(v, CultureInfo.InvariantCulture));
+                if (v is decimal)
+                    return new System.Numerics.BigInteger((decimal)v);
+                if (v is float or double)
+                    return new System.Numerics.BigInteger(Convert.ToDecimal(v, CultureInfo.InvariantCulture));
+                if (v is string s)
+                {
+                    if (System.Numerics.BigInteger.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out BigInteger bi))
+                        return bi;
+                    return new System.Numerics.BigInteger(0);
+                }
+                return new System.Numerics.BigInteger(0);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("array", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                if (args[0] is List<object> list)
+                    return new List<object>(list);
+                return new List<object> { args[0]! };
+            }));
+
+            builtins.Register(new BuiltinDescriptor("dictionary", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                if (args[0] is Dictionary<string, object> d)
+                    return new Dictionary<string, object>(d);
+                return new Dictionary<string, object>();
             }));
 
             builtins.Register(new BuiltinDescriptor("toi", 1, 1, (args, instr) => ToNumber(args[0])));
