@@ -1,5 +1,4 @@
-﻿using CFGS_VM.VMCore.Extensions;
-using CFGS_VM.VMCore.Extensions.Instance;
+﻿using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Plugin;
 using System.Globalization;
@@ -56,6 +55,38 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
             RegisterFile(intrinsics);
             RegisterDateTime(intrinsics);
             RegisterDirectoryInfo(intrinsics);
+            RegisterTaskNamespace(intrinsics);
+        }
+
+        /// <summary>
+        /// The RegisterTaskNamespace
+        /// </summary>
+        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
+        private static void RegisterTaskNamespace(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(TaskNamespace);
+
+            intrinsics.Register(T, new IntrinsicDescriptor("get", 1, 1, (recv, a, i) =>
+            {
+                object? value = a[0];
+                return System.Threading.Tasks.Task.FromResult<object?>(value);
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("completed", 0, 0, (recv, a, i) =>
+            {
+                return System.Threading.Tasks.Task.FromResult<object?>(null);
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("delay", 1, 2, (recv, a, instr) =>
+            {
+                int ms = Convert.ToInt32(a[0], System.Globalization.CultureInfo.InvariantCulture);
+                object? value = (a.Count >= 2) ? a[1] : null;
+                return System.Threading.Tasks.Task.Run<object?>(async () =>
+                {
+                    await System.Threading.Tasks.Task.Delay(ms).ConfigureAwait(false);
+                    return value;
+                });
+            }, smartAwait: true));
         }
 
         /// <summary>
@@ -241,6 +272,14 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                 if (args[0] is null) return false;
                 return char.IsWhiteSpace(Convert.ToChar(args[0], CultureInfo.InvariantCulture));
             }));
+
+            builtins.Register(new BuiltinDescriptor("task", 0, 1, (args, instr) =>
+            {
+                if (args.Count == 0)
+                    return TaskNamespace.Instance;
+
+                return System.Threading.Tasks.Task.FromResult<object?>(args[0]);
+            }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("isarray", 1, 1, (args, instr) => args[0] is List<object>));
             builtins.Register(new BuiltinDescriptor("isdict", 1, 1, (args, instr) => args[0] is Dictionary<string, object>));

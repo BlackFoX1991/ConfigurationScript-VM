@@ -1793,6 +1793,13 @@ namespace CFGS_VM.Analytic.Core
                 _funcDepth--;
                 node = new FuncExpr(parameters, body, _current.Line, _current.Column, _current.Filename);
             }
+            else if (_current.Type == TokenType.Out)
+            {
+                Eat(TokenType.Out);
+                BlockStmt body = ParseBlock();
+                node = new OutExpr(body, body.Line, body.Col, body.OriginFile);
+            }
+
             else
             {
                 throw new ParserException($"invalid factor, token {_current.Type}", _current.Line, _current.Column, _current.Filename);

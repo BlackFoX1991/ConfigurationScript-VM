@@ -50,6 +50,7 @@ public class Lexer
             {"outer", TokenType.Ident },
             {"type", TokenType.Ident },
             {"await", TokenType.Await},
+            {"out", TokenType.Out},
 
         };
 
