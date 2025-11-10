@@ -607,8 +607,10 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
-                case ForStmt fs:
+                    case ForStmt fs:
                     {
+                        _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col, s.OriginFile));
+
                         if (fs.Init != null) CompileStmt(fs.Init, insideFunction);
                         int loopStart = _insns.Count;
                         _breakLists.Push([]);
@@ -650,11 +652,16 @@ namespace CFGS_VM.VMCore
 
                         _breakLists.Pop();
                         _continueLists.Pop();
+
+                        _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
                         break;
                     }
 
                 case ForeachStmt fe:
                     {
+
+                        _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, s.Line, s.Col, s.OriginFile));
+
                         string seqNm = $"__fe_seq_{_anonCounter++}";
                         string keysNm = $"__fe_keys_{_anonCounter++}";
                         string lenNm = $"__fe_len_{_anonCounter++}";
@@ -768,6 +775,8 @@ namespace CFGS_VM.VMCore
 
                         _breakLists.Pop();
                         _continueLists.Pop();
+
+                        _insns.Add(new Instruction(OpCode.POP_SCOPE, null, s.Line, s.Col, s.OriginFile));
                         break;
                     }
 
