@@ -31,7 +31,7 @@ class MdRenderer
 
         this._pbuf = "";    # reset paragraph buffer
 
-        var out = "";
+        var frameOut = "";
         var line = "";
         var i = 0;
         var n = md.len();
@@ -47,7 +47,7 @@ class MdRenderer
             }
             else
             {
-                out = out + this._render_line(line, in_ul, in_ol, in_p, in_code, in_tbl, bq_level);
+                frameOut = frameOut + this._render_line(line, in_ul, in_ol, in_p, in_code, in_tbl, bq_level);
                 in_ul   = this._state["ul"];
                 in_ol   = this._state["ol"];
                 in_p    = this._state["p"];
@@ -62,7 +62,7 @@ class MdRenderer
         # flush last line
         if (line.len() > 0)
         {
-            out = out + this._render_line(line, in_ul, in_ol, in_p, in_code, in_tbl, bq_level);
+            frameOut = frameOut + this._render_line(line, in_ul, in_ol, in_p, in_code, in_tbl, bq_level);
             in_ul   = this._state["ul"];
             in_ol   = this._state["ol"];
             in_p    = this._state["p"];
@@ -75,27 +75,27 @@ class MdRenderer
         if (in_code)
         {
             var normTail = this._normalize_code_block(this._codebuf);
-            out = out + this._escape_html(normTail) + "</code></pre>\n";
+            frameOut = frameOut + this._escape_html(normTail) + "</code></pre>\n";
         }
         if (in_tbl)
         {
-            out = out + this._tbl_prefix + this._render_table_from_buffer();
+            frameOut = frameOut + this._tbl_prefix + this._render_table_from_buffer();
         }
 
         # flush paragraph if open
-        if (in_p)  { out = out + this._flush_paragraph(); in_p = false; }
+        if (in_p)  { frameOut = frameOut + this._flush_paragraph(); in_p = false; }
 
-        if (in_ul) { out = out + "</ul>\n"; }
-        if (in_ol) { out = out + "</ol>\n"; }
+        if (in_ul) { frameOut = frameOut + "</ul>\n"; }
+        if (in_ol) { frameOut = frameOut + "</ol>\n"; }
 
         # close any remaining open blockquotes
         if (bq_level > 0)
         {
             var k = 0;
-            while (k < bq_level) { out = out + "</blockquote>\n"; k = k + 1; }
+            while (k < bq_level) { frameOut = frameOut + "</blockquote>\n"; k = k + 1; }
         }
 
-        return out;
+        return frameOut;
     }
 
     func _looks_like_ol_item(line)
@@ -378,7 +378,7 @@ class MdRenderer
 
     func _protect_math(s, delim)
     {
-        var out = "";
+        var frameOut = "";
         var i = 0; var L = s.len();
         var dL = delim.len();
         var open = -1;
@@ -394,15 +394,15 @@ class MdRenderer
                 this._math.push(seg);
                 this._mathi = this._mathi + 1;
 
-                out = out + s.substr(0, open) + key;
+                frameOut = frameOut + s.substr(0, open) + key;
                 s = s.substr(i + dL, L - (i + dL));
                 L = s.len(); i = 0; open = -1;
                 continue;
             }
             i = i + 1;
         }
-        out = out + s;  # tail
-        return out;
+        frameOut = frameOut + s;  # tail
+        return frameOut;
     }
 
     func _restore_math(s)
@@ -421,7 +421,7 @@ class MdRenderer
 
     func _protect_spans(s, delim)   # delim = "`"
     {
-        var out = "";
+        var frameOut = "";
         var i = 0; var L = s.len();
         var dL = delim.len();
         var open = -1;
@@ -437,15 +437,15 @@ class MdRenderer
                 this._spans.push(seg);
                 this._spani = this._spani + 1;
 
-                out = out + s.substr(0, open) + key;
+                frameOut = frameOut + s.substr(0, open) + key;
                 s = s.substr(i + dL, L - (i + dL));
                 L = s.len(); i = 0; open = -1;
                 continue;
             }
             i = i + 1;
         }
-        out = out + s;  # Rest
-        return out;
+        frameOut = frameOut + s;  # Rest
+        return frameOut;
     }
 
     func _restore_spans(s)
@@ -483,7 +483,7 @@ class MdRenderer
 
     func _replace_autolinks(s)
     {
-        var out = ""; var i = 0; var L = s.len();
+        var frameOut = ""; var i = 0; var L = s.len();
         while (i < L)
         {
             var c = s.substr(i,1);
@@ -504,16 +504,16 @@ class MdRenderer
                                 href = "mailto:" + inside;
                             }
                         }
-                        out = out + "<a href=\"" + this._escape_html(href) + "\">" + this._escape_html(label) + "</a>";
+                        frameOut = frameOut + "<a href=\"" + this._escape_html(href) + "\">" + this._escape_html(label) + "</a>";
                         i = j + 1;
                         continue;
                     }
                 }
             }
-            out = out + c;
+            frameOut = frameOut + c;
             i = i + 1;
         }
-        return out;
+        return frameOut;
     }
 
     # --- HTML / IDs helpers -------------------------------------------
@@ -543,7 +543,7 @@ class MdRenderer
         s = s.replace("ä","a"); s = s.replace("ö","o"); s = s.replace("ü","u"); s = s.replace("Ä","a"); s = s.replace("Ö","o"); s = s.replace("Ü","u");
         s = s.replace("ß","ss");
         # lower + keep letters/digits/space/hyphen
-        var out = ""; var i = 0; var L = s.len();
+        var frameOut = ""; var i = 0; var L = s.len();
         while (i < L)
         {
             var ch = s.substr(i,1);
@@ -551,23 +551,23 @@ class MdRenderer
             # to lower approx
             if (ch >= 'A' && ch <= 'Z') { var o = (ch & 0xFF) + 32; ch = chr(o); }
             if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == ' ' || ch == '-')
-            { out = out + ch; }
-            else { out = out + " "; }
+            { frameOut = frameOut + ch; }
+            else { frameOut = frameOut + " "; }
             i = i + 1;
         }
         # collapse spaces -> hyphens
-        out = out.replace("  ", " "); out = out.replace("  ", " ");
-        out = out.replace(" ", "-");
+        frameOut = frameOut.replace("  ", " "); frameOut = frameOut.replace("  ", " ");
+        frameOut = frameOut.replace(" ", "-");
         while (true)
         {
-            var prev = out;
-            out = out.replace("--", "-");
-            if (out == prev) { break; }
+            var prev = frameOut;
+            frameOut = frameOut.replace("--", "-");
+            if (frameOut == prev) { break; }
         }
         # trim leading/trailing hyphens
-        while (out.len() > 0 && out.substr(0,1) == "-") { out = out.slice(1); }
-        while (out.len() > 0 && out.substr(out.len()-1,1) == "-") { out = out.substr(0, out.len()-1); }
-        return out;
+        while (frameOut.len() > 0 && frameOut.substr(0,1) == "-") { frameOut = frameOut.slice(1); }
+        while (frameOut.len() > 0 && frameOut.substr(frameOut.len()-1,1) == "-") { frameOut = frameOut.substr(0, frameOut.len()-1); }
+        return frameOut;
     }
 
     # --- Whitelist HTML entity (un)escape helpers ---------------------
@@ -699,7 +699,7 @@ class MdRenderer
     func _parse_aligns(line)
     {
         var segs = this._split_pipe(line);
-        var out = [];
+        var frameOut = [];
         var i = 0;
         while (i < segs.len())
         {
@@ -710,10 +710,10 @@ class MdRenderer
             if (left && right) { align = "center"; }
             else if (right)    { align = "right"; }
             else               { align = "left"; }
-            out.push(align);
+            frameOut.push(align);
             i = i + 1;
         }
-        return out;
+        return frameOut;
     }
 
     func _render_table_from_buffer()
@@ -773,7 +773,7 @@ class MdRenderer
 
     func _replace_links_or_images(s, isImg)
     {
-        var out = "";
+        var frameOut = "";
         var i = 0; var L = s.len();
         while (i < L)
         {
@@ -787,15 +787,15 @@ class MdRenderer
                     var endPar = this._scan_to(s, endSq + 2, ")");
                     if (endPar >= 0)
                     {
-                        out = out + s.substr(0, i);  # prefix raw
+                        frameOut = frameOut + s.substr(0, i);  # prefix raw
 
                         var txt = s.substr(openSqIdx + 1, endSq - (openSqIdx + 1));
                         var url = s.substr(endSq + 2, endPar - (endSq + 2));
                         txt = this._escape_html(txt);
                         url = this._escape_html(url);
 
-                        if (isImg) out = out + "<img src=\"" + url + "\" alt=\"" + txt + "\"/>";
-                        else       out = out + "<a href=\"" + url + "\">" + txt + "</a>";
+                        if (isImg) frameOut = frameOut + "<img src=\"" + url + "\" alt=\"" + txt + "\"/>";
+                        else       frameOut = frameOut + "<a href=\"" + url + "\">" + txt + "</a>";
 
                         s = s.substr(endPar + 1, L - (endPar + 1));
                         L = s.len();
@@ -806,8 +806,8 @@ class MdRenderer
             }
             i = i + 1;
         }
-        out = out + s;  # tail raw
-        return out;
+        frameOut = frameOut + s;  # tail raw
+        return frameOut;
     }
 
     # --- misc helpers --------------------------------------------------
@@ -844,26 +844,26 @@ class MdRenderer
 
     func _fix_open_tag_gt(s, tagPrefix)
     {
-        var out = ""; var pos = 0;
+        var frameOut = ""; var pos = 0;
         while (true)
         {
             var i = this._find_from(s, tagPrefix, pos);
-            if (i < 0) { out = out + s.substr(pos, s.len() - pos); break; }
-            out = out + s.substr(pos, i - pos);
-            out = out + tagPrefix;
+            if (i < 0) { frameOut = frameOut + s.substr(pos, s.len() - pos); break; }
+            frameOut = frameOut + s.substr(pos, i - pos);
+            frameOut = frameOut + tagPrefix;
 
             var j = this._find_from(s, "&gt;", i + tagPrefix.len());
             if (j < 0)
             {
-                out = out + s.substr(i + tagPrefix.len(), s.len() - (i + tagPrefix.len()));
+                frameOut = frameOut + s.substr(i + tagPrefix.len(), s.len() - (i + tagPrefix.len()));
                 break;
             }
 
             var attrs = s.substr(i + tagPrefix.len(), j - (i + tagPrefix.len()));
-            out = out + attrs + ">";
+            frameOut = frameOut + attrs + ">";
             pos = j + 4;
         }
-        return out;
+        return frameOut;
     }
 
     func _collapse_amp(s)
@@ -1015,7 +1015,7 @@ class MdRenderer
 
     func _replace_delimited(s, mark, openTag, closeTag)
     {
-        var out = "";
+        var frameOut = "";
         var i = 0; var L = s.len();
         var open = false; var last = 0;
 
@@ -1024,21 +1024,21 @@ class MdRenderer
             if (s.substr(i, mark.len()) == mark)
             {
                 var chunk = s.substr(last, i - last);
-                if (!open) { out = out + this._escape_html(chunk) + openTag; }
-                else       { out = out + this._escape_html(chunk) + closeTag; }
+                if (!open) { frameOut = frameOut + this._escape_html(chunk) + openTag; }
+                else       { frameOut = frameOut + this._escape_html(chunk) + closeTag; }
                 open = !open;
                 i = i + mark.len();
                 last = i;
             }
             else { i = i + 1; }
         }
-        out = out + this._escape_html(s.substr(last, L - last));
-        return out;
+        frameOut = frameOut + this._escape_html(s.substr(last, L - last));
+        return frameOut;
     }
 
     func _replace_double_delim(s, mark2, openTag, closeTag)
     {
-        var out = "";
+        var frameOut = "";
         var i = 0; var L = s.len();
         var open = false; var last = 0; var mL = mark2.len();
 
@@ -1047,16 +1047,16 @@ class MdRenderer
             if (s.substr(i, mL) == mark2)
             {
                 var chunk = s.substr(last, i - last);
-                if (!open) { out = out + this._escape_html(chunk) + openTag; }
-                else       { out = out + this._escape_html(chunk) + closeTag; }
+                if (!open) { frameOut = frameOut + this._escape_html(chunk) + openTag; }
+                else       { frameOut = frameOut + this._escape_html(chunk) + closeTag; }
                 open = !open;
                 i = i + mL;
                 last = i;
             }
             else { i = i + 1; }
         }
-        out = out + this._escape_html(s.substr(last, L - last));
-        return out;
+        frameOut = frameOut + this._escape_html(s.substr(last, L - last));
+        return frameOut;
     }
 }
 

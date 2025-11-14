@@ -7,7 +7,7 @@ import "bloom.cfs";
 # --- kleine String-/Parsing-Utils ---
 func split_ws(s)
 {
-    var out = [];
+    var outpt = [];
     var cur = "";
     var i = 0;
     while (i < len(s))
@@ -16,15 +16,15 @@ func split_ws(s)
         # Whitespace? (Space oder Tab)
         if (ch == ' ' || ch == '\t')
         {
-            if (len(cur) > 0) { out[] = cur; cur = ""; }
+            if (len(cur) > 0) { outpt[] = cur; cur = ""; }
         }
         else
         {
             cur = cur + ch;
         }
     }
-    if (len(cur) > 0) { out[] = cur; }
-    return out;
+    if (len(cur) > 0) { outpt[] = cur; }
+    return outpt;
 }
 
 func parse_int(s)

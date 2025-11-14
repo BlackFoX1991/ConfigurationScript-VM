@@ -19,14 +19,14 @@ class util
     }
 
     static func join(arr, sep) {
-        var out = "";
+        var frameOut = "";
         var i = 0;
         while (i < len(arr)) {
-            if (i > 0) out = out + sep;
-            out = out + arr[i];
+            if (i > 0) frameOut = frameOut + sep;
+            frameOut = frameOut + arr[i];
             i = i + 1;
         }
-        return out;
+        return frameOut;
     }
 
     static func is_array(x) { return typeof(x) == "Array"; }
@@ -88,9 +88,9 @@ class util
 
     # --- Query & Form parsing ---
     static func parse_query(qs) {
-        var out = {};
-        if (qs == null || len(qs) == 0) return out;
-        if (util.is_blank(qs)) return out;
+        var frameOut = {};
+        if (qs == null || len(qs) == 0) return frameOut;
+        if (util.is_blank(qs)) return frameOut;
 
         var i = 0;
         var part = "";
@@ -107,9 +107,9 @@ class util
                     if (eq >= 0) {
                         var k = urldecode(part.substr(0,eq));
                         var v = urldecode(part.substr(eq+1, len(part)-(eq+1)));
-                        out[k] = v;
+                        frameOut[k] = v;
                     } else {
-                        out[urldecode(part)] = "";
+                        frameOut[urldecode(part)] = "";
                     }
                 }
                 part = "";
@@ -118,7 +118,7 @@ class util
             }
             i = i + 1;
         }
-        return out;
+        return frameOut;
     }
 
     static func parse_form(req) {
@@ -315,7 +315,7 @@ class dom
 
     static func _render_props(p) {
         if (p == null) return "";
-        var out = "";
+        var frameOut = "";
         var keys = [
             "id","class","href","style","title","rel","target",
             "type","name","value","for","role","aria-label",
@@ -327,11 +327,11 @@ class dom
             var k = keys[i];
             var v = p[k];
             if (v != null && v != false) {
-                out = out + " " + k + "=\"" + util.esc(v) + "\"";
+                frameOut = frameOut + " " + k + "=\"" + util.esc(v) + "\"";
             }
             i = i + 1;
         }
-        return out;
+        return frameOut;
     }
 
     static func _render_child(c) {
