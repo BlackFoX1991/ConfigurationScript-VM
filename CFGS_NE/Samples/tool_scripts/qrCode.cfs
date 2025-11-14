@@ -2,7 +2,7 @@
 class QRTools() {
 
     # ---------- Helpers ----------
-    static func repeat(s, n) { var out = ""; var i = 0; while (i < n) { out = out + s; i = i + 1; } return out; }
+    static func repeat(s, n) { var qrOut = ""; var i = 0; while (i < n) { qrOut = qrOut + s; i = i + 1; } return qrOut; }
     static func zeros(n) { var a = []; var i = 0; while (i < n) { a.push(0); i = i + 1; } return a; }
     static func clone_arr(a) { var b = []; var i = 0; while (i < len(a)) { b.push(a[i]); i = i + 1; } return b; }
     static func code_of(ch) { return toi(ch) & 0xFF; }
@@ -27,7 +27,7 @@ class QRTools() {
         var i = 0; while (i <= len(rem) - dl) { var coef = rem[i];
             if (coef != 0) { var j = 1; while (j < dl) { rem[i + j] = rem[i + j] ^ type.gf_mul(divisor[j], coef); j = j + 1; } }
             i = i + 1; }
-        var out = []; var k = len(rem) - (dl - 1); while (k < len(rem)) { out.push(rem[k]); k = k + 1; } return out;
+        var qrOut = []; var k = len(rem) - (dl - 1); while (k < len(rem)) { qrOut.push(rem[k]); k = k + 1; } return qrOut;
     }
     static func rs_generator(deg) { var g = [1]; var i = 0; while (i < deg) { var term = [1, type.gf_pow(2, i)]; g = type.poly_mul(g, term); i = i + 1; } return g; }
 
@@ -35,14 +35,14 @@ class QRTools() {
     static func bits_init() { return []; }
     static func bits_put(bb, value, count) { var i = count - 1; while (i >= 0) { bb.push((value >> i) & 1); i = i - 1; } }
     static func bits_to_bytes(bb) {
-        var out = []; var i = 0;
+        var qrOut = []; var i = 0;
         while (i < len(bb)) {
             var byte = 0; var j = 0;
             while (j < 8 && i < len(bb)) { byte = (byte << 1) | bb[i]; i = i + 1; j = j + 1; }
             if (j < 8) { byte = byte << (8 - j); }
-            out.push(byte & 0xFF);
+            qrOut.push(byte & 0xFF);
         }
-        return out;
+        return qrOut;
     }
 
     # ---------- Kapazitäten (Byte-Mode) je Version ----------
