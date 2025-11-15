@@ -53,8 +53,14 @@ namespace CFGS_VM.VMCore
             Maximal,
         }
 
-        public static int DEBUG_BUFFER = 20;
+        /// <summary>
+        /// Defines the DEBUG_BUFFER
+        /// </summary>
+        public static int DEBUG_BUFFER = 100;
 
+        /// <summary>
+        /// Defines the buffer_count
+        /// </summary>
         private int buffer_count = 0;
 
         /// <summary>
@@ -452,7 +458,7 @@ namespace CFGS_VM.VMCore
         private readonly List<Env> _scopes = new() { new Env(null) };
 
         /// <summary>
-        /// Defines the _functions
+        /// Gets the Functions
         /// </summary>
         public Dictionary<string, FunctionInfo> Functions { get; } = [];
 
@@ -1226,6 +1232,59 @@ namespace CFGS_VM.VMCore
                                 string key = Convert.ToString(idxObj, CultureInfo.InvariantCulture) ?? "";
                                 if (!dict.Remove(key))
                                     throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            }
+                            else if (target is ClassInstance obj)
+                            {
+                                string key = idxObj?.ToString() ?? "";
+                                if (key.Length == 0)
+                                    throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                                if (!obj.Fields.TryGetValue(key, out object? field))
+                                    throw new VMException($"Runtime error: invalid field '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                                if (field is List<object>)
+                                {
+                                    obj.Fields[key] = new List<object>();
+                                }
+                                else if (field is Dictionary<string, object>)
+                                {
+                                    obj.Fields[key] = new Dictionary<string, object>();
+                                }
+                                else
+                                {
+                                    throw new VMException(
+                                        $"Runtime error: field '{key}' on class '{obj.ClassName}' is not an array or dictionary",
+                                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+                                    );
+                                }
+                            }
+                            else if (target is StaticInstance st)
+                            {
+                                string key = idxObj?.ToString() ?? "";
+                                if (key.Length == 0)
+                                    throw new VMException("Runtime error: static member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                                if (!st.Fields.TryGetValue(key, out object? field))
+                                    throw new VMException(
+                                        $"Runtime error: invalid static member '{key}' in class '{st.ClassName}'",
+                                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+                                    );
+
+                                if (field is List<object>)
+                                {
+                                    st.Fields[key] = new List<object>();
+                                }
+                                else if (field is Dictionary<string, object>)
+                                {
+                                    st.Fields[key] = new Dictionary<string, object>();
+                                }
+                                else
+                                {
+                                    throw new VMException(
+                                        $"Runtime error: static member '{key}' in class '{st.ClassName}' is not an array or dictionary",
+                                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+                                    );
+                                }
                             }
                             else
                             {
@@ -2678,8 +2737,6 @@ namespace CFGS_VM.VMCore
                         DebugStream.Write(System.Text.Encoding.Default.GetBytes(
                             $"[DEBUG] {dinstr} (Line {dinstr.Line}, Col {dinstr.Col})\n"));
 
-
-
                     }
 
                     Instruction instr = _program[_ip++];
@@ -3947,8 +4004,6 @@ namespace CFGS_VM.VMCore
 
             new CFGS_VM.VMCore.Extensions.internal_plugin.CFGS_STDLIB_MSSQL()
                 .Register(Builtins, Intrinsics);
-
-
         }
     }
 }

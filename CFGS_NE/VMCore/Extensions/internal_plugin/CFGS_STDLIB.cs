@@ -1,6 +1,8 @@
 ﻿using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Plugin;
+using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Numerics;
 using System.Text.Encodings.Web;
@@ -19,7 +21,10 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
         /// Gets or sets a value indicating whether AllowFileIO
         /// </summary>
         public static bool AllowFileIO { get; set; } = true;
-
+        private static readonly JsonSerializerOptions Options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+        };
         /// <summary>
         /// The FriendlyTypeName
         /// </summary>
@@ -179,6 +184,20 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                 if (args[0] is null) return null!;
                 return args[0].ToString() ?? "";
             }));
+            builtins.Register(new BuiltinDescriptor("format", 1, int.MaxValue, (args, instr) =>
+            {
+                if (args.Count == 0 || args[0] is not string format)
+                    return null!;
+                if (args.Count == 1)
+                    return format;
+                var fmtArgs = new object[args.Count - 1];
+                for (int i = 1; i < args.Count; i++)
+                    fmtArgs[i - 1] = args[i];
+
+                return string.Format(format, fmtArgs);
+            }));
+
+
 
             builtins.Register(new BuiltinDescriptor("string", 1, 1, (args, instr) =>
             {
@@ -321,13 +340,13 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
             {
                 return new DateTime();
             }));
-            builtins.Register(new BuiltinDescriptor("Now", 0, 0, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("Now", 0, 1, (args, instr) =>
             {
-                return DateTime.Now;
+                return DateTime.Now.ToString(args.Count > 0 ? args[0].ToString() : null);
             }));
-            builtins.Register(new BuiltinDescriptor("UtcNow", 0, 0, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("UtcNow", 0, 1, (args, instr) =>
             {
-                return DateTime.UtcNow;
+                return DateTime.UtcNow.ToString(args.Count > 0 ? args[0].ToString() : null);
             }));
 
             builtins.Register(new BuiltinDescriptor("abs", 1, 1, (args, instr) => Math.Abs((dynamic)args[0])));
@@ -376,10 +395,22 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                 return d.Keys.ToList<object>();
             }));
 
-            builtins.Register(new BuiltinDescriptor("json", 1, 1, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("fromjson", 1, 1, (args, instr) =>
             {
-                return JsonStringify(args[0]);
+                var json = args[0]?.ToString();
+                if (string.IsNullOrWhiteSpace(json))
+                    return null!;
+                return JsonSerializer.Deserialize<Dictionary<string, object>>(json, Options)!;
             }));
+
+
+            builtins.Register(new BuiltinDescriptor("tojson", 1, 1, (args, instr) =>
+            {
+                return JsonSerializer.Serialize(args[0], Options);
+            }));
+
+
+
 
             builtins.Register(new BuiltinDescriptor("fopen", 2, 2, (args, instr) =>
             {
@@ -524,6 +555,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
         private static void RegisterString(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(string);
+
             intrinsics.Register(T, new IntrinsicDescriptor("trim", 0, 0, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
@@ -1066,7 +1098,6 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
             }
             return 0;
         }
-
         /// <summary>
         /// The JsonStringify
         /// </summary>
