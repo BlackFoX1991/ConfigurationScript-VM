@@ -1,0 +1,63 @@
+###=====================================
+### Event Logger Class 
+### (c) 2025 Artur Loewen
+###=====================================
+class Logger
+{
+	var Log = [];
+	var log_count = 0;
+	# 40 Logs can pass
+	static var LOG_LIMIT = 40;
+	
+	###<sumary>
+	### Apply a event to the Log
+	###</sumary>
+	func LogEvent(Name, Event)
+	{
+		var result;
+		if(this.Log.len() >= Logger.LOG_LIMIT)
+			delete this.Log[0];
+		try
+		{
+			var result = Event;
+			this.Log[] = format("[{0}] : {1}",Now("dd.MM.yyyy HH:mm:ss"),Name);
+		}
+		catch(ex)
+		{
+			this.Log[] = format("[{0}] : Error in '{1}' -> {2}",Now("dd.MM.yyyy HH:mm:ss"),Name,ex.message());
+			result = ex;
+		}
+		finally
+		{
+			return result;
+		}
+	}
+	func PrintLog()
+	{
+		foreach(var ln in this.Log)
+			print(ln);
+	}
+	func Clear()
+	{
+		print(typeof(this.Log));
+		delete this.Log;
+	}
+}
+
+func main()
+{
+	var lg = new Logger();
+	lg.LogEvent("main -> test",test());
+	
+	
+	lg.PrintLog();
+	
+	lg.Clear();
+	
+}
+
+func test()
+{
+	return "Hallo Welt!";
+}
+main();
