@@ -231,12 +231,12 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
         {
             intrinsics.Register(T, new IntrinsicDescriptor(name + "_async", 1, 2, (recv, a, instr) =>
             {
-                return RunAsyncSql(recv, a, instr, asyncBody);
+                return RunAsyncSql(recv, a!, instr, asyncBody);
             }, smartAwait: true));
 
             intrinsics.Register(T, new IntrinsicDescriptor(name, 1, 2, (recv, a, instr) =>
             {
-                return RunSqlSync(recv, a, instr, cmd =>
+                return RunSqlSync(recv, a!, instr, cmd =>
                 {
                     return asyncBody(cmd).GetAwaiter().GetResult();
                 });
@@ -265,7 +265,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
         {
             intrinsics.Register(T, new IntrinsicDescriptor("tables", 0, 0, (recv, a, instr) =>
             {
-                return RunSqlSync(recv, a, instr, cmd =>
+                return RunSqlSync(recv, a!, instr, cmd =>
                 {
                     SqlHandle h = (SqlHandle)recv;
                     h.EnsureOpen();
@@ -303,7 +303,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
 
             intrinsics.Register(T, new IntrinsicDescriptor("columns", 1, 1, (recv, a, instr) =>
             {
-                return RunSqlSync(recv, a, instr, cmd =>
+                return RunSqlSync(recv, a!, instr, cmd =>
                 {
                     SqlHandle h = (SqlHandle)recv;
                     string table = a[0]?.ToString() ?? "";
@@ -312,7 +312,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                             instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
 
                     List<object> cols = new();
-                    DataTable columns = h.Connection.GetSchema("Columns", new string[] { null, null, table });
+                    DataTable columns = h.Connection.GetSchema("Columns", new string[] { null!, null!, table });
                     foreach (DataRow row in columns.Rows)
                         cols.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
                         {
@@ -336,7 +336,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                             instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
 
                     List<object> cols = new();
-                    DataTable columns = h.Connection.GetSchema("Columns", new string[] { null, null, table });
+                    DataTable columns = h.Connection.GetSchema("Columns", new string[] { null!, null!, table });
                     foreach (DataRow row in columns.Rows)
                         cols.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
                         {
@@ -351,7 +351,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
 
             intrinsics.Register(T, new IntrinsicDescriptor("views", 0, 0, (recv, a, instr) =>
             {
-                return RunSqlSync(recv, a, instr, cmd =>
+                return RunSqlSync(recv, a!, instr, cmd =>
                 {
                     SqlHandle h = (SqlHandle)recv;
                     h.EnsureOpen();
@@ -387,7 +387,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
 
             intrinsics.Register(T, new IntrinsicDescriptor("procedures", 0, 0, (recv, a, instr) =>
             {
-                return RunSqlSync(recv, a, instr, cmd =>
+                return RunSqlSync(recv, a!, instr, cmd =>
                 {
                     SqlHandle h = (SqlHandle)recv;
                     h.EnsureOpen();
@@ -433,7 +433,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
         {
             intrinsics.Register(T, new IntrinsicDescriptor("procedure_info", 1, 1, (recv, a, instr) =>
             {
-                return RunSqlSync(recv, a, instr, cmd =>
+                return RunSqlSync(recv, a!, instr, cmd =>
                 {
                     SqlHandle h = (SqlHandle)recv;
                     h.EnsureOpen();
@@ -501,7 +501,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
 
             intrinsics.Register(T, new IntrinsicDescriptor("view_definition", 1, 1, (recv, a, instr) =>
             {
-                return RunSqlSync(recv, a, instr, cmd =>
+                return RunSqlSync(recv, a!, instr, cmd =>
                 {
                     SqlHandle h = (SqlHandle)recv;
                     h.EnsureOpen();
@@ -553,7 +553,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
         {
             intrinsics.Register(T, new IntrinsicDescriptor("constraints", 1, 1, (recv, a, instr) =>
             {
-                return RunSqlSync(recv, a, instr, cmd =>
+                return RunSqlSync(recv, a!, instr, cmd =>
                 {
                     SqlHandle h = (SqlHandle)recv;
                     h.EnsureOpen();
@@ -613,7 +613,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
 
             intrinsics.Register(T, new IntrinsicDescriptor("foreign_keys", 1, 1, (recv, a, instr) =>
             {
-                return RunSqlSync(recv, a, instr, cmd =>
+                return RunSqlSync(recv, a!, instr, cmd =>
                 {
                     SqlHandle h = (SqlHandle)recv;
                     h.EnsureOpen();

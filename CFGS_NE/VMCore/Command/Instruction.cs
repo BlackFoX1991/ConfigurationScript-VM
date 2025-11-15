@@ -35,7 +35,7 @@ public class Instruction
     /// <param name="line">The line<see cref="int"/></param>
     /// <param name="col">The col<see cref="int"/></param>
     /// <param name="originFile">The originFile<see cref="string"/></param>
-    public Instruction(OpCode code, object? operand = null, int line = -1, int col = -1, string originFile = null)
+    public Instruction(OpCode code, object? operand = null, int line = -1, int col = -1, string originFile = "")
     {
         Code = code;
         Operand = operand;
