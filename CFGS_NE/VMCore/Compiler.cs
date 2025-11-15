@@ -54,15 +54,23 @@ namespace CFGS_VM.VMCore
                 Functions.Clear();
 
                 List<FuncDeclStmt> funcDecls = new();
+                List<ClassDeclStmt> classDecls = new();
+
                 foreach (Stmt s in program)
                 {
                     if (s is FuncDeclStmt f)
                     {
                         if (Functions.ContainsKey(f.Name))
-                            throw new CompilerException($"duplicate function '{f.Name}'", f.Line, f.Col, f.OriginFile);
+                            throw new CompilerException(
+                                $"duplicate function '{f.Name}'",
+                                f.Line, f.Col, f.OriginFile);
 
                         Functions[f.Name] = new FunctionInfo(f.Parameters, -1);
                         funcDecls.Add(f);
+                    }
+                    else if (s is ClassDeclStmt c)
+                    {
+                        classDecls.Add(c);
                     }
                 }
 
@@ -70,6 +78,7 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.JMP, null, 0, 0));
 
                 List<(FuncDeclStmt fd, int funcStart)> orderedFuncs = new();
+
                 foreach (FuncDeclStmt fd in funcDecls)
                 {
                     try
@@ -80,7 +89,9 @@ namespace CFGS_VM.VMCore
                         if (fd.Body is BlockStmt b)
                             b.IsFunctionBody = true;
                         else
-                            throw new CompilerException($"function '{fd.Name}' must have a block body", fd.Line, fd.Col, fd.OriginFile);
+                            throw new CompilerException(
+                                $"function '{fd.Name}' must have a block body",
+                                fd.Line, fd.Col, fd.OriginFile);
 
                         CompileStmt(fd.Body, insideFunction: true);
 
@@ -106,13 +117,40 @@ namespace CFGS_VM.VMCore
                 foreach ((FuncDeclStmt fd, int funcStart) in orderedFuncs)
                 {
                     _insns.Add(new Instruction(
-                        OpCode.PUSH_CLOSURE, new object[] { funcStart, fd.Name }, fd.Line, fd.Col, fd.OriginFile));
-                    _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, fd.Line, fd.Col, fd.OriginFile));
+                        OpCode.PUSH_CLOSURE,
+                        new object[] { funcStart, fd.Name },
+                        fd.Line, fd.Col, fd.OriginFile));
+
+                    _insns.Add(new Instruction(
+                        OpCode.VAR_DECL,
+                        fd.Name,
+                        fd.Line, fd.Col, fd.OriginFile));
+                }
+
+                List<ClassDeclStmt> sortedClasses = OrderClassesByInheritance(classDecls);
+
+                foreach (ClassDeclStmt cds in sortedClasses)
+                {
+                    try
+                    {
+                        CompileStmt(cds, insideFunction: false);
+                    }
+                    catch (CompilerException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new CompilerException(
+                            $"internal compiler error while compiling class '{cds.Name}': {ex.Message}",
+                            cds.Line, cds.Col, cds.OriginFile);
+                    }
                 }
 
                 foreach (Stmt s in program)
                 {
                     if (s is FuncDeclStmt) continue;
+                    if (s is ClassDeclStmt) continue;
 
                     try
                     {
@@ -143,6 +181,62 @@ namespace CFGS_VM.VMCore
                     $"internal compiler error: {ex.Message}",
                     0, 0, "<compiler>");
             }
+        }
+
+        /// <summary>
+        /// The OrderClassesByInheritance
+        /// </summary>
+        /// <param name="classDecls">The classDecls<see cref="List{ClassDeclStmt}"/></param>
+        /// <returns>The <see cref="List{ClassDeclStmt}"/></returns>
+        private static List<ClassDeclStmt> OrderClassesByInheritance(List<ClassDeclStmt> classDecls)
+        {
+            Dictionary<string, ClassDeclStmt> byName = new(StringComparer.Ordinal);
+            foreach (ClassDeclStmt cds in classDecls)
+            {
+                if (!byName.TryAdd(cds.Name, cds))
+                {
+                    throw new CompilerException(
+                        $"duplicate class '{cds.Name}'",
+                        cds.Line, cds.Col, cds.OriginFile);
+                }
+            }
+
+            List<ClassDeclStmt> result = new();
+            HashSet<string> permMark = new(StringComparer.Ordinal);
+            HashSet<string> tempMark = new(StringComparer.Ordinal);
+
+            void Visit(string name)
+            {
+                if (permMark.Contains(name))
+                    return;
+
+                if (tempMark.Contains(name))
+                {
+                    ClassDeclStmt cds = byName[name];
+                    throw new CompilerException(
+                        $"cyclic inheritance involving class '{name}'",
+                        cds.Line, cds.Col, cds.OriginFile);
+                }
+
+                tempMark.Add(name);
+
+                ClassDeclStmt cls = byName[name];
+
+                if (!string.IsNullOrEmpty(cls.BaseName) &&
+                    byName.ContainsKey(cls.BaseName))
+                {
+                    Visit(cls.BaseName);
+                }
+
+                tempMark.Remove(name);
+                permMark.Add(name);
+                result.Add(cls);
+            }
+
+            foreach (string name in byName.Keys)
+                Visit(name);
+
+            return result;
         }
 
         /// <summary>

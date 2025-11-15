@@ -17,11 +17,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Samples\plugins\**" />
+    <EmbeddedResource Remove="Samples\plugins\**" />
+    <None Remove="Samples\plugins\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="assets\cfgs_icon.ico" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Samples\plugins\" />
     <Folder Include="VMCore\Plugin\" />
   </ItemGroup>
 
