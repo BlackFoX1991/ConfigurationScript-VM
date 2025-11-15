@@ -75,4 +75,4 @@ All control flow, exception handling, `return`/`break`/`continue`, `throw`, and 
 ---
 
 ## Additional
-[Samples](CFGS_NE/Samples/) · [Standard Builtins/ Intrinsics](fileio.md)  · [HTTP Functions](httpc.md)  · [SQL Functions](sqlc.md) · [Creating Plugins](plugins.md) 
+[Samples](CFGS_NE/Samples/) · [Safe Datatype initialsation](data_init.md) ·  [Standard Builtins/ Intrinsics](fileio.md)  · [HTTP Functions](httpc.md)  · [SQL Functions](sqlc.md) · [Creating Plugins](plugins.md) 
