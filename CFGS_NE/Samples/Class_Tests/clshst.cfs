@@ -1,0 +1,20 @@
+print(new foo().Test()); 
+
+class foo : fooNo
+{ 
+	func Test()
+	{
+		print(new super.CLO().wert);
+		return "Hello From " + super.wolle;
+	} 
+}
+
+class fooNo
+{
+	var wolle = 5;
+
+	class CLO
+	{
+		var wert = 5;
+	}
+}
