@@ -49,7 +49,7 @@ namespace CFGS_VM.VMCore.Extensions
 
             if (!string.IsNullOrWhiteSpace(fileSource))
                 sb.Append($" [Source : '{fileSource}']");
-            if (debug && dbgStream is not null)
+            if (VM.DebugStream is not null && debug && dbgStream is not null)
             {
                 VM.DebugStream.Position = 0;
                 using FileStream file = File.Create("log_file.log");

@@ -59,7 +59,10 @@ namespace CFGS_VM.VMCore.Plugin
         {
             if (asm == null) return;
 
-            string key = asm.FullName ?? asm.Location ?? asm.GetHashCode().ToString();
+            string key = asm.FullName
+                         ?? asm.GetName().Name
+                         ?? asm.GetHashCode().ToString();
+
             if (!_loadedAssemblies.TryAdd(key, 0))
                 return;
 
@@ -207,12 +210,15 @@ namespace CFGS_VM.VMCore.Plugin
         {
             try
             {
-                return asm.FullName ?? asm.Location ?? "(unknown-assembly)";
+                return asm.FullName
+                    ?? asm.GetName().Name
+                    ?? "(unknown-assembly)";
             }
             catch
             {
                 return "(unknown-assembly)";
             }
         }
+
     }
 }
