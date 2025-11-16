@@ -1,0 +1,12 @@
+class abc {
+    var a = [];
+    func init() {
+        a[] = 1;
+        a[] = 2;
+        a[] = 3;
+        delete a[1];
+        delete a[0~1];
+    }
+}
+
+print(new abc().a);

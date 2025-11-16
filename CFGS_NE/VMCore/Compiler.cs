@@ -354,17 +354,11 @@ namespace CFGS_VM.VMCore
                 case PushStmt ps:
                     {
                         CompileExpr(ps.Value);
-
-                        if (ps.Target is VarExpr v)
+                        if (ps.Target is VarExpr or IndexExpr)
                         {
-                            _insns.Add(new Instruction(OpCode.ARRAY_PUSH, v.Name, s.Line, s.Col, s.OriginFile));
-                        }
-                        else if (ps.Target is IndexExpr eie)
-                        {
-                            CompileExpr(eie);
+                            CompileExpr(ps.Target);
                             _insns.Add(new Instruction(OpCode.ARRAY_PUSH, null, s.Line, s.Col, s.OriginFile));
                         }
-
                         else
                         {
                             throw new CompilerException("invalid use of 'push' []", ps.Line, ps.Col, s.OriginFile);
@@ -373,9 +367,13 @@ namespace CFGS_VM.VMCore
                     }
 
                 case DeleteIndexStmt di:
-                    CompileExpr(di.Index);
-                    _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, di.Name, s.Line, s.Col, s.OriginFile));
-                    break;
+                    {
+                        VarExpr targetExpr = new(di.Name, di.Line, di.Col, s.OriginFile);
+                        CompileExpr(targetExpr);
+                        CompileExpr(di.Index);
+                        _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, null, s.Line, s.Col, s.OriginFile));
+                        break;
+                    }
 
                 case DeleteVarStmt dv:
                     _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ALL, dv.Name, s.Line, s.Col, s.OriginFile));
@@ -385,19 +383,19 @@ namespace CFGS_VM.VMCore
                     {
                         if (des.Target is SliceExpr se)
                         {
-                            if (se.Target is VarExpr v)
-                            {
-                                if (se.Start != null) CompileExpr(se.Start); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
-                                if (se.End != null) CompileExpr(se.End); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
-                                _insns.Add(new Instruction(OpCode.ARRAY_DELETE_SLICE, v.Name, des.Line, des.Col, s.OriginFile));
-                            }
+                            CompileExpr(se.Target);
+
+                            if (se.Start != null)
+                                CompileExpr(se.Start);
                             else
-                            {
-                                CompileExpr(se.Target);
-                                if (se.Start != null) CompileExpr(se.Start); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
-                                if (se.End != null) CompileExpr(se.End); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
-                                _insns.Add(new Instruction(OpCode.ARRAY_DELETE_SLICE, null, des.Line, des.Col, s.OriginFile));
-                            }
+                                _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
+
+                            if (se.End != null)
+                                CompileExpr(se.End);
+                            else
+                                _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
+
+                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_SLICE, null, des.Line, des.Col, s.OriginFile));
                             break;
                         }
 
