@@ -546,6 +546,13 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
                 string text = args[1]?.ToString() ?? "";
                 return Task.Run<object?>(async () => { await File.AppendAllTextAsync(path, text).ConfigureAwait(false); return 1; });
             }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("fexist", 1, 1, (args, instr) =>
+            {
+                if (args[0] is not string)
+                    return false;
+                return File.Exists(args[0].ToString());
+            }));
         }
 
         /// <summary>
