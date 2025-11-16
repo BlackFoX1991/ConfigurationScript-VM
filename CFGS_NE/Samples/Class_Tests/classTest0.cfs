@@ -1,0 +1,30 @@
+class Counter {
+    var value;
+    static var total;
+
+    func inc() {
+        value++;
+        total++;
+    }
+
+    static func reset() {
+        total = 0;
+    }
+}
+
+func main()
+{
+	var ct = new Counter();
+	for(var i = 0;i<5;i++;)
+	{
+		ct.inc();
+		print(format("Counter Total Value is {0}",Counter.total));
+		if(i % 2 == 1)
+		{
+			print("Reset counter.");
+			Counter.reset();
+		}
+		print(format("Counter Value is {0}",ct.value));
+	}
+}
+main();

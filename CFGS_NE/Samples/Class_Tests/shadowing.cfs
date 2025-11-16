@@ -1,0 +1,18 @@
+class Foo {
+    var x;
+
+    func test(x) {
+        x = x + 1;
+		return x;
+    }
+}
+
+func main()
+{
+	var wa = new Foo();
+	wa.x = 10;
+	print(wa.x);
+	print(wa.test(4));
+	
+}
+main();

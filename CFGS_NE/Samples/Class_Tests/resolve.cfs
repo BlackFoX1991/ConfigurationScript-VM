@@ -1,0 +1,26 @@
+class testCls : Inner
+{
+	var test = 5;
+	static var wasp = 10;
+	
+	func init()
+	{
+		val = 575;
+		test = 15;
+		wasp = 500;
+	}
+}
+
+class Inner
+{
+	var val = 400;
+}
+
+func main()
+{
+	var tst = new testCls();
+	
+	print(format("Variable test is {0} and static variable wasp is {1} --> Inner is {2}",tst.test,testCls.wasp,tst.val));
+	
+}
+main();
