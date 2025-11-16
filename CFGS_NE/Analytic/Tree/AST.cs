@@ -1174,6 +1174,20 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
+    public sealed class DoWhileStmt : Stmt
+    {
+        public Stmt Body { get; }
+        public Expr Condition { get; }
+
+        public DoWhileStmt(Stmt body, Expr condition, int line, int col, string originFile)
+            : base(line, col, originFile)
+        {
+            Body = body;
+            Condition = condition;
+        }
+    }
+
+
     /// <summary>
     /// Defines the <see cref="ForStmt" />
     /// </summary>

@@ -51,6 +51,7 @@ public class Lexer
             {"type", TokenType.Ident },
             {"await", TokenType.Await},
             {"out", TokenType.Out},
+            {"do", TokenType.Do }
 
         };
 

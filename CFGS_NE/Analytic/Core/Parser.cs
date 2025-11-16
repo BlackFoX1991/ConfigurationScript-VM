@@ -556,6 +556,7 @@ namespace CFGS_VM.Analytic.Core
                 case TokenType.Match: return ParseMatch();
                 case TokenType.If: return ParseIf();
                 case TokenType.While: return ParseWhile();
+                case TokenType.Do: return ParseDoWhile();
                 case TokenType.Break: return ParseBreak;
                 case TokenType.Continue: return ParseContinue;
                 case TokenType.For: return ParseFor();
@@ -1380,6 +1381,21 @@ namespace CFGS_VM.Analytic.Core
             BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
             _loopDepth--;
             return new WhileStmt(cond, body, _current.Line, _current.Column, _current.Filename);
+        }
+
+        private DoWhileStmt ParseDoWhile()
+        {
+            Eat(TokenType.Do);
+            _loopDepth++;
+            BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
+            _loopDepth--;
+            Eat(TokenType.While);
+            Eat(TokenType.LParen);
+            Expr cond = Expr();
+            Eat(TokenType.RParen);
+            if (_current.Type == TokenType.Semi)
+                Eat(TokenType.Semi);
+            return new DoWhileStmt(body, cond, _current.Line, _current.Column, _current.Filename);
         }
 
         /// <summary>
