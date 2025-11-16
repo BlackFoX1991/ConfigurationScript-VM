@@ -1,6 +1,7 @@
 ﻿using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore.Command;
+using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
 using System.Numerics;
 
@@ -42,6 +43,36 @@ namespace CFGS_VM.VMCore
         public Dictionary<string, FunctionInfo> Functions { get; } = [];
 
         /// <summary>
+        /// Defines the _classInfos
+        /// </summary>
+        private readonly Dictionary<string, ClassInfo> _classInfos = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Defines the _currentClass
+        /// </summary>
+        private ClassInfo? _currentClass;
+
+        /// <summary>
+        /// Defines the _currentMethodIsStatic
+        /// </summary>
+        private bool _currentMethodIsStatic;
+
+        /// <summary>
+        /// Defines the _localVarsStack
+        /// </summary>
+        private readonly Stack<HashSet<string>> _localVarsStack = new();
+
+        /// <summary>
+        /// Defines the EmptyLocals
+        /// </summary>
+        private static readonly HashSet<string> EmptyLocals = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Gets the CurrentLocals
+        /// </summary>
+        private HashSet<string> CurrentLocals => _localVarsStack.Count > 0 ? _localVarsStack.Peek() : EmptyLocals;
+
+        /// <summary>
         /// The Compile
         /// </summary>
         /// <param name="program">The program<see cref="List{Stmt}"/></param>
@@ -52,6 +83,11 @@ namespace CFGS_VM.VMCore
             {
                 _insns.Clear();
                 Functions.Clear();
+
+                _classInfos.Clear();
+                _currentClass = null;
+                _currentMethodIsStatic = false;
+                _localVarsStack.Clear();
 
                 List<FuncDeclStmt> funcDecls = new();
                 List<ClassDeclStmt> classDecls = new();
@@ -93,13 +129,16 @@ namespace CFGS_VM.VMCore
                                 $"function '{fd.Name}' must have a block body",
                                 fd.Line, fd.Col, fd.OriginFile);
 
+                        EnterFunctionLocals(fd.Parameters);
                         CompileStmt(fd.Body, insideFunction: true);
+                        LeaveFunctionLocals();
 
                         _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fd.Line, fd.Col, fd.OriginFile));
                         _insns.Add(new Instruction(OpCode.RET, null, fd.Line, fd.Col, fd.OriginFile));
 
                         orderedFuncs.Add((fd, funcStart));
                     }
+
                     catch (CompilerException)
                     {
                         throw;
@@ -128,6 +167,8 @@ namespace CFGS_VM.VMCore
                 }
 
                 List<ClassDeclStmt> sortedClasses = OrderClassesByInheritance(classDecls);
+
+                BuildClassInfos(sortedClasses);
 
                 foreach (ClassDeclStmt cds in sortedClasses)
                 {
@@ -256,12 +297,22 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(OpCode.PUSH_NULL, null, s.Line, s.Col, s.OriginFile));
 
                     _insns.Add(new Instruction(OpCode.VAR_DECL, v.Name, s.Line, s.Col, s.OriginFile));
+
+                    if (_localVarsStack.Count > 0)
+                        CurrentLocals.Add(v.Name);
+
                     break;
 
                 case AssignStmt a:
-                    CompileExpr(a.Value);
-                    _insns.Add(new Instruction(OpCode.STORE_VAR, a.Name, s.Line, s.Col, s.OriginFile));
-                    break;
+                    {
+                        CompileExpr(a.Value);
+
+                        if (!TryEmitImplicitMemberStore(a.Name, a))
+                        {
+                            _insns.Add(new Instruction(OpCode.STORE_VAR, a.Name, s.Line, s.Col, s.OriginFile));
+                        }
+                        break;
+                    }
 
                 case EmptyStmt etst:
                     break;
@@ -478,7 +529,17 @@ namespace CFGS_VM.VMCore
                             methodParams.Insert(0, "this");
 
                             FuncExpr methodFuncExpr = new(methodParams, func.Body, func.Line, func.Col, s.OriginFile);
+
+                            ClassInfo? prevClass = _currentClass;
+                            bool prevIsStatic = _currentMethodIsStatic;
+
+                            _classInfos.TryGetValue(cds.Name, out _currentClass);
+                            _currentMethodIsStatic = false;
+
                             CompileExpr(methodFuncExpr);
+
+                            _currentClass = prevClass;
+                            _currentMethodIsStatic = prevIsStatic;
 
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, func.Line, func.Col, s.OriginFile));
                         }
@@ -543,7 +604,17 @@ namespace CFGS_VM.VMCore
                             methodParams.Insert(0, "type");
 
                             FuncExpr methodFuncExpr = new(methodParams, func.Body, func.Line, func.Col, s.OriginFile);
+
+                            ClassInfo? prevClass = _currentClass;
+                            bool prevIsStatic = _currentMethodIsStatic;
+
+                            _classInfos.TryGetValue(cds.Name, out _currentClass);
+                            _currentMethodIsStatic = true;
+
                             CompileExpr(methodFuncExpr);
+
+                            _currentClass = prevClass;
+                            _currentMethodIsStatic = prevIsStatic;
 
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, func.Line, func.Col, s.OriginFile));
                         }
@@ -1021,7 +1092,10 @@ namespace CFGS_VM.VMCore
                         Functions[internalName] = new FunctionInfo(fd.Parameters, funcStart);
 
                         if (fd.Body is BlockStmt fb) fb.IsFunctionBody = true;
+
+                        EnterFunctionLocals(fd.Parameters);
                         CompileStmt(fd.Body, insideFunction: true);
+                        LeaveFunctionLocals();
 
                         if (_insns.Count == 0 || _insns[^1].Code != OpCode.RET)
                         {
@@ -1033,6 +1107,10 @@ namespace CFGS_VM.VMCore
 
                         _insns.Add(new Instruction(OpCode.PUSH_CLOSURE, new object[] { funcStart, fd.Name }, fd.Line, fd.Col, s.OriginFile));
                         _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, fd.Line, fd.Col, s.OriginFile));
+
+                        if (_localVarsStack.Count > 0)
+                            CurrentLocals.Add(fd.Name);
+
                         break;
                     }
 
@@ -1084,8 +1162,27 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case VarExpr v:
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, v.Name, e.Line, e.Col, e.OriginFile));
-                    break;
+                    {
+                        string name = v.Name;
+
+                        if (name == "this" || name == "type" || name == "super")
+                        {
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, name, e.Line, e.Col, e.OriginFile));
+                            break;
+                        }
+
+                        if (CurrentLocals.Contains(name))
+                        {
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, name, e.Line, e.Col, e.OriginFile));
+                            break;
+                        }
+
+                        if (!TryEmitImplicitMemberLoad(name, v))
+                        {
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, name, e.Line, e.Col, e.OriginFile));
+                        }
+                        break;
+                    }
 
                 case ArrayExpr a:
                     foreach (Expr elem in a.Elements) CompileExpr(elem);
@@ -1315,7 +1412,9 @@ namespace CFGS_VM.VMCore
                         string anonName = $"__anon_{_anonCounter++}";
                         Functions[anonName] = new FunctionInfo(fe.Parameters, funcStart);
 
+                        EnterFunctionLocals(fe.Parameters);
                         CompileStmt(fe.Body, insideFunction: true);
+                        LeaveFunctionLocals();
 
                         if (_insns.Count == 0 || _insns[^1].Code != OpCode.RET)
                         {
@@ -1469,7 +1568,10 @@ namespace CFGS_VM.VMCore
             if (target is VarExpr v)
             {
                 if (load)
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, v.Name, v.Line, v.Col, v.OriginFile));
+                {
+                    if (!TryEmitImplicitMemberLoad(v.Name, v))
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, v.Name, v.Line, v.Col, v.OriginFile));
+                }
             }
             else if (target is IndexExpr ie)
             {
@@ -1494,7 +1596,8 @@ namespace CFGS_VM.VMCore
         {
             if (target is VarExpr v)
             {
-                _insns.Add(new Instruction(OpCode.STORE_VAR, v.Name, v.Line, v.Col, v.OriginFile));
+                if (!TryEmitImplicitMemberStore(v.Name, v))
+                    _insns.Add(new Instruction(OpCode.STORE_VAR, v.Name, v.Line, v.Col, v.OriginFile));
             }
             else if (target is IndexExpr ie)
             {
@@ -1516,10 +1619,148 @@ namespace CFGS_VM.VMCore
                 throw new CompilerException("Invalid lvalue for store.", target?.Line ?? -1, target?.Col ?? -1, FileName);
             }
         }
-    }
 
-    /// <summary>
-    /// Defines the <see cref="CompilerException" />
-    /// </summary>
-    public sealed class CompilerException(string message, int line, int column, string fileSource) : Exception($"{message}. ( Line : {line}, Column : {column} ) : [Source : '{fileSource}']");
+        /// <summary>
+        /// The BuildClassInfos
+        /// </summary>
+        /// <param name="sortedClasses">The sortedClasses<see cref="List{ClassDeclStmt}"/></param>
+        private void BuildClassInfos(List<ClassDeclStmt> sortedClasses)
+        {
+            _classInfos.Clear();
+
+            foreach (ClassDeclStmt cds in sortedClasses)
+            {
+                string? baseName = string.IsNullOrEmpty(cds.BaseName) ? null : cds.BaseName;
+                ClassInfo ci = new(cds.Name, baseName);
+
+                foreach (KeyValuePair<string, Expr?> kv in cds.Fields)
+                    ci.InstanceMembers.Add(kv.Key);
+
+                foreach (FuncDeclStmt m in cds.Methods)
+                    ci.InstanceMembers.Add(m.Name);
+
+                foreach (KeyValuePair<string, Expr?> kv in cds.StaticFields)
+                    ci.StaticMembers.Add(kv.Key);
+
+                foreach (FuncDeclStmt m in cds.StaticMethods)
+                    ci.StaticMembers.Add(m.Name);
+
+                foreach (EnumDeclStmt en in cds.Enums)
+                    ci.StaticMembers.Add(en.Name);
+
+                foreach (ClassDeclStmt inner in cds.NestedClasses)
+                    ci.StaticMembers.Add(inner.Name);
+
+                if (baseName != null && _classInfos.TryGetValue(baseName, out ClassInfo? baseCi))
+                {
+                    ci.InstanceMembers.UnionWith(baseCi.InstanceMembers);
+                    ci.StaticMembers.UnionWith(baseCi.StaticMembers);
+                }
+
+                _classInfos[cds.Name] = ci;
+            }
+        }
+
+        /// <summary>
+        /// The EnterFunctionLocals
+        /// </summary>
+        /// <param name="parameters">The parameters<see cref="IEnumerable{string}"/></param>
+        private void EnterFunctionLocals(IEnumerable<string> parameters)
+        {
+            HashSet<string> inherited;
+
+            if (_localVarsStack.Count > 0)
+                inherited = new HashSet<string>(_localVarsStack.Peek(), StringComparer.Ordinal);
+            else
+                inherited = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (string p in parameters)
+                inherited.Add(p);
+
+            _localVarsStack.Push(inherited);
+        }
+
+        /// <summary>
+        /// The LeaveFunctionLocals
+        /// </summary>
+        private void LeaveFunctionLocals()
+        {
+            if (_localVarsStack.Count > 0)
+                _localVarsStack.Pop();
+        }
+
+        /// <summary>
+        /// The TryEmitImplicitMemberLoad
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="node">The node<see cref="Node"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool TryEmitImplicitMemberLoad(string name, Node node)
+        {
+            if (_currentClass == null)
+                return false;
+
+            if (name == "this" || name == "type" || name == "super")
+                return false;
+
+            if (CurrentLocals.Contains(name))
+                return false;
+
+            if (!_currentMethodIsStatic && _currentClass.IsInstanceMember(name))
+            {
+                _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, name, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_GET, null, node.Line, node.Col, node.OriginFile));
+                return true;
+            }
+
+            if (_currentClass.IsStaticMember(name))
+            {
+                _insns.Add(new Instruction(OpCode.LOAD_VAR, _currentClass.Name, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, name, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_GET, null, node.Line, node.Col, node.OriginFile));
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// The TryEmitImplicitMemberStore
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="node">The node<see cref="Node"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool TryEmitImplicitMemberStore(string name, Node node)
+        {
+            if (_currentClass == null)
+                return false;
+
+            if (name == "this" || name == "type" || name == "super")
+                return false;
+
+            if (CurrentLocals.Contains(name))
+                return false;
+
+            if (!_currentMethodIsStatic && _currentClass.IsInstanceMember(name))
+            {
+                _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, name, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.ROT, null, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_SET, null, node.Line, node.Col, node.OriginFile));
+                return true;
+            }
+
+            if (_currentClass.IsStaticMember(name))
+            {
+                _insns.Add(new Instruction(OpCode.LOAD_VAR, _currentClass.Name, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, name, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.ROT, null, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_SET, null, node.Line, node.Col, node.OriginFile));
+                return true;
+            }
+
+            return false;
+        }
+    }
 }
