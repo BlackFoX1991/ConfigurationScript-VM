@@ -675,6 +675,43 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case DoWhileStmt dws:
+                    {
+                        int loopStart = _insns.Count;
+                        _breakLists.Push([]);
+                        _continueLists.Push([]);
+
+                        CompileStmt(dws.Body, insideFunction);
+
+                        int condStart = _insns.Count;
+
+                        foreach (int idx in _continueLists.Peek())
+                            _insns[idx] = new Instruction(
+                                OpCode.LEAVE,
+                                new object[] { condStart, 1 },
+                                s.Line, s.Col, s.OriginFile);
+
+                        CompileExpr(dws.Condition);
+                        int jmpFalseIdx = _insns.Count;
+                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, s.Line, s.Col, s.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
+                        _insns[jmpFalseIdx] = new Instruction(
+                            OpCode.JMP_IF_FALSE,
+                            _insns.Count,
+                            s.Line, s.Col, s.OriginFile);
+
+                        foreach (int idx in _breakLists.Peek())
+                            _insns[idx] = new Instruction(
+                                OpCode.LEAVE,
+                                new object[] { _insns.Count, 1 },
+                                s.Line, s.Col, s.OriginFile);
+
+                        _breakLists.Pop();
+                        _continueLists.Pop();
+                        break;
+                    }
+
                 case WhileStmt ws:
                     {
                         int loopStart = _insns.Count;

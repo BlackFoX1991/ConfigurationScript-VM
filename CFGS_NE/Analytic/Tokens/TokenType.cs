@@ -209,6 +209,7 @@
         /// Defines the While
         /// </summary>
         While,
+        Do,
 
         /// <summary>
         /// Defines the For
