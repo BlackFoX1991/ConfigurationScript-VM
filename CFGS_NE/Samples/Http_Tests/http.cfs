@@ -131,10 +131,10 @@ func main()
     var srv = http_server(PORT).start();   # dot-style start()
 
     # Demo Client
-    var r_get = http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"});
+    var r_get = await http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"});
     print("GET status: " + str(r_get.status) + " " + r_get.reason);
 
-    var r_post = http_post("https://httpbin.org/post", "{\"msg\":\"Hallo\"}", {"Content-Type":"application/json"});
+    var r_post = await http_post("https://httpbin.org/post", "{\"msg\":\"Hallo\"}", {"Content-Type":"application/json"});
     print("POST status: " + str(r_post.status));
 
     var enc = urlencode("a b&c=1");

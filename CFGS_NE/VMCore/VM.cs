@@ -3542,6 +3542,15 @@ namespace CFGS_VM.VMCore
         {
             switch (target)
             {
+                case System.Threading.Tasks.Task<object> _:
+                    {
+                        string key = idxObj?.ToString() ?? "";
+                        throw new VMException(key == string.Empty ? "Task value encountered; use 'await'"
+                                                                    : $"Task value encountered; use 'await' -> ( {key} )"
+                                                                    , instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                    }
+
                 case List<object> arr:
                     {
                         if (idxObj is string mname && TryBindIntrinsic(arr, mname, out IntrinsicBound? bound, instr))
@@ -3816,6 +3825,16 @@ namespace CFGS_VM.VMCore
                         st.Fields[key] = value;
                         break;
                     }
+
+                case System.Threading.Tasks.Task<object> _:
+                    {
+                        string key = idxObj?.ToString() ?? "";
+                        throw new VMException(key == string.Empty ? "Task value encountered; use 'await'"
+                                                                    : $"Task value encountered; use 'await' -> ( {key} )"
+                                                                    , instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                    }
+
                 case EnumInstance en:
                     throw new VMException($"Runtime error: cannot assign to enum '{en.EnumName}' members", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
