@@ -101,13 +101,79 @@ print(json(getfields(d)));    # ["a","b"]
 ---
 
 ### JSON
+---
 
-* `json(x)` → JSON string from CFGS value (lists/dicts mapped naturally).
-
-**Example**
+### `fromjson`
+```cfgs
+fromjson(text) -> dictionary | null
+```
+* Takes a single value `text`.
+* Converts it to a string internally.
+* If the string is `null`, empty, or only whitespace → returns `null`.
+* Otherwise, parses the string as JSON and returns a **dictionary** representing the JSON object.
+* Expects the JSON to represent an object at the top level (e.g. `{ "key": value }`).
+  Invalid JSON will cause a runtime error.
 
 ```cfgs
-print(json({"n": 1, "s": "hi"}));  # {"n":1,"s":"hi"}
+var data = fromjson("{\"name\":\"Alice\",\"age\":30}");
+
+print(data["name"]);   # "Alice"
+print(data["age"]);    # 30
+```
+
+If the string is empty or whitespace:
+
+```cfgs
+fromjson("")        # null
+fromjson("   ")     # null
+```
+
+You can also combine it with other operations:
+
+```cfgs
+var raw  = readfile("config.json");
+var conf = fromjson(raw);
+
+if (conf != null) {
+    print(conf["mode"]);
+}
+```
+
+---
+
+### `tojson`
+
+```cfgs
+tojson(value) -> string
+```
+
+* Takes any value and converts it to a JSON string.
+* Always returns a **string**.
+* If `value` is `null`, the result is the string `"null"`.
+
+```cfgs
+var obj = { "name": "Bob", "score": 42 };
+var json = tojson(obj);
+
+print(json);   # e.g. {"name":"Bob","score":42}
+```
+
+With simple values:
+
+```cfgs
+tojson(5)          # "5"
+tojson("hello")    # "\"hello\""
+tojson(null)       # "null"
+```
+
+Round-trip example:
+
+```cfgs
+var original = { "x": 1, "y": 2 };
+var json     = tojson(original);
+var copy     = fromjson(json);
+
+print(copy["x"]);    # 1
 ```
 
 ---
@@ -197,6 +263,61 @@ print("you typed: " + line);
 ```
 
 ---
+
+# String Builtin
+
+### `format`
+
+The built-in `format` function creates a formatted string from a **template** and one or more **values**.
+
+* The **first argument** is the format string.
+* All **following arguments** are the values that will be inserted into the placeholders.
+* It always returns the **formatted string**.
+
+#### Basic usage
+
+Placeholders are written as `{0}`, `{1}`, `{2}`, … and refer to the argument positions **after** the format string.
+
+```cfgs
+format("Hello {0}", "World");          # "Hello World"
+format("{0} + {1} = {2}", 2, 3, 5);    # "2 + 3 = 5"
+```
+
+#### Multiple values
+
+```cfgs
+var msg = format("Name: {0}, Age: {1}", "Alice", 30);
+print(msg);    # "Name: Alice, Age: 30"
+```
+
+#### Reusing the same argument
+
+```cfgs
+format("{0}, {0}, {0}!", "Echo");   # "Echo, Echo, Echo!"
+```
+
+#### With numeric formatting
+
+You can also use format specifiers inside the braces:
+
+```cfgs
+format("Price: {0:0.00}", 12.5);             # "Price: 12.50"
+format("Padded number: {0:0000}", 42);       # "Padded number: 0042"
+format("Percent: {0:0.00}%", 0.1234 * 100);  # "Percent: 12.34%"
+```
+
+#### Combining with variables
+
+```cfgs
+var name = "Bob";
+var score = 97;
+var line = format("Player {0} scored {1} points.", name, score);
+print(line);   # "Player Bob scored 97 points."
+```
+
+In short:
+`format(template, arg1, arg2, ...)` → returns a new string with all `{n}` placeholders replaced by the corresponding arguments.
+
 
 ## Intrinsics
 
