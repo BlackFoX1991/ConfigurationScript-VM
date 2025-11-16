@@ -1,0 +1,22 @@
+class Foo {
+    var a = [1,2,3];
+    static var s = [4,5,6];
+
+    func test() {
+        var local = a;
+        delete a;
+        print("a = " + a);
+        print("local = " + local);
+    }
+
+    static func testStatic() {
+        var local = s;
+        delete s;
+        print("s = " + s);
+        print("local = " + local);
+    }
+}
+
+var f = new Foo();
+f.test();
+Foo.testStatic();

@@ -171,6 +171,11 @@
         ARRAY_DELETE_SLICE,
 
         /// <summary>
+        /// Defines the ARRAY_CLEAR
+        /// </summary>
+        ARRAY_CLEAR,
+
+        /// <summary>
         /// Defines the ADD
         /// </summary>
         ADD,

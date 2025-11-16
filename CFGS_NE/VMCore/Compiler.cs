@@ -376,8 +376,12 @@ namespace CFGS_VM.VMCore
                     }
 
                 case DeleteVarStmt dv:
-                    _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ALL, dv.Name, s.Line, s.Col, s.OriginFile));
-                    break;
+                    {
+                        VarExpr targetExpr = new(dv.Name, dv.Line, dv.Col, s.OriginFile);
+                        CompileExpr(targetExpr);
+                        _insns.Add(new Instruction(OpCode.ARRAY_CLEAR, null, dv.Line, dv.Col, s.OriginFile));
+                        break;
+                    }
 
                 case DeleteExprStmt des:
                     {
@@ -409,7 +413,8 @@ namespace CFGS_VM.VMCore
 
                         if (des.Target is VarExpr v2 && des.DeleteAll)
                         {
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ALL, v2.Name, des.Line, des.Col, s.OriginFile));
+                            CompileExpr(v2);
+                            _insns.Add(new Instruction(OpCode.ARRAY_CLEAR, null, des.Line, des.Col, s.OriginFile));
                             break;
                         }
 
@@ -420,7 +425,9 @@ namespace CFGS_VM.VMCore
                     {
                         if (das.Target is VarExpr var)
                         {
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ALL, var.Name, das.Line, das.Col, s.OriginFile));
+                            CompileExpr(var);
+
+                            _insns.Add(new Instruction(OpCode.ARRAY_CLEAR, null, das.Line, das.Col, s.OriginFile));
                         }
                         else if (das.Target is IndexExpr xie)
                         {

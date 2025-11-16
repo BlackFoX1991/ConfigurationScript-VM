@@ -61,8 +61,14 @@ namespace CFGS_VM.Analytic.Core
         /// </summary>
         private bool multipleVarDecl = false;
 
-
+        /// <summary>
+        /// Defines the _outBlock
+        /// </summary>
         private int _outBlock = 0;
+
+        /// <summary>
+        /// Gets a value indicating whether IsInOutBlock
+        /// </summary>
         private bool IsInOutBlock { get => _outBlock > 0; }
 
         /// <summary>
@@ -1297,7 +1303,9 @@ namespace CFGS_VM.Analytic.Core
 
                 Eat(TokenType.Semi);
 
-                return new DeleteExprStmt(target, false, line, col, fsname);
+                bool deleteAll = target is VarExpr;
+
+                return new DeleteExprStmt(target, deleteAll, line, col, fsname);
             }
         }
 
@@ -1383,6 +1391,10 @@ namespace CFGS_VM.Analytic.Core
             return new WhileStmt(cond, body, _current.Line, _current.Column, _current.Filename);
         }
 
+        /// <summary>
+        /// The ParseDoWhile
+        /// </summary>
+        /// <returns>The <see cref="DoWhileStmt"/></returns>
         private DoWhileStmt ParseDoWhile()
         {
             Eat(TokenType.Do);

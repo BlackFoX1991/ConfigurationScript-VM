@@ -1316,6 +1316,30 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case OpCode.ARRAY_CLEAR:
+                    {
+                        RequireStack(1, instr, "ARRAY_CLEAR");
+
+                        object target = _stack.Pop();
+
+                        if (target is List<object> list)
+                        {
+                            list.Clear();
+                        }
+                        else if (target is Dictionary<string, object> dict)
+                        {
+                            dict.Clear();
+                        }
+                        else
+                        {
+                            throw new VMException(
+                                $"Runtime error: delete target is not an array or dictionary",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        }
+
+                        break;
+                    }
+
                 case OpCode.ARRAY_DELETE_ELEM_ALL:
                     {
                         RequireStack(2, instr, "ARRAY_DELETE_ELEM_ALL");
