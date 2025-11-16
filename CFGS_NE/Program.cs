@@ -95,7 +95,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v2.8.6";
+    public const string Version = "v2.8.7";
 
     /// <summary>
     /// Defines the PluginsFolder
