@@ -1,0 +1,21 @@
+class foo {
+    static var s = [];
+    var i = [];
+
+    static func testStatic() {
+        s[] = "S";
+        delete s[0~1];
+    }
+
+    func testInstance() {
+        i[] = "I1";
+        i[] = "I2";
+        delete i[0];
+    }
+}
+
+foo.testStatic();
+var f = new foo();
+f.testInstance();
+print(foo.s);
+print(f.i);
