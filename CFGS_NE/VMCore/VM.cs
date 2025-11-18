@@ -2692,30 +2692,30 @@ namespace CFGS_VM.VMCore
                     {
                         object? thrown = _stack.Count > 0 ? _stack.Pop() : null;
 
-                        object exPayload = thrown is null
-                            ? new ExceptionObject(
-                                  type: "UserError",
-                                  message: "throw",
-                                  file: instr.OriginFile,
-                                  line: instr.Line,
-                                  col: instr.Col,
-                                  stack: BuildStackString(_insns, instr))
-                            : (thrown is ExceptionObject eo ? eo : thrown);
+                        ExceptionObject payload;
 
-                        if (RouteExceptionToTryHandlers(exPayload, instr, out int nip))
+                        if (thrown is ExceptionObject eo)
+                        {
+                            payload = eo;
+                        }
+                        else
+                        {
+                            string msg = thrown?.ToString() ?? "throw";
+                            payload = new ExceptionObject(
+                                type: "UserError",
+                                message: msg,
+                                file: instr.OriginFile,
+                                line: instr.Line,
+                                col: instr.Col,
+                                stack: BuildStackString(_insns, instr)
+                            );
+                        }
+
+                        if (RouteExceptionToTryHandlers(payload, instr, out int nip))
                         {
                             _ip = nip;
                             return StepResult.Routed;
                         }
-
-                        ExceptionObject payload = exPayload as ExceptionObject
-                            ?? new ExceptionObject(
-                                   type: "UserError",
-                                   message: thrown?.ToString() ?? "throw",
-                                   file: instr.OriginFile,
-                                   line: instr.Line,
-                                   col: instr.Col,
-                                   stack: BuildStackString(_insns, instr));
 
                         throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }
@@ -3320,7 +3320,7 @@ namespace CFGS_VM.VMCore
                     {
                         w.Write('{');
                         w.Write("\"type\":\""); w.Write(JsonEscapeString(exo.Type)); w.Write("\",");
-                        w.Write("\"message\":\""); w.Write(JsonEscapeString(exo.Message)); w.Write("\",");
+                        w.Write("\"message\":\""); w.Write(JsonEscapeString(exo.eMessage)); w.Write("\",");
                         w.Write("\"file\":\""); w.Write(JsonEscapeString(exo.File)); w.Write("\",");
                         w.Write("\"line\":"); w.Write(exo.Line.ToString(CultureInfo.InvariantCulture)); w.Write(",");
                         w.Write("\"col\":"); w.Write(exo.Col.ToString(CultureInfo.InvariantCulture));
@@ -3598,7 +3598,7 @@ namespace CFGS_VM.VMCore
                         string key = idxObj?.ToString() ?? "";
                         if (idxObj is string mname && TryBindIntrinsic(exo, mname, out IntrinsicBound? bound, instr))
                             return bound;
-                        if (string.Equals(key, "message$", StringComparison.Ordinal)) return exo.Message;
+                        if (string.Equals(key, "message$", StringComparison.Ordinal)) return exo.eMessage;
                         if (string.Equals(key, "type$", StringComparison.Ordinal)) return exo.Type;
                         throw new VMException($"invalid member '{key}' on Exception", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }

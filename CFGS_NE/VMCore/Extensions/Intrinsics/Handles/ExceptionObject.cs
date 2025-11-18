@@ -10,7 +10,7 @@
         /// <summary>
         /// Gets the Message
         /// </summary>
-        public string Message { get; }
+        public string eMessage { get; }
 
         /// <summary>
         /// Gets the File
@@ -44,7 +44,7 @@
         public ExceptionObject(string type, string message, string file, int line, int col, string stack = "")
         {
             Type = type;
-            Message = message;
+            eMessage = message;
             File = file;
             Line = line;
             Col = col;
@@ -57,7 +57,7 @@
         /// <returns>The <see cref="string"/></returns>
         public override string ToString()
         {
-            return $"{Message}\n{Type}\n -> {File} at {Line}, position {Col}.";
+            return $"{eMessage}\n{Type}\n -> {File} at {Line}, position {Col}.";
         }
     }
 }

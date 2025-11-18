@@ -1,0 +1,12 @@
+func main()
+{
+	try
+	{
+		throw "Hello World!";
+	}
+	catch(ex)
+	{
+		print(ex.message());
+	}
+}
+main();
