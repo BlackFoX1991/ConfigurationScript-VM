@@ -1008,7 +1008,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
         private static void RegisterException(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(ExceptionObject);
-            intrinsics.Register(T, new IntrinsicDescriptor("message", 0, 0, (r, a, i) => ((ExceptionObject)r).Message));
+            intrinsics.Register(T, new IntrinsicDescriptor("message", 0, 0, (r, a, i) => ((ExceptionObject)r).eMessage));
             intrinsics.Register(T, new IntrinsicDescriptor("type", 0, 0, (r, a, i) => ((ExceptionObject)r).Type));
             intrinsics.Register(T, new IntrinsicDescriptor("file", 0, 0, (r, a, i) => ((ExceptionObject)r).File));
             intrinsics.Register(T, new IntrinsicDescriptor("line", 0, 0, (r, a, i) => ((ExceptionObject)r).Line));
