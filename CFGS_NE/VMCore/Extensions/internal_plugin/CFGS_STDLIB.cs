@@ -563,6 +563,17 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
         {
             Type T = typeof(string);
 
+            intrinsics.Register(T, new IntrinsicDescriptor("lower", 0, 0, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                return s.ToLower();
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("upper", 0, 0, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                return s.ToUpper();
+            }));
             intrinsics.Register(T, new IntrinsicDescriptor("trim", 0, 0, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
