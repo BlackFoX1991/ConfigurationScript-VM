@@ -1379,12 +1379,41 @@ namespace CFGS_VM.VMCore
                 case NewExpr ne:
                     {
                         string[] parts = ne.ClassName.Split('.');
+                        bool usedOuterBinding = false;
 
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, parts[0], ne.Line, ne.Col, e.OriginFile));
-                        for (int i = 1; i < parts.Length; i++)
+                        if (_currentClass != null && !_currentMethodIsStatic)
                         {
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], ne.Line, ne.Col, e.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, e.OriginFile));
+                            if (parts.Length == 1)
+                            {
+                                if (_classInfos.TryGetValue(_currentClass.Name, out ClassInfo? ci)
+                                    && ci.StaticMembers.Contains(parts[0]))
+                                {
+                                    _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", ne.Line, ne.Col, e.OriginFile));
+                                    _insns.Add(new Instruction(OpCode.PUSH_STR, parts[0], ne.Line, ne.Col, e.OriginFile));
+                                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, e.OriginFile));
+                                    usedOuterBinding = true;
+                                }
+                            }
+                            else if (string.Equals(parts[0], _currentClass.Name, StringComparison.Ordinal))
+                            {
+                                _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", ne.Line, ne.Col, e.OriginFile));
+                                for (int i = 1; i < parts.Length; i++)
+                                {
+                                    _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], ne.Line, ne.Col, e.OriginFile));
+                                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, e.OriginFile));
+                                }
+                                usedOuterBinding = true;
+                            }
+                        }
+
+                        if (!usedOuterBinding)
+                        {
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, parts[0], ne.Line, ne.Col, e.OriginFile));
+                            for (int i = 1; i < parts.Length; i++)
+                            {
+                                _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], ne.Line, ne.Col, e.OriginFile));
+                                _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, e.OriginFile));
+                            }
                         }
 
                         for (int i = ne.Args.Count - 1; i >= 0; i--)
