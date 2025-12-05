@@ -2,7 +2,7 @@
   "profiles": {
     "CFGS_NE": {
       "commandName": "Project",
-      "commandLineArgs": "throw.cfs",
+      "commandLineArgs": "class_initializer.cfs",
       "workingDirectory": ".\\Samples"
     }
   }

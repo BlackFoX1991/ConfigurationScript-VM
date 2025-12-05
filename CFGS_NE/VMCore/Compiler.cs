@@ -1381,6 +1381,7 @@ namespace CFGS_VM.VMCore
                         string[] parts = ne.ClassName.Split('.');
                         bool usedOuterBinding = false;
 
+                        // ---- verschachtelte Klassen: "this.Inner" oder "Outer.Inner" binden
                         if (_currentClass != null && !_currentMethodIsStatic)
                         {
                             if (parts.Length == 1)
@@ -1416,12 +1417,29 @@ namespace CFGS_VM.VMCore
                             }
                         }
 
+                        // ---- Konstruktorargumente pushen (rückwärts)
                         for (int i = ne.Args.Count - 1; i >= 0; i--)
                             CompileExpr(ne.Args[i]);
 
+                        // ---- "new" aufrufen
                         _insns.Add(new Instruction(OpCode.CALL_INDIRECT, ne.Args.Count, ne.Line, ne.Col, e.OriginFile));
+
+                        // ---- Object-Initializer anwenden: obj { A: x, B: y, ... }
+                        if (ne.Initializers != null && ne.Initializers.Count > 0)
+                        {
+                            foreach (var init in ne.Initializers)
+                            {
+                                // Objekt duplizieren, damit es oben bleibt für weitere Sets
+                                _insns.Add(new Instruction(OpCode.DUP, null, ne.Line, ne.Col, e.OriginFile));
+                                _insns.Add(new Instruction(OpCode.PUSH_STR, init.Name, ne.Line, ne.Col, e.OriginFile));
+                                CompileExpr(init.Value);
+                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, ne.Line, ne.Col, e.OriginFile));
+                            }
+                        }
+
                         break;
                     }
+
 
                 case MethodCallExpr mce:
                     {

@@ -959,9 +959,10 @@ namespace CFGS_VM.Analytic.Core
                 Eat(TokenType.New);
 
                 if (_current.Type != TokenType.Ident)
-                    throw new ParserException("expected class name after 'new'", line, col, _current.Filename);
+                    throw new ParserException("expected class name after 'new'",
+                                              line, col, _current.Filename);
 
-                StringBuilder qn = new();
+                var qn = new StringBuilder();
                 qn.Append(_current.Value.ToString());
                 Eat(TokenType.Ident);
 
@@ -976,21 +977,60 @@ namespace CFGS_VM.Analytic.Core
                     Eat(TokenType.Ident);
                 }
 
+                // ( ...args... )
                 List<Expr> args = new();
-
                 if (_current.Type == TokenType.LParen)
                 {
                     Eat(TokenType.LParen);
-
                     if (_current.Type != TokenType.RParen)
                         args = ParseExprList();
-
                     Eat(TokenType.RParen);
                 }
 
-                return new NewExpr(qn.ToString(), args, line, col, _current.Filename);
+                // { Prop: Expr, ... }  -- optional
+                List<(string, Expr)> inits = null;
+                if (_current.Type == TokenType.LBrace)
+                    inits = ParseObjectInitializer();
+
+                return new NewExpr(qn.ToString(), args, inits ?? new(), line, col, _current.Filename);
             }
         }
+
+        private List<(string, Expr)> ParseObjectInitializer()
+        {
+            var list = new List<(string, Expr)>();
+            Eat(TokenType.LBrace);
+
+            while (_current.Type != TokenType.RBrace)
+            {
+                // Feldname muss Ident sein (Keywords sind damit ausgeschlossen)
+                if (_current.Type != TokenType.Ident)
+                    throw new ParserException("expected identifier in object initializer",
+                                              _current.Line, _current.Column, _current.Filename);
+
+                string name = _current.Value!.ToString();
+                Eat(TokenType.Ident);
+
+                Eat(TokenType.Colon);
+
+                Expr value = Expr();
+                list.Add((name, value));
+
+                if (_current.Type == TokenType.Comma)
+                {
+                    Eat(TokenType.Comma);
+                    if (_current.Type == TokenType.RBrace) break; // optional trailing comma
+                }
+                else break;
+            }
+
+            Eat(TokenType.RBrace);
+            return list;
+        }
+
+
+
+
 
         /// <summary>
         /// The ParseMatch
