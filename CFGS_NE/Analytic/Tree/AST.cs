@@ -923,33 +923,23 @@ namespace CFGS_VM.Analytic.Tree
     /// <summary>
     /// Defines the <see cref="NewExpr" />
     /// </summary>
-    public class NewExpr : Expr
+    // in deiner AST-Definition
+    public sealed class NewExpr : Expr
     {
-        /// <summary>
-        /// Gets the ClassName
-        /// </summary>
         public string ClassName { get; }
-
-        /// <summary>
-        /// Gets the Args
-        /// </summary>
         public List<Expr> Args { get; }
+        public List<(string Name, Expr Value)> Initializers { get; }   // NEU
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="NewExpr"/> class.
-        /// </summary>
-        /// <param name="className">The className<see cref="string"/></param>
-        /// <param name="args">The args<see cref="List{Expr}"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public NewExpr(string className, List<Expr> args, int line, int col, string fname)
-            : base(line, col, fname)
+        public NewExpr(string className, List<Expr> args, List<(string, Expr)> inits,
+                       int line, int col, string origin)
+            : base(line, col, origin)
         {
             ClassName = className;
             Args = args;
+            Initializers = inits ?? new();
         }
     }
+
 
     /// <summary>
     /// Defines the <see cref="GetFieldExpr" />

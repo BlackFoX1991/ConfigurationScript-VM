@@ -1,0 +1,15 @@
+class Person
+{
+	var Vorname;
+	var Nachname;
+	var Telefon;
+}
+
+func main()
+{
+	var Elem1 = new Person(){ Vorname: "John" + "SAP", Nachname: "Doe" };
+	
+	print(Elem1.Vorname);
+}
+
+main();
