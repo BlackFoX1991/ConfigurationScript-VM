@@ -949,20 +949,21 @@ namespace CFGS_VM.Analytic.Core
         /// <summary>
         /// Gets the ParseNew
         /// </summary>
+        // --- ParseNew: sammelt Initializer direkt ein und gibt ihn an NewExpr weiter ---
         private Expr ParseNew
         {
             get
             {
                 int line = _current.Line;
                 int col = _current.Column;
+                string origin = _current.Filename;
 
                 Eat(TokenType.New);
 
                 if (_current.Type != TokenType.Ident)
-                    throw new ParserException("expected class name after 'new'",
-                                              line, col, _current.Filename);
+                    throw new ParserException("expected class name after 'new'", line, col, origin);
 
-                var qn = new StringBuilder();
+                StringBuilder qn = new();
                 qn.Append(_current.Value.ToString());
                 Eat(TokenType.Ident);
 
@@ -971,14 +972,14 @@ namespace CFGS_VM.Analytic.Core
                     Eat(TokenType.Dot);
                     if (_current.Type != TokenType.Ident)
                         throw new ParserException("expected identifier after '.' in qualified class name",
-                                                  _current.Line, _current.Column, _current.Filename);
+                                                  _current.Line, _current.Column, origin);
                     qn.Append('.');
                     qn.Append(_current.Value.ToString());
                     Eat(TokenType.Ident);
                 }
 
-                // ( ...args... )
                 List<Expr> args = new();
+
                 if (_current.Type == TokenType.LParen)
                 {
                     Eat(TokenType.LParen);
@@ -987,14 +988,76 @@ namespace CFGS_VM.Analytic.Core
                     Eat(TokenType.RParen);
                 }
 
-                // { Prop: Expr, ... }  -- optional
-                List<(string, Expr)> inits = null;
+                // Initializer direkt nach new ... ( ... ) optional
+                List<(string, Expr)> inits = new();
                 if (_current.Type == TokenType.LBrace)
-                    inits = ParseObjectInitializer();
+                    inits = ParseInitializerItems();
 
-                return new NewExpr(qn.ToString(), args, inits ?? new(), line, col, _current.Filename);
+                return new NewExpr(qn.ToString(), args, inits, line, col, origin);
             }
         }
+
+
+        // --- Parser: Initializer-Items (':' oder '=' zulassen) ---
+        // --- Initializer-Items: ':' ODER '=' zulassen; jedes Mal Tokens konsumieren ---
+        private List<(string, Expr)> ParseInitializerItems()
+        {
+            var items = new List<(string, Expr)>();
+
+            Eat(TokenType.LBrace);
+
+            if (_current.Type != TokenType.RBrace)
+            {
+                while (true)
+                {
+                    if (_current.Type != TokenType.Ident)
+                        throw new ParserException("expected identifier as initializer key",
+                                                  _current.Line, _current.Column, _current.Filename);
+
+                    string name = _current.Value.ToString();
+                    Eat(TokenType.Ident);
+
+                    // ':' oder '=' akzeptieren
+                    if (_current.Type == TokenType.Colon || _current.Type == TokenType.Assign)
+                        Advance();
+                    else
+                        throw new ParserException("expected ':' or '=' in object initializer",
+                                                  _current.Line, _current.Column, _current.Filename);
+
+                    Expr val = Expr();
+                    items.Add((name, val));
+
+                    if (_current.Type == TokenType.Comma)
+                    {
+                        Eat(TokenType.Comma);
+                        if (_current.Type == TokenType.RBrace) break; // trailing comma ok
+                        continue;
+                    }
+                    break;
+                }
+            }
+
+            Eat(TokenType.RBrace);
+            return items;
+        }
+
+
+
+        private Expr MaybeParseObjectInitializer(Expr target)
+        {
+            // Für NewExpr bereits in ParseNew erledigt
+            if (target is NewExpr) return target;
+
+            if (_current.Type == TokenType.LBrace)
+            {
+                var inits = ParseInitializerItems();
+                return new ObjectInitExpr(target, inits, target.Line, target.Col, target.OriginFile);
+            }
+            return target;
+        }
+
+
+
 
         private List<(string, Expr)> ParseObjectInitializer()
         {
@@ -1011,7 +1074,12 @@ namespace CFGS_VM.Analytic.Core
                 string name = _current.Value!.ToString();
                 Eat(TokenType.Ident);
 
-                Eat(TokenType.Colon);
+                
+                if (_current.Type == TokenType.Colon || _current.Type == TokenType.Assign)
+                    Advance();
+                else
+                    throw new ParserException("expected ':' or '=' in object initializer", _current.Line, _current.Column, _current.Filename);
+
 
                 Expr value = Expr();
                 list.Add((name, value));
@@ -1791,7 +1859,7 @@ namespace CFGS_VM.Analytic.Core
             }
             else if (_current.Type == TokenType.New)
             {
-                node = ParseNew;
+                node = ParseNew; // NewExpr sammelt seinen Initializer bereits in ParseNew ein
             }
             else if (_current.Type == TokenType.String)
             {
@@ -1801,7 +1869,6 @@ namespace CFGS_VM.Analytic.Core
             }
             else if (_current.Type == TokenType.Char)
             {
-
                 if (!char.TryParse(_current.Value.ToString(), out char vlc))
                     throw new ParserException($"invalid char value '{_current.Value.ToString()}'", _current.Line, _current.Column, _current.Filename);
                 Eat(TokenType.Char);
@@ -1873,25 +1940,28 @@ namespace CFGS_VM.Analytic.Core
                 _outBlock--;
                 node = new OutExpr(body, body.Line, body.Col, body.OriginFile);
             }
-
             else
             {
                 throw new ParserException($"invalid factor, token {_current.Type}", _current.Line, _current.Column, _current.Filename);
             }
 
+            // Primär-Kette: Call (), Index [], Slice, Member .
             while (true)
             {
                 if (_current.Type == TokenType.LParen)
                 {
                     if (node is NullExpr)
                         throw new ParserException("invalid access on null reference", _current.Line, _current.Column, _current.Filename);
+
                     Eat(TokenType.LParen);
                     List<Expr> args = new();
                     if (_current.Type != TokenType.RParen)
                         args.AddRange(ParseExprList());
-
                     Eat(TokenType.RParen);
+
                     node = new CallExpr(node, args, _current.Line, _current.Column, _current.Filename);
+                    // WICHTIG: Hier KEIN Object-Initializer mehr parsen!
+                    continue;
                 }
                 else if (_current.Type == TokenType.LBracket)
                 {
@@ -1904,7 +1974,6 @@ namespace CFGS_VM.Analytic.Core
 
                     if (_current.Type != TokenType.RBracket)
                     {
-
                         if (_current.Type != TokenType.Range) start = Expr();
 
                         if (_current.Type == TokenType.Range)
@@ -1928,8 +1997,8 @@ namespace CFGS_VM.Analytic.Core
 
                     Eat(TokenType.RBracket);
                     node = new SliceExpr(node, null, null, _current.Line, _current.Column, _current.Filename);
+                    continue;
                 }
-
                 else if (_current.Type == TokenType.Dot)
                 {
                     if (node is NullExpr)
@@ -1938,8 +2007,13 @@ namespace CFGS_VM.Analytic.Core
                     if (_current.Type != TokenType.Ident)
                         throw new ParserException("expected identifier after '.'", _current.Line, _current.Column, _current.Filename);
                     string member = _current.Value?.ToString() ?? "";
-                    node = new IndexExpr(node, new StringExpr(member, _current.Line, _current.Column, _current.Filename), node?.Line ?? -1, node?.Col ?? -1, node?.OriginFile ?? "");
+                    node = new IndexExpr(
+                        node,
+                        new StringExpr(member, _current.Line, _current.Column, _current.Filename),
+                        node?.Line ?? -1, node?.Col ?? -1, node?.OriginFile ?? ""
+                    );
                     Eat(TokenType.Ident);
+                    continue;
                 }
                 else if (_current.Type == TokenType.Match)
                 {
@@ -1990,6 +2064,7 @@ namespace CFGS_VM.Analytic.Core
                     Eat(TokenType.RBrace);
 
                     node = new MatchExpr(node!, arms, defaultArm, line, col, fs);
+                    continue;
                 }
                 else if (_current.Type == TokenType.PlusPlus || _current.Type == TokenType.MinusMinus)
                 {
@@ -1998,14 +2073,20 @@ namespace CFGS_VM.Analytic.Core
                     TokenType op = _current.Type;
                     Eat(op);
                     node = new PostfixExpr(node, op, _current.Line, _current.Column, _current.Filename);
+                    continue;
                 }
                 else
                 {
                     break;
                 }
             }
+
+            // Genau EIN Versuch für Initializer nach der gesamten Kette
+            node = MaybeParseObjectInitializer(node);
+
             return node ?? new NullExpr(_current.Line, _current.Column, _current.Filename);
         }
+
 
         /// <summary>
         /// The Unary

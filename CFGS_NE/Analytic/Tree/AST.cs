@@ -23,6 +23,21 @@ namespace CFGS_VM.Analytic.Tree
         public string OriginFile { get; } = originFile;
     }
 
+    // +++ AST +++
+    public sealed class ObjectInitExpr : Expr
+    {
+        public Expr Target { get; }
+        public List<(string Name, Expr Value)> Inits { get; }
+
+        public ObjectInitExpr(Expr target, List<(string, Expr)> inits, int line, int col, string file)
+            : base(line, col, file)
+        {
+            Target = target;
+            Inits = inits;
+        }
+    }
+
+
     /// <summary>
     /// Defines the <see cref="Expr" />
     /// </summary>
