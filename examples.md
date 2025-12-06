@@ -38,6 +38,10 @@ It supports importing:
 * **CFGS script files** (`.cfs`)
 * **.NET libraries** (`.dll`)
 
+**Important rule**
+> Imports are only allowed at the top of a script.
+> They must appear before any executable code. Once execution begins, no further import statements are permitted.
+
 ### Supported forms
 
 #### 1) Import a full script or library
