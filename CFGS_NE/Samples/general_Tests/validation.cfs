@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 # ===== spec_sanity_edge.cfgs (funktional verpackt) =====
 # Edge-case suite focusing on precedence, associativity, short-circuiting,
 # loops/break/continue/finally, closures/classes/nested `outer` binding,

@@ -1,6 +1,6 @@
 # CFGS Try/Catch/Finally – Edge Case Suite PLUS (funktional verpackt)
 # Jede try hat mindestens catch UND finally.
-
+import "CFGS.StandardLibrary.dll";
 print("=== TRY/CATCH/FINALLY EDGE TESTS PLUS START ===");
 
 func sep(name) { print("-- " + name + " --"); }

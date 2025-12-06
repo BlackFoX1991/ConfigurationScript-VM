@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 main();
 
 func main()

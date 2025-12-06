@@ -1416,44 +1416,36 @@ namespace CFGS_VM.VMCore
                             }
                         }
 
-                        // Args pushen (rechts nach links)
                         for (int i = ne.Args.Count - 1; i >= 0; i--)
                             CompileExpr(ne.Args[i]);
 
-                        // new(..) aufrufen
                         _insns.Add(new Instruction(OpCode.CALL_INDIRECT, ne.Args.Count, ne.Line, ne.Col, e.OriginFile));
 
-                        // Falls Initializer vorhanden: auf das Ergebnisobjekt anwenden
                         if (ne.Initializers != null && ne.Initializers.Count > 0)
                         {
-                            foreach (var (name, valueExpr) in ne.Initializers)
+                            foreach ((string name, Expr valueExpr) in ne.Initializers)
                             {
-                                _insns.Add(new Instruction(OpCode.DUP, null, ne.Line, ne.Col, e.OriginFile));           // obj
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, name, ne.Line, ne.Col, e.OriginFile));      // key
-                                CompileExpr(valueExpr);                                                                 // val
-                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, ne.Line, ne.Col, e.OriginFile));     // obj[key]=val
+                                _insns.Add(new Instruction(OpCode.DUP, null, ne.Line, ne.Col, e.OriginFile));
+                                _insns.Add(new Instruction(OpCode.PUSH_STR, name, ne.Line, ne.Col, e.OriginFile));
+                                CompileExpr(valueExpr);
+                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, ne.Line, ne.Col, e.OriginFile));
                             }
                         }
 
                         break;
                     }
 
-
                 case ObjectInitExpr oi:
                     {
-                        // Spezialfall: oi.Target ist ein Call auf ein Member:  <base>.<name>(args){ inits }
                         if (oi.Target is CallExpr ce &&
                             ce.Target is IndexExpr ie &&
                             ie.Index is StringExpr keyStr)
                         {
-                            // tmp Namen fuer outer; keine Keywords verwenden
                             string tmpOuter = $"__tmp_outer_{_anonCounter++}";
 
-                            // 1) base (outer) auswerten und in temp legen
                             CompileExpr(ie.Target);
                             _insns.Add(new Instruction(OpCode.VAR_DECL, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
 
-                            // 2) ctor-Funktion laden:  outer.__type[key]["new"]
                             _insns.Add(new Instruction(OpCode.LOAD_VAR, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, "__type", oi.Line, oi.Col, oi.OriginFile));
                             _insns.Add(new Instruction(OpCode.INDEX_GET, null, oi.Line, oi.Col, oi.OriginFile));
@@ -1464,25 +1456,20 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.PUSH_STR, "new", oi.Line, oi.Col, oi.OriginFile));
                             _insns.Add(new Instruction(OpCode.INDEX_GET, null, oi.Line, oi.Col, oi.OriginFile));
 
-                            // 3) Benutzer-Argumente in REVERSE Reihenfolge
                             for (int i = ce.Args.Count - 1; i >= 0; i--)
                                 CompileExpr(ce.Args[i]);
 
-                            // 4) __outer als erster Ctor-Parameter (deshalb zuletzt pushen)
                             _insns.Add(new Instruction(OpCode.LOAD_VAR, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
 
-                            // 5) Aufruf: args.Count + 1 (__outer)
                             _insns.Add(new Instruction(OpCode.CALL_INDIRECT, ce.Args.Count + 1, oi.Line, oi.Col, oi.OriginFile));
 
-                            // 6) Ergebnis in outer[key] ablegen, Ergebnis aber auf dem Stack behalten
                             _insns.Add(new Instruction(OpCode.DUP, null, oi.Line, oi.Col, oi.OriginFile));
                             _insns.Add(new Instruction(OpCode.LOAD_VAR, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, keyStr.Value, oi.Line, oi.Col, oi.OriginFile));
-                            _insns.Add(new Instruction(OpCode.ROT, null, oi.Line, oi.Col, oi.OriginFile));   // ergibt: obj, key, value
+                            _insns.Add(new Instruction(OpCode.ROT, null, oi.Line, oi.Col, oi.OriginFile));
                             _insns.Add(new Instruction(OpCode.INDEX_SET, null, oi.Line, oi.Col, oi.OriginFile));
 
-                            // 7) Initializer anwenden: für jedes (name, expr)
-                            foreach (var (fieldName, fieldExpr) in oi.Inits)
+                            foreach ((string fieldName, Expr fieldExpr) in oi.Inits)
                             {
                                 _insns.Add(new Instruction(OpCode.DUP, null, oi.Line, oi.Col, oi.OriginFile));
                                 _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, oi.Line, oi.Col, oi.OriginFile));
@@ -1490,13 +1477,11 @@ namespace CFGS_VM.VMCore
                                 _insns.Add(new Instruction(OpCode.INDEX_SET, null, oi.Line, oi.Col, oi.OriginFile));
                             }
 
-                            // Auf dem Stack bleibt die angelegte innere Instanz.
                             break;
                         }
 
-                        // Standardfall: beliebiger Ausdruck { inits } – Ziel erzeugen, dann Felder setzen, Ziel behalten
                         CompileExpr(oi.Target);
-                        foreach (var (fieldName, fieldExpr) in oi.Inits)
+                        foreach ((string fieldName, Expr fieldExpr) in oi.Inits)
                         {
                             _insns.Add(new Instruction(OpCode.DUP, null, oi.Line, oi.Col, oi.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, oi.Line, oi.Col, oi.OriginFile));
@@ -1505,8 +1490,6 @@ namespace CFGS_VM.VMCore
                         }
                         break;
                     }
-
-
 
                 case MethodCallExpr mce:
                     {

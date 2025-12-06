@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 class Foo {
     var a = [1,2,3];
     static var s = [4,5,6];

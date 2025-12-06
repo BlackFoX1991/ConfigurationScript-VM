@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 class testCls : Inner
 {
 	var test = 5;

@@ -8,6 +8,12 @@
     <ApplicationIcon>assets\cfgs_icon.ico</ApplicationIcon>
   </PropertyGroup>
 
+
+  <PropertyGroup>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <NoWarn></NoWarn>
   </PropertyGroup>
@@ -24,14 +30,6 @@
 
   <ItemGroup>
     <Content Include="assets\cfgs_icon.ico" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="VMCore\Plugin\" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.2" />
   </ItemGroup>
 
 </Project>

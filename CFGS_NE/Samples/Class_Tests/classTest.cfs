@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 class A { var x = 1; }
 class B : A { var y = 2; }
 class C : B { func Test() { return super.x + super.y; } }

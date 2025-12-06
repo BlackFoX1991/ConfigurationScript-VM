@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 # ===== Basisklasse =====
 class Auto(pwr)
 {

@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 func test()
 {
 	class wb(a,b)

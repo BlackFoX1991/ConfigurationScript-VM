@@ -1,9 +1,11 @@
 ﻿using CFGS_VM.VMCore.Plugin;
+using CFGS_VM.VMCore;
+using CFGS_VM.VMCore.Extensions;
 using Microsoft.Data.SqlClient;
 using System.Data;
 using System.Text.RegularExpressions;
 
-namespace CFGS_VM.VMCore.Extensions.internal_plugin
+namespace CFGS.Microsoft.SQL
 {
     /// <summary>
     /// Defines the <see cref="SqlHandle" />

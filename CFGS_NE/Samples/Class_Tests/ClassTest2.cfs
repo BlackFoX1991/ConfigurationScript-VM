@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 class foo {
     static var s = [];
     var i = [];

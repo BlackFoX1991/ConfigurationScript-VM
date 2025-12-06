@@ -1,5 +1,5 @@
 # CFGS Self-Check Test Harness (no str) – v2 (funktional verpackt)
-
+import "CFGS.StandardLibrary.dll";
 # --- Tiny test lib ---
 var __passed = 0;
 var __failed = 0;

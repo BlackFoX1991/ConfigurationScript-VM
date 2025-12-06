@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 func safeDivide(a, b) {
     if (b == 0) throw "Division by zero";
     return a / b;

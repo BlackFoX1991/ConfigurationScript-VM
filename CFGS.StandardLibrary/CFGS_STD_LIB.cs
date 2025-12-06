@@ -1,6 +1,8 @@
 ﻿using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Plugin;
+using CFGS_VM.VMCore;
+using CFGS_VM.VMCore.Extensions;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -10,7 +12,7 @@ using System.Text.Json;
 using System.Text.Unicode;
 using static CFGS_VM.VMCore.VM;
 
-namespace CFGS_VM.VMCore.Extensions.internal_plugin
+namespace CFGS.StandardLibrary
 {
     /// <summary>
     /// Defines the <see cref="CFGS_STDLIB" />

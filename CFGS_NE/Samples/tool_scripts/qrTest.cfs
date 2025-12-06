@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 import QRTools from "qrCode.cfs";
 
 func main()

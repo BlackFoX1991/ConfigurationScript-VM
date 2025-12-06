@@ -1,5 +1,5 @@
 # CFGS Hardcore Try/Catch/Finally Tests (no str) - v2 (funktional verpackt)
-
+import "CFGS.StandardLibrary.dll";
 # --- Tiny test lib (no str) ---
 var __passed = 0;
 var __failed = 0;

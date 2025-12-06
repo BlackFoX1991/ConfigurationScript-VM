@@ -5,8 +5,9 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using CFGS_VM.VMCore;
 
-namespace CFGS_VM.VMCore.Extensions.internal_plugin
+namespace CFGS.Web.Http
 {
     /// <summary>
     /// Defines the <see cref="CFGS_HTTP" />

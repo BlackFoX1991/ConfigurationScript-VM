@@ -1,5 +1,5 @@
 # CFGS Try/Catch/Finally – Edge Case Suite (funktional verpackt)
-
+import "CFGS.StandardLibrary.dll";
 print("=== TRY/CATCH/FINALLY EDGE TESTS START ===");
 
 # Helper

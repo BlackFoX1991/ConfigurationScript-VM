@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Gemeinsamer Root-Output für alle Projekte -->
+    <BaseOutputPath>$(MSBuildThisFileDirectory)dist\</BaseOutputPath>
+  </PropertyGroup>
+</Project>

@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 # === Try/Catch/Finally Sanity & Edge Tests ===
 # Assertions
 var total = 0;
