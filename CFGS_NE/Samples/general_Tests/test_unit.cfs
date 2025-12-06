@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 # ===== Mini-Test-Helpers =====
 var failed = 0;
 

@@ -1,4 +1,4 @@
-
+import "CFGS.StandardLibrary.dll";
 func main()
 {
 	var dict = [3,2,1,[5,5,3],12];

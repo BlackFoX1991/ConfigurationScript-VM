@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 func testOne()
 {
 	var nobj;

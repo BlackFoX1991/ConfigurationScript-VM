@@ -72,15 +72,23 @@ namespace CFGS_VM.Analytic.Core
         private bool IsInOutBlock { get => _outBlock > 0; }
 
         /// <summary>
+        /// Defines the _loadPluginDll
+        /// </summary>
+        private readonly Action<string>? _loadPluginDll;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="Parser"/> class.
         /// </summary>
         /// <param name="lexer">The lexer<see cref="Lexer"/></param>
-        public Parser(Lexer lexer)
+        /// <param name="loadPluginDll">The loadPluginDll<see cref="Action{string}?"/></param>
+        public Parser(Lexer lexer, Action<string>? loadPluginDll = null)
         {
 
             _lexer = lexer;
             _current = _lexer.GetNextToken();
             _next = _lexer.GetNextToken();
+
+            _loadPluginDll = loadPluginDll;
         }
 
         /// <summary>
@@ -244,23 +252,45 @@ namespace CFGS_VM.Analytic.Core
                 while (_current.Type == TokenType.Import)
                 {
                     Eat(TokenType.Import);
+
                     if (_current.Type == TokenType.String)
                     {
+                        int ln = _current.Line;
+                        int col = _current.Column;
+                        string fn = _current.Filename;
+
                         string path = _current.Value?.ToString() ?? "";
                         Eat(TokenType.String);
-                        List<Stmt> imported = GetImports(path, _current.Line, _current.Column, _current.Filename);
-                        stmts.AddRange(imported);
-                        IndexTopLevelSymbols(imported);
+
+                        if (!TryHandleDllImport(path, ln, col, fn))
+                        {
+                            List<Stmt> imported = GetImports(path, ln, col, fn);
+                            stmts.AddRange(imported);
+                            IndexTopLevelSymbols(imported);
+                        }
                     }
                     else if (_current.Type == TokenType.Ident)
                     {
                         string clsName = _current.Value?.ToString() ?? "";
                         Eat(TokenType.Ident);
                         Eat(TokenType.From);
+
                         if (_current.Type != TokenType.String)
-                            throw new ParserException("expected string after 'from' in import statement", _current.Line, _current.Column, _current.Filename);
+                            throw new ParserException("expected string after 'from' in import statement",
+                                _current.Line, _current.Column, _current.Filename);
+
+                        int ln = _current.Line;
+                        int col = _current.Column;
+                        string fn = _current.Filename;
+
                         string path = _current.Value?.ToString() ?? "";
-                        List<Stmt> imported = GetImports(path, _current.Line, _current.Column, _current.Filename, clsName);
+
+                        if (path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                            throw new ParserException(
+                                "named import from dll is not supported. Use: import \"path.dll\";",
+                                ln, col, fn);
+
+                        List<Stmt> imported = GetImports(path, ln, col, fn, clsName);
                         Eat(TokenType.String);
 
                         stmts.AddRange(imported);
@@ -268,7 +298,8 @@ namespace CFGS_VM.Analytic.Core
                     }
                     else
                     {
-                        throw new ParserException("invalid import statement", _current.Line, _current.Column, _current.Filename);
+                        throw new ParserException("invalid import statement",
+                            _current.Line, _current.Column, _current.Filename);
                     }
 
                     Eat(TokenType.Semi);
@@ -278,7 +309,10 @@ namespace CFGS_VM.Analytic.Core
             while (_current.Type != TokenType.EOF)
             {
                 if (_current.Type == TokenType.Import)
-                    throw new ParserException("Invalid import statement. Imports are only allowed in the header of the script", _current.Line, _current.Column, _current.Filename);
+                    throw new ParserException(
+                        "Invalid import statement. Imports are only allowed in the header of the script",
+                        _current.Line, _current.Column, _current.Filename);
+
                 Stmt st = Statement();
                 stmts.Add(st);
             }
@@ -286,6 +320,112 @@ namespace CFGS_VM.Analytic.Core
             IndexTopLevelSymbols(stmts);
 
             return stmts;
+        }
+        // --- NEW: import path resolver ----------------------------------------------
+
+        private static string GetExeBaseDir()
+        {
+            try
+            {
+                return AppContext.BaseDirectory;
+            }
+            catch
+            {
+                return Directory.GetCurrentDirectory();
+            }
+        }
+
+        private static IEnumerable<string> GetSearchBases(string fsname)
+        {
+            // 1) directory of current source file
+            if (!string.IsNullOrWhiteSpace(fsname))
+            {
+                string? srcDir = null;
+                try
+                {
+                    srcDir = Path.GetDirectoryName(Path.GetFullPath(fsname));
+                }
+                catch { }
+
+                if (!string.IsNullOrWhiteSpace(srcDir))
+                    yield return srcDir!;
+            }
+
+            // 2) current working directory
+            yield return Directory.GetCurrentDirectory();
+
+            // 3) exe base directory
+            yield return GetExeBaseDir();
+        }
+
+        private static string? ResolveImportPath(string rawPath, string fsname)
+        {
+            if (string.IsNullOrWhiteSpace(rawPath))
+                return null;
+
+            // absolute path -> just check it
+            if (Path.IsPathRooted(rawPath))
+            {
+                string fullAbs = Path.GetFullPath(rawPath);
+                return File.Exists(fullAbs) ? fullAbs : null;
+            }
+
+            // relative -> try search bases
+            foreach (string baseDir in GetSearchBases(fsname))
+            {
+                try
+                {
+                    string candidate = Path.GetFullPath(Path.Combine(baseDir, rawPath));
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+                catch { }
+            }
+
+            // extra fallback:
+            // if someone wrote "folder\lib.dll" but file is next to exe
+            try
+            {
+                string fileNameOnly = Path.GetFileName(rawPath);
+                if (!string.IsNullOrWhiteSpace(fileNameOnly))
+                {
+                    string exeDir = GetExeBaseDir();
+                    string candidate = Path.GetFullPath(Path.Combine(exeDir, fileNameOnly));
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The TryHandleDllImport
+        /// </summary>
+        /// <param name="rawPath">The rawPath<see cref="string"/></param>
+        /// <param name="ln">The ln<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="fsname">The fsname<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool TryHandleDllImport(string rawPath, int ln, int col, string fsname)
+        {
+            if (_loadPluginDll == null)
+                return false;
+
+            if (string.IsNullOrWhiteSpace(rawPath))
+                return false;
+
+            if (!rawPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string? resolved = ResolveImportPath(rawPath, fsname);
+
+            if (resolved == null)
+                throw new ParserException($"plugin dll not found '{rawPath}' (searched script dir, cwd, exe dir)", ln, col, fsname);
+
+            _loadPluginDll(resolved);
+            return true;
         }
 
         /// <summary>
@@ -367,7 +507,9 @@ namespace CFGS_VM.Analytic.Core
                         nsrc = sr.ReadToEnd();
 
                     Lexer lex = new(resourceId, nsrc);
-                    Parser prs = new(lex);
+
+                    Parser prs = new(lex, _loadPluginDll);
+
                     List<Stmt> importedAst = prs.Parse();
 
                     _astByHash[xh] = importedAst;
@@ -400,16 +542,17 @@ namespace CFGS_VM.Analytic.Core
                 }
             }
 
+            // ---------- LOCAL FILE IMPORTS WITH EXE-PATH FALLBACK ----------
+
             List<Stmt> result = new();
-            string baseDir = string.IsNullOrWhiteSpace(fsname)
-                ? Directory.GetCurrentDirectory()
-                : Path.GetDirectoryName(Path.GetFullPath(fsname)) ?? Directory.GetCurrentDirectory();
 
-            string candidate = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(baseDir, path));
-            if (!File.Exists(candidate))
-                throw new ParserException($"import path not found '{candidate}'", ln, col, fsname);
+            // NEW: unified resolver (script dir -> cwd -> exe dir)
+            string? resolved = ResolveImportPath(path, fsname);
 
-            string fullPath = Path.GetFullPath(candidate);
+            if (resolved == null)
+                throw new ParserException($"import path not found '{path}' (searched script dir, cwd, exe dir)", ln, col, fsname);
+
+            string fullPath = Path.GetFullPath(resolved);
 
             string? thisFile = string.IsNullOrWhiteSpace(fsname) ? null : Path.GetFullPath(fsname);
             if (thisFile != null && string.Equals(fullPath, thisFile, StringComparison.OrdinalIgnoreCase))
@@ -458,7 +601,8 @@ namespace CFGS_VM.Analytic.Core
                 string nsrc = sr.ReadToEnd();
 
                 Lexer lex = new(fullPath, nsrc);
-                Parser prs = new(lex);
+
+                Parser prs = new(lex, _loadPluginDll);
 
                 List<Stmt> importedAst = prs.Parse();
 
@@ -949,7 +1093,6 @@ namespace CFGS_VM.Analytic.Core
         /// <summary>
         /// Gets the ParseNew
         /// </summary>
-        // --- ParseNew: sammelt Initializer direkt ein und gibt ihn an NewExpr weiter ---
         private Expr ParseNew
         {
             get
@@ -988,7 +1131,6 @@ namespace CFGS_VM.Analytic.Core
                     Eat(TokenType.RParen);
                 }
 
-                // Initializer direkt nach new ... ( ... ) optional
                 List<(string, Expr)> inits = new();
                 if (_current.Type == TokenType.LBrace)
                     inits = ParseInitializerItems();
@@ -997,12 +1139,13 @@ namespace CFGS_VM.Analytic.Core
             }
         }
 
-
-        // --- Parser: Initializer-Items (':' oder '=' zulassen) ---
-        // --- Initializer-Items: ':' ODER '=' zulassen; jedes Mal Tokens konsumieren ---
+        /// <summary>
+        /// The ParseInitializerItems
+        /// </summary>
+        /// <returns>The <see cref="List{(string, Expr)}"/></returns>
         private List<(string, Expr)> ParseInitializerItems()
         {
-            var items = new List<(string, Expr)>();
+            List<(string, Expr)> items = new();
 
             Eat(TokenType.LBrace);
 
@@ -1014,10 +1157,9 @@ namespace CFGS_VM.Analytic.Core
                         throw new ParserException("expected identifier as initializer key",
                                                   _current.Line, _current.Column, _current.Filename);
 
-                    string name = _current.Value.ToString();
+                    string name = _current.Value.ToString()!;
                     Eat(TokenType.Ident);
 
-                    // ':' oder '=' akzeptieren
                     if (_current.Type == TokenType.Colon || _current.Type == TokenType.Assign)
                         Advance();
                     else
@@ -1025,12 +1167,12 @@ namespace CFGS_VM.Analytic.Core
                                                   _current.Line, _current.Column, _current.Filename);
 
                     Expr val = Expr();
-                    items.Add((name, val));
+                    items.Add((name!, val!));
 
                     if (_current.Type == TokenType.Comma)
                     {
                         Eat(TokenType.Comma);
-                        if (_current.Type == TokenType.RBrace) break; // trailing comma ok
+                        if (_current.Type == TokenType.RBrace) break;
                         continue;
                     }
                     break;
@@ -1041,64 +1183,22 @@ namespace CFGS_VM.Analytic.Core
             return items;
         }
 
-
-
+        /// <summary>
+        /// The MaybeParseObjectInitializer
+        /// </summary>
+        /// <param name="target">The target<see cref="Expr"/></param>
+        /// <returns>The <see cref="Expr"/></returns>
         private Expr MaybeParseObjectInitializer(Expr target)
         {
-            // Für NewExpr bereits in ParseNew erledigt
             if (target is NewExpr) return target;
 
             if (_current.Type == TokenType.LBrace)
             {
-                var inits = ParseInitializerItems();
+                List<(string, Expr)> inits = ParseInitializerItems();
                 return new ObjectInitExpr(target, inits, target.Line, target.Col, target.OriginFile);
             }
             return target;
         }
-
-
-
-
-        private List<(string, Expr)> ParseObjectInitializer()
-        {
-            var list = new List<(string, Expr)>();
-            Eat(TokenType.LBrace);
-
-            while (_current.Type != TokenType.RBrace)
-            {
-                // Feldname muss Ident sein (Keywords sind damit ausgeschlossen)
-                if (_current.Type != TokenType.Ident)
-                    throw new ParserException("expected identifier in object initializer",
-                                              _current.Line, _current.Column, _current.Filename);
-
-                string name = _current.Value!.ToString();
-                Eat(TokenType.Ident);
-
-                
-                if (_current.Type == TokenType.Colon || _current.Type == TokenType.Assign)
-                    Advance();
-                else
-                    throw new ParserException("expected ':' or '=' in object initializer", _current.Line, _current.Column, _current.Filename);
-
-
-                Expr value = Expr();
-                list.Add((name, value));
-
-                if (_current.Type == TokenType.Comma)
-                {
-                    Eat(TokenType.Comma);
-                    if (_current.Type == TokenType.RBrace) break; // optional trailing comma
-                }
-                else break;
-            }
-
-            Eat(TokenType.RBrace);
-            return list;
-        }
-
-
-
-
 
         /// <summary>
         /// The ParseMatch
@@ -1859,7 +1959,7 @@ namespace CFGS_VM.Analytic.Core
             }
             else if (_current.Type == TokenType.New)
             {
-                node = ParseNew; // NewExpr sammelt seinen Initializer bereits in ParseNew ein
+                node = ParseNew;
             }
             else if (_current.Type == TokenType.String)
             {
@@ -1945,7 +2045,6 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException($"invalid factor, token {_current.Type}", _current.Line, _current.Column, _current.Filename);
             }
 
-            // Primär-Kette: Call (), Index [], Slice, Member .
             while (true)
             {
                 if (_current.Type == TokenType.LParen)
@@ -1960,7 +2059,6 @@ namespace CFGS_VM.Analytic.Core
                     Eat(TokenType.RParen);
 
                     node = new CallExpr(node, args, _current.Line, _current.Column, _current.Filename);
-                    // WICHTIG: Hier KEIN Object-Initializer mehr parsen!
                     continue;
                 }
                 else if (_current.Type == TokenType.LBracket)
@@ -2081,12 +2179,10 @@ namespace CFGS_VM.Analytic.Core
                 }
             }
 
-            // Genau EIN Versuch für Initializer nach der gesamten Kette
             node = MaybeParseObjectInitializer(node);
 
             return node ?? new NullExpr(_current.Line, _current.Column, _current.Filename);
         }
-
 
         /// <summary>
         /// The Unary

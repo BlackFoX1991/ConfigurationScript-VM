@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 # 1) Ausdrucks-match als Funktionsargument
 func toText(n) {
   return n match { 0:"zero", 1:"one", _:"many" };

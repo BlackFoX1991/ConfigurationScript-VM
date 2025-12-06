@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 print(new foo().Test()); 
 
 class foo : fooNo

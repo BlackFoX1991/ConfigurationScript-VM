@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 class Animal(name) {
     var Name = "";
     func init(name) { this.Name = name; }

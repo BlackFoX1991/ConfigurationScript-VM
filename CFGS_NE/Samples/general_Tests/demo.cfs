@@ -1,3 +1,5 @@
+import "CFGS.StandardLibrary.dll";
+
 # CFGS Demo Script
 # Zeigt zentrale Sprachfeatures: Variablen, Arrays (Append/Slices), Dicts, Funktionen,
 # Klassen, if/while/for/foreach, try/catch/finally, match (Stmt & Expr), ??, ** usw.

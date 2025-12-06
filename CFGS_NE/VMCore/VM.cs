@@ -483,6 +483,15 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// The LoadPlugin
+        /// </summary>
+        /// <param name="dllPath">The dllPath<see cref="string"/></param>
+        public void LoadPlugin(string dllPath)
+        {
+            PluginLoader.LoadDll(dllPath, Builtins, Intrinsics);
+        }
+
+        /// <summary>
         /// The LoadFunctions
         /// </summary>
         /// <param name="funcs">The funcs<see cref="Dictionary{string, FunctionInfo}"/></param>
@@ -4039,14 +4048,6 @@ namespace CFGS_VM.VMCore
         public VM()
         {
             DebugStream = new MemoryStream();
-            new CFGS_VM.VMCore.Extensions.internal_plugin.CFGS_STDLIB()
-                .Register(Builtins, Intrinsics);
-
-            new CFGS_VM.VMCore.Extensions.internal_plugin.CFGS_HTTP()
-                .Register(Builtins, Intrinsics);
-
-            new CFGS_VM.VMCore.Extensions.internal_plugin.CFGS_STDLIB_MSSQL()
-                .Register(Builtins, Intrinsics);
         }
     }
 }

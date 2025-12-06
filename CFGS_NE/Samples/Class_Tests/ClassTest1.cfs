@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 class abc {
     var a = [];
     func init() {

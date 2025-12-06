@@ -1,3 +1,4 @@
+import "CFGS.StandardLibrary.dll";
 # === Helper (wie zuvor) ===
 func expect(name, got, exp)
 {

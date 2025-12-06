@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Reflection;
-using System.Runtime.Loader;
 
 namespace CFGS_VM.VMCore.Plugin
 {
@@ -25,6 +24,13 @@ namespace CFGS_VM.VMCore.Plugin
         private static readonly ConcurrentDictionary<string, byte> _attrRegistered = new();
 
         /// <summary>
+        /// Defines the Verbose
+        /// </summary>
+        private static readonly bool Verbose =
+            string.Equals(Environment.GetEnvironmentVariable("CFGS_PLUGIN_VERBOSE"), "1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Environment.GetEnvironmentVariable("CFGS_PLUGIN_VERBOSE"), "true", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
         /// The LoadDirectory
         /// </summary>
         /// <param name="directoryPath">The directoryPath<see cref="string"/></param>
@@ -33,19 +39,59 @@ namespace CFGS_VM.VMCore.Plugin
         public static void LoadDirectory(string directoryPath, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
         {
             if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
+            {
+                LogWarn($"LoadDirectory ignored: '{directoryPath}' not found.");
                 return;
+            }
+
+            LogInfo($"Scanning plugin directory: {directoryPath}");
 
             foreach (string dll in Directory.EnumerateFiles(directoryPath, "*.dll", SearchOption.TopDirectoryOnly))
             {
                 try
                 {
-                    Assembly asm = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(dll));
+                    string full = Path.GetFullPath(dll);
+                    LogInfo($"Loading dll from directory: {full}");
+
+                    var plc = new PluginLoadContext(full);
+                    Assembly asm = plc.LoadFromAssemblyPath(full);
+
                     LoadFromAssembly(asm, builtins, intrinsics);
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[PluginLoader] Failed to load '{dll}': {ex.GetType().Name}: {ex.Message}");
+                    LogError($"Failed to load '{dll}'", ex);
                 }
+            }
+        }
+
+        /// <summary>
+        /// The LoadDll
+        /// </summary>
+        /// <param name="dllPath">The dllPath<see cref="string"/></param>
+        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
+        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
+        public static void LoadDll(string dllPath, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+        {
+            if (string.IsNullOrWhiteSpace(dllPath))
+                return;
+
+            string full = Path.GetFullPath(dllPath);
+            if (!File.Exists(full) || !full.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            try
+            {
+                LogInfo($"Loading dll: {full}");
+
+                var plc = new PluginLoadContext(full);
+                Assembly asm = plc.LoadFromAssemblyPath(full);
+
+                LoadFromAssembly(asm, builtins, intrinsics);
+            }
+            catch (Exception ex)
+            {
+                LogError($"Failed to load '{full}'", ex);
             }
         }
 
@@ -59,12 +105,17 @@ namespace CFGS_VM.VMCore.Plugin
         {
             if (asm == null) return;
 
-            string key = asm.FullName
-                         ?? asm.GetName().Name
-                         ?? asm.GetHashCode().ToString();
+            string key = $"{AsmName(asm)}::{AsmLocation(asm)}";
 
             if (!_loadedAssemblies.TryAdd(key, 0))
+            {
+                if (Verbose)
+                    LogInfo($"Assembly already processed: {AsmName(asm)} @ {AsmLocation(asm)}");
                 return;
+            }
+
+            if (Verbose)
+                LogInfo($"Processing assembly: {AsmName(asm)} @ {AsmLocation(asm)}");
 
             Type[] types = Array.Empty<Type>();
             try
@@ -74,13 +125,18 @@ namespace CFGS_VM.VMCore.Plugin
             catch (ReflectionTypeLoadException rtle)
             {
                 types = rtle.Types.Where(t => t != null).Cast<Type>().ToArray();
-                Console.Error.WriteLine($"[PluginLoader] Partial type load for '{AsmName(asm)}' – continuing with {types.Length} types.");
+
+                LogWarn($"Partial type load for '{AsmName(asm)}' – continuing with {types.Length} types.");
+                LogLoaderExceptions(asm, rtle);
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[PluginLoader] GetTypes() failed for '{AsmName(asm)}': {ex.GetType().Name}: {ex.Message}");
+                LogError($"GetTypes() failed for '{AsmName(asm)}'", ex);
                 return;
             }
+
+            int pluginCandidates = 0;
+            int pluginActivated = 0;
 
             foreach (Type t in types)
             {
@@ -88,24 +144,50 @@ namespace CFGS_VM.VMCore.Plugin
                 if (t.IsAbstract) continue;
                 if (!typeof(IVmPlugin).IsAssignableFrom(t)) continue;
 
+                pluginCandidates++;
+
                 string tkey = t.FullName ?? t.Name;
                 if (!_activatedPluginTypes.TryAdd(tkey, 0))
+                {
+                    if (Verbose)
+                        LogInfo($"Plugin type already activated: {t.FullName}");
                     continue;
+                }
 
                 try
                 {
+                    if (Verbose)
+                        LogInfo($"Activating plugin: {t.FullName}");
+
                     IVmPlugin plugin = (IVmPlugin)Activator.CreateInstance(t)!;
                     plugin.Register(builtins, intrinsics);
+
+                    pluginActivated++;
                 }
                 catch (TargetInvocationException tie)
                 {
-                    Console.Error.WriteLine($"[PluginLoader] Failed to activate {t.FullName}: {tie.InnerException?.GetType().Name}: {tie.InnerException?.Message}");
+                    Exception? inner = tie.InnerException;
+
+                    if (inner != null)
+                        LogError($"Failed to activate {t.FullName} (ctor/initializer)", inner);
+                    else
+                        LogError($"Failed to activate {t.FullName}", tie);
+                }
+                catch (FileNotFoundException fnf)
+                {
+                    LogError($"Failed to activate {t.FullName} (missing dependency?)", fnf);
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[PluginLoader] Failed to activate {t.FullName}: {ex.GetType().Name}: {ex.Message}");
+                    LogError($"Failed to activate {t.FullName}", ex);
                 }
             }
+
+            if (Verbose && pluginCandidates > 0)
+                LogInfo($"Plugin activation summary for '{AsmName(asm)}': candidates={pluginCandidates}, activated={pluginActivated}");
+
+            int builtinCount = 0;
+            int intrinsicCount = 0;
 
             foreach (Type t in types)
             {
@@ -116,14 +198,30 @@ namespace CFGS_VM.VMCore.Plugin
                 {
                     methods = t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    if (Verbose)
+                        LogError($"GetMethods failed for type {t.FullName}", ex);
                     continue;
                 }
 
                 foreach (MethodInfo m in methods)
                 {
-                    foreach (BuiltinAttribute b in m.GetCustomAttributes(typeof(BuiltinAttribute), inherit: false).Cast<BuiltinAttribute>())
+                    BuiltinAttribute[] battrs;
+                    try
+                    {
+                        battrs = m.GetCustomAttributes(typeof(BuiltinAttribute), inherit: false)
+                                  .Cast<BuiltinAttribute>()
+                                  .ToArray();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (Verbose)
+                            LogError($"GetCustomAttributes(Builtin) failed for {t.FullName}.{m.Name}", ex);
+                        continue;
+                    }
+
+                    foreach (BuiltinAttribute b in battrs)
                     {
                         string bkey = $"builtin::{b.Name}";
                         if (!_attrRegistered.TryAdd(bkey, 0))
@@ -133,14 +231,37 @@ namespace CFGS_VM.VMCore.Plugin
                         {
                             BuiltinInvoker inv = (args, instr) => m.Invoke(null, new object?[] { args, instr })!;
                             builtins.Register(new BuiltinDescriptor(b.Name, b.ArityMin, b.ArityMax, inv));
+                            builtinCount++;
+
+                            if (Verbose)
+                                LogInfo($"Registered builtin '{b.Name}' from {t.FullName}.{m.Name}");
+                        }
+                        catch (TargetInvocationException tie)
+                        {
+                            Exception inner = tie.InnerException ?? tie;
+                            LogError($"Builtin '{b.Name}' from {t.FullName}.{m.Name} failed", inner);
                         }
                         catch (Exception ex)
                         {
-                            Console.Error.WriteLine($"[PluginLoader] Builtin '{b.Name}' from {t.FullName}.{m.Name} failed: {ex.GetType().Name}: {ex.Message}");
+                            LogError($"Builtin '{b.Name}' from {t.FullName}.{m.Name} failed", ex);
                         }
                     }
 
-                    foreach (IntrinsicAttribute a in m.GetCustomAttributes(typeof(IntrinsicAttribute), inherit: false).Cast<IntrinsicAttribute>())
+                    IntrinsicAttribute[] iattrs;
+                    try
+                    {
+                        iattrs = m.GetCustomAttributes(typeof(IntrinsicAttribute), inherit: false)
+                                  .Cast<IntrinsicAttribute>()
+                                  .ToArray();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (Verbose)
+                            LogError($"GetCustomAttributes(Intrinsic) failed for {t.FullName}.{m.Name}", ex);
+                        continue;
+                    }
+
+                    foreach (IntrinsicAttribute a in iattrs)
                     {
                         Type? recv = a.ReceiverType;
                         string rname = recv?.FullName ?? recv?.Name ?? "<null>";
@@ -152,14 +273,26 @@ namespace CFGS_VM.VMCore.Plugin
                         {
                             IntrinsicInvoker inv = (recvObj, args, instr) => m.Invoke(null, new object?[] { recvObj, args, instr })!;
                             intrinsics.Register(a.ReceiverType, new IntrinsicDescriptor(a.Name, a.ArityMin, a.ArityMax, inv));
+                            intrinsicCount++;
+
+                            if (Verbose)
+                                LogInfo($"Registered intrinsic '{a.Name}' (recv={rname}) from {t.FullName}.{m.Name}");
+                        }
+                        catch (TargetInvocationException tie)
+                        {
+                            Exception inner = tie.InnerException ?? tie;
+                            LogError($"Intrinsic '{a.Name}' (recv={rname}) from {t.FullName}.{m.Name} failed", inner);
                         }
                         catch (Exception ex)
                         {
-                            Console.Error.WriteLine($"[PluginLoader] Intrinsic '{a.Name}' (recv={rname}) from {t.FullName}.{m.Name} failed: {ex.GetType().Name}: {ex.Message}");
+                            LogError($"Intrinsic '{a.Name}' (recv={rname}) from {t.FullName}.{m.Name} failed", ex);
                         }
                     }
                 }
             }
+
+            if (Verbose && (builtinCount > 0 || intrinsicCount > 0))
+                LogInfo($"Attribute registration summary for '{AsmName(asm)}': builtins={builtinCount}, intrinsics={intrinsicCount}");
         }
 
         /// <summary>
@@ -196,8 +329,72 @@ namespace CFGS_VM.VMCore.Plugin
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[PluginLoader] Skipped '{AsmName(asm)}': {ex.GetType().Name}: {ex.Message}");
+                    LogError($"Skipped '{AsmName(asm)}'", ex);
                 }
+            }
+        }
+
+        /// <summary>
+        /// The LogLoaderExceptions
+        /// </summary>
+        /// <param name="asm">The asm<see cref="Assembly"/></param>
+        /// <param name="rtle">The rtle<see cref="ReflectionTypeLoadException"/></param>
+        private static void LogLoaderExceptions(Assembly asm, ReflectionTypeLoadException rtle)
+        {
+            if (rtle.LoaderExceptions == null || rtle.LoaderExceptions.Length == 0)
+                return;
+
+            LogWarn($"LoaderExceptions for '{AsmName(asm)}':");
+
+            foreach (Exception? le in rtle.LoaderExceptions)
+            {
+                if (le == null) continue;
+
+                LogWarn($"  -> {le.GetType().Name}: {le.Message}");
+
+                if (le is FileNotFoundException fnf)
+                {
+                    if (!string.IsNullOrWhiteSpace(fnf.FileName))
+                        LogWarn($"     Missing: {fnf.FileName}");
+                }
+
+                if (Verbose && le is FileLoadException fle)
+                {
+                    if (!string.IsNullOrWhiteSpace(fle.FileName))
+                        LogWarn($"     FileLoad: {fle.FileName}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The LogInfo
+        /// </summary>
+        /// <param name="msg">The msg<see cref="string"/></param>
+        private static void LogInfo(string msg)
+            => Console.WriteLine($"[PluginLoader] {msg}");
+
+        /// <summary>
+        /// The LogWarn
+        /// </summary>
+        /// <param name="msg">The msg<see cref="string"/></param>
+        private static void LogWarn(string msg)
+            => Console.Error.WriteLine($"[PluginLoader] {msg}");
+
+        /// <summary>
+        /// The LogError
+        /// </summary>
+        /// <param name="msg">The msg<see cref="string"/></param>
+        /// <param name="ex">The ex<see cref="Exception"/></param>
+        private static void LogError(string msg, Exception ex)
+        {
+            Console.Error.WriteLine($"[PluginLoader] {msg}: {ex.GetType().Name}: {ex.Message}");
+
+            if (Verbose)
+            {
+                Console.Error.WriteLine($"[PluginLoader]   Stack: {ex.StackTrace}");
+
+                if (ex.InnerException != null)
+                    Console.Error.WriteLine($"[PluginLoader]   Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
             }
         }
 
@@ -220,5 +417,21 @@ namespace CFGS_VM.VMCore.Plugin
             }
         }
 
+        /// <summary>
+        /// The AsmLocation
+        /// </summary>
+        /// <param name="asm">The asm<see cref="Assembly"/></param>
+        /// <returns>The <see cref="string"/></returns>
+        private static string AsmLocation(Assembly asm)
+        {
+            try
+            {
+                return string.IsNullOrWhiteSpace(asm.Location) ? "(dynamic)" : asm.Location;
+            }
+            catch
+            {
+                return "(unknown-location)";
+            }
+        }
     }
 }

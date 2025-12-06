@@ -95,12 +95,12 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v2.9.1";
+    public const string Version = "v3.1.1";
 
     /// <summary>
     /// Defines the PluginsFolder
     /// </summary>
-    public static string PluginsFolder = "plugins";
+    //public static string PluginsFolder = "plugins";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -148,8 +148,8 @@ public class Program
         if (OperatingSystem.IsWindows())
             AnsiConsole.EnableAnsi();
 
-        CLIPath = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
-        PluginsFolder = CLIPath + "\\" + PluginsFolder;
+        //CLIPath = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
+        //PluginsFolder = CLIPath + "\\" + PluginsFolder;
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
         List<string> files = new();
@@ -311,7 +311,7 @@ public class Program
         if (!binaryRun)
         {
             lexer = new(name, source);
-            parser = new(lexer);
+            parser = new(lexer, vm.LoadPlugin);
             ast = parser.Parse();
 
             compiler = new(name);
@@ -319,7 +319,7 @@ public class Program
 
             if (!SetCompile)
             {
-                vm.LoadPluginsFrom(PluginsFolder);
+                //vm.LoadPluginsFrom(PluginsFolder);
                 vm.LoadFunctions(compiler.Functions);
                 vm.LoadInstructions(bytecode);
 
@@ -349,7 +349,7 @@ public class Program
             (bytecode, Dictionary<string, FunctionInfo>? funcs) = CFSBinary.Load(name);
             vm.LoadInstructions(bytecode);
             vm.LoadFunctions(funcs);
-            vm.LoadPluginsFrom(PluginsFolder);
+            //vm.LoadPluginsFrom(PluginsFolder);
 
             if (debug)
                 PrintInstructions(name, bytecode, vm.Functions);
