@@ -3,29 +3,42 @@
 This short guide shows how to create a **CFGS plugin** from scratch and includes a **ready-to-use skeleton** file (with Builtins, Intrinsics, and optional async behavior via `Task`/`await`).
 
 > **Important (dependency requirement):**  
-> Your plugin project **must reference `CFGS_VM`**. The **PluginLoader** lives in the VM assembly and loads plugins via reflection. It looks for the interfaces and descriptors **defined in `CFGS_VM`** (`IVmPlugin`, `IBuiltinRegistry`, `IIntrinsicRegistry`, `BuiltinDescriptor`, `IntrinsicDescriptor`, `VMException`, etc.).  
-> If your plugin does **not** reference the VM assembly, type identities won’t match the loader’s expectations and your plugin **will not be discovered or activated**.
+> Your plugin project **must reference `CFGS_VM`**. The plugin interfaces and descriptors used for registration are defined there (`IVmPlugin`, `IBuiltinRegistry`, `IIntrinsicRegistry`, `BuiltinDescriptor`, `IntrinsicDescriptor`, `VMException`, etc.).  
+> If your plugin does **not** reference the VM assembly, type identities won’t match the runtime’s expectations and your plugin **cannot be registered or used**.
 
 ---
 
-## Plugin discovery / auto-loading
+## Plugin loading (import-based)
 
-The host loads plugins using the VM’s `PluginLoader` (typically from a `plugins/` folder next to the VM executable).  
-To deploy your plugin, copy the compiled **`.dll`** (plus any dependencies) into that folder.
+Starting with **version 3.1.1** (update date **2025-12-06**), plugins are **no longer auto-loaded** and are **no longer discovered from a `plugins/` folder**.
 
-Example layout:
+Plugins must now be **explicitly included via the `import` statement** at the top of a script.
+
+### Standard Library requirement
+
+Because plugin loading is now explicit, the **Standard Library is no longer implicitly available**.  
+You must import it manually when you need it:
+
+```cfgs
+import "CFGS.StandardLibrary.dll";
 ```
-/YourApp
-  /plugins
-    MyCompany.MyPlugin.dll
-  CFGS_VM.exe   # your host / VM
+
+### Import examples
+
+Import a plugin DLL from the current base path:
+
+```cfgs
+import "./libs/MyCompany.MyPlugin.dll";
 ```
 
-**Notes**
-- Make sure the plugin’s target framework matches the host’s runtime.
-- Ensure the `CFGS_VM` reference is resolvable at runtime (next to the DLL or in the probing path).
-- The loader instantiates classes that implement **`IVmPlugin`** and calls their `Register(...)`.
-- If your plugin also uses attribute-based registration (e.g., `BuiltinAttribute`, `IntrinsicAttribute`), those attributes must also come from the same `CFGS_VM` assembly reference.
+Import a plugin DLL by name (resolved via CFGS path rules):
+
+```cfgs
+import "MyCompany.MyPlugin.dll";
+```
+
+> **Reminder:**  
+> `import` can only be used **at the top of a script**, before any executable code runs.
 
 ---
 
@@ -39,6 +52,7 @@ Example layout:
    ```
 
 Suggested solution layout:
+
 ```
 /YourSolution
   /CFGS_VM                # core project/assembly
@@ -47,16 +61,18 @@ Suggested solution layout:
       CFGS_SKELETON.cs
 ```
 
-**Example `csproj` reference options:**
+### Example `csproj` reference options
 
-_ProjectReference (same solution):_
+**ProjectReference (same solution):**
+
 ```xml
 <ItemGroup>
   <ProjectReference Include="..\CFGS_VM\CFGS_VM.csproj" />
 </ItemGroup>
 ```
 
-_Binary reference (prebuilt DLL):_
+**Binary reference (prebuilt DLL):**
+
 ```xml
 <ItemGroup>
   <Reference Include="CFGS_VM">
@@ -90,6 +106,7 @@ public sealed class CFGS_SKELETON : IVmPlugin
 ## 3) Builtins (free functions)
 
 Call from CFGS:
+
 ```cfgs
 var x = hello();
 var n = to_int("123");
@@ -102,6 +119,7 @@ var n = to_int("123");
 ## 4) Intrinsics (methods bound to an instance)
 
 Typical flow:
+
 ```cfgs
 var h = demo_handle();  # factory builtin returning a handle instance
 h.start();
@@ -118,14 +136,18 @@ Intrinsics are bound to a concrete **receiver type** (e.g., `DemoHandle`).
 
 - A builtin or intrinsic may return a **`Task`**.  
 - The VM’s `AWAIT` instruction unwraps the `Task` and yields the result.  
-- When scripts use `try`, errors are routed to `catch` blocks automatically (via your VM’s exception routing).
+- When scripts use `try`, errors are routed to `catch` blocks automatically.
 
 ---
 
 ## 6) Testing from CFGS
 
 Example script:
+
 ```cfgs
+import "CFGS.StandardLibrary.dll";
+import "./libs/CFGS_SKELETON.dll";
+
 print(hello());
 print("sum2(3,4) = " + str(sum2(3,4)));
 
@@ -136,9 +158,8 @@ print(h.say("Hello CFGS"));
 h.stop();
 
 # Async:
-var t = sleep(200);      # returns Task
-print("typeof(t) = " + typeof(t));
-await t;                 # unwrap
+var t = sleep(200);        # returns Task
+await t;                   # unwrap
 
 var t2 = h.incLater(150);  # intrinsic returning Task<Int>
 var v  = await t2;
@@ -278,6 +299,7 @@ namespace CFGS_VM.VMCore.Extensions.internal_plugin
 ## 8) Error handling
 
 Always throw **`VMException`** with context so script-level `try/catch` works properly:
+
 ```csharp
 throw new VMException("message",
     instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream);
@@ -287,7 +309,8 @@ throw new VMException("message",
 
 ## 9) Packaging & versioning
 
-- Build the plugin as a separate DLL and place it in the plugin folder.
+- Build the plugin as a separate DLL.
+- Distribute it alongside your scripts or in a shared location referenced by your import setup.
 - Optionally expose a `version()` builtin.
 - Stick to semantic versioning and keep a small changelog.
 
@@ -301,10 +324,11 @@ throw new VMException("message",
 
 ---
 
-### Why the VM reference is required (recap)
+### Why the `CFGS_VM` reference is required (recap)
 
-- The **PluginLoader** (in the VM assembly) locates classes implementing `IVmPlugin` and calls `Register(...)`.
-- Your plugin must **reference the exact same `CFGS_VM` assembly** so:
-  - The `IVmPlugin` interface is the **same type** the loader expects (type identity).
-  - Your code can construct `BuiltinDescriptor` / `IntrinsicDescriptor` and raise `VMException`.
-  - Attribute-based registration (if used) resolves correctly to the VM’s attribute types.
+- The plugin system expects implementations of `IVmPlugin` defined in `CFGS_VM`.
+- Your plugin must reference the **same assembly identity** so:
+  - `IVmPlugin` matches the runtime’s type identity.
+  - Registration via `BuiltinDescriptor` / `IntrinsicDescriptor` works correctly.
+  - `VMException` integrates cleanly with script-level error handling.
+  - Attributes (if used) resolve to the same VM-defined types.
