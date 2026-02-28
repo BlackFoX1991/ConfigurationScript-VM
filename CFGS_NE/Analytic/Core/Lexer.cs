@@ -200,6 +200,7 @@ public class Lexer
                             for (int i = 0; i < 4; i++)
                             {
                                 SyncPos();
+                                if (Current == '\0') throw new LexerException("unterminated \\u escape in string (expected 4 hex digits)", startLine, startCol, FileName);
                                 if (!Uri.IsHexDigit(Current)) throw new LexerException("invalid \\u escape in string", startLine, startCol, FileName);
                                 hex += Current;
                             }
@@ -211,6 +212,7 @@ public class Lexer
                             for (int i = 0; i < 2; i++)
                             {
                                 SyncPos();
+                                if (Current == '\0') throw new LexerException("unterminated \\x escape in string (expected 2 hex digits)", startLine, startCol, FileName);
                                 if (!Uri.IsHexDigit(Current))
                                     throw new LexerException("invalid \\x escape in string (expected 2 hex digits)", startLine, startCol, FileName);
                                 hex += Current;
@@ -262,6 +264,7 @@ public class Lexer
                         for (int i = 0; i < 4; i++)
                         {
                             SyncPos();
+                            if (Current == '\0') throw new LexerException("unterminated \\u escape in char literal (expected 4 hex digits)", startLine, startCol, FileName);
                             if (!Uri.IsHexDigit(Current)) throw new LexerException("invalid \\u escape in char literal", startLine, startCol, FileName);
                             hex += Current;
                         }
@@ -273,8 +276,9 @@ public class Lexer
                         for (int i = 0; i < 2; i++)
                         {
                             SyncPos();
+                            if (Current == '\0') throw new LexerException("unterminated \\x escape in char literal (expected 2 hex digits)", startLine, startCol, FileName);
                             if (!Uri.IsHexDigit(Current))
-                                throw new LexerException("invalid \\x escape in string (expected 2 hex digits)", startLine, startCol, FileName);
+                                throw new LexerException("invalid \\x escape in char literal (expected 2 hex digits)", startLine, startCol, FileName);
                             hex += Current;
                         }
                         ch = (char)Convert.ToInt32(hex, 16);

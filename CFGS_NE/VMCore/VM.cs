@@ -996,6 +996,9 @@ namespace CFGS_VM.VMCore
 
                         int count = Convert.ToInt32(_stack.Pop());
 
+                        if (count < 0)
+                            throw new VMException($"Runtime error: enum member count cannot be negative ({count})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
                         RequireStack(2 * count, instr, "NEW_ENUM");
 
                         EnumInstance ei = new(instr.Operand.ToString() ?? "null");
@@ -1653,6 +1656,7 @@ namespace CFGS_VM.VMCore
                             NumKind.Int64 => Convert.ToInt64(r) == 0L,
                             NumKind.UInt64 => Convert.ToUInt64(r) == 0UL,
                             NumKind.Decimal => Convert.ToDecimal(r) == 0m,
+                            NumKind.Double => (double)B == 0.0,
                             NumKind.Maximal => ((BigInteger)B).IsZero,
                             _ => false
                         };
@@ -1690,6 +1694,7 @@ namespace CFGS_VM.VMCore
                             NumKind.Int64 => Convert.ToInt64(r) == 0L,
                             NumKind.UInt64 => Convert.ToUInt64(r) == 0UL,
                             NumKind.Decimal => Convert.ToDecimal(r) == 0m,
+                            NumKind.Double => (double)B == 0.0,
                             NumKind.Maximal => ((BigInteger)B).IsZero,
                             _ => false
                         };
@@ -2621,6 +2626,7 @@ namespace CFGS_VM.VMCore
                                 return StepResult.Routed;
                             }
 
+                            // All outer finally blocks have been handled; now return to the caller.
                             if (_callStack.Count == 0)
                                 throw new VMException("Runtime error: return with empty call stack", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
@@ -3946,7 +3952,7 @@ namespace CFGS_VM.VMCore
 
                         if (start < end)
                         {
-                            target = s.Substring(0, start) + s.Substring(end);
+                            target = s.Substring(0, start) + (end < s.Length ? s.Substring(end) : "");
                         }
                         return;
                     }
@@ -3966,29 +3972,11 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="(int start, int endEx)"/></returns>
         private static (int start, int endEx) NormalizeSliceBounds(object? startObj, object? endObj, int len, Instruction instr)
         {
-            bool startIsNull = startObj == null;
-            int start = startIsNull ? 0 : Convert.ToInt32(startObj);
+            int start = startObj == null ? 0 : Convert.ToInt32(startObj);
             if (start < 0) start += len;
 
-            int endEx;
-            if (endObj == null)
-            {
-                endEx = len;
-            }
-            else
-            {
-                int rawEnd = Convert.ToInt32(endObj);
-
-                if (rawEnd == 0 && startIsNull)
-                {
-                    endEx = len;
-                }
-                else
-                {
-                    endEx = rawEnd;
-                    if (endEx < 0) endEx += len;
-                }
-            }
+            int endEx = endObj == null ? len : Convert.ToInt32(endObj);
+            if (endEx < 0) endEx += len;
 
             start = Math.Clamp(start, 0, len);
             endEx = Math.Clamp(endEx, 0, len);
