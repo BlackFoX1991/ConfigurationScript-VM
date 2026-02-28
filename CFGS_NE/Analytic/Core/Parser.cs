@@ -345,7 +345,8 @@ namespace CFGS_VM.Analytic.Core
                 {
                     srcDir = Path.GetDirectoryName(Path.GetFullPath(fsname));
                 }
-                catch { }
+                catch (ArgumentException) { }
+                catch (System.IO.IOException) { }
 
                 if (!string.IsNullOrWhiteSpace(srcDir))
                     yield return srcDir!;
@@ -379,7 +380,8 @@ namespace CFGS_VM.Analytic.Core
                     if (File.Exists(candidate))
                         return candidate;
                 }
-                catch { }
+                catch (ArgumentException) { }
+                catch (System.IO.IOException) { }
             }
 
             // extra fallback:
@@ -395,7 +397,8 @@ namespace CFGS_VM.Analytic.Core
                         return candidate;
                 }
             }
-            catch { }
+            catch (ArgumentException) { }
+            catch (System.IO.IOException) { }
 
             return null;
         }
