@@ -1,0 +1,7 @@
+class A() {
+    static func ping() { return 1; }
+}
+
+class B() : A() {
+    func ping() { return 2; }
+}

@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 func main()
 {
 	try
@@ -7,7 +7,7 @@ func main()
 	}
 	catch(ex)
 	{
-		print(ex.message());
+		print(str(ex));
 	}
 }
 main();

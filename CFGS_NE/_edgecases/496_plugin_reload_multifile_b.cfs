@@ -1,0 +1,2 @@
+import "CFGS.StandardLibrary.dll";
+print("EDGE_OK:495_plugin_reload_B");

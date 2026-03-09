@@ -1,0 +1,88 @@
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
+import "../../../dist/Debug/net10.0/CFGS.Microsoft.SQL.dll";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+func finish(tag) {
+    if (failed == 0) {
+        print("ALL PASSED: " + tag);
+    } else {
+        print("FAILED: " + tag + " (" + str(failed) + ")");
+    }
+}
+
+async func main() {
+    # -----------------------------------------------------------------------
+    # plugin builtins are visible
+    # -----------------------------------------------------------------------
+    assert_eq("plugin_builtin_print", typeof(print), "BuiltinCallable");
+    assert_eq("plugin_builtin_http_get", typeof(http_get), "BuiltinCallable");
+    assert_eq("plugin_builtin_http_server", typeof(http_server), "BuiltinCallable");
+    assert_eq("plugin_builtin_sql_connect", typeof(sql_connect), "BuiltinCallable");
+
+    # -----------------------------------------------------------------------
+    # web plugin basics (no external network dependency)
+    # -----------------------------------------------------------------------
+    var text = "a b&c=1";
+    var enc = urlencode(text);
+    var dec = urldecode(enc);
+    assert_eq("http_url_roundtrip", dec, text);
+
+    var srv = http_server(19081);
+    assert_eq("http_server_handle_type", typeof(srv), "ServerHandle");
+    assert_eq("http_server_running_initial", srv.is_running(), false);
+
+    var pollTask = srv.poll_async(1500);
+    assert_eq("http_server_poll_async_task", typeof(pollTask), "Task<Object>");
+    assert_eq("http_server_poll_async_empty", await pollTask, null);
+
+    var respTask = srv.respond_async("missing", 200, "ok");
+    assert_eq("http_server_respond_async_task", typeof(respTask), "Task<Object>");
+    assert_eq("http_server_respond_async_missing", await respTask, 0);
+
+    var stopTask = srv.stop_async();
+    assert_eq("http_server_stop_async_task", typeof(stopTask), "Task<Object>");
+    var stoppedSrv = await stopTask;
+    assert_eq("http_server_stop_async_result_type", typeof(stoppedSrv), "ServerHandle");
+    assert_eq("http_server_running_after_stop_async", srv.is_running(), false);
+
+    var closeTask = srv.close_async();
+    assert_eq("http_server_close_async_task", typeof(closeTask), "Task<Object>");
+    assert_eq("http_server_close_async_result", await closeTask, 1);
+
+    # -----------------------------------------------------------------------
+    # sql plugin basics
+    # -----------------------------------------------------------------------
+    var probe = sql_connect("Server=127.0.0.1;Database=master;User Id=sa;Password=bad;Connect Timeout=1;Encrypt=False;TrustServerCertificate=True;");
+    assert_eq("sql_connect_returns_task", typeof(probe), "Task<Object>");
+
+    var sql_failed = false;
+    try {
+        var _ = await probe;
+    } catch(e) {
+        sql_failed = true;
+        assert_eq("sql_connect_failure_type", e.type(), "AwaitError");
+        assert_eq("sql_connect_failure_message_prefix", e.message().contains("SQL connect failed"), true);
+    }
+    assert_eq("sql_connect_failure_caught", sql_failed, true);
+
+    # keep plugin sample deterministic: we validate async task contract
+    # without requiring a reachable SQL server.
+    var t = task();
+    assert_eq("stdlib_delay_with_plugins_loaded", await t.delay(1, 1), 1);
+
+    finish("feature_06_plugins_integration");
+}
+
+var _ = await main();
+

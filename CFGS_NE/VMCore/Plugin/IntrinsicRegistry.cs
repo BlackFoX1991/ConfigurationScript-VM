@@ -48,5 +48,33 @@ namespace CFGS_VM.VMCore.Plugin
             d = null!;
             return false;
         }
+
+        public bool ContainsExact(Type receiverType, string name)
+            => _map.TryGetValue(receiverType, out Dictionary<string, IntrinsicDescriptor>? bucket)
+               && bucket.ContainsKey(name);
+
+        public bool RemoveExact(Type receiverType, string name)
+        {
+            if (!_map.TryGetValue(receiverType, out Dictionary<string, IntrinsicDescriptor>? bucket))
+                return false;
+
+            bool removed = bucket.Remove(name);
+            if (bucket.Count == 0)
+                _map.Remove(receiverType);
+
+            return removed;
+        }
+
+        public IReadOnlyList<(Type ReceiverType, IntrinsicDescriptor Descriptor)> Snapshot()
+        {
+            List<(Type ReceiverType, IntrinsicDescriptor Descriptor)> result = new();
+            foreach (KeyValuePair<Type, Dictionary<string, IntrinsicDescriptor>> entry in _map)
+            {
+                foreach (IntrinsicDescriptor desc in entry.Value.Values)
+                    result.Add((entry.Key, desc));
+            }
+
+            return result;
+        }
     }
 }

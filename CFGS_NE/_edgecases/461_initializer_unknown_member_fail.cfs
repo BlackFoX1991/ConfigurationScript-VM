@@ -1,0 +1,6 @@
+class Box(v) {
+    var value = 0;
+    func init(v) { this.value = v; }
+}
+
+var b = new Box(1) { missing: 2 };

@@ -1,0 +1,30 @@
+import "edge_assert.cfs";
+
+edge_begin("205_default_and_named_args");
+
+func sum3(a, b = 10, c = 100) {
+    return a + b + c;
+}
+
+func with_dep(a, b = a * 2, c = b + 1) {
+    return a + b + c;
+}
+
+class Calc() {
+    func add(a, b = 3) {
+        return a + b;
+    }
+}
+
+edge_eq("defaults_none", sum3(1), 111);
+edge_eq("defaults_partial", sum3(1, 2), 103);
+edge_eq("named_only_optional", sum3(1, c: 5), 16);
+edge_eq("named_reordered", sum3(1, c: 5, b: 2), 8);
+edge_eq("named_all", sum3(a: 1, b: 2, c: 3), 6);
+edge_eq("default_expr_dep", with_dep(4), 21);
+
+var calc = new Calc();
+edge_eq("method_default", calc.add(5), 8);
+edge_eq("method_named", calc.add(5, b: 7), 12);
+
+edge_finish("205_default_and_named_args");

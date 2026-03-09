@@ -1,0 +1,7 @@
+import "CFGS.StandardLibrary.dll";
+
+func crash() {
+    throw 77;
+}
+
+crash();

@@ -1,0 +1,74 @@
+import "edge_assert.cfs";
+
+edge_begin("103_collections_and_delete");
+
+func run_collection_tests() {
+    var a = [1, 2, 3];
+    a[] = 4;
+    edge_eq("array_push_len", len(a), 4);
+    edge_eq("array_push_tail", a[3], 4);
+
+    var head2 = a[~2];
+    edge_eq("slice_head_len", len(head2), 2);
+    edge_eq("slice_head_0", head2[0], 1);
+    edge_eq("slice_head_1", head2[1], 2);
+
+    var tail2 = a[2~];
+    edge_eq("slice_tail_len", len(tail2), 2);
+    edge_eq("slice_tail_0", tail2[0], 3);
+    edge_eq("slice_tail_1", tail2[1], 4);
+
+    var mid = a[1~3];
+    edge_eq("slice_mid_len", len(mid), 2);
+    edge_eq("slice_mid_0", mid[0], 2);
+    edge_eq("slice_mid_1", mid[1], 3);
+
+    a[1~3] = [9, 8, 7];
+    edge_eq("slice_set_len", len(a), 4);
+    edge_eq("slice_set_1", a[1], 9);
+    edge_eq("slice_set_2", a[2], 8);
+    edge_eq("slice_set_3", a[3], 4);
+
+    delete a[1];
+    edge_eq("delete_index_len", len(a), 3);
+    edge_eq("delete_index_new_1", a[1], 8);
+
+    delete a[1~3];
+    edge_eq("delete_slice_len", len(a), 1);
+    edge_eq("delete_slice_0", a[0], 1);
+
+    delete a;
+    edge_eq("delete_all_array_len", len(a), 0);
+
+    var m = {"a": 1, "b": 2};
+    m["c"] = 3;
+    edge_eq("dict_set", m["c"], 3);
+
+    m[] = {"d": 4};
+    edge_eq("dict_push", m["d"], 4);
+
+    delete m["b"];
+    edge_eq("dict_delete_key", m["b"], null);
+
+    delete m;
+    var dict_count = 0;
+    foreach (var kv in m) {
+        dict_count = dict_count + 1;
+    }
+    edge_eq("dict_delete_all_count", dict_count, 0);
+
+    var nested = [[1, 2], [3, 4]];
+    delete nested[1][0];
+    edge_eq("nested_delete_inner", nested[1][0], 4);
+
+    var s = "abcdef";
+    edge_eq("string_negative_slice", s[-3~], "def");
+
+    var cfg = {"mode": "x", "retry": 3};
+    delete cfg.mode;
+    edge_eq("dict_dot_delete", cfg["mode"], null);
+}
+
+run_collection_tests();
+
+edge_finish("103_collections_and_delete");

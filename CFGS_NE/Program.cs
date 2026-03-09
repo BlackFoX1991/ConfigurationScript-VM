@@ -83,19 +83,9 @@ public class Program
     public static bool IsDebug { get; private set; } = false;
 
     /// <summary>
-    /// Gets a value indicating whether SetCompile
-    /// </summary>
-    public static bool SetCompile { get; private set; } = false;
-
-    /// <summary>
-    /// Gets a value indicating whether BinaryRun
-    /// </summary>
-    public static bool BinaryRun { get; private set; } = false;
-
-    /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v3.1.3";
+    public const string Version = "v4.2.7";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -126,7 +116,7 @@ public class Program
     ##########        #...............::##      [ debug to enable/disable the debug mode            ]
       ######         %#+++.............::##     [ ansi to enable or disable Ansi-Console-Mode       ]
       #####        ####+++++++.........:::##    =====================================================
-  ########        #####++++++++.........::##    [ Commands : -d(ebug) -c(ompile) -b(inary) -p(arams)]
+  ########        #####++++++++.........::##    [ Commands : -d(ebug) -p(arams)]
   ########        #####+++++++++........::##    [            -s(et) buffer  maxlen                  ]
       #####        ####++++++++*.......::-##    [                   ansi    1 or 0 to en/dis-able   ]   
       ######        *##++++++**........::##     [--------------REPL INFO----------------------------]
@@ -142,7 +132,7 @@ public class Program
     /// The Main
     /// </summary>
     /// <param name="args">The args<see cref="string[]"/></param>
-    public static void Main(string[] args)
+    public static async Task Main(string[] args)
     {
         if (OperatingSystem.IsWindows())
             AnsiConsole.EnableAnsi();
@@ -151,6 +141,7 @@ public class Program
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
         List<string> files = new();
+        string? currentSourceForError = null;
 
         bool setMode = false;
         string setCommand = string.Empty;
@@ -172,17 +163,28 @@ public class Program
                                 {
                                     VM.DEBUG_BUFFER = buf;
                                     Console.WriteLine($"[SETTINGS] Debug-Buffer set to {VM.DEBUG_BUFFER}");
-                                    setCommand = string.Empty;
-                                    setMode = false;
                                 }
+                                else
+                                {
+                                    Console.Error.WriteLine($"invalid value for -s(et) buffer '{arg}'");
+                                }
+                                setCommand = string.Empty;
+                                setMode = false;
                                 break;
 
                             case "ansi":
-                                if (int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out int aMode))
+                                if (int.TryParse(arg, NumberStyles.Integer, CultureInfo.InvariantCulture, out int aMode) &&
+                                    (aMode == 0 || aMode == 1))
                                 {
                                     AnsiMode = Convert.ToBoolean(aMode);
                                     Console.WriteLine("Ansi-Mode " + (AnsiMode ? "enabled" : "disabled"));
                                 }
+                                else
+                                {
+                                    Console.Error.WriteLine($"invalid value for -s(et) ansi '{arg}' (expected 0 or 1)");
+                                }
+                                setCommand = string.Empty;
+                                setMode = false;
                                 break;
 
                             default:
@@ -202,16 +204,6 @@ public class Program
                         case "-d":
                         case "-debug":
                             IsDebug = true;
-                            break;
-
-                        case "-c":
-                        case "-compile":
-                            SetCompile = true;
-                            break;
-
-                        case "-b":
-                        case "-binary":
-                            BinaryRun = true;
                             break;
 
                         case "-p":
@@ -245,24 +237,24 @@ public class Program
             {
                 foreach (string file in files)
                 {
-                    string input = File.ReadAllText(file);
+                    currentSourceForError = file;
 
                     if (file.EndsWith(".cfb", StringComparison.OrdinalIgnoreCase))
                     {
-                        BinaryRun = true;
-                        SetCompile = false;
+                        Console.WriteLine($"Could not load the script-file : '{file}'. Binary .cfb support has been removed.");
+                        currentSourceForError = null;
+                        continue;
                     }
-                    else
-                    {
-                        BinaryRun = false;
-                    }
+
+                    string input = File.ReadAllText(file);
 
                     Environment.CurrentDirectory =
                         Path.GetDirectoryName(Path.GetFullPath(file))
                         ?? Path.GetDirectoryName(Environment.ProcessPath)
                         ?? AppContext.BaseDirectory;
 
-                    RunSource(input, file, IsDebug, BinaryRun);
+                    await RunSourceAsync(input, file, IsDebug);
+                    currentSourceForError = null;
                 }
             }
             else
@@ -279,21 +271,52 @@ public class Program
 
                     try
                     {
-                        SetCompile = false;
-
-                        RunSource(code, "<repl>", IsDebug, false, replVm);
+                        await RunSourceAsync(code, "<repl>", IsDebug, sharedVm: replVm);
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"{ex.GetType().Name} : {ex.Message}");
+                        PrintTrackedException(ex, "repl", "<repl>");
                     }
                 }
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"{ex.GetType().Name} : {ex.Message}");
+            string phase = currentSourceForError is null && files.Count == 0 ? "startup" : "script-run";
+            PrintTrackedException(ex, phase, currentSourceForError);
         }
+    }
+
+    /// <summary>
+    /// The PrintTrackedException
+    /// </summary>
+    /// <param name="ex">The ex<see cref="Exception"/></param>
+    /// <param name="phase">The phase<see cref="string"/></param>
+    /// <param name="sourceName">The sourceName<see cref="string?"/></param>
+    private static void PrintTrackedException(Exception ex, string phase, string? sourceName = null)
+    {
+        ErrorDiagnostic diag = ErrorDiagnostics.FromException(ex, sourceName);
+        string? errorId = ErrorTracker.Track(ex, phase, sourceName);
+        Console.WriteLine(ErrorDiagnostics.FormatHeadline(diag));
+
+        string? location = ErrorDiagnostics.FormatLocation(diag);
+        if (!string.IsNullOrWhiteSpace(location))
+            Console.WriteLine($"at {location}");
+
+        string? languageStack = ErrorDiagnostics.FormatLanguageStack(diag);
+        if (!string.IsNullOrWhiteSpace(languageStack))
+        {
+            Console.WriteLine("stacktrace:");
+            Console.WriteLine(languageStack);
+        }
+        else if (IsDebug && !string.IsNullOrWhiteSpace(diag.ManagedStack))
+        {
+            Console.WriteLine("managed stack:");
+            Console.WriteLine(diag.ManagedStack);
+        }
+
+        if (!string.IsNullOrWhiteSpace(errorId))
+            Console.WriteLine($"[Error-Id: {errorId}]");
     }
 
     /// <summary>
@@ -302,7 +325,6 @@ public class Program
     /// <param name="source">The source<see cref="string"/></param>
     /// <param name="name">The name<see cref="string"/></param>
     /// <param name="debug">The debug<see cref="bool"/></param>
-    /// <param name="binaryRun">The binaryRun<see cref="bool"/></param>
     /// <param name="ct">The ct<see cref="CancellationToken"/></param>
     /// <param name="sharedVm">The sharedVm<see cref="VM?"/></param>
     /// <returns>The <see cref="Task"/></returns>
@@ -310,7 +332,6 @@ public class Program
         string source,
         string name,
         bool debug = false,
-        bool binaryRun = false,
         CancellationToken ct = default,
         VM? sharedVm = null)
     {
@@ -322,61 +343,28 @@ public class Program
 
         VM vm = sharedVm ?? new VM();
 
-        if (!binaryRun)
+        lexer = new(name, source);
+        parser = new(lexer, vm.LoadPlugin);
+        ast = parser.Parse();
+
+        compiler = new(name);
+        bytecode = compiler.Compile(ast);
+
+        vm.LoadFunctions(compiler.Functions);
+        vm.LoadInstructions(bytecode);
+
+        if (debug)
+            PrintInstructions(name, bytecode, compiler.Functions);
+
+        await vm.RunAsync(debug, 0, ct);
+
+        if (debug)
         {
-            lexer = new(name, source);
-            parser = new(lexer, vm.LoadPlugin);
-            ast = parser.Parse();
-
-            compiler = new(name);
-            bytecode = compiler.Compile(ast);
-
-            if (!SetCompile)
-            {
-                vm.LoadFunctions(compiler.Functions);
-                vm.LoadInstructions(bytecode);
-
-                if (debug)
-                    PrintInstructions(name, bytecode, compiler.Functions);
-
-                await vm.RunAsync(debug, 0, ct);
-
-                if (debug)
-                {
-                    VM.DebugStream!.Position = 0;
-                    string lpath = $"{Environment.CurrentDirectory}\\log_file.log";
-                    using FileStream file = File.Create(lpath);
-                    VM.DebugStream.CopyTo(file);
-                    Console.WriteLine($"[DEBUG] log-file created : {lpath}");
-                }
-            }
-            else
-            {
-                string outPath = Path.ChangeExtension(name, ".cfb");
-                CFSBinary.Save(outPath, bytecode, compiler.Functions);
-                Console.WriteLine($"Compiled script '{name}' -> '{outPath}'");
-            }
-        }
-        else
-        {
-            (bytecode, Dictionary<string, FunctionInfo>? funcs) = CFSBinary.Load(name);
-
-            vm.LoadInstructions(bytecode);
-            vm.LoadFunctions(funcs);
-
-            if (debug)
-                PrintInstructions(name, bytecode, vm.Functions);
-
-            await vm.RunAsync(debug, 0, ct);
-
-            if (debug)
-            {
-                VM.DebugStream!.Position = 0;
-                string lpath = $"{Environment.CurrentDirectory}\\log_file.log";
-                using FileStream file = File.Create(lpath);
-                VM.DebugStream.CopyTo(file);
-                Console.WriteLine($"[DEBUG] log-file created : {lpath}");
-            }
+            VM.DebugStream!.Position = 0;
+            string lpath = $"{Environment.CurrentDirectory}\\log_file.log";
+            using FileStream file = File.Create(lpath);
+            VM.DebugStream.CopyTo(file);
+            Console.WriteLine($"[DEBUG] log-file created : {lpath}");
         }
     }
 
@@ -425,21 +413,85 @@ public class Program
     }
 
     /// <summary>
-    /// The RunSource
+    /// The ReadRedirectedInput
     /// </summary>
-    /// <param name="source">The source<see cref="string"/></param>
-    /// <param name="name">The name<see cref="string"/></param>
-    /// <param name="debug">The debug<see cref="bool"/></param>
-    /// <param name="binaryRun">The binaryRun<see cref="bool"/></param>
-    /// <param name="sharedVm">The sharedVm<see cref="VM?"/></param>
-    private static void RunSource(
-        string source,
-        string name,
-        bool debug = false,
-        bool binaryRun = false,
-        VM? sharedVm = null)
-        => RunSourceAsync(source, name, debug, binaryRun, default, sharedVm)
-            .GetAwaiter().GetResult();
+    /// <returns>The <see cref="string?"/></returns>
+    private static string? ReadRedirectedInput()
+    {
+        while (true)
+        {
+            string? raw = Console.ReadLine();
+            if (raw is null)
+                return null;
+
+            raw = raw.TrimStart('\uFEFF');
+            string trimmed = raw.Trim();
+
+            if (string.IsNullOrWhiteSpace(trimmed))
+                return string.Empty;
+
+            if (trimmed.Equals("exit", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Equals("quit", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (trimmed.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Equals("cls", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine(header_text);
+                return string.Empty;
+            }
+
+            if (trimmed.Equals("debug", StringComparison.OrdinalIgnoreCase))
+            {
+                IsDebug = !IsDebug;
+                Console.WriteLine($"Debug mode is now {(IsDebug ? "Enabled" : "Disabled")}");
+                return string.Empty;
+            }
+
+            if (trimmed.Equals("ansi", StringComparison.OrdinalIgnoreCase))
+            {
+                if (AnsiMode)
+                    AnsiConsole.DisableAnsi();
+                else
+                    AnsiConsole.EnableAnsi();
+
+                AnsiMode = !AnsiMode;
+                Console.WriteLine("Ansi-Mode is " + (AnsiMode ? "enabled" : "disabled"));
+                return string.Empty;
+            }
+
+            if (trimmed.Equals("help", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine(help_diag);
+                return string.Empty;
+            }
+
+            if (trimmed.StartsWith("buffer", StringComparison.OrdinalIgnoreCase))
+            {
+                int sep = trimmed.IndexOf(":");
+                if (sep == -1 || string.IsNullOrWhiteSpace(trimmed[(sep + 1)..]))
+                {
+                    Console.WriteLine("Usage : buffer:len");
+                    return string.Empty;
+                }
+
+                string lenStr = trimmed[(sep + 1)..];
+                if (int.TryParse(lenStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int len))
+                {
+                    VM.DEBUG_BUFFER = len;
+                    Console.WriteLine($"[SETTINGS] Debug-Buffer set to {VM.DEBUG_BUFFER}");
+                }
+                else
+                {
+                    Console.WriteLine("Error : Buffer length only takes integers");
+                }
+
+                return string.Empty;
+            }
+
+            return raw;
+        }
+    }
 
     /// <summary>
     /// The ReadMultilineInput
@@ -447,6 +499,9 @@ public class Program
     /// <returns>The <see cref="string?"/></returns>
     private static string? ReadMultilineInput()
     {
+        if (Console.IsInputRedirected)
+            return ReadRedirectedInput();
+
         List<string> buffer = new();
         StringBuilder line = new();
         string prompt = "> ";

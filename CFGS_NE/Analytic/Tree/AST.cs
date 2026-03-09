@@ -3,6 +3,16 @@
 namespace CFGS_VM.Analytic.Tree
 {
     /// <summary>
+    /// Defines class member visibility.
+    /// </summary>
+    public enum MemberVisibility
+    {
+        Public,
+        Private,
+        Protected
+    }
+
+    /// <summary>
     /// Defines the <see cref="Node" />
     /// </summary>
     public abstract class Node(int line, int col, string originFile)
@@ -491,6 +501,133 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
+    /// Defines the <see cref="ConstDecl" />
+    /// </summary>
+    public class ConstDecl : Stmt
+    {
+        /// <summary>
+        /// Defines the Name
+        /// </summary>
+        public string Name;
+
+        /// <summary>
+        /// Defines the Value
+        /// </summary>
+        public Expr Value;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ConstDecl"/> class.
+        /// </summary>
+        /// <param name="n">The n<see cref="string"/></param>
+        /// <param name="v">The v<see cref="Expr"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="fname">The fname<see cref="string"/></param>
+        public ConstDecl(string n, Expr v, int line, int col, string fname) : base(line, col, fname)
+        {
+            Name = n;
+            Value = v;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="DestructureDeclStmt" />
+    /// </summary>
+    public sealed class DestructureDeclStmt : Stmt
+    {
+        /// <summary>
+        /// Gets the Pattern
+        /// </summary>
+        public MatchPattern Pattern { get; }
+
+        /// <summary>
+        /// Gets the Value
+        /// </summary>
+        public Expr Value { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether IsConst
+        /// </summary>
+        public bool IsConst { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DestructureDeclStmt"/> class.
+        /// </summary>
+        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
+        /// <param name="value">The value<see cref="Expr"/></param>
+        /// <param name="isConst">The isConst<see cref="bool"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public DestructureDeclStmt(MatchPattern pattern, Expr value, bool isConst, int line, int col, string file) : base(line, col, file)
+        {
+            Pattern = pattern;
+            Value = value;
+            IsConst = isConst;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="DestructureAssignStmt" />
+    /// </summary>
+    public sealed class DestructureAssignStmt : Stmt
+    {
+        /// <summary>
+        /// Gets the Pattern
+        /// </summary>
+        public MatchPattern Pattern { get; }
+
+        /// <summary>
+        /// Gets the Value
+        /// </summary>
+        public Expr Value { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DestructureAssignStmt"/> class.
+        /// </summary>
+        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
+        /// <param name="value">The value<see cref="Expr"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public DestructureAssignStmt(MatchPattern pattern, Expr value, int line, int col, string file) : base(line, col, file)
+        {
+            Pattern = pattern;
+            Value = value;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="ExportStmt" />
+    /// </summary>
+    public sealed class ExportStmt : Stmt
+    {
+        /// <summary>
+        /// Gets the Name
+        /// </summary>
+        public string Name { get; }
+
+        /// <summary>
+        /// Gets the Inner
+        /// </summary>
+        public Stmt Inner { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ExportStmt"/> class.
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="inner">The inner<see cref="Stmt"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public ExportStmt(string name, Stmt inner, int line, int col, string file) : base(line, col, file)
+        {
+            Name = name;
+            Inner = inner;
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="AssignStmt" />
     /// </summary>
     public class AssignStmt : Stmt
@@ -801,6 +938,36 @@ namespace CFGS_VM.Analytic.Tree
         public List<FuncDeclStmt> StaticMethods;
 
         /// <summary>
+        /// Defines the FieldVisibility
+        /// </summary>
+        public Dictionary<string, MemberVisibility> FieldVisibility;
+
+        /// <summary>
+        /// Defines the StaticFieldVisibility
+        /// </summary>
+        public Dictionary<string, MemberVisibility> StaticFieldVisibility;
+
+        /// <summary>
+        /// Defines the MethodVisibility
+        /// </summary>
+        public Dictionary<string, MemberVisibility> MethodVisibility;
+
+        /// <summary>
+        /// Defines the StaticMethodVisibility
+        /// </summary>
+        public Dictionary<string, MemberVisibility> StaticMethodVisibility;
+
+        /// <summary>
+        /// Defines the EnumVisibility
+        /// </summary>
+        public Dictionary<string, MemberVisibility> EnumVisibility;
+
+        /// <summary>
+        /// Defines the NestedClassVisibility
+        /// </summary>
+        public Dictionary<string, MemberVisibility> NestedClassVisibility;
+
+        /// <summary>
         /// Defines the BaseName
         /// </summary>
         public string? BaseName;
@@ -854,9 +1021,15 @@ namespace CFGS_VM.Analytic.Tree
             int col,
             string fname,
             string? baseName = null,
-        List<Expr>? baseArgs = null,
+            List<Expr>? baseArgs = null,
             List<ClassDeclStmt>? nestedClasses = null,
-    bool isNested = false
+            bool isNested = false,
+            Dictionary<string, MemberVisibility>? fieldVisibility = null,
+            Dictionary<string, MemberVisibility>? staticFieldVisibility = null,
+            Dictionary<string, MemberVisibility>? methodVisibility = null,
+            Dictionary<string, MemberVisibility>? staticMethodVisibility = null,
+            Dictionary<string, MemberVisibility>? enumVisibility = null,
+            Dictionary<string, MemberVisibility>? nestedClassVisibility = null
         ) : base(line, col, fname)
         {
             Name = name;
@@ -870,6 +1043,12 @@ namespace CFGS_VM.Analytic.Tree
             if (baseArgs != null) BaseCtorArgs = baseArgs;
             NestedClasses = nestedClasses ?? new List<ClassDeclStmt>();
             IsNested = isNested;
+            FieldVisibility = fieldVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
+            StaticFieldVisibility = staticFieldVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
+            MethodVisibility = methodVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
+            StaticMethodVisibility = staticMethodVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
+            EnumVisibility = enumVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
+            NestedClassVisibility = nestedClassVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
         }
     }
 
@@ -1039,6 +1218,12 @@ namespace CFGS_VM.Analytic.Tree
         /// Gets or sets a value indicating whether IsFunctionBody
         /// </summary>
         public bool IsFunctionBody { get; set; } = false;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether this block is the synthetic
+        /// execution scope created for a namespace declaration.
+        /// </summary>
+        public bool IsNamespaceScope { get; set; } = false;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BlockStmt"/> class.
@@ -1248,6 +1433,11 @@ namespace CFGS_VM.Analytic.Tree
         public string VarName { get; }
 
         /// <summary>
+        /// Gets the TargetPattern
+        /// </summary>
+        public MatchPattern? TargetPattern { get; }
+
+        /// <summary>
         /// Gets a value indicating whether DeclareLocal
         /// </summary>
         public bool DeclareLocal { get; }
@@ -1258,6 +1448,11 @@ namespace CFGS_VM.Analytic.Tree
         public Expr Iterable { get; }
 
         /// <summary>
+        /// Gets a value indicating whether UseIndexValuePair
+        /// </summary>
+        public bool UseIndexValuePair { get; }
+
+        /// <summary>
         /// Gets the Body
         /// </summary>
         public Stmt Body { get; }
@@ -1266,18 +1461,22 @@ namespace CFGS_VM.Analytic.Tree
         /// Initializes a new instance of the <see cref="ForeachStmt"/> class.
         /// </summary>
         /// <param name="varName">The varName<see cref="string"/></param>
+        /// <param name="targetPattern">The targetPattern<see cref="MatchPattern?"/></param>
         /// <param name="declareLocal">The declareLocal<see cref="bool"/></param>
         /// <param name="iterable">The iterable<see cref="Expr"/></param>
+        /// <param name="useIndexValuePair">The useIndexValuePair<see cref="bool"/></param>
         /// <param name="body">The body<see cref="Stmt"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="origin">The origin<see cref="string"/></param>
-        public ForeachStmt(string varName, bool declareLocal, Expr iterable, Stmt body, int line, int col, string origin)
+        public ForeachStmt(string varName, MatchPattern? targetPattern, bool declareLocal, Expr iterable, bool useIndexValuePair, Stmt body, int line, int col, string origin)
             : base(line, col, origin)
         {
             VarName = varName;
+            TargetPattern = targetPattern;
             DeclareLocal = declareLocal;
             Iterable = iterable;
+            UseIndexValuePair = useIndexValuePair;
             Body = body;
         }
     }
@@ -1352,6 +1551,112 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
+    /// Defines the <see cref="MatchPattern" />
+    /// </summary>
+    public abstract class MatchPattern(int line, int col, string file) : Node(line, col, file)
+    {
+    }
+
+    /// <summary>
+    /// Defines the <see cref="WildcardMatchPattern" />
+    /// </summary>
+    public sealed class WildcardMatchPattern(int line, int col, string file) : MatchPattern(line, col, file)
+    {
+    }
+
+    /// <summary>
+    /// Defines the <see cref="BindingMatchPattern" />
+    /// </summary>
+    public sealed class BindingMatchPattern : MatchPattern
+    {
+        /// <summary>
+        /// Gets the Name
+        /// </summary>
+        public string Name { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="BindingMatchPattern"/> class.
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public BindingMatchPattern(string name, int line, int col, string file) : base(line, col, file)
+        {
+            Name = name;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="ValueMatchPattern" />
+    /// </summary>
+    public sealed class ValueMatchPattern : MatchPattern
+    {
+        /// <summary>
+        /// Gets the Value
+        /// </summary>
+        public Expr Value { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ValueMatchPattern"/> class.
+        /// </summary>
+        /// <param name="value">The value<see cref="Expr"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public ValueMatchPattern(Expr value, int line, int col, string file) : base(line, col, file)
+        {
+            Value = value;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="ArrayMatchPattern" />
+    /// </summary>
+    public sealed class ArrayMatchPattern : MatchPattern
+    {
+        /// <summary>
+        /// Gets the Elements
+        /// </summary>
+        public List<MatchPattern> Elements { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ArrayMatchPattern"/> class.
+        /// </summary>
+        /// <param name="elements">The elements<see cref="List{MatchPattern}"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public ArrayMatchPattern(List<MatchPattern> elements, int line, int col, string file) : base(line, col, file)
+        {
+            Elements = elements;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="DictMatchPattern" />
+    /// </summary>
+    public sealed class DictMatchPattern : MatchPattern
+    {
+        /// <summary>
+        /// Gets the Entries
+        /// </summary>
+        public List<(string Key, MatchPattern Pattern)> Entries { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DictMatchPattern"/> class.
+        /// </summary>
+        /// <param name="entries">The entries<see cref="List{(string Key, MatchPattern Pattern)}"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public DictMatchPattern(List<(string Key, MatchPattern Pattern)> entries, int line, int col, string file) : base(line, col, file)
+        {
+            Entries = entries;
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="CaseExprArm" />
     /// </summary>
     public sealed class CaseExprArm : Node
@@ -1359,7 +1664,12 @@ namespace CFGS_VM.Analytic.Tree
         /// <summary>
         /// Gets the Pattern
         /// </summary>
-        public Expr Pattern { get; }
+        public MatchPattern Pattern { get; }
+
+        /// <summary>
+        /// Gets the Guard
+        /// </summary>
+        public Expr? Guard { get; }
 
         /// <summary>
         /// Gets the Body
@@ -1369,14 +1679,17 @@ namespace CFGS_VM.Analytic.Tree
         /// <summary>
         /// Initializes a new instance of the <see cref="CaseExprArm"/> class.
         /// </summary>
-        /// <param name="p">The p<see cref="Expr"/></param>
+        /// <param name="p">The p<see cref="MatchPattern"/></param>
+        /// <param name="g">The g<see cref="Expr?"/></param>
         /// <param name="b">The b<see cref="Expr"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="file">The file<see cref="string"/></param>
-        public CaseExprArm(Expr p, Expr b, int line, int col, string file) : base(line, col, file)
+        public CaseExprArm(MatchPattern p, Expr? g, Expr b, int line, int col, string file) : base(line, col, file)
         {
-            Pattern = p; Body = b;
+            Pattern = p;
+            Guard = g;
+            Body = b;
         }
     }
 
@@ -1510,6 +1823,23 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
+    /// Defines the <see cref="YieldStmt" />
+    /// </summary>
+    public sealed class YieldStmt : Stmt
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="YieldStmt"/> class.
+        /// </summary>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public YieldStmt(int line, int col, string file)
+            : base(line, col, file)
+        {
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="CaseClause" />
     /// </summary>
     public class CaseClause : Node
@@ -1517,7 +1847,12 @@ namespace CFGS_VM.Analytic.Tree
         /// <summary>
         /// Defines the Pattern
         /// </summary>
-        public Expr Pattern;
+        public MatchPattern Pattern;
+
+        /// <summary>
+        /// Defines the Guard
+        /// </summary>
+        public Expr? Guard;
 
         /// <summary>
         /// Defines the Body
@@ -1527,14 +1862,16 @@ namespace CFGS_VM.Analytic.Tree
         /// <summary>
         /// Initializes a new instance of the <see cref="CaseClause"/> class.
         /// </summary>
-        /// <param name="pattern">The pattern<see cref="Expr"/></param>
+        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
+        /// <param name="guard">The guard<see cref="Expr?"/></param>
         /// <param name="body">The body<see cref="BlockStmt"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
-        public CaseClause(Expr pattern, BlockStmt body, int line, int col, string fname) : base(line, col, fname)
+        public CaseClause(MatchPattern pattern, Expr? guard, BlockStmt body, int line, int col, string fname) : base(line, col, fname)
         {
             Pattern = pattern;
+            Guard = guard;
             Body = body;
         }
     }
@@ -1555,6 +1892,21 @@ namespace CFGS_VM.Analytic.Tree
         public List<string> Parameters;
 
         /// <summary>
+        /// Defines the MinArgs
+        /// </summary>
+        public int MinArgs;
+
+        /// <summary>
+        /// Defines the RestParameter
+        /// </summary>
+        public string? RestParameter;
+
+        /// <summary>
+        /// Defines whether the function was declared with async.
+        /// </summary>
+        public bool IsAsync;
+
+        /// <summary>
         /// Defines the Body
         /// </summary>
         public BlockStmt Body;
@@ -1565,14 +1917,20 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="name">The name<see cref="string"/></param>
         /// <param name="parameters">The parameters<see cref="List{string}"/></param>
         /// <param name="body">The body<see cref="BlockStmt"/></param>
+        /// <param name="minArgs">The minArgs<see cref="int"/></param>
+        /// <param name="restParameter">The restParameter<see cref="string?"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
-        public FuncDeclStmt(string name, List<string> parameters, BlockStmt body, int line, int col, string fname) : base(line, col, fname)
+        /// <param name="isAsync">The isAsync<see cref="bool"/></param>
+        public FuncDeclStmt(string name, List<string> parameters, BlockStmt body, int minArgs, string? restParameter, int line, int col, string fname, bool isAsync = false) : base(line, col, fname)
         {
             Name = name;
             Parameters = parameters;
             Body = body;
+            MinArgs = minArgs;
+            RestParameter = restParameter;
+            IsAsync = isAsync;
         }
     }
 
@@ -1587,6 +1945,21 @@ namespace CFGS_VM.Analytic.Tree
         public List<string> Parameters { get; }
 
         /// <summary>
+        /// Gets the MinArgs
+        /// </summary>
+        public int MinArgs { get; }
+
+        /// <summary>
+        /// Gets the RestParameter
+        /// </summary>
+        public string? RestParameter { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether IsAsync
+        /// </summary>
+        public bool IsAsync { get; }
+
+        /// <summary>
         /// Gets the Body
         /// </summary>
         public BlockStmt Body { get; }
@@ -1596,14 +1969,73 @@ namespace CFGS_VM.Analytic.Tree
         /// </summary>
         /// <param name="parameters">The parameters<see cref="List{string}"/></param>
         /// <param name="body">The body<see cref="BlockStmt"/></param>
+        /// <param name="minArgs">The minArgs<see cref="int"/></param>
+        /// <param name="restParameter">The restParameter<see cref="string?"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
-        public FuncExpr(List<string> parameters, BlockStmt body, int line, int col, string fname)
+        /// <param name="isAsync">The isAsync<see cref="bool"/></param>
+        public FuncExpr(List<string> parameters, BlockStmt body, int minArgs, string? restParameter, int line, int col, string fname, bool isAsync = false)
             : base(line, col, fname)
         {
             Parameters = parameters;
             Body = body;
+            MinArgs = minArgs;
+            RestParameter = restParameter;
+            IsAsync = isAsync;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="NamedArgExpr" />
+    /// </summary>
+    public sealed class NamedArgExpr : Expr
+    {
+        /// <summary>
+        /// Gets the Name
+        /// </summary>
+        public string Name { get; }
+
+        /// <summary>
+        /// Gets the Value
+        /// </summary>
+        public Expr Value { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="NamedArgExpr"/> class.
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="value">The value<see cref="Expr"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public NamedArgExpr(string name, Expr value, int line, int col, string file) : base(line, col, file)
+        {
+            Name = name;
+            Value = value;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="SpreadArgExpr" />
+    /// </summary>
+    public sealed class SpreadArgExpr : Expr
+    {
+        /// <summary>
+        /// Gets the Value
+        /// </summary>
+        public Expr Value { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SpreadArgExpr"/> class.
+        /// </summary>
+        /// <param name="value">The value<see cref="Expr"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public SpreadArgExpr(Expr value, int line, int col, string file) : base(line, col, file)
+        {
+            Value = value;
         }
     }
 

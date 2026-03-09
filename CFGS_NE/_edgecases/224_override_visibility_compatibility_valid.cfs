@@ -1,0 +1,19 @@
+import "edge_assert.cfs";
+
+edge_begin("224_override_visibility_compatibility_valid");
+
+class Base() {
+    protected func f() { return 4; }
+    protected static func token() { return 7; }
+}
+
+class Child() : Base() {
+    public func f() { return super.f() + 1; }
+    public static func token() { return super.token() + 2; }
+}
+
+var c = new Child();
+edge_eq("wider_instance_override_allowed", c.f(), 5);
+edge_eq("wider_static_override_allowed", Child.token(), 9);
+
+edge_finish("224_override_visibility_compatibility_valid");

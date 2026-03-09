@@ -1,0 +1,4 @@
+func f() {
+    var x = 1 match { _: 2, _: 3 };
+    return x;
+}

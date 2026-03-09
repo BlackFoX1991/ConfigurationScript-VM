@@ -1,0 +1,7 @@
+class C() {
+    private var x = 1;
+}
+
+var c = new C();
+var key = "x";
+c[key] = 9;

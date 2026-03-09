@@ -59,11 +59,6 @@ namespace CFGS_VM.VMCore
         public static int DEBUG_BUFFER = 100;
 
         /// <summary>
-        /// Defines the buffer_count
-        /// </summary>
-        private int buffer_count = 0;
-
-        /// <summary>
         /// The IsNumber
         /// </summary>
         /// <param name="x">The x<see cref="object"/></param>
@@ -431,7 +426,179 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private readonly Stack<TryHandler> _tryHandlers = new();
 
-        private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef);
+        private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef, StaticInstance? AccessType, bool IsAsync);
+
+        /// <summary>
+        /// The WrapReturnForFrame
+        /// </summary>
+        /// <param name="frame">The frame<see cref="CallFrame"/></param>
+        /// <param name="retVal">The retVal<see cref="object?"/></param>
+        /// <returns>The <see cref="object?"/></returns>
+        private static object? WrapReturnForFrame(CallFrame frame, object? retVal)
+            => frame.IsAsync ? Task.FromResult(retVal) : retVal;
+
+        /// <summary>
+        /// The CreateHotStartChildVm
+        /// </summary>
+        /// <returns>The <see cref="VM"/></returns>
+        private VM CreateHotStartChildVm()
+        {
+            if (_program is null || _program.Count == 0)
+                throw new InvalidOperationException("Hot-start async call requires loaded program instructions.");
+
+            VM child = new();
+            child.LoadInstructions(_program);
+            child.LoadFunctions(Functions);
+
+            foreach (BuiltinDescriptor desc in Builtins.Snapshot())
+                child.Builtins.Register(desc);
+
+            foreach ((Type ReceiverType, IntrinsicDescriptor Descriptor) entry in Intrinsics.Snapshot())
+                child.Intrinsics.Register(entry.ReceiverType, entry.Descriptor);
+
+            return child;
+        }
+
+        /// <summary>
+        /// The PrepareHotStartEntry
+        /// </summary>
+        /// <param name="callEnv">The callEnv<see cref="Env"/></param>
+        /// <param name="receiver">The receiver<see cref="object?"/></param>
+        /// <param name="accessType">The accessType<see cref="StaticInstance?"/></param>
+        private void PrepareHotStartEntry(Env callEnv, object? receiver, StaticInstance? accessType)
+        {
+            if (_program is null || _program.Count == 0)
+                throw new InvalidOperationException("Hot-start async entry requires loaded program instructions.");
+
+            _stack.Clear();
+            _tryHandlers.Clear();
+            _callStack.Clear();
+            _scopes.Clear();
+            _scopes.Add(callEnv);
+            _callStack.Push(new CallFrame(_program.Count, _scopes.Count, receiver, accessType, false));
+        }
+
+        /// <summary>
+        /// The ConsumeHotStartResult
+        /// </summary>
+        /// <returns>The <see cref="object?"/></returns>
+        private object? ConsumeHotStartResult()
+        {
+            if (_stack.Count == 0)
+                return null;
+            return _stack.Pop();
+        }
+
+        /// <summary>
+        /// The RunHotStartEntryAsync
+        /// </summary>
+        /// <param name="startIp">The startIp<see cref="int"/></param>
+        /// <param name="ct">The ct<see cref="CancellationToken"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private Task<object?> RunHotStartEntryAsync(int startIp, CancellationToken ct = default)
+        {
+            RunStopReason reason = RunUntilAwaitOrHalt(false, startIp);
+            if (reason == RunStopReason.Halted)
+                return Task.FromResult(ConsumeHotStartResult());
+
+            Task<object?> firstPending = _awaitTask!;
+            int resumeIp = _awaitResumeIp;
+            _awaitTask = null;
+
+            return ContinueHotStartAfterAwaitAsync(firstPending, resumeIp, ct);
+        }
+
+        /// <summary>
+        /// The ContinueHotStartAfterAwaitAsync
+        /// </summary>
+        /// <param name="pendingTask">The pendingTask<see cref="Task{object?}"/></param>
+        /// <param name="resumeIp">The resumeIp<see cref="int"/></param>
+        /// <param name="ct">The ct<see cref="CancellationToken"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private async Task<object?> ContinueHotStartAfterAwaitAsync(Task<object?> pendingTask, int resumeIp, CancellationToken ct)
+        {
+            await Task.Yield();
+
+            Task<object?> task = pendingTask;
+            int startIp = resumeIp;
+
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                try
+                {
+                    object? res = await task.ConfigureAwait(false);
+                    _stack.Push(res!);
+                }
+                catch (Exception ex)
+                {
+                    Instruction at = SafeCurrentInstr(_program!, startIp);
+                    ExceptionObject payload = new(
+                        type: "AwaitError",
+                        message: ex.Message,
+                        file: at.OriginFile,
+                        line: at.Line,
+                        col: at.Col,
+                        stack: BuildStackString(_program!, at)
+                    );
+
+                    if (RouteExceptionToTryHandlers(payload, at, out int nip))
+                    {
+                        startIp = nip;
+                        RunStopReason routedReason = RunUntilAwaitOrHalt(false, startIp);
+                        if (routedReason == RunStopReason.Halted)
+                            return ConsumeHotStartResult();
+
+                        task = _awaitTask!;
+                        startIp = _awaitResumeIp;
+                        _awaitTask = null;
+                        continue;
+                    }
+
+                    throw new VMException(payload.ToString()!, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, payload.Stack);
+                }
+
+                RunStopReason reason = RunUntilAwaitOrHalt(false, startIp);
+                if (reason == RunStopReason.Halted)
+                    return ConsumeHotStartResult();
+
+                task = _awaitTask!;
+                startIp = _awaitResumeIp;
+                _awaitTask = null;
+            }
+        }
+
+        /// <summary>
+        /// The TryStartHotAsyncCall
+        /// </summary>
+        /// <param name="f">The f<see cref="Closure"/></param>
+        /// <param name="args">The args<see cref="List{object}"/></param>
+        /// <param name="receiver">The receiver<see cref="object?"/></param>
+        /// <param name="accessType">The accessType<see cref="StaticInstance?"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <param name="startedTask">The startedTask<see cref="Task{object?}"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool TryStartHotAsyncCall(
+            Closure f,
+            List<object> args,
+            object? receiver,
+            StaticInstance? accessType,
+            Instruction instr,
+            out Task<object?> startedTask)
+        {
+            if (!f.IsAsync)
+            {
+                startedTask = null!;
+                return false;
+            }
+
+            Env callEnv = BuildCallEnv(f, args, instr);
+            VM child = CreateHotStartChildVm();
+            child.PrepareHotStartEntry(callEnv, receiver, accessType);
+            startedTask = child.RunHotStartEntryAsync(f.Address);
+            return true;
+        }
         /// <summary>
         /// The PopScopesToBase
         /// </summary>
@@ -500,9 +667,69 @@ namespace CFGS_VM.VMCore
             foreach (KeyValuePair<string, FunctionInfo> kv in funcs)
             {
                 if (Functions.ContainsKey(kv.Key))
-                    throw new Exception($"Runtime error : Multiple declarations for function '{kv.Key}'.");
+                    throw new VMException(
+                        $"Runtime error: multiple declarations for function '{kv.Key}'",
+                        -1, -1, string.Empty, IsDebugging, DebugStream!);
                 Functions[kv.Key] = kv.Value;
             }
+        }
+
+        /// <summary>
+        /// The HasLocalVar
+        /// </summary>
+        /// <param name="env">The env<see cref="Env"/></param>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool HasLocalVar(Env env, string name)
+        {
+            lock (env.SyncRoot)
+                return env.Vars.ContainsKey(name);
+        }
+
+        /// <summary>
+        /// The TryGetLocalVar
+        /// </summary>
+        /// <param name="env">The env<see cref="Env"/></param>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="value">The value<see cref="object?"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool TryGetLocalVar(Env env, string name, out object? value)
+        {
+            lock (env.SyncRoot)
+            {
+                if (env.Vars.TryGetValue(name, out object? local))
+                {
+                    value = local;
+                    return true;
+                }
+            }
+
+            value = null;
+            return false;
+        }
+
+        /// <summary>
+        /// The GetLocalVar
+        /// </summary>
+        /// <param name="env">The env<see cref="Env"/></param>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="object?"/></returns>
+        private static object? GetLocalVar(Env env, string name)
+        {
+            lock (env.SyncRoot)
+                return env.Vars[name];
+        }
+
+        /// <summary>
+        /// The SetLocalVar
+        /// </summary>
+        /// <param name="env">The env<see cref="Env"/></param>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="value">The value<see cref="object?"/></param>
+        private static void SetLocalVar(Env env, string name, object? value)
+        {
+            lock (env.SyncRoot)
+                env.Vars[name] = value!;
         }
 
         /// <summary>
@@ -514,18 +741,242 @@ namespace CFGS_VM.VMCore
         {
             for (Env? env = _scopes.Count > 0 ? _scopes[^1] : null; env != null; env = env.Parent)
             {
-                if (env.Vars.ContainsKey(name))
+                if (HasLocalVar(env, name))
                     return env;
             }
 
             if (_scopes.Count > 0)
             {
                 Env root = _scopes[0];
-                if (root != null && root.Vars.ContainsKey(name))
+                if (root != null && HasLocalVar(root, name))
                     return root;
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// The IsReceiverName
+        /// </summary>
+        /// <param name="s">The s<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsReceiverName(string s) => s == "this" || s == "type";
+
+        /// <summary>
+        /// The ExpandSpreadArguments
+        /// </summary>
+        /// <param name="rawArgs">The rawArgs<see cref="List{object}"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="List{object}"/></returns>
+        private List<object> ExpandSpreadArguments(List<object> rawArgs, Instruction instr)
+        {
+            List<object> expanded = new();
+            foreach (object arg in rawArgs)
+            {
+                if (arg is not SpreadArgument spread)
+                {
+                    expanded.Add(arg);
+                    continue;
+                }
+
+                if (spread.Value is null)
+                    throw new VMException("Runtime error: cannot spread null argument", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                if (spread.Value is not IList list)
+                    throw new VMException(
+                        $"Runtime error: spread argument must be an array/list (got {spread.Value.GetType().Name})",
+                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                foreach (object? item in list)
+                    expanded.Add(item!);
+            }
+
+            return expanded;
+        }
+
+        /// <summary>
+        /// The RunNonBlockingInvocation
+        /// </summary>
+        /// <param name="invoke">The invoke<see cref="Func{object?}"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private static Task<object?> RunNonBlockingInvocation(Func<object?> invoke)
+        {
+            return Task.Run<object?>(async () =>
+            {
+                object? raw = invoke();
+                if (AwaitableAdapter.TryGetTask(raw, out Task<object?>? awaited))
+                    return await awaited.ConfigureAwait(false);
+                return raw;
+            });
+        }
+
+        /// <summary>
+        /// The InvokeBuiltinForCall
+        /// </summary>
+        /// <param name="desc">The desc<see cref="BuiltinDescriptor"/></param>
+        /// <param name="args">The args<see cref="List{object}"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="object?"/></returns>
+        private static object? InvokeBuiltinForCall(BuiltinDescriptor desc, List<object> args, Instruction instr)
+        {
+            if (!desc.NonBlocking)
+                return desc.Invoke(args, instr);
+
+            List<object> argsCopy = new(args);
+            return RunNonBlockingInvocation(() => desc.Invoke(argsCopy, instr));
+        }
+
+        /// <summary>
+        /// The InvokeIntrinsicForCall
+        /// </summary>
+        /// <param name="method">The method<see cref="IntrinsicMethod"/></param>
+        /// <param name="receiver">The receiver<see cref="object"/></param>
+        /// <param name="args">The args<see cref="List{object}"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="object?"/></returns>
+        private static object? InvokeIntrinsicForCall(IntrinsicMethod method, object receiver, List<object> args, Instruction instr)
+        {
+            if (!method.NonBlocking)
+                return method.Invoke(receiver, args, instr);
+
+            List<object> argsCopy = new(args);
+            return RunNonBlockingInvocation(() => method.Invoke(receiver, argsCopy, instr));
+        }
+
+        /// <summary>
+        /// The BuildCallEnv
+        /// </summary>
+        /// <param name="f">The f<see cref="Closure"/></param>
+        /// <param name="rawArgs">The rawArgs<see cref="List{object}"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="Env"/></returns>
+        private Env BuildCallEnv(Closure f, List<object> rawArgs, Instruction instr)
+        {
+            int piStart = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
+            int total = f.Parameters.Count - piStart;
+            int min = Math.Max(0, f.MinArgs - piStart);
+
+            int restIndex = -1;
+            if (!string.IsNullOrWhiteSpace(f.RestParameter))
+            {
+                for (int i = 0; i < total; i++)
+                {
+                    if (string.Equals(f.Parameters[piStart + i], f.RestParameter, StringComparison.Ordinal))
+                    {
+                        restIndex = i;
+                        break;
+                    }
+                }
+
+                if (restIndex < 0)
+                {
+                    throw new VMException(
+                        $"Runtime error: invalid function metadata for rest parameter '{f.RestParameter}'",
+                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                }
+
+                if (restIndex != total - 1)
+                {
+                    throw new VMException(
+                        $"Runtime error: rest parameter '{f.RestParameter}' must be last",
+                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                }
+            }
+
+            int fixedCount = restIndex >= 0 ? restIndex : total;
+
+            List<object?> positional = new();
+            Dictionary<string, object?> named = new(StringComparer.Ordinal);
+            bool sawNamed = false;
+
+            foreach (object arg in rawArgs)
+            {
+                if (arg is NamedArgument na)
+                {
+                    sawNamed = true;
+                    if (named.ContainsKey(na.Name))
+                        throw new VMException($"Runtime error: duplicate named argument '{na.Name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    named[na.Name] = na.Value;
+                }
+                else
+                {
+                    if (sawNamed)
+                        throw new VMException("Runtime error: positional argument cannot follow named arguments", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    positional.Add(arg);
+                }
+            }
+
+            if (restIndex < 0 && positional.Count > total)
+                throw new VMException(
+                    $"Runtime error: too many args for call (expected {total}, got {positional.Count})",
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            Dictionary<string, int> paramIndex = new(StringComparer.Ordinal);
+            for (int i = 0; i < fixedCount; i++)
+                paramIndex[f.Parameters[piStart + i]] = i;
+
+            object sentinel = new();
+            object?[] finalArgs = new object?[fixedCount];
+            for (int i = 0; i < fixedCount; i++) finalArgs[i] = sentinel;
+
+            int positionalToAssign = Math.Min(positional.Count, fixedCount);
+            for (int i = 0; i < positionalToAssign; i++)
+                finalArgs[i] = positional[i];
+
+            List<object?> restValues = new();
+            if (restIndex >= 0)
+            {
+                for (int i = fixedCount; i < positional.Count; i++)
+                    restValues.Add(positional[i]);
+            }
+
+            foreach (KeyValuePair<string, object?> kv in named)
+            {
+                if (restIndex >= 0 && string.Equals(kv.Key, f.RestParameter, StringComparison.Ordinal))
+                    throw new VMException(
+                        $"Runtime error: rest parameter '{kv.Key}' cannot be passed as named argument",
+                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                if (!paramIndex.TryGetValue(kv.Key, out int idx))
+                    throw new VMException($"Runtime error: unknown named argument '{kv.Key}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                if (!ReferenceEquals(finalArgs[idx], sentinel))
+                    throw new VMException($"Runtime error: argument '{kv.Key}' provided multiple times", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                finalArgs[idx] = kv.Value;
+            }
+
+            for (int i = 0; i < fixedCount; i++)
+            {
+                if (ReferenceEquals(finalArgs[i], sentinel))
+                {
+                    if (i < min)
+                    {
+                        string missingParam = f.Parameters[piStart + i];
+                        if (string.Equals(missingParam, "__outer", StringComparison.Ordinal))
+                        {
+                            throw new VMException(
+                                "Runtime error: nested constructor requires an outer instance argument '__outer'",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        }
+
+                        throw new VMException(
+                            $"Runtime error: insufficient args for call (expected at least {min})",
+                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    }
+
+                    finalArgs[i] = null;
+                }
+            }
+
+            Env callEnv = new(f.CapturedEnv);
+            for (int i = 0; i < fixedCount; i++)
+                callEnv.Define(f.Parameters[piStart + i], finalArgs[i]!);
+
+            if (restIndex >= 0)
+                callEnv.Define(f.Parameters[piStart + restIndex], restValues);
+
+            return callEnv;
         }
 
         /// <summary>
@@ -742,32 +1193,18 @@ namespace CFGS_VM.VMCore
                         {
                             Env owner = FindEnvWithLocal(name)
                                 ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                            target = owner.Vars[name];
+                            target = GetLocalVar(owner, name)!;
                         }
                         else
                         {
                             target = _stack.Pop();
                         }
 
-                        static void Normalize(int len, object startRaw, object endRaw, out int start, out int end)
-                        {
-                            start = startRaw == null ? 0 : Convert.ToInt32(startRaw);
-                            end = endRaw == null ? len : Convert.ToInt32(endRaw);
-
-                            if (start < 0) start += len;
-                            if (end < 0) end += len;
-
-                            start = Math.Clamp(start, 0, len);
-                            end = Math.Clamp(end, 0, len);
-
-                            if (end < start) end = start;
-                        }
-
                         switch (target)
                         {
                             case List<object> arr:
                                 {
-                                    Normalize(arr.Count, startObj, endObj, out int start, out int end);
+                                    (int start, int end) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
                                     _stack.Push(arr.GetRange(start, end - start));
                                     break;
                                 }
@@ -775,7 +1212,7 @@ namespace CFGS_VM.VMCore
                             case Dictionary<string, object> dict:
                                 {
                                     List<string> keys = dict.Keys.ToList();
-                                    Normalize(keys.Count, startObj, endObj, out int start, out int end);
+                                    (int start, int end) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
 
                                     Dictionary<string, object> slice = new();
                                     for (int i = start; i < end; i++)
@@ -787,7 +1224,7 @@ namespace CFGS_VM.VMCore
 
                             case string s:
                                 {
-                                    Normalize(s.Length, startObj, endObj, out int start, out int end);
+                                    (int start, int end) = NormalizeSliceBounds(startObj, endObj, s.Length, instr);
                                     _stack.Push(s.Substring(start, end - start));
                                     break;
                                 }
@@ -816,10 +1253,10 @@ namespace CFGS_VM.VMCore
                         {
                             Env env = FindEnvWithLocal(name)
                                 ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                            target = env.Vars[name];
+                            target = GetLocalVar(env, name)!;
 
                             DoSliceSet(ref target, startObj, endObj, value, instr);
-                            env.Vars[name] = target;
+                            SetLocalVar(env, name, target);
                         }
                         else
                         {
@@ -831,25 +1268,13 @@ namespace CFGS_VM.VMCore
                         static void DoSliceSet(ref object target, object startObj, object endObj, object value, Instruction instr)
                         {
                             if (target is string)
-                                throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                            static void Normalize(int len, object startRaw, object endRaw, out int start, out int end)
-                            {
-                                start = startRaw == null ? 0 : Convert.ToInt32(startRaw);
-                                end = endRaw == null ? len : Convert.ToInt32(endRaw);
-
-                                if (start < 0) start += len;
-                                if (end < 0) end += len;
-
-                                start = Math.Clamp(start, 0, len);
-                                end = Math.Clamp(end, 0, len);
-                                if (end < start) end = start;
-                            }
+                                throw new VMException("Runtime error: SLICE_SET on string. Strings are immutable.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                             switch (target)
                             {
                                 case List<object> arr:
-                                    {
-                                        Normalize(arr.Count, startObj, endObj, out int start, out int end);
+                                {
+                                        (int start, int end) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
 
                                         if (value is List<object> lst)
                                         {
@@ -869,7 +1294,7 @@ namespace CFGS_VM.VMCore
                                 case Dictionary<string, object> dict:
                                     {
                                         List<string> keys = dict.Keys.ToList();
-                                        Normalize(keys.Count, startObj, endObj, out int start, out int end);
+                                        (int start, int end) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
 
                                         if (value is Dictionary<string, object> valDict)
                                         {
@@ -888,23 +1313,8 @@ namespace CFGS_VM.VMCore
                                         break;
                                     }
 
-                                case string s:
-                                    {
-                                        Normalize(s.Length, startObj, endObj, out int start, out int end);
-
-                                        StringBuilder sb = new(s);
-                                        string replacement = (value?.ToString()) ?? "";
-
-                                        int count = Math.Min(end - start, replacement.Length);
-                                        for (int i = 0; i < count; i++)
-                                            sb[start + i] = replacement[i];
-
-                                        target = sb.ToString();
-                                        break;
-                                    }
-
                                 default:
-                                    throw new VMException($"Runtime error: SLICE_SET target must be array, dictionary, or string",
+                                    throw new VMException($"Runtime error: SLICE_SET target must be array or dictionary",
                                         instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                             }
                         }
@@ -924,7 +1334,7 @@ namespace CFGS_VM.VMCore
                         {
                             Env owner = FindEnvWithLocal(nameFromEnv)
                                 ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                            target = owner.Vars[nameFromEnv];
+                            target = GetLocalVar(owner, nameFromEnv)!;
                         }
                         else
                         {
@@ -936,7 +1346,9 @@ namespace CFGS_VM.VMCore
                     }
 
                 case OpCode.INDEX_SET:
+                case OpCode.INDEX_SET_INTERNAL:
                     {
+                        bool allowReservedRuntimeSlotWrites = instr.Code == OpCode.INDEX_SET_INTERNAL;
                         if (instr.Operand is string)
                             RequireStack(2, instr, "INDEX_SET");
                         else
@@ -951,14 +1363,14 @@ namespace CFGS_VM.VMCore
                             Env env = FindEnvWithLocal(nameFromEnv)
                                 ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                            target = env.Vars[nameFromEnv];
-                            SetIndexedValue(ref target, idxObj, value, instr);
-                            env.Vars[nameFromEnv] = target;
+                            target = GetLocalVar(env, nameFromEnv)!;
+                            SetIndexedValue(ref target, idxObj, value, instr, allowReservedRuntimeSlotWrites);
+                            SetLocalVar(env, nameFromEnv, target);
                         }
                         else
                         {
                             target = _stack.Pop();
-                            SetIndexedValue(ref target, idxObj, value, instr);
+                            SetIndexedValue(ref target, idxObj, value, instr, allowReservedRuntimeSlotWrites);
                         }
 
                         break;
@@ -975,13 +1387,16 @@ namespace CFGS_VM.VMCore
                         {
                             object value = _stack.Pop();
                             object key = _stack.Pop();
-                            string sk = key?.ToString() ?? "null";
+                            string sk = key?.ToString() ?? string.Empty;
                             pairs[i] = (sk, value);
                         }
 
                         Dictionary<string, object> dict = new(dcount);
                         for (int i = 0; i < dcount; i++)
-                            dict[pairs[i].key] = pairs[i].val;
+                        {
+                            string key = NormalizeDictionaryWriteKey(dict, pairs[i].key, instr);
+                            dict[key] = pairs[i].val;
+                        }
 
                         _stack.Push(dict);
                         break;
@@ -1050,6 +1465,50 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case OpCode.IS_ARRAY:
+                    {
+                        if (_stack.Count < 1)
+                            throw new VMException("Stack underflow in IS_ARRAY", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                        object v = _stack.Pop();
+                        _stack.Push(v is List<object>);
+                        break;
+                    }
+
+                case OpCode.LEN:
+                    {
+                        RequireStack(1, instr, "LEN");
+                        object v = _stack.Pop();
+                        switch (v)
+                        {
+                            case List<object> arr:
+                                _stack.Push(arr.Count);
+                                break;
+                            case Dictionary<string, object> dict:
+                                _stack.Push(dict.Count);
+                                break;
+                            case string str:
+                                _stack.Push(str.Length);
+                                break;
+                            default:
+                                throw new VMException("Runtime error: LEN target must be array, dictionary, or string", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        }
+                        break;
+                    }
+
+                case OpCode.HAS_KEY:
+                    {
+                        RequireStack(2, instr, "HAS_KEY");
+                        object keyObj = _stack.Pop();
+                        object target = _stack.Pop();
+                        if (target is not Dictionary<string, object> dict)
+                            throw new VMException("Runtime error: HAS_KEY target must be dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                        string key = keyObj?.ToString() ?? "";
+                        _stack.Push(dict.ContainsKey(key));
+                        break;
+                    }
+
                 case OpCode.ARRAY_PUSH:
                     {
                         if (instr.Operand == null)
@@ -1068,7 +1527,8 @@ namespace CFGS_VM.VMCore
                                 {
                                     foreach (KeyValuePair<string, object> kv in literal)
                                     {
-                                        dict[kv.Key] = kv.Value;
+                                        string key = NormalizeDictionaryWriteKey(dict, kv.Key, instr);
+                                        dict[key] = kv.Value;
                                     }
                                 }
                                 else
@@ -1092,7 +1552,7 @@ namespace CFGS_VM.VMCore
                             object value = _stack.Pop();
                             string name = (string)instr.Operand;
                             Env? env = FindEnvWithLocal(name);
-                            if (env == null || !env.Vars.TryGetValue(name, out object? obj))
+                            if (env == null || !TryGetLocalVar(env, name, out object? obj))
                                 throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                             if (obj is List<object> arr)
                             {
@@ -1104,7 +1564,8 @@ namespace CFGS_VM.VMCore
                                 {
                                     foreach (KeyValuePair<string, object> kv in literal)
                                     {
-                                        dict[kv.Key] = kv.Value;
+                                        string key = NormalizeDictionaryWriteKey(dict, kv.Key, instr);
+                                        dict[key] = kv.Value;
                                     }
                                 }
                                 else
@@ -1140,11 +1601,11 @@ namespace CFGS_VM.VMCore
                         {
                             Env env = FindEnvWithLocal(name)
                                 ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                            target = env.Vars[name];
+                            target = GetLocalVar(env, name)!;
 
                             DeleteSliceOnTarget(ref target, startObj, endObj, instr);
 
-                            env.Vars[name] = target;
+                            SetLocalVar(env, name, target);
                         }
                         else
                         {
@@ -1198,16 +1659,16 @@ namespace CFGS_VM.VMCore
                             string name = (string)instr.Operand;
                             Env? owner = FindEnvWithLocal(name);
                             if (owner == null)
-                                throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                                throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                            object target = owner.Vars[name];
+                            object target = GetLocalVar(owner, name)!;
 
                             if (target is string)
                                 throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                             if (target is List<object> arr)
                             {
-                                int index = Convert.ToInt32(idxObj);
+                                int index = RequireIntIndex(idxObj, instr);
                                 if (index >= 0 && index < arr.Count)
                                     arr.RemoveAt(index);
                                 else
@@ -1233,7 +1694,7 @@ namespace CFGS_VM.VMCore
 
                             if (target is List<object> arr)
                             {
-                                int index = Convert.ToInt32(idxObj);
+                                int index = RequireIntIndex(idxObj, instr);
                                 if (index >= 0 && index < arr.Count)
                                     arr.RemoveAt(index);
                                 else
@@ -1252,7 +1713,7 @@ namespace CFGS_VM.VMCore
                                     throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                                 if (!obj.Fields.TryGetValue(key, out object? field))
-                                    throw new VMException($"Runtime error: invalid field '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                                    throw new VMException($"Runtime error: invalid instance member '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                                 if (field is List<object>)
                                 {
@@ -1311,15 +1772,15 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is null) break;
                         string name = (string)instr.Operand;
                         Env? env = FindEnvWithLocal(name);
-                        if (env == null || !env.Vars.TryGetValue(name, out object? target))
-                            throw new VMException($"Runtime error: undefined variable '{name}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        if (env == null || !TryGetLocalVar(env, name, out object? target))
+                            throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         if (target is List<object>)
                         {
-                            env.Vars[name] = new List<object>();
+                            SetLocalVar(env, name, new List<object>());
                         }
                         else if (target is Dictionary<string, object>)
                         {
-                            env.Vars[name] = new Dictionary<string, object>();
+                            SetLocalVar(env, name, new Dictionary<string, object>());
                         }
                         else
                         {
@@ -1363,7 +1824,7 @@ namespace CFGS_VM.VMCore
 
                         if (target is List<object> arr)
                         {
-                            int index = Convert.ToInt32(idxObj);
+                            int index = RequireIntIndex(idxObj, instr);
                             if (index < 0 || index >= arr.Count)
                                 throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
@@ -1467,7 +1928,7 @@ namespace CFGS_VM.VMCore
                         }
 
                         Env? owner = FindEnvWithLocal(name);
-                        if (owner != null && owner.Vars.TryGetValue(name, out object? val))
+                        if (owner != null && TryGetLocalVar(owner, name, out object? val))
                         {
                             _stack.Push(val);
                             break;
@@ -1501,6 +1962,24 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case OpCode.CONST_DECL:
+                    {
+                        if (instr.Operand is null) break;
+                        string name = (string)instr.Operand;
+
+                        if (name == "this" || name == "type" || name == "super" || name == "outer")
+                            throw new VMException($"Runtime error: cannot declare '{name}' as a constant", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                        RequireStack(1, instr, "CONST_DECL");
+                        object value = _stack.Pop();
+                        Env scope = _scopes[^1];
+                        if (scope.HasLocal(name))
+                            throw new VMException($"Runtime error: variable '{name}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                        scope.DefineConst(name, value);
+                        break;
+                    }
+
                 case OpCode.STORE_VAR:
                     {
                         if (instr.Operand is null) break;
@@ -1515,7 +1994,10 @@ namespace CFGS_VM.VMCore
                         if (env == null)
                             throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                        env.Vars[name] = value;
+                        if (env.IsConstLocal(name))
+                            throw new VMException($"Runtime error: cannot assign to constant '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                        SetLocalVar(env, name, value);
                         break;
                     }
 
@@ -2131,7 +2613,7 @@ namespace CFGS_VM.VMCore
                                     _ip = nip;
                                     return StepResult.Routed;
                                 }
-                                throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                                throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, payload.Stack);
                             }
 
                             if (task.IsCanceled)
@@ -2150,7 +2632,7 @@ namespace CFGS_VM.VMCore
                                     _ip = nip;
                                     return StepResult.Routed;
                                 }
-                                throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                                throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, payload.Stack);
                             }
 
                             _stack.Push(task.Result!);
@@ -2158,6 +2640,17 @@ namespace CFGS_VM.VMCore
                         }
 
                         _awaitTask = task;
+                        _awaitResumeIp = _ip;
+                        return StepResult.Await;
+                    }
+
+                case OpCode.YIELD:
+                    {
+                        _awaitTask = Task.Run<object?>(async () =>
+                        {
+                            await Task.Yield();
+                            return null;
+                        });
                         _awaitResumeIp = _ip;
                         return StepResult.Await;
                     }
@@ -2191,7 +2684,14 @@ namespace CFGS_VM.VMCore
                             throw new VMException($"Runtime error: PUSH_CLOSURE unknown function address {funcAddr}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         Env capturedEnv = _scopes[^1];
-                        _stack.Push(new Closure(funcAddr, funcInfo.Parameters, capturedEnv, funcName ?? throw new VMException("Invalid function-name", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!)));
+                        _stack.Push(new Closure(
+                            funcAddr,
+                            funcInfo.Parameters,
+                            funcInfo.MinArgs,
+                            capturedEnv,
+                            funcName ?? throw new VMException("Invalid function-name", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!),
+                            funcInfo.RestParameter,
+                            funcInfo.isAsync));
                         break;
                     }
 
@@ -2208,7 +2708,7 @@ namespace CFGS_VM.VMCore
                                         throw new VMException($"Runtime error: insufficient args for {funcName}()", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                                     args.Insert(0, _stack.Pop());
                                 }
-                                object? ret = desc.Invoke(args, instr);
+                                object? ret = InvokeBuiltinForCall(desc, args, instr);
                                 _stack.Push(ret);
                                 break;
                             }
@@ -2221,7 +2721,7 @@ namespace CFGS_VM.VMCore
                                     $"Runtime error: cannot CALL method '{funcName}' without receiver. Use CALL_INDIRECT with a bound receiver.",
                                     instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                            _stack.Push(new Closure(func.Address, func.Parameters, _scopes[^1], funcName));
+                            _stack.Push(new Closure(func.Address, func.Parameters, func.MinArgs, _scopes[^1], funcName, func.RestParameter, func.isAsync));
                             goto case OpCode.CALL_INDIRECT;
                         }
                         else
@@ -2230,13 +2730,31 @@ namespace CFGS_VM.VMCore
                         }
                     }
 
+                case OpCode.MAKE_NAMED_ARG:
+                    {
+                        if (instr.Operand is not string argName || string.IsNullOrWhiteSpace(argName))
+                            throw new VMException("Runtime error: MAKE_NAMED_ARG requires a non-empty argument name", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                        RequireStack(1, instr, "MAKE_NAMED_ARG");
+                        object? value = _stack.Pop();
+                        _stack.Push(new NamedArgument(argName, value));
+                        break;
+                    }
+
+                case OpCode.MAKE_SPREAD_ARG:
+                    {
+                        RequireStack(1, instr, "MAKE_SPREAD_ARG");
+                        object? value = _stack.Pop();
+                        _stack.Push(new SpreadArgument(value));
+                        break;
+                    }
+
                 case OpCode.CALL_INDIRECT:
                     {
-                        static bool IsReceiverName(string s) => s == "this" || s == "type";
-
-                        if (instr.Operand is IConvertible)
+                        if (instr.Operand is int explicitArgCount)
                         {
-                            int explicitArgCount = Convert.ToInt32(instr.Operand);
+                            if (explicitArgCount < 0)
+                                throw new VMException("Runtime error: negative argument count in CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                             List<object> argsList = new();
                             for (int i = 0; i < explicitArgCount; i++)
@@ -2253,18 +2771,21 @@ namespace CFGS_VM.VMCore
                                 throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                             object callee = _stack.Pop();
+                            argsList = ExpandSpreadArguments(argsList, instr);
+                            int actualArgCount = argsList.Count;
                             Closure f;
                             object? receiver = null;
+                            StaticInstance? accessType = null;
 
                             if (callee is IntrinsicBound ib_ex)
                             {
-                                if (explicitArgCount < ib_ex.Method.ArityMin || explicitArgCount > ib_ex.Method.ArityMax)
+                                if (actualArgCount < ib_ex.Method.ArityMin || actualArgCount > ib_ex.Method.ArityMax)
                                     throw new VMException(
-                                        $"Runtime error: {ib_ex.Method.Name} expects {ib_ex.Method.ArityMin}..{ib_ex.Method.ArityMax} args, got {explicitArgCount}",
+                                        $"Runtime error: {ib_ex.Method.Name} expects {ib_ex.Method.ArityMin}..{ib_ex.Method.ArityMax} args, got {actualArgCount}",
                                         instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                                     );
 
-                                object? result = ib_ex.Method.Invoke(ib_ex.Receiver, argsList, instr);
+                                object? result = InvokeIntrinsicForCall(ib_ex.Method, ib_ex.Receiver, argsList, instr);
                                 _stack.Push(result);
                                 return StepResult.Continue;
                             }
@@ -2273,12 +2794,12 @@ namespace CFGS_VM.VMCore
                                 if (!Builtins.TryGet(bc.Name, out BuiltinDescriptor? desc))
                                     throw new VMException($"Runtime error: unknown builtin '{bc.Name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                                if (explicitArgCount < desc.ArityMin || explicitArgCount > desc.ArityMax)
+                                if (actualArgCount < desc.ArityMin || actualArgCount > desc.ArityMax)
                                     throw new VMException(
-                                        $"Runtime error: builtin '{bc.Name}' expects {desc.ArityMin}..{desc.ArityMax} args, got {explicitArgCount}",
+                                        $"Runtime error: builtin '{bc.Name}' expects {desc.ArityMin}..{desc.ArityMax} args, got {actualArgCount}",
                                         instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                                object? result = desc.Invoke(argsList, instr);
+                                object? result = InvokeBuiltinForCall(desc, argsList, instr);
                                 _stack.Push(result);
 
                                 return StepResult.Continue;
@@ -2288,6 +2809,14 @@ namespace CFGS_VM.VMCore
                             {
                                 f = bm.Function;
                                 receiver = bm.Receiver;
+                                accessType = bm.DeclaringType;
+                                if (accessType == null)
+                                {
+                                    if (receiver is StaticInstance rst)
+                                        accessType = rst;
+                                    else if (receiver is ClassInstance rinst && TryGetStaticType(rinst, out StaticInstance rst2))
+                                        accessType = rst2;
+                                }
 
                                 if (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0]))
                                 {
@@ -2301,11 +2830,22 @@ namespace CFGS_VM.VMCore
                             else if (callee is BoundType bt)
                             {
                                 object ctorVal = GetIndexedValue(bt.Type, "new", instr);
-                                if (ctorVal is not Closure ctorClos)
+                                if (ctorVal is BoundMethod ctorBound)
+                                {
+                                    f = ctorBound.Function;
+                                    receiver = ctorBound.Receiver;
+                                    accessType = ctorBound.DeclaringType ?? bt.Type;
+                                }
+                                else if (ctorVal is Closure ctorClos)
+                                {
+                                    f = ctorClos;
+                                    receiver = bt.Type;
+                                    accessType = bt.Type;
+                                }
+                                else
+                                {
                                     throw new VMException("Runtime error: nested type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-                                f = ctorClos;
-                                receiver = null;
+                                }
 
                                 argsList.Insert(0, bt.Outer);
                             }
@@ -2320,46 +2860,56 @@ namespace CFGS_VM.VMCore
                                             $"Runtime error: missing '{f.Parameters[0]}' for method call.",
                                             instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                                         );
+                                    if (argsList[0] is NamedArgument)
+                                        throw new VMException(
+                                            $"Runtime error: '{f.Parameters[0]}' must be provided as the first positional argument.",
+                                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+                                        );
                                     receiver = argsList[0];
                                     argsList.RemoveAt(0);
+
+                                    if (receiver is StaticInstance rst)
+                                        accessType = rst;
+                                    else if (receiver is ClassInstance rinst && TryGetStaticType(rinst, out StaticInstance rst2))
+                                        accessType = rst2;
                                 }
                             }
                             else if (callee is StaticInstance st)
                             {
                                 object ctorVal = GetIndexedValue(st, "new", instr);
-                                if (ctorVal is not Closure ctorClos)
+                                if (ctorVal is BoundMethod ctorBound)
+                                {
+                                    f = ctorBound.Function;
+                                    receiver = ctorBound.Receiver;
+                                    accessType = ctorBound.DeclaringType ?? st;
+                                }
+                                else if (ctorVal is Closure ctorClos)
+                                {
+                                    f = ctorClos;
+                                    receiver = st;
+                                    accessType = st;
+                                }
+                                else
+                                {
                                     throw new VMException("Runtime error: type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-                                f = ctorClos;
-                                receiver = null;
+                                }
                             }
                             else
                             {
                                 throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                             }
 
-                            Env callEnv = new(f.CapturedEnv);
-                            int piStart = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
-                            int expected = f.Parameters.Count - piStart;
+                            if (TryStartHotAsyncCall(f, argsList, receiver, accessType, instr, out Task<object?> hotTask))
+                            {
+                                _stack.Push(hotTask);
+                                return StepResult.Continue;
+                            }
 
-                            if (argsList.Count < expected)
-                                throw new VMException(
-                                    $"Runtime error: insufficient args for call (expected {expected}, got {argsList.Count})",
-                                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
-                                );
-
-                            if (argsList.Count > expected)
-                                throw new VMException(
-                                    $"Runtime error: too many args for call (expected {expected}, got {argsList.Count})",
-                                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
-                                );
-
-                            for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
-                                callEnv.Define(f.Parameters[pi], argsList[ai]);
+                            Env callEnv = BuildCallEnv(f, argsList, instr);
 
                             int callerDepth = _scopes.Count;
                             _scopes.Add(callEnv);
-                            _callStack.Push(new CallFrame(_ip, callerDepth, receiver));
+                            _callStack.Push(new CallFrame(_ip, callerDepth, receiver, accessType, f.IsAsync));
                             _ip = f.Address;
                             return StepResult.Continue;
                         }
@@ -2372,6 +2922,7 @@ namespace CFGS_VM.VMCore
                             object callee = _stack.Pop();
                             Closure f;
                             object? receiver = null;
+                            StaticInstance? accessType = null;
 
                             if (callee is IntrinsicBound ib)
                             {
@@ -2385,7 +2936,7 @@ namespace CFGS_VM.VMCore
                                     argsB.Add(_stack.Pop());
                                 }
 
-                                object? result = ib.Method.Invoke(ib.Receiver, argsB, instr);
+                                object? result = InvokeIntrinsicForCall(ib.Method, ib.Receiver, argsB, instr);
                                 _stack.Push(result);
                                 return StepResult.Continue;
                             }
@@ -2404,7 +2955,7 @@ namespace CFGS_VM.VMCore
                                 }
                                 argsB.Reverse();
 
-                                object? result = desc.Invoke(argsB, instr);
+                                object? result = InvokeBuiltinForCall(desc, argsB, instr);
 
                                 _stack.Push(result);
 
@@ -2416,15 +2967,34 @@ namespace CFGS_VM.VMCore
                             {
                                 f = bm.Function;
                                 receiver = bm.Receiver;
+                                accessType = bm.DeclaringType;
+                                if (accessType == null)
+                                {
+                                    if (receiver is StaticInstance rst)
+                                        accessType = rst;
+                                    else if (receiver is ClassInstance rinst && TryGetStaticType(rinst, out StaticInstance rst2))
+                                        accessType = rst2;
+                                }
                             }
                             else if (callee is BoundType bt)
                             {
                                 object ctorVal = GetIndexedValue(bt.Type, "new", instr);
-                                if (ctorVal is not Closure ctorClos)
+                                if (ctorVal is BoundMethod ctorBound)
+                                {
+                                    f = ctorBound.Function;
+                                    receiver = ctorBound.Receiver;
+                                    accessType = ctorBound.DeclaringType ?? bt.Type;
+                                }
+                                else if (ctorVal is Closure ctorClos)
+                                {
+                                    f = ctorClos;
+                                    receiver = bt.Type;
+                                    accessType = bt.Type;
+                                }
+                                else
+                                {
                                     throw new VMException("Runtime error: nested type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-                                f = ctorClos;
-                                receiver = null;
+                                }
 
                                 int total = f.Parameters.Count;
 
@@ -2438,7 +3008,6 @@ namespace CFGS_VM.VMCore
                                 argsTmp.Reverse();
                                 argsTmp.Insert(0, bt.Outer);
 
-                                Env callEnv2 = new(f.CapturedEnv);
                                 int piStart2 = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
                                 int expected2 = f.Parameters.Count - piStart2;
 
@@ -2448,12 +3017,16 @@ namespace CFGS_VM.VMCore
                                         instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                                     );
 
-                                for (int pi = piStart2, ai = 0; pi < f.Parameters.Count; pi++, ai++)
-                                    callEnv2.Define(f.Parameters[pi], argsTmp[ai]);
+                                if (TryStartHotAsyncCall(f, argsTmp, receiver, accessType, instr, out Task<object?> hotTask2))
+                                {
+                                    _stack.Push(hotTask2);
+                                    return StepResult.Continue;
+                                }
 
+                                Env callEnv2 = BuildCallEnv(f, argsTmp, instr);
                                 int callerDepth2 = _scopes.Count;
                                 _scopes.Add(callEnv2);
-                                _callStack.Push(new CallFrame(_ip, callerDepth2, receiver));
+                                _callStack.Push(new CallFrame(_ip, callerDepth2, receiver, accessType, f.IsAsync));
                                 _ip = f.Address;
                                 return StepResult.Continue;
                             }
@@ -2469,16 +3042,32 @@ namespace CFGS_VM.VMCore
                                             instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                                         );
                                     receiver = _stack.Pop();
+
+                                    if (receiver is StaticInstance rst)
+                                        accessType = rst;
+                                    else if (receiver is ClassInstance rinst && TryGetStaticType(rinst, out StaticInstance rst2))
+                                        accessType = rst2;
                                 }
                             }
                             else if (callee is StaticInstance st)
                             {
                                 object ctorVal = GetIndexedValue(st, "new", instr);
-                                if (ctorVal is not Closure ctorClos)
+                                if (ctorVal is BoundMethod ctorBound)
+                                {
+                                    f = ctorBound.Function;
+                                    receiver = ctorBound.Receiver;
+                                    accessType = ctorBound.DeclaringType ?? st;
+                                }
+                                else if (ctorVal is Closure ctorClos)
+                                {
+                                    f = ctorClos;
+                                    receiver = st;
+                                    accessType = st;
+                                }
+                                else
+                                {
                                     throw new VMException("Runtime error: type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-                                f = ctorClos;
-                                receiver = null;
+                                }
                             }
                             else
                             {
@@ -2486,6 +3075,7 @@ namespace CFGS_VM.VMCore
                             }
 
                             int piStart = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
+                            int expected = f.Parameters.Count - piStart;
 
                             List<object> argsList2 = new();
                             for (int pi = f.Parameters.Count - 1; pi >= piStart; pi--)
@@ -2495,19 +3085,22 @@ namespace CFGS_VM.VMCore
                                 argsList2.Insert(0, _stack.Pop());
                             }
 
-                            int expected = f.Parameters.Count - piStart;
                             if (argsList2.Count != expected)
                                 throw new VMException(
                                     $"Runtime error: argument count mismatch (expected {expected}, got {argsList2.Count})",
                                     instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                                 );
 
-                            Env callEnv = new(f.CapturedEnv);
-                            for (int pi = piStart, ai = 0; pi < f.Parameters.Count; pi++, ai++)
-                                callEnv.Define(f.Parameters[pi], argsList2[ai]);
+                            if (TryStartHotAsyncCall(f, argsList2, receiver, accessType, instr, out Task<object?> hotTask))
+                            {
+                                _stack.Push(hotTask);
+                                return StepResult.Continue;
+                            }
+
+                            Env callEnv = BuildCallEnv(f, argsList2, instr);
 
                             _scopes.Add(callEnv);
-                            _callStack.Push(new CallFrame(_ip, 1, receiver));
+                            _callStack.Push(new CallFrame(_ip, _scopes.Count - 1, receiver, accessType, f.IsAsync));
                             _ip = f.Address;
                             return StepResult.Continue;
                         }
@@ -2552,7 +3145,7 @@ namespace CFGS_VM.VMCore
                             _tryHandlers.Pop();
 
                         _ip = fr.ReturnIp;
-                        _stack.Push(retVal!);
+                        _stack.Push(WrapReturnForFrame(fr, retVal)!);
                         return StepResult.Continue;
                     }
 
@@ -2639,7 +3232,7 @@ namespace CFGS_VM.VMCore
                                 _tryHandlers.Pop();
 
                             _ip = fr.ReturnIp;
-                            _stack.Push(retVal!);
+                            _stack.Push(WrapReturnForFrame(fr, retVal)!);
                             return StepResult.Continue;
                         }
 
@@ -2696,7 +3289,7 @@ namespace CFGS_VM.VMCore
                             }
 
                             Instruction instrNow = SafeCurrentInstr(_insns, _ip);
-                            throw new VMException(ex.ToString()!, instrNow.Line, instrNow.Col, instrNow.OriginFile, IsDebugging, DebugStream!);
+                            throw new VMException(ex.ToString()!, instrNow.Line, instrNow.Col, instrNow.OriginFile, IsDebugging, DebugStream!, BuildStackString(_insns, instrNow));
                         }
 
                         _tryHandlers.Pop();
@@ -2707,32 +3300,35 @@ namespace CFGS_VM.VMCore
                     {
                         object? thrown = _stack.Count > 0 ? _stack.Pop() : null;
 
-                        ExceptionObject payload;
-
-                        if (thrown is ExceptionObject eo)
-                        {
-                            payload = eo;
-                        }
-                        else
-                        {
-                            string msg = thrown?.ToString() ?? "throw";
-                            payload = new ExceptionObject(
+                        // Preserve the original user-thrown payload for catch(e).
+                        object exPayload = thrown is ExceptionObject eo
+                            ? eo
+                            : (thrown ?? new ExceptionObject(
                                 type: "UserError",
-                                message: msg,
+                                message: "throw",
                                 file: instr.OriginFile,
                                 line: instr.Line,
                                 col: instr.Col,
                                 stack: BuildStackString(_insns, instr)
-                            );
-                        }
+                            ));
 
-                        if (RouteExceptionToTryHandlers(payload, instr, out int nip))
+                        if (RouteExceptionToTryHandlers(exPayload, instr, out int nip))
                         {
                             _ip = nip;
                             return StepResult.Routed;
                         }
 
-                        throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        ExceptionObject uncaught = exPayload as ExceptionObject
+                            ?? new ExceptionObject(
+                                type: "UserError",
+                                message: exPayload.ToString() ?? "throw",
+                                file: instr.OriginFile,
+                                line: instr.Line,
+                                col: instr.Col,
+                                stack: BuildStackString(_insns, instr)
+                            );
+
+                        throw new VMException(uncaught.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, uncaught.Stack);
                     }
 
                 default:
@@ -2752,122 +3348,10 @@ namespace CFGS_VM.VMCore
             if (_program is null || _program.Count == 0)
                 return;
 
-            bool routed = false;
-            DebugStream = new MemoryStream();
-            IsDebugging = debugging;
-            int _ip = lastPos;
-
-            while (_ip < _program.Count)
-            {
-                try
-                {
-                    if (debugging)
-                    {
-
-                        if (buffer_count++ >= VM.DEBUG_BUFFER)
-                        {
-                            DebugStream.Dispose();
-                            DebugStream = new MemoryStream();
-                        }
-                        int di = Math.Clamp(_ip, 0, _program.Count - 1);
-                        Instruction dinstr = _program[di];
-                        DebugStream.Write(System.Text.Encoding.Default.GetBytes(
-                            $"[DEBUG] {dinstr.Line} ->  IP={_ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
-                        DebugStream.Write(System.Text.Encoding.Default.GetBytes(
-                            $"[DEBUG] {dinstr} (Line {dinstr.Line}, Col {dinstr.Col})\n"));
-
-                    }
-
-                    Instruction instr = _program[_ip++];
-                    _ip = Math.Clamp(_ip, 0, _program.Count - 1);
-                    StepResult res = HandleInstruction(ref _ip, _program, instr);
-
-                    if (res == StepResult.Halt) return;
-                    if (res == StepResult.Continue) continue;
-                    if (res == StepResult.Routed) routed = true;
-                }
-                catch (VMException ex)
-                {
-                    int safeIp = Math.Min(_ip, _program.Count - 1);
-
-                    ExceptionObject payload = new(
-                        type: "RuntimeError",
-                        message: ex.Message,
-                        file: _program[safeIp].OriginFile,
-                        line: _program[safeIp].Line,
-                        col: _program[safeIp].Col,
-                        stack: BuildStackString(_program, _program[safeIp])
-                    );
-
-                    if (RouteExceptionToTryHandlers(payload, _program[safeIp], out int nip))
-                    {
-
-                        _ip = nip;
-                        routed = true;
-                    }
-                    else
-                    {
-                        throw;
-                    }
-                }
-                catch (Exception sysEx)
-                {
-                    int safeIp = Math.Min(_ip, _program.Count - 1);
-                    ExceptionObject payload = new(
-                        type: "SystemError",
-                        message: sysEx.Message,
-                        file: _program[safeIp].OriginFile,
-                        line: _program[safeIp].Line,
-                        col: _program[safeIp].Col,
-                        stack: BuildStackString(_program, _program[safeIp])
-                    );
-
-                    if (RouteExceptionToTryHandlers(payload, _program[safeIp], out int nip))
-                    {
-                        _ip = nip;
-                        routed = true;
-                    }
-                    else
-                    {
-                        throw new VMException($"Uncaught system exception : " + sysEx.Message + "\n" + sysEx.Source, _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream!);
-                    }
-                }
-
-                if (routed)
-                {
-                    int safeIp = Math.Min(_ip, _program.Count - 1);
-                    routed = false;
-
-                    if (_tryHandlers.Count > 0)
-                    {
-                        TryHandler top = _tryHandlers.Peek();
-
-                        if (top.Exception is object deferredEx && !top.InFinally)
-                        {
-                            top.Exception = null;
-
-                            if (RouteExceptionToTryHandlers(deferredEx, _program[safeIp], out int nip2))
-                            {
-                                _ip = nip2;
-                                routed = true;
-                            }
-                            else
-                            {
-                                if (debugging)
-                                {
-                                    DebugStream.Position = 0;
-                                    using FileStream file = File.Create("log_file.log");
-                                    DebugStream.CopyTo(file);
-                                }
-                                throw new VMException("Uncaught system exception", _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream!);
-                            }
-                        }
-                    }
-
-                    continue;
-                }
-
-            }
+            // Keep sync API for compatibility; bridge directly into async core.
+            RunAsyncCore(debugging, lastPos, CancellationToken.None, resetDebugStream: true)
+                .GetAwaiter()
+                .GetResult();
         }
 
         /// <summary>
@@ -2945,7 +3429,7 @@ namespace CFGS_VM.VMCore
                     }
                     else
                     {
-                        throw;
+                        throw AttachLanguageStack(ex, _program, _program[safeIp]);
                     }
                 }
                 catch (Exception sysEx)
@@ -2967,8 +3451,14 @@ namespace CFGS_VM.VMCore
                     }
                     else
                     {
-                        throw new VMException($"Uncaught system exception : " + sysEx.Message + "\n" + sysEx.Source,
-                            _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream!);
+                        throw new VMException(
+                            $"Uncaught system exception : {sysEx.Message}\n{sysEx.Source}",
+                            _program[safeIp].Line,
+                            _program[safeIp].Col,
+                            _program[safeIp].OriginFile,
+                            IsDebugging,
+                            DebugStream!,
+                            BuildStackString(_program, _program[safeIp]));
                     }
                 }
 
@@ -2999,7 +3489,7 @@ namespace CFGS_VM.VMCore
                                     DebugStream.CopyTo(file);
                                 }
                                 throw new VMException("Uncaught system exception",
-                                    _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream!);
+                                    _program[safeIp].Line, _program[safeIp].Col, _program[safeIp].OriginFile, IsDebugging, DebugStream!, BuildStackString(_program, _program[safeIp]));
                             }
                         }
                     }
@@ -3012,15 +3502,17 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The RunAsync
+        /// The RunAsyncCore
         /// </summary>
         /// <param name="debugging">The debugging<see cref="bool"/></param>
         /// <param name="lastPos">The lastPos<see cref="int"/></param>
         /// <param name="ct">The ct<see cref="CancellationToken"/></param>
+        /// <param name="resetDebugStream">The resetDebugStream<see cref="bool"/></param>
         /// <returns>The <see cref="Task"/></returns>
-        public async Task RunAsync(bool debugging = false, int lastPos = 0, CancellationToken ct = default)
+        private async Task RunAsyncCore(bool debugging, int lastPos, CancellationToken ct, bool resetDebugStream)
         {
-            DebugStream = new MemoryStream();
+            if (resetDebugStream)
+                DebugStream = new MemoryStream();
 
             int startIp = lastPos;
             while (true)
@@ -3058,13 +3550,23 @@ namespace CFGS_VM.VMCore
                         continue;
                     }
 
-                    throw new VMException(payload.ToString()!, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!);
+                    throw new VMException(payload.ToString()!, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, payload.Stack);
                 }
 
                 startIp = _awaitResumeIp;
                 _awaitTask = null;
             }
         }
+
+        /// <summary>
+        /// The RunAsync
+        /// </summary>
+        /// <param name="debugging">The debugging<see cref="bool"/></param>
+        /// <param name="lastPos">The lastPos<see cref="int"/></param>
+        /// <param name="ct">The ct<see cref="CancellationToken"/></param>
+        /// <returns>The <see cref="Task"/></returns>
+        public Task RunAsync(bool debugging = false, int lastPos = 0, CancellationToken ct = default)
+            => RunAsyncCore(debugging, lastPos, ct, resetDebugStream: true);
 
         /// <summary>
         /// The LoadInstructions
@@ -3181,6 +3683,33 @@ namespace CFGS_VM.VMCore
                 throw new VMException(
                     $"Runtime error: {(opName ?? instr.Code.ToString())} needs {needed} stack values (have {_stack.Count})",
                     instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+        }
+
+        /// <summary>
+        /// The AttachLanguageStack
+        /// </summary>
+        /// <param name="ex">The ex<see cref="VMException"/></param>
+        /// <param name="insns">The insns<see cref="List{Instruction}"/></param>
+        /// <param name="current">The current<see cref="Instruction"/></param>
+        /// <returns>The <see cref="VMException"/></returns>
+        private VMException AttachLanguageStack(VMException ex, List<Instruction> insns, Instruction current)
+        {
+            if (!string.IsNullOrWhiteSpace(ex.LanguageStackTrace))
+                return ex;
+
+            string stack = BuildStackString(insns, current);
+            int line = ex.Line >= 0 ? ex.Line : current.Line;
+            int col = ex.Column >= 0 ? ex.Column : current.Col;
+            string? file = !string.IsNullOrWhiteSpace(ex.FileSource) ? ex.FileSource : current.OriginFile;
+
+            return new VMException(
+                ex.RawMessage,
+                line,
+                col,
+                file,
+                IsDebugging,
+                DebugStream!,
+                stack);
         }
 
         /// <summary>
@@ -3571,6 +4100,309 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// Defines the VisibilityPublic
+        /// </summary>
+        private const int VisibilityPublic = 0;
+
+        /// <summary>
+        /// Defines the VisibilityPrivate
+        /// </summary>
+        private const int VisibilityPrivate = 1;
+
+        /// <summary>
+        /// Defines the VisibilityProtected
+        /// </summary>
+        private const int VisibilityProtected = 2;
+
+        /// <summary>
+        /// The TryGetStaticType
+        /// </summary>
+        /// <param name="inst">The inst<see cref="ClassInstance"/></param>
+        /// <param name="type">The type<see cref="StaticInstance"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool TryGetStaticType(ClassInstance inst, out StaticInstance type)
+        {
+            if (inst.Fields.TryGetValue("__type", out object? tObj) && tObj is StaticInstance st)
+            {
+                type = st;
+                return true;
+            }
+
+            type = null!;
+            return false;
+        }
+
+        /// <summary>
+        /// The NormalizeVisibilityCode
+        /// </summary>
+        /// <param name="raw">The raw<see cref="object"/></param>
+        /// <returns>The <see cref="int"/></returns>
+        private static int NormalizeVisibilityCode(object? raw)
+        {
+            int code = raw switch
+            {
+                int i => i,
+                long l when l >= int.MinValue && l <= int.MaxValue => (int)l,
+                short s => s,
+                byte b => b,
+                BigInteger bi when bi >= int.MinValue && bi <= int.MaxValue => (int)bi,
+                _ => VisibilityPublic
+            };
+
+            return code switch
+            {
+                VisibilityPrivate => VisibilityPrivate,
+                VisibilityProtected => VisibilityProtected,
+                _ => VisibilityPublic
+            };
+        }
+
+        /// <summary>
+        /// The VisibilityLabel
+        /// </summary>
+        /// <param name="code">The code<see cref="int"/></param>
+        /// <returns>The <see cref="string"/></returns>
+        private static string VisibilityLabel(int code)
+        {
+            return code switch
+            {
+                VisibilityPrivate => "private",
+                VisibilityProtected => "protected",
+                _ => "public"
+            };
+        }
+
+        /// <summary>
+        /// The TryGetDeclaredVisibilityCode
+        /// </summary>
+        /// <param name="ownerType">The ownerType<see cref="StaticInstance"/></param>
+        /// <param name="expectInstance">The expectInstance<see cref="bool"/></param>
+        /// <param name="memberName">The memberName<see cref="string"/></param>
+        /// <param name="code">The code<see cref="int"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool TryGetDeclaredVisibilityCode(
+            StaticInstance ownerType,
+            bool expectInstance,
+            string memberName,
+            out int code)
+        {
+            code = VisibilityPublic;
+            string mapName = expectInstance ? "__vis_inst" : "__vis_static";
+            if (!ownerType.Fields.TryGetValue(mapName, out object? mapObj) || mapObj is not Dictionary<string, object> map)
+                return false;
+
+            if (!map.TryGetValue(memberName, out object? rawCode))
+                return false;
+
+            code = NormalizeVisibilityCode(rawCode);
+            return true;
+        }
+
+        /// <summary>
+        /// The TryResolveDeclaredVisibilityInHierarchy
+        /// </summary>
+        /// <param name="startType">The startType<see cref="StaticInstance"/></param>
+        /// <param name="expectInstance">The expectInstance<see cref="bool"/></param>
+        /// <param name="memberName">The memberName<see cref="string"/></param>
+        /// <param name="ownerType">The ownerType<see cref="StaticInstance"/></param>
+        /// <param name="code">The code<see cref="int"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool TryResolveDeclaredVisibilityInHierarchy(
+            StaticInstance startType,
+            bool expectInstance,
+            string memberName,
+            out StaticInstance ownerType,
+            out int code)
+        {
+            StaticInstance current = startType;
+            while (true)
+            {
+                if (TryGetDeclaredVisibilityCode(current, expectInstance, memberName, out code))
+                {
+                    ownerType = current;
+                    return true;
+                }
+
+                if (!current.Fields.TryGetValue("__base", out object? bObj) || bObj is not StaticInstance baseType)
+                    break;
+
+                current = baseType;
+            }
+
+            ownerType = null!;
+            code = VisibilityPublic;
+            return false;
+        }
+
+        /// <summary>
+        /// The TryResolveInstanceMemberInHierarchy
+        /// </summary>
+        /// <param name="start">The start<see cref="ClassInstance"/></param>
+        /// <param name="memberName">The memberName<see cref="string"/></param>
+        /// <param name="ownerInst">The ownerInst<see cref="ClassInstance"/></param>
+        /// <param name="ownerType">The ownerType<see cref="StaticInstance"/></param>
+        /// <param name="value">The value<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool TryResolveInstanceMemberInHierarchy(
+            ClassInstance start,
+            string memberName,
+            out ClassInstance ownerInst,
+            out StaticInstance? ownerType,
+            out object? value)
+        {
+            ClassInstance current = start;
+            while (true)
+            {
+                if (current.Fields.TryGetValue(memberName, out value))
+                {
+                    ownerInst = current;
+                    ownerType = TryGetStaticType(current, out StaticInstance st) ? st : null;
+                    return true;
+                }
+
+                if (!current.Fields.TryGetValue("__base", out object? bObj) || bObj is not ClassInstance baseInst)
+                    break;
+
+                current = baseInst;
+            }
+
+            ownerInst = null!;
+            ownerType = null;
+            value = null;
+            return false;
+        }
+
+        /// <summary>
+        /// The TryResolveStaticMemberInHierarchy
+        /// </summary>
+        /// <param name="start">The start<see cref="StaticInstance"/></param>
+        /// <param name="memberName">The memberName<see cref="string"/></param>
+        /// <param name="ownerType">The ownerType<see cref="StaticInstance"/></param>
+        /// <param name="value">The value<see cref="object"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool TryResolveStaticMemberInHierarchy(
+            StaticInstance start,
+            string memberName,
+            out StaticInstance ownerType,
+            out object? value)
+        {
+            StaticInstance current = start;
+            while (true)
+            {
+                if (current.Fields.TryGetValue(memberName, out value))
+                {
+                    ownerType = current;
+                    return true;
+                }
+
+                if (!current.Fields.TryGetValue("__base", out object? bObj) || bObj is not StaticInstance baseType)
+                    break;
+
+                current = baseType;
+            }
+
+            ownerType = null!;
+            value = null;
+            return false;
+        }
+
+        /// <summary>
+        /// The GetCurrentAccessorType
+        /// </summary>
+        /// <returns>The <see cref="StaticInstance?"/></returns>
+        private StaticInstance? GetCurrentAccessorType()
+        {
+            if (_callStack.Count > 0)
+            {
+                StaticInstance? frameType = _callStack.Peek().AccessType;
+                if (frameType != null)
+                    return frameType;
+            }
+
+            if (CurrentThis is StaticInstance st)
+                return st;
+
+            if (CurrentThis is ClassInstance inst && TryGetStaticType(inst, out StaticInstance st2))
+                return st2;
+
+            return null;
+        }
+
+        /// <summary>
+        /// The IsSameOrDerivedStaticType
+        /// </summary>
+        /// <param name="candidate">The candidate<see cref="StaticInstance"/></param>
+        /// <param name="baseType">The baseType<see cref="StaticInstance"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsSameOrDerivedStaticType(StaticInstance candidate, StaticInstance baseType)
+        {
+            StaticInstance current = candidate;
+            while (true)
+            {
+                if (ReferenceEquals(current, baseType))
+                    return true;
+
+                if (!current.Fields.TryGetValue("__base", out object? bObj) || bObj is not StaticInstance parent)
+                    break;
+
+                current = parent;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// The IsRuntimeAccessAllowed
+        /// </summary>
+        /// <param name="ownerType">The ownerType<see cref="StaticInstance"/></param>
+        /// <param name="visibilityCode">The visibilityCode<see cref="int"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool IsRuntimeAccessAllowed(StaticInstance ownerType, int visibilityCode)
+        {
+            if (visibilityCode == VisibilityPublic)
+                return true;
+
+            StaticInstance? accessor = GetCurrentAccessorType();
+            if (accessor == null)
+                return false;
+
+            return visibilityCode switch
+            {
+                VisibilityPrivate => ReferenceEquals(accessor, ownerType),
+                VisibilityProtected => IsSameOrDerivedStaticType(accessor, ownerType),
+                _ => true
+            };
+        }
+
+        /// <summary>
+        /// The EnforceRuntimeVisibility
+        /// </summary>
+        /// <param name="ownerType">The ownerType<see cref="StaticInstance"/></param>
+        /// <param name="visibilityCode">The visibilityCode<see cref="int"/></param>
+        /// <param name="memberName">The memberName<see cref="string"/></param>
+        /// <param name="isStatic">The isStatic<see cref="bool"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        private void EnforceRuntimeVisibility(
+            StaticInstance ownerType,
+            int visibilityCode,
+            string memberName,
+            bool isStatic,
+            Instruction instr)
+        {
+            if (visibilityCode == VisibilityPublic)
+                return;
+
+            if (IsRuntimeAccessAllowed(ownerType, visibilityCode))
+                return;
+
+            string kind = isStatic ? "static" : "instance";
+            throw new VMException(
+                $"Runtime error: inaccessible {kind} member '{memberName}' in class '{ownerType.ClassName}': '{VisibilityLabel(visibilityCode)}' access",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+            );
+        }
+
+        /// <summary>
         /// The GetIndexedValue
         /// </summary>
         /// <param name="target">The target<see cref="object"/></param>
@@ -3595,7 +4427,7 @@ namespace CFGS_VM.VMCore
                         if (idxObj is string mname && TryBindIntrinsic(arr, mname, out IntrinsicBound? bound, instr))
                             return bound;
 
-                        int index = Convert.ToInt32(idxObj);
+                        int index = RequireIntIndex(idxObj, instr);
                         if (index < 0 || index >= arr.Count)
                             throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         return arr[index];
@@ -3623,7 +4455,7 @@ namespace CFGS_VM.VMCore
                         if (idxObj is string mname && TryBindIntrinsic(strv, mname, out IntrinsicBound? bound, instr))
                             return bound;
 
-                        int index = Convert.ToInt32(idxObj);
+                        int index = RequireIntIndex(idxObj, instr);
                         if (index < 0 || index >= strv.Length)
                             throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         return (char)strv[index];
@@ -3653,68 +4485,47 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                             );
                         }
-                        if (obj.Fields.TryGetValue(key, out object? fval))
+                        if (TryResolveInstanceMemberInHierarchy(obj, key, out _, out StaticInstance? ownerInstanceType, out object? instanceValue))
                         {
-                            if (fval is Closure clos &&
+                            if (ownerInstanceType != null &&
+                                TryGetDeclaredVisibilityCode(ownerInstanceType, expectInstance: true, key, out int visCode))
+                            {
+                                EnforceRuntimeVisibility(ownerInstanceType, visCode, key, isStatic: false, instr);
+                            }
+
+                            if (instanceValue is Closure clos &&
                                 clos.Parameters.Count > 0 && clos.Parameters[0] == "this")
                             {
-                                return new BoundMethod(clos, obj);
+                                return new BoundMethod(clos, obj, ownerInstanceType);
                             }
-                            return fval;
+
+                            return instanceValue!;
                         }
 
-                        ClassInstance curInst = obj;
-                        while (curInst.Fields.TryGetValue("__base", out object? bObj) && bObj is ClassInstance baseInst)
+                        if (TryGetStaticType(obj, out StaticInstance objType) &&
+                            TryResolveStaticMemberInHierarchy(objType, key, out StaticInstance ownerStaticType, out object? staticValue))
                         {
-                            if (baseInst.Fields.TryGetValue(key, out object? bval))
+                            if (TryGetDeclaredVisibilityCode(ownerStaticType, expectInstance: false, key, out int visCode))
+                                EnforceRuntimeVisibility(ownerStaticType, visCode, key, isStatic: true, instr);
+
+                            if (staticValue is Closure sClos)
                             {
-                                if (bval is Closure bclos &&
-                                    bclos.Parameters.Count > 0 && bclos.Parameters[0] == "this")
+                                if ((sClos.Parameters.Count > 0 && sClos.Parameters[0] == "type") ||
+                                    string.Equals(key, "new", StringComparison.Ordinal))
                                 {
-                                    return new BoundMethod(bclos, obj);
+                                    return new BoundMethod(sClos, objType, ownerStaticType);
                                 }
-                                return bval;
+
+                                return staticValue;
                             }
-                            curInst = baseInst;
+
+                            if (staticValue is StaticInstance nestedType)
+                                return new BoundType(nestedType, obj);
+
+                            return staticValue!;
                         }
 
-                        if (obj.Fields.TryGetValue("__type", out object? tObj) && tObj is StaticInstance st2)
-                        {
-                            if (st2.Fields.TryGetValue(key, out object? sval))
-                            {
-                                if (sval is Closure sClos &&
-                                    sClos.Parameters.Count > 0 && sClos.Parameters[0] == "type")
-                                {
-                                    return new BoundMethod(sClos, st2);
-                                }
-                                if (sval is StaticInstance nestedType)
-                                {
-                                    return new BoundType(nestedType, obj);
-                                }
-                                return sval;
-                            }
-
-                            StaticInstance curType = st2;
-                            while (curType.Fields.TryGetValue("__base", out object? sbObj) && sbObj is StaticInstance baseType)
-                            {
-                                if (baseType.Fields.TryGetValue(key, out object? sv2))
-                                {
-                                    if (sv2 is Closure sClos2 &&
-                                        sClos2.Parameters.Count > 0 && sClos2.Parameters[0] == "type")
-                                    {
-                                        return new BoundMethod(sClos2, st2);
-                                    }
-                                    if (sv2 is StaticInstance nestedType2)
-                                    {
-                                        return new BoundType(nestedType2, obj);
-                                    }
-                                    return sv2;
-                                }
-                                curType = baseType;
-                            }
-                        }
-
-                        throw new VMException($"invalid field '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        throw new VMException($"Runtime error: invalid instance member '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }
 
                 case StaticInstance st:
@@ -3728,29 +4539,19 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                             );
                         }
-                        if (st.Fields.TryGetValue(key, out object? fval))
+                        if (TryResolveStaticMemberInHierarchy(st, key, out StaticInstance ownerStaticType, out object? staticValue))
                         {
-                            if (fval is Closure clos &&
-                                clos.Parameters.Count > 0 && clos.Parameters[0] == "type")
-                            {
-                                return new BoundMethod(clos, st);
-                            }
-                            return fval;
-                        }
+                            if (TryGetDeclaredVisibilityCode(ownerStaticType, expectInstance: false, key, out int visCode))
+                                EnforceRuntimeVisibility(ownerStaticType, visCode, key, isStatic: true, instr);
 
-                        StaticInstance curType = st;
-                        while (curType.Fields.TryGetValue("__base", out object? sbObj) && sbObj is StaticInstance baseType)
-                        {
-                            if (baseType.Fields.TryGetValue(key, out object? bval))
+                            if (staticValue is Closure clos &&
+                                ((clos.Parameters.Count > 0 && clos.Parameters[0] == "type") ||
+                                 string.Equals(key, "new", StringComparison.Ordinal)))
                             {
-                                if (bval is Closure bclos &&
-                                    bclos.Parameters.Count > 0 && bclos.Parameters[0] == "type")
-                                {
-                                    return new BoundMethod(bclos, st);
-                                }
-                                return bval;
+                                return new BoundMethod(clos, st, ownerStaticType);
                             }
-                            curType = baseType;
+
+                            return staticValue!;
                         }
 
                         throw new VMException(
@@ -3799,7 +4600,8 @@ namespace CFGS_VM.VMCore
         /// <param name="idxObj">The idxObj<see cref="object"/></param>
         /// <param name="value">The value<see cref="object"/></param>
         /// <param name="instr">The instr<see cref="Instruction"/></param>
-        private void SetIndexedValue(ref object target, object idxObj, object value, Instruction instr)
+        /// <param name="allowReservedRuntimeSlotWrites">The allowReservedRuntimeSlotWrites<see cref="bool"/></param>
+        private void SetIndexedValue(ref object target, object idxObj, object value, Instruction instr, bool allowReservedRuntimeSlotWrites = false)
         {
             switch (target)
             {
@@ -3820,13 +4622,7 @@ namespace CFGS_VM.VMCore
 
                 case Dictionary<string, object> dict:
                     {
-                        if (IsReservedIntrinsicName(dict, idxObj))
-                            throw new VMException($"Runtime error: key '{idxObj}' is reserved for dictionary intrinsics", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-                        string key = idxObj?.ToString() ?? "";
-                        if (key.Length == 0)
-                            throw new VMException("Runtime error: dictionary key cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
+                        string key = NormalizeDictionaryWriteKey(dict, idxObj, instr);
                         dict[key] = value;
                         break;
                     }
@@ -3837,6 +4633,14 @@ namespace CFGS_VM.VMCore
                         if (key.Length == 0)
                             throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+                        if (IsReservedRuntimeSlotName(key) && !allowReservedRuntimeSlotWrites)
+                        {
+                            throw new VMException(
+                                $"Runtime error: cannot assign to reserved runtime member '{key}'",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+                            );
+                        }
+
                         if (key == "outer")
                         {
                             throw new VMException(
@@ -3844,6 +4648,14 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                             );
                         }
+
+                        if (!allowReservedRuntimeSlotWrites &&
+                            TryGetStaticType(obj, out StaticInstance objType) &&
+                            TryResolveDeclaredVisibilityInHierarchy(objType, expectInstance: true, key, out StaticInstance ownerType, out int visCode))
+                        {
+                            EnforceRuntimeVisibility(ownerType, visCode, key, isStatic: false, instr);
+                        }
+
                         obj.Fields[key] = value;
                         break;
                     }
@@ -3854,6 +4666,14 @@ namespace CFGS_VM.VMCore
                         if (key.Length == 0)
                             throw new VMException("Runtime error: static member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+                        if (IsReservedRuntimeSlotName(key) && !allowReservedRuntimeSlotWrites)
+                        {
+                            throw new VMException(
+                                $"Runtime error: cannot assign to reserved runtime member '{key}'",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+                            );
+                        }
+
                         if (key == "outer")
                         {
                             throw new VMException(
@@ -3861,6 +4681,13 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                             );
                         }
+
+                        if (!allowReservedRuntimeSlotWrites &&
+                            TryResolveDeclaredVisibilityInHierarchy(st, expectInstance: false, key, out StaticInstance ownerType, out int visCode))
+                        {
+                            EnforceRuntimeVisibility(ownerType, visCode, key, isStatic: true, instr);
+                        }
+
                         st.Fields[key] = value;
                         break;
                     }
@@ -3900,16 +4727,7 @@ namespace CFGS_VM.VMCore
             {
                 case List<object> arr:
                     {
-                        int len = arr.Count;
-                        int start = startObj == null ? 0 : Convert.ToInt32(startObj);
-                        int end = endObj == null ? len : Convert.ToInt32(endObj);
-
-                        if (start < 0) start += len;
-                        if (end < 0) end += len;
-
-                        start = Math.Clamp(start, 0, len);
-                        end = Math.Clamp(end, 0, len);
-                        if (end < start) end = start;
+                        (int start, int end) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
 
                         if (start < end)
                             arr.RemoveRange(start, end - start);
@@ -3919,41 +4737,11 @@ namespace CFGS_VM.VMCore
                 case Dictionary<string, object> dict:
                     {
                         List<string> keys = dict.Keys.ToList();
-                        int len = keys.Count;
-
-                        int start = startObj == null ? 0 : Convert.ToInt32(startObj);
-                        int end = endObj == null ? len : Convert.ToInt32(endObj);
-
-                        if (start < 0) start += len;
-                        if (end < 0) end += len;
-
-                        start = Math.Clamp(start, 0, len);
-                        end = Math.Clamp(end, 0, len);
-                        if (end < start) end = start;
+                        (int start, int end) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
 
                         for (int i = end - 1; i >= start; i--)
                             dict.Remove(keys[i]);
 
-                        return;
-                    }
-
-                case string s:
-                    {
-                        int len = s.Length;
-                        int start = startObj == null ? 0 : Convert.ToInt32(startObj);
-                        int end = endObj == null ? len : Convert.ToInt32(endObj);
-
-                        if (start < 0) start += len;
-                        if (end < 0) end += len;
-
-                        start = Math.Clamp(start, 0, len);
-                        end = Math.Clamp(end, 0, len);
-                        if (end < start) end = start;
-
-                        if (start < end)
-                        {
-                            target = s.Substring(0, start) + (end < s.Length ? s.Substring(end) : "");
-                        }
                         return;
                     }
 
@@ -3972,10 +4760,10 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="(int start, int endEx)"/></returns>
         private static (int start, int endEx) NormalizeSliceBounds(object? startObj, object? endObj, int len, Instruction instr)
         {
-            int start = startObj == null ? 0 : Convert.ToInt32(startObj);
+            int start = startObj == null ? 0 : RequireIntIndex(startObj, instr);
             if (start < 0) start += len;
 
-            int endEx = endObj == null ? len : Convert.ToInt32(endObj);
+            int endEx = endObj == null ? len : RequireIntIndex(endObj, instr);
             if (endEx < 0) endEx += len;
 
             start = Math.Clamp(start, 0, len);
@@ -4008,7 +4796,8 @@ namespace CFGS_VM.VMCore
                     desc.ArityMin,
                     desc.ArityMax,
                     (recv, args, ins) => desc.Invoke(recv, args, ins),
-                    smartAwait: desc.SmartAwait
+                    smartAwait: desc.SmartAwait,
+                    nonBlocking: desc.NonBlocking
                 );
                 bound = new IntrinsicBound(adapted, receiver!);
                 return true;
@@ -4016,6 +4805,34 @@ namespace CFGS_VM.VMCore
             bound = null!;
             return false;
         }
+
+        /// <summary>
+        /// The NormalizeDictionaryWriteKey
+        /// </summary>
+        /// <param name="dict">The dict<see cref="Dictionary{string, object}"/></param>
+        /// <param name="idxObj">The idxObj<see cref="object?"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="string"/></returns>
+        private string NormalizeDictionaryWriteKey(Dictionary<string, object> dict, object? idxObj, Instruction instr)
+        {
+            string key = idxObj?.ToString() ?? string.Empty;
+            if (key.Length == 0)
+                throw new VMException("Runtime error: dictionary key cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            if (IsReservedIntrinsicName(dict, key))
+                throw new VMException($"Runtime error: key '{key}' is reserved for dictionary intrinsics", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            return key;
+        }
+
+        /// <summary>
+        /// The IsReservedIntrinsicName
+        /// </summary>
+        /// <param name="receiverType">The receiverType<see cref="Type"/></param>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool IsReservedIntrinsicName(Type receiverType, string name)
+            => Intrinsics.TryGet(receiverType, name, out _);
 
         /// <summary>
         /// The IsReservedIntrinsicName
@@ -4027,8 +4844,17 @@ namespace CFGS_VM.VMCore
         {
             if (idxObj is not string name) return false;
             Type t = receiver?.GetType() ?? typeof(object);
-            return Intrinsics.TryGet(t, name, out _);
+            return IsReservedIntrinsicName(t, name);
         }
+
+        /// <summary>
+        /// The IsReservedRuntimeSlotName
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsReservedRuntimeSlotName(string name)
+            => name.StartsWith("__", StringComparison.Ordinal) ||
+               string.Equals(name, "new", StringComparison.Ordinal);
 
         /// <summary>
         /// Initializes a new instance of the <see cref="VM"/> class.

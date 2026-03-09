@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 # ===== spec_sanity_edge.cfgs (funktional verpackt) =====
 # Edge-case suite focusing on precedence, associativity, short-circuiting,
 # loops/break/continue/finally, closures/classes/nested `outer` binding,
@@ -72,7 +72,7 @@ var z = true ? onlyThen() : onlyElse();
 test("ternary evaluates single branch", z == 11 && t == 1);
 
 # ----------------------------- Loops & Flow --------------------------------
-# continue: kapseln und Ergebnis zurückgeben
+# continue: kapseln und Ergebnis zurÃ¼ckgeben
 func do_continue_skips_evens() {
   var s = "";
   for (var k = 0; k < 5; k = k + 1;) {
@@ -178,3 +178,4 @@ func summary() {
   if (failed == 0) print("ALL OK");
 }
 summary();
+

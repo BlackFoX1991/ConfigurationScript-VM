@@ -1,0 +1,84 @@
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+func finish(tag) {
+    if (failed == 0) {
+        print("ALL PASSED: " + tag);
+    } else {
+        print("FAILED: " + tag + " (" + str(failed) + ")");
+    }
+}
+
+async func delayed_inc(x) {
+    yield;
+    return x + 1;
+}
+
+var trace = "";
+
+async func hot_delay(timer) {
+    trace = trace + "S";
+    var _ = await timer.delay(20, null);
+    trace = trace + "R";
+    return 11;
+}
+
+async func hot_immediate() {
+    trace = trace + "I";
+    return 22;
+}
+
+async func main() {
+    var t = task();
+
+    var a = t.delay(25, 2);
+    var b = t.delay(5, 4);
+    var listRes = await [a, b, 8];
+    assert_eq("await_list_0", listRes[0], 2);
+    assert_eq("await_list_1", listRes[1], 4);
+    assert_eq("await_list_2", listRes[2], 8);
+
+    var dictRes = await {"x": t.delay(5, 10), "y": 3};
+    assert_eq("await_dict_x", dictRes["x"], 10);
+    assert_eq("await_dict_y", dictRes["y"], 3);
+
+    var delayedTask = delayed_inc(9);
+    assert_eq("async_func_returns_task", typeof(delayedTask), "Task<Object>");
+    assert_eq("async_func_with_yield", await delayedTask, 10);
+
+    var delayedHotTask = hot_delay(t);
+    trace = trace + "C";
+    assert_eq("hot_delay_returns_task", typeof(delayedHotTask), "Task<Object>");
+    assert_eq("hot_delay_order_before_await", trace, "SC");
+    assert_eq("hot_delay_result", await delayedHotTask, 11);
+    assert_eq("hot_delay_order_after_await", trace, "SCR");
+
+    var immediateHotTask = hot_immediate();
+    trace = trace + "J";
+    assert_eq("hot_immediate_returns_task", typeof(immediateHotTask), "Task<Object>");
+    assert_eq("hot_immediate_order_before_await", trace, "SCRIJ");
+    assert_eq("hot_immediate_result", await immediateHotTask, 22);
+
+    var acc = 0;
+    var i = 0;
+    while (i < 3) {
+        acc = acc + i;
+        i = i + 1;
+        yield;
+    }
+    assert_eq("yield_loop_acc", acc, 3);
+
+    finish("feature_08_async_await_yield");
+}
+
+var _ = await main();

@@ -61,24 +61,7 @@ namespace CFGS.Web.Http
                 string url = args[0]?.ToString() ?? "";
                 Dictionary<string, object> headers = args.Count >= 2 && args[1] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
-
-                return Task.Run<object?>(async () =>
-                {
-                    using CancellationTokenSource cts = new(timeout);
-                    using HttpRequestMessage req = new(HttpMethod.Get, url);
-
-                    if (HasContentType(headers))
-                        req.Content = new ByteArrayContent(Array.Empty<byte>());
-
-                    ApplyHeaders(req, headers);
-
-                    using HttpResponseMessage resp = await _client
-                        .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
-                        .ConfigureAwait(false);
-
-                    string body = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
-                    return ToVmResponse(resp, body);
-                });
+                return HttpGetAsync(url, headers, timeout);
             }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("http_post", 2, 4, (args, instr) =>
@@ -87,23 +70,7 @@ namespace CFGS.Web.Http
                 string body = args[1]?.ToString() ?? "";
                 Dictionary<string, object> headers = args.Count >= 3 && args[2] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
-
-                return Task.Run<object?>(async () =>
-                {
-                    using CancellationTokenSource cts = new(timeout);
-                    using HttpRequestMessage req = new(HttpMethod.Post, url);
-
-                    req.Content = new StringContent(body, Encoding.UTF8, "text/plain");
-
-                    ApplyHeaders(req, headers);
-
-                    using HttpResponseMessage resp = await _client
-                        .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
-                        .ConfigureAwait(false);
-
-                    string respBody = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
-                    return ToVmResponse(resp, respBody);
-                });
+                return HttpPostAsync(url, body, headers, timeout);
             }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("http_download", 2, 3, (args, instr) =>
@@ -112,15 +79,15 @@ namespace CFGS.Web.Http
                 string path = args[1]?.ToString() ?? "";
                 int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
 
-                bool allowFile = true;
+                bool allowFile = VM.AllowFileIO;
                 try
                 {
-                    Type? t = Type.GetType("CFGS_VM.VMCore.CorePlugin.CFGS_STDLIB, CFGS_VM");
+                    Type? t = Type.GetType("CFGS.StandardLibrary.CFGS_STDLIB, CFGS.StandardLibrary");
                     if (t != null)
                     {
                         System.Reflection.PropertyInfo? p = t.GetProperty("AllowFileIO", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
                         if (p != null && p.PropertyType == typeof(bool))
-                            allowFile = (bool)(p.GetValue(null) ?? true);
+                            allowFile = (bool)(p.GetValue(null) ?? allowFile);
                     }
                 }
                 catch { }
@@ -128,14 +95,7 @@ namespace CFGS.Web.Http
                 if (!allowFile)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
 
-                return Task.Run<object?>(async () =>
-                {
-                    using CancellationTokenSource cts = new(timeout);
-                    byte[] bytes = await _client.GetByteArrayAsync(url, cts.Token).ConfigureAwait(false);
-                    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".");
-                    await File.WriteAllBytesAsync(path, bytes, cts.Token).ConfigureAwait(false);
-                    return (long)bytes.LongLength;
-                });
+                return HttpDownloadAsync(url, path, timeout);
             }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("urlencode", 1, 1, (args, instr) =>
@@ -147,6 +107,71 @@ namespace CFGS.Web.Http
             {
                 return WebUtility.UrlDecode(args[0]?.ToString() ?? "");
             }));
+        }
+
+        /// <summary>
+        /// The HttpGetAsync
+        /// </summary>
+        /// <param name="url">The url<see cref="string"/></param>
+        /// <param name="headers">The headers<see cref="Dictionary{string, object}"/></param>
+        /// <param name="timeout">The timeout<see cref="int"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private static async Task<object?> HttpGetAsync(string url, Dictionary<string, object> headers, int timeout)
+        {
+            using CancellationTokenSource cts = new(timeout);
+            using HttpRequestMessage req = new(HttpMethod.Get, url);
+
+            if (HasContentType(headers))
+                req.Content = new ByteArrayContent(Array.Empty<byte>());
+
+            ApplyHeaders(req, headers);
+
+            using HttpResponseMessage resp = await _client
+                .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
+                .ConfigureAwait(false);
+
+            string body = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            return ToVmResponse(resp, body);
+        }
+
+        /// <summary>
+        /// The HttpPostAsync
+        /// </summary>
+        /// <param name="url">The url<see cref="string"/></param>
+        /// <param name="body">The body<see cref="string"/></param>
+        /// <param name="headers">The headers<see cref="Dictionary{string, object}"/></param>
+        /// <param name="timeout">The timeout<see cref="int"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private static async Task<object?> HttpPostAsync(string url, string body, Dictionary<string, object> headers, int timeout)
+        {
+            using CancellationTokenSource cts = new(timeout);
+            using HttpRequestMessage req = new(HttpMethod.Post, url);
+            req.Content = new StringContent(body, Encoding.UTF8, "text/plain");
+
+            ApplyHeaders(req, headers);
+
+            using HttpResponseMessage resp = await _client
+                .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
+                .ConfigureAwait(false);
+
+            string respBody = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            return ToVmResponse(resp, respBody);
+        }
+
+        /// <summary>
+        /// The HttpDownloadAsync
+        /// </summary>
+        /// <param name="url">The url<see cref="string"/></param>
+        /// <param name="path">The path<see cref="string"/></param>
+        /// <param name="timeout">The timeout<see cref="int"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private static async Task<object?> HttpDownloadAsync(string url, string path, int timeout)
+        {
+            using CancellationTokenSource cts = new(timeout);
+            byte[] bytes = await _client.GetByteArrayAsync(url, cts.Token).ConfigureAwait(false);
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".");
+            await File.WriteAllBytesAsync(path, bytes, cts.Token).ConfigureAwait(false);
+            return (long)bytes.LongLength;
         }
 
         /// <summary>
@@ -236,6 +261,8 @@ namespace CFGS.Web.Http
 
             intrinsics.Register(T, new IntrinsicDescriptor("start", 0, 0, (recv, a, i) => { ((ServerHandle)recv).Start(); return recv!; }));
             intrinsics.Register(T, new IntrinsicDescriptor("stop", 0, 0, (recv, a, i) => { ((ServerHandle)recv).Stop(); return recv!; }));
+            intrinsics.Register(T, new IntrinsicDescriptor("start_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).StartAsync(), smartAwait: true));
+            intrinsics.Register(T, new IntrinsicDescriptor("stop_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).StopAsync(), smartAwait: true));
             intrinsics.Register(T, new IntrinsicDescriptor("is_running", 0, 0, (recv, a, i) => ((ServerHandle)recv).IsRunning));
             intrinsics.Register(T, new IntrinsicDescriptor("pending_count", 0, 0, (recv, a, i) => ((ServerHandle)recv).PendingCount));
 
@@ -244,6 +271,11 @@ namespace CFGS.Web.Http
                 int? timeout = a.Count >= 1 ? Convert.ToInt32(a[0], CultureInfo.InvariantCulture) : (int?)null;
                 return ((ServerHandle)recv).Poll(timeout)!;
             }));
+            intrinsics.Register(T, new IntrinsicDescriptor("poll_async", 0, 1, (recv, a, i) =>
+            {
+                int? timeout = a.Count >= 1 ? Convert.ToInt32(a[0], CultureInfo.InvariantCulture) : (int?)null;
+                return ((ServerHandle)recv).PollAsync(timeout)!;
+            }, smartAwait: true));
 
             intrinsics.Register(T, new IntrinsicDescriptor("respond", 3, 4, (recv, a, i) =>
             {
@@ -253,8 +285,17 @@ namespace CFGS.Web.Http
                 Dictionary<string, object>? headers = a.Count >= 4 && a[3] is Dictionary<string, object> d ? d : null;
                 return ((ServerHandle)recv).Respond(id, status, body, headers);
             }));
+            intrinsics.Register(T, new IntrinsicDescriptor("respond_async", 3, 4, (recv, a, i) =>
+            {
+                string id = a[0]?.ToString() ?? "";
+                int status = Convert.ToInt32(a[1], CultureInfo.InvariantCulture);
+                string body = a[2]?.ToString() ?? "";
+                Dictionary<string, object>? headers = a.Count >= 4 && a[3] is Dictionary<string, object> d ? d : null;
+                return ((ServerHandle)recv).RespondAsync(id, status, body, headers);
+            }, smartAwait: true));
 
             intrinsics.Register(T, new IntrinsicDescriptor("close", 0, 0, (recv, a, i) => { ((ServerHandle)recv).Close(); return 1; }));
+            intrinsics.Register(T, new IntrinsicDescriptor("close_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).CloseAsync(), smartAwait: true));
         }
 
         /// <summary>
@@ -339,13 +380,29 @@ namespace CFGS.Web.Http
             /// </summary>
             public void Start()
             {
-                if (_running) return;
+                _ = StartAsync().GetAwaiter().GetResult();
+            }
+
+            /// <summary>
+            /// The Stop
+            /// </summary>
+            public void Stop()
+            {
+                _ = StopAsync().GetAwaiter().GetResult();
+            }
+
+            /// <summary>
+            /// The StartAsync
+            /// </summary>
+            /// <returns>The <see cref="Task{object?}"/></returns>
+            public async Task<object?> StartAsync()
+            {
+                if (_running) return this;
 
                 if (ActiveByPort.TryGetValue(_port, out ServerHandle? prev) && !ReferenceEquals(prev, this))
                 {
-                    try { prev.Stop(); } catch { }
-                    try { prev.Close(); } catch { }
-                    Thread.Sleep(100);
+                    try { await prev.StopAsync().ConfigureAwait(false); } catch { }
+                    try { await prev.CloseAsync().ConfigureAwait(false); } catch { }
                 }
 
                 ActiveByPort[_port] = this;
@@ -364,19 +421,28 @@ namespace CFGS.Web.Http
                 }
 
                 _running = true;
-                _loop = Task.Run(LoopAsync);
+                _loop = LoopAsync();
+                return this;
             }
 
             /// <summary>
-            /// The Stop
+            /// The StopAsync
             /// </summary>
-            public void Stop()
+            /// <returns>The <see cref="Task{object?}"/></returns>
+            public async Task<object?> StopAsync()
             {
-                if (!_running) return;
+                if (!_running) return this;
                 _running = false;
                 _cts.Cancel();
                 try { _listener.Stop(); } catch { }
-                try { _loop?.Wait(2000); } catch { }
+
+                Task? loop = _loop;
+                if (loop != null)
+                {
+                    try { await Task.WhenAny(loop, Task.Delay(2000)).ConfigureAwait(false); } catch { }
+                }
+
+                return this;
             }
 
             /// <summary>
@@ -384,15 +450,29 @@ namespace CFGS.Web.Http
             /// </summary>
             public void Close()
             {
-                try { Stop(); } catch { }
+                _ = CloseAsync().GetAwaiter().GetResult();
+            }
 
-                try { _noActiveResponses.Wait(TimeSpan.FromSeconds(2)); } catch { }
+            /// <summary>
+            /// The CloseAsync
+            /// </summary>
+            /// <returns>The <see cref="Task{object?}"/></returns>
+            public async Task<object?> CloseAsync()
+            {
+                try { await StopAsync().ConfigureAwait(false); } catch { }
+
+                try
+                {
+                    System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+                    while (Volatile.Read(ref _activeResponses) > 0 && sw.ElapsedMilliseconds < 2000)
+                        await Task.Delay(10).ConfigureAwait(false);
+                }
+                catch { }
 
                 try { _listener.Close(); } catch { }
-                Thread.Sleep(100);
                 _cts.Dispose();
-
                 ActiveByPort.TryRemove(_port, out _);
+                return 1;
             }
 
             /// <summary>
@@ -401,6 +481,17 @@ namespace CFGS.Web.Http
             /// <param name="timeoutMs">The timeoutMs<see cref="int?"/></param>
             /// <returns>The <see cref="Dictionary{string, object}?"/></returns>
             public Dictionary<string, object>? Poll(int? timeoutMs = null)
+            {
+                object? polled = PollAsync(timeoutMs).GetAwaiter().GetResult();
+                return polled as Dictionary<string, object>;
+            }
+
+            /// <summary>
+            /// The PollAsync
+            /// </summary>
+            /// <param name="timeoutMs">The timeoutMs<see cref="int?"/></param>
+            /// <returns>The <see cref="Task{object?}"/></returns>
+            public async Task<object?> PollAsync(int? timeoutMs = null)
             {
                 if (_queue.TryDequeue(out string? id))
                     return TryBuildRequestDict(id);
@@ -412,8 +503,11 @@ namespace CFGS.Web.Http
                     {
                         if (_queue.TryDequeue(out id))
                             return TryBuildRequestDict(id);
-                        Thread.Sleep(10);
                         if (!_running) break;
+
+                        int remaining = timeoutMs.Value - (int)sw.ElapsedMilliseconds;
+                        int delayMs = Math.Clamp(remaining, 1, 10);
+                        await Task.Delay(delayMs).ConfigureAwait(false);
                     }
                 }
                 return null;
@@ -428,6 +522,20 @@ namespace CFGS.Web.Http
             /// <param name="headers">The headers<see cref="Dictionary{string, object}?"/></param>
             /// <returns>The <see cref="int"/></returns>
             public int Respond(string id, int status, string body, Dictionary<string, object>? headers)
+            {
+                object? response = RespondAsync(id, status, body, headers).GetAwaiter().GetResult();
+                return Convert.ToInt32(response ?? 0, CultureInfo.InvariantCulture);
+            }
+
+            /// <summary>
+            /// The RespondAsync
+            /// </summary>
+            /// <param name="id">The id<see cref="string"/></param>
+            /// <param name="status">The status<see cref="int"/></param>
+            /// <param name="body">The body<see cref="string"/></param>
+            /// <param name="headers">The headers<see cref="Dictionary{string, object}?"/></param>
+            /// <returns>The <see cref="Task{object?}"/></returns>
+            public async Task<object?> RespondAsync(string id, int status, string body, Dictionary<string, object>? headers)
             {
                 if (!_inflight.TryRemove(id, out HttpListenerContext? ctx))
                     return 0;
@@ -480,10 +588,10 @@ namespace CFGS.Web.Http
                         while (off < payload.Length)
                         {
                             int n = Math.Min(64 * 1024, payload.Length - off);
-                            s.Write(payload, off, n);
+                            await s.WriteAsync(payload.AsMemory(off, n)).ConfigureAwait(false);
                             off += n;
                         }
-                        s.Flush();
+                        await s.FlushAsync().ConfigureAwait(false);
                     }
                 }
                 catch (ObjectDisposedException)
@@ -598,3 +706,4 @@ namespace CFGS.Web.Http
         }
     }
 }
+

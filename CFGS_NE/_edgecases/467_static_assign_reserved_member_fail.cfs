@@ -1,0 +1,7 @@
+class C() {
+    static func bad() {
+        type["__base"] = 1;
+    }
+}
+
+C.bad();

@@ -1,0 +1,32 @@
+[
+    {
+        "File":  "C:\\Users\\loewe\\source\\repos\\CFGS_NE\\CFGS_NE\\Samples\\Http_Tests\\framework.cfs",
+        "Status":  "PASS",
+        "Snippet":  "Fehler beim Hinzufügen von \"C:\\Users\\CodexSandboxOffline\\.dotnet\\tools\" zur PATH-Umgebungsvariable. Fügen Sie dieses Verzeichnis Ihrem PATH hinzu, um mit \"dotnet tool install\" installierte Tools zu verwenden. |  | System.UnauthorizedAccessException: Access to the path \u0027C:\\Users\\CodexSandboxOffline\\.dotnet\\10.0.103.toolpath.sentinel\u0027 is denied. |    at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options) |    at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode) |    at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)"
+    },
+    {
+        "File":  "C:\\Users\\loewe\\source\\repos\\CFGS_NE\\CFGS_NE\\Samples\\Http_Tests\\framework_test.cfs",
+        "Status":  "PASS",
+        "Snippet":  "Fehler beim Hinzufügen von \"C:\\Users\\CodexSandboxOffline\\.dotnet\\tools\" zur PATH-Umgebungsvariable. Fügen Sie dieses Verzeichnis Ihrem PATH hinzu, um mit \"dotnet tool install\" installierte Tools zu verwenden. |  | System.UnauthorizedAccessException: Access to the path \u0027C:\\Users\\CodexSandboxOffline\\.dotnet\\10.0.103.toolpath.sentinel\u0027 is denied. |    at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options) |    at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode) |    at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)"
+    },
+    {
+        "File":  "C:\\Users\\loewe\\source\\repos\\CFGS_NE\\CFGS_NE\\Samples\\Http_Tests\\http.cfs",
+        "Status":  "PASS",
+        "Snippet":  "Fehler beim Hinzufügen von \"C:\\Users\\CodexSandboxOffline\\.dotnet\\tools\" zur PATH-Umgebungsvariable. Fügen Sie dieses Verzeichnis Ihrem PATH hinzu, um mit \"dotnet tool install\" installierte Tools zu verwenden. |  | System.UnauthorizedAccessException: Access to the path \u0027C:\\Users\\CodexSandboxOffline\\.dotnet\\10.0.103.toolpath.sentinel\u0027 is denied. |    at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options) |    at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode) |    at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)"
+    },
+    {
+        "File":  "C:\\Users\\loewe\\source\\repos\\CFGS_NE\\CFGS_NE\\Samples\\Http_Tests\\md_render.cfs",
+        "Status":  "PASS",
+        "Snippet":  "Fehler beim Hinzufügen von \"C:\\Users\\CodexSandboxOffline\\.dotnet\\tools\" zur PATH-Umgebungsvariable. Fügen Sie dieses Verzeichnis Ihrem PATH hinzu, um mit \"dotnet tool install\" installierte Tools zu verwenden. |  | System.UnauthorizedAccessException: Access to the path \u0027C:\\Users\\CodexSandboxOffline\\.dotnet\\10.0.103.toolpath.sentinel\u0027 is denied. |    at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options) |    at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode) |    at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)"
+    },
+    {
+        "File":  "C:\\Users\\loewe\\source\\repos\\CFGS_NE\\CFGS_NE\\Samples\\Http_Tests\\md_render_test.cfs",
+        "Status":  "PASS",
+        "Snippet":  "Fehler beim Hinzufügen von \"C:\\Users\\CodexSandboxOffline\\.dotnet\\tools\" zur PATH-Umgebungsvariable. Fügen Sie dieses Verzeichnis Ihrem PATH hinzu, um mit \"dotnet tool install\" installierte Tools zu verwenden. |  | System.UnauthorizedAccessException: Access to the path \u0027C:\\Users\\CodexSandboxOffline\\.dotnet\\10.0.103.toolpath.sentinel\u0027 is denied. |    at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options) |    at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode) |    at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)"
+    },
+    {
+        "File":  "C:\\Users\\loewe\\source\\repos\\CFGS_NE\\CFGS_NE\\Samples\\tool_scripts\\bloomRepl.cfs",
+        "Status":  "PASS",
+        "Snippet":  "Fehler beim Hinzufügen von \"C:\\Users\\CodexSandboxOffline\\.dotnet\\tools\" zur PATH-Umgebungsvariable. Fügen Sie dieses Verzeichnis Ihrem PATH hinzu, um mit \"dotnet tool install\" installierte Tools zu verwenden. |  | System.UnauthorizedAccessException: Access to the path \u0027C:\\Users\\CodexSandboxOffline\\.dotnet\\10.0.103.toolpath.sentinel\u0027 is denied. |    at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options) |    at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode) |    at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)"
+    }
+]

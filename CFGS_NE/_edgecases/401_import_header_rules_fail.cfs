@@ -1,0 +1,3 @@
+var x = 1;
+import "_imports/mod_extra.cfs";
+print(x);

@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 # ===== Tokens / AST / Nodes =====
 
 enum TType
@@ -336,7 +336,7 @@ class Lexer
 }
 
 # ===== Parser (recursive descent)
-# Precedence (low → high):
+# Precedence (low â†’ high):
 #   OR (||)
 #   AND (&&)
 #   COMP (< <= > >=)
@@ -642,7 +642,7 @@ func main()
     assert_eq("2 ^ 3",         eval_expr("2 ^ 3"),         8);
     assert_eq("2 ^ 3 ^ 2",     eval_expr("2 ^ 3 ^ 2"),     512);   # rechtsassoziativ: 2^(3^2)
     assert_eq("2 + 3 ^ 2 * 2", eval_expr("2 + 3 ^ 2 * 2"), 20);    # 2 + (9*2)
-    assert_eq("-3^2",     eval_expr("-3^2"),    -9);   # nur wenn ^ über unär
+    assert_eq("-3^2",     eval_expr("-3^2"),    -9);   # nur wenn ^ Ã¼ber unÃ¤r
     assert_eq("(-3)^2",   eval_expr("(-3)^2"),   9);
     assert_eq("2^(3^2)",  eval_expr("2^(3^2)"), 512);
 

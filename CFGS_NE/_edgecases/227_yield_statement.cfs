@@ -1,0 +1,47 @@
+import "edge_assert.cfs";
+
+edge_begin("227_yield_statement");
+
+async func step_once() {
+    var x = 1;
+    yield;
+    x = x + 1;
+    return x;
+}
+
+async func loop_sum(n) {
+    var i = 0;
+    var s = 0;
+    while (i < n) {
+        s = s + i;
+        i = i + 1;
+        yield;
+    }
+    return s;
+}
+
+async func yield_in_try_finally() {
+    var v = 0;
+    try {
+        v = 1;
+        yield;
+        v = v + 1;
+    } finally {
+        v = v + 10;
+    }
+    return v;
+}
+
+var stepTask = step_once();
+edge_eq("yield_basic_returns_task", typeof(stepTask), "Task<Object>");
+edge_eq("yield_basic", await stepTask, 2);
+
+var loopTask = loop_sum(5);
+edge_eq("yield_loop_sum_returns_task", typeof(loopTask), "Task<Object>");
+edge_eq("yield_loop_sum", await loopTask, 10);
+
+var tryFinallyTask = yield_in_try_finally();
+edge_eq("yield_try_finally_returns_task", typeof(tryFinallyTask), "Task<Object>");
+edge_eq("yield_try_finally", await tryFinallyTask, 12);
+
+edge_finish("227_yield_statement");

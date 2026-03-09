@@ -1,12 +1,75 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
 func main()
 {
-	var dict = [3,2,1,[5,5,3],12];
-
-	foreach (var kvp in dict)
+	var arr = [3, 2, 1];
+	var sum_value = 0;
+	foreach (var v in arr)
 	{
-		print(kvp);
+		sum_value = sum_value + v;
+	}
+	assert_eq("foreach_value_array", sum_value, 6);
+
+	var sum_pair = 0;
+	foreach (var i, v in arr)
+	{
+		sum_pair = sum_pair + (i * 10) + v;
+	}
+	assert_eq("foreach_pair_array", sum_pair, 36);
+
+	var i = -1;
+	var v = -1;
+	var hit = 0;
+	foreach (i, v in [4, 5])
+	{
+		hit = hit + i + v;
+	}
+	assert_eq("foreach_pair_assign_array", hit, 10);
+
+	var dict = {"a": 7, "b": 9};
+	var count_dict = 0;
+	var sum_dict = 0;
+	foreach (var k, val in dict)
+	{
+		if (k != null) count_dict = count_dict + 1;
+		sum_dict = sum_dict + val;
+	}
+	assert_eq("foreach_pair_dict_count", count_dict, 2);
+	assert_eq("foreach_pair_dict_sum", sum_dict, 16);
+
+	var pairs = [[1, 2], [3, 4]];
+	var prod_sum = 0;
+	foreach (var [a, b] in pairs)
+	{
+		prod_sum = prod_sum + (a * b);
+	}
+	assert_eq("foreach_destructure_array", prod_sum, 14);
+
+	var obj_list = [{"x": 1, "y": 5}, {"x": 2, "y": 6}];
+	var dict_ds_total = 0;
+	foreach (var {x, y: yy} in obj_list)
+	{
+		dict_ds_total = dict_ds_total + x + yy;
+	}
+	assert_eq("foreach_destructure_dict", dict_ds_total, 14);
+
+	if (failed == 0) {
+		print("ALL PASSED: foreach.cfs");
+	} else {
+		print("FAILED: foreach.cfs (" + str(failed) + ")");
 	}
 }
 
 main();
+

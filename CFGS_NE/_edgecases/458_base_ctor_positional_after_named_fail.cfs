@@ -1,0 +1,6 @@
+class Base() {
+    func init(a, b) { }
+}
+
+class Child() : Base(a: 1, 2) {
+}

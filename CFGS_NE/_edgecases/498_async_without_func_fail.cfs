@@ -1,0 +1,3 @@
+import "CFGS.StandardLibrary.dll";
+
+async var x = 1;

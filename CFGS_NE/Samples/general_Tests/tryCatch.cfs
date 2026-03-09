@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 # === Helper (wie zuvor) ===
 func expect(name, got, exp)
 {
@@ -13,7 +13,7 @@ func expect(name, got, exp)
 
 # === Edge-Tests ===
 
-# E1: throw im finally überschreibt return aus try (über äußerem catch nachweisbar)
+# E1: throw im finally Ã¼berschreibt return aus try (Ã¼ber Ã¤uÃŸerem catch nachweisbar)
 func e1_throw_in_finally_overrides_return()
 {
     try {
@@ -24,7 +24,7 @@ func e1_throw_in_finally_overrides_return()
 }
 
 # E2: rethrow im catch; inner finally & outer finally laufen der Reihe nach
-# Erwartete Log-Reihenfolge: "innerC", "innerF", "outerF" und Rückgabewert 5
+# Erwartete Log-Reihenfolge: "innerC", "innerF", "outerF" und RÃ¼ckgabewert 5
 func e2_rethrow_runs_both_finally()
 {
     var log = "";
@@ -53,7 +53,7 @@ func e2_rethrow_runs_both_finally()
     return val;                 # 5
 }
 
-# E3: return im finally überschreibt return im catch
+# E3: return im finally Ã¼berschreibt return im catch
 func e3_finally_overrides_catch_return()
 {
     try { throw 7; }
@@ -61,8 +61,8 @@ func e3_finally_overrides_catch_return()
     finally { return 2; }       # erwartet: 2
 }
 
-# E4: äußeres finally-return überschreibt inneres pending return
-# Reihenfolge: inner finally läuft, danach outer finally return -> 4
+# E4: Ã¤uÃŸeres finally-return Ã¼berschreibt inneres pending return
+# Reihenfolge: inner finally lÃ¤uft, danach outer finally return -> 4
 func e4_outer_finally_overrides_inner_return()
 {
     try {
@@ -70,12 +70,12 @@ func e4_outer_finally_overrides_inner_return()
         finally { print("LOG e4: innerF"); }
     }
     finally {
-        return 4;               # überschreibt 3
+        return 4;               # Ã¼berschreibt 3
     }
 }
 
 # (Optional) E5: catch ohne Identifier + finally
-# zeigt, dass catch() funktioniert und finally trotzdem läuft
+# zeigt, dass catch() funktioniert und finally trotzdem lÃ¤uft
 func e5_catch_without_ident_and_finally()
 {
     var log = "";
@@ -85,18 +85,18 @@ func e5_catch_without_ident_and_finally()
     print("LOG e5: " + log);   # "CF"
     return log;                 # "CF"
 }
-# E6: throw in inner finally -> wird von äußerem catch gefangen; outer finally läuft trotzdem
-# Erwartete Log-Reihenfolge: "innerF", "outerC", "outerF" und Rückgabewert 42
+# E6: throw in inner finally -> wird von Ã¤uÃŸerem catch gefangen; outer finally lÃ¤uft trotzdem
+# Erwartete Log-Reihenfolge: "innerF", "outerC", "outerF" und RÃ¼ckgabewert 42
 func e6_inner_finally_throw_caught_by_outer_catch_and_outer_finally_runs()
 {
     var log = "";
     try {
         try {
-            return 0;                # pending return, wird vom inneren finally überschrieben
+            return 0;                # pending return, wird vom inneren finally Ã¼berschrieben
         }
         finally {
             log = log + "innerF";
-            throw 42;                # überschreibt das pending return und propagiert nach außen
+            throw 42;                # Ã¼berschreibt das pending return und propagiert nach auÃŸen
         }
     }
     catch(e) {
@@ -108,14 +108,14 @@ func e6_inner_finally_throw_caught_by_outer_catch_and_outer_finally_runs()
         print("LOG e6: " + log);     # "innerFouterCouterF"
     }
 }
-# E7: inner finally throws A, outer finally throws B -> äußere Exception maskiert innere
-# Erwartete Log-Reihenfolge: "innerFouterF" und Rückgabewert 2 (vom äußeren throw)
+# E7: inner finally throws A, outer finally throws B -> Ã¤uÃŸere Exception maskiert innere
+# Erwartete Log-Reihenfolge: "innerFouterF" und RÃ¼ckgabewert 2 (vom Ã¤uÃŸeren throw)
 func e7_outer_finally_masks_inner_finally_throw()
 {
     var log = "";
     try {
         try {
-            throw -1;                 # irgendwas, wird vom inner finally überschrieben
+            throw -1;                 # irgendwas, wird vom inner finally Ã¼berschrieben
         }
         finally {
             log = log + "innerF";
@@ -136,7 +136,7 @@ func e7_wrapper()
     }
     catch(e) {
         print("LOG e7: innerFouterF");
-        return e;                    # erwartet: 2 (äußeres finally maskiert)
+        return e;                    # erwartet: 2 (Ã¤uÃŸeres finally maskiert)
     }
 }
 
@@ -162,3 +162,4 @@ func run_edge_try_tests()
 
 # Aufrufen:
 run_edge_try_tests();
+

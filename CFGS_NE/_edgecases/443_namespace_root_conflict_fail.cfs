@@ -1,0 +1,7 @@
+func Core() {
+    return 1;
+}
+
+namespace Core.App {
+    var x = 1;
+}

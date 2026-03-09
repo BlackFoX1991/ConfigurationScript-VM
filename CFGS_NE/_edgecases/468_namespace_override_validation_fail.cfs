@@ -1,0 +1,9 @@
+namespace N {
+    class Child(): Base {
+        func ping() { return 2; }
+    }
+
+    class Base() {
+        static func ping() { return 1; }
+    }
+}

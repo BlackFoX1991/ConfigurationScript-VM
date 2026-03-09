@@ -1,0 +1,7 @@
+namespace N {
+    class C() {
+        var token = 1;
+    }
+}
+
+var x = N.C.token;

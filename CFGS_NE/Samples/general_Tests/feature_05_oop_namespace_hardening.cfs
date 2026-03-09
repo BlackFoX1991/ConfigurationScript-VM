@@ -1,0 +1,126 @@
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual != expected) {
+        throw "ASSERT_FAIL:" + name;
+    }
+}
+
+func finish(tag) {
+    return tag;
+}
+
+# ---------------------------------------------------------------------------
+# namespaces
+# ---------------------------------------------------------------------------
+namespace App.Tools {
+    func clamp(x, lo, hi) {
+        if (x < lo) { return lo; }
+        if (x > hi) { return hi; }
+        return x;
+    }
+
+    class Box(v) {
+        var value = 0;
+        func init(v) { this.value = v; }
+        func get() { return this.value; }
+    }
+}
+
+assert_eq("namespace_func", App.Tools.clamp(99, 0, 10), 10);
+var nsBox = new App.Tools.Box(7);
+assert_eq("namespace_class", nsBox.get(), 7);
+
+# ---------------------------------------------------------------------------
+# static/instance + overrides
+# ---------------------------------------------------------------------------
+class Meter(v) {
+    static var Scale = 10;
+    var value = 0;
+
+    func init(v) { this.value = v; }
+
+    func scaled() {
+        return this.value * type.Scale;
+    }
+
+    static func make(v) {
+        return new Meter(v);
+    }
+}
+
+class BaseCalc(seed) {
+    var seed = 0;
+    func init(seed) { this.seed = seed; }
+    func score(a, b = 1) { return this.seed + a + b; }
+    static func tag(x = 1) { return x + 1; }
+}
+
+class FancyCalc(seed) : BaseCalc(seed) {
+    func score(a, b = 1) {
+        return super.score(a, b) + this.seed;
+    }
+
+    static func tag(x = 1) {
+        return super.tag(x) + 1;
+    }
+}
+
+var meter = Meter.make(3);
+assert_eq("instance_reads_static", meter.scaled(), 30);
+
+var fancy = new FancyCalc(5);
+assert_eq("override_instance", fancy.score(2), 13);
+assert_eq("override_static", FancyCalc.tag(5), 7);
+
+# ---------------------------------------------------------------------------
+# constructor flow hardening
+# ---------------------------------------------------------------------------
+class SpreadBase() {
+    var total = 0;
+    func init(a, b = 2, c = 0) { this.total = a + b + c; }
+}
+
+class NamedChild() : SpreadBase(a: 3, b: 4) {
+    func get() { return this.total; }
+}
+
+class SpreadChild() : SpreadBase(*[3, 4, 9]) {
+    func get() { return this.total; }
+}
+
+assert_eq("base_ctor_named", (new NamedChild()).get(), 7);
+assert_eq("base_ctor_spread", (new SpreadChild()).get(), 16);
+
+# ---------------------------------------------------------------------------
+# nested constructor + object initializer
+# ---------------------------------------------------------------------------
+class Outer(seed) {
+    var seed = 0;
+    func init(seed) { this.seed = seed; }
+
+    class Inner(add) {
+        var add = 0;
+        func init(add) { this.add = add; }
+        func total() { return outer.seed + this.add; }
+    }
+}
+
+class Config(host, port) {
+    var host = "";
+    var port = 0;
+    func init(host, port) {
+        this.host = host;
+        this.port = port;
+    }
+}
+
+var outerObj = new Outer(40);
+var inner = outerObj.Inner(2);
+assert_eq("nested_outer_binding", inner.total(), 42);
+
+var cfg = new Config("localhost", 80) { host: "api.local", port: 443 };
+assert_eq("initializer_known_host", cfg.host, "api.local");
+assert_eq("initializer_known_port", cfg.port, 443);
+
+finish("feature_05_oop_namespace_hardening");

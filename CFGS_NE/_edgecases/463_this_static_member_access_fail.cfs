@@ -1,0 +1,10 @@
+class C() {
+    static var token = 1;
+
+    func read() {
+        return this.token;
+    }
+}
+
+var c = new C();
+c.read();

@@ -1,0 +1,55 @@
+import "edge_assert.cfs";
+
+edge_begin("220_member_access_and_initializer_valid");
+
+namespace Demo.Core {
+    class Box(v) {
+        var value = 0;
+        func init(v) { this.value = v; }
+        func get() { return this.value; }
+    }
+
+    func twice(x) { return x * 2; }
+}
+
+class Meter(v) {
+    static var scale = 10;
+    var value = 0;
+    func init(v) { this.value = v; }
+    func scaled() { return this.value * type.scale; }
+}
+
+class Base(seed) {
+    var seed = 0;
+    func init(seed) { this.seed = seed; }
+    func calc(a, b = 1) { return this.seed + a + b; }
+}
+
+class Child(seed) : Base(seed) {
+    func calc(a, b = 1) { return super.calc(a, b) + this.seed; }
+}
+
+class Config(host, port) {
+    var host = "";
+    var port = 0;
+    func init(host, port) {
+        this.host = host;
+        this.port = port;
+    }
+    func key() { return this.host + ":" + str(this.port); }
+}
+
+var box = new Demo.Core.Box(6);
+edge_eq("namespace_class_valid", box.get(), 6);
+edge_eq("namespace_func_valid", Demo.Core.twice(4), 8);
+
+var meter = new Meter(3);
+edge_eq("member_access_valid", meter.scaled(), 30);
+
+var child = new Child(5);
+edge_eq("override_and_super_valid", child.calc(2), 13);
+
+var cfg = new Config("localhost", 80) { host: "api.local", port: 443 };
+edge_eq("initializer_valid", cfg.key(), "api.local:443");
+
+edge_finish("220_member_access_and_initializer_valid");

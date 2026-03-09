@@ -1,0 +1,85 @@
+import "edge_assert.cfs";
+
+edge_begin("301_try_throw_finally");
+
+func throw_value_roundtrip() {
+    try {
+        throw 9;
+    } catch(e) {
+        return e;
+    }
+}
+edge_eq("throw_payload_preserved", throw_value_roundtrip(), 9);
+
+func catch_without_ident_and_finally() {
+    var log = "";
+    try {
+        throw "X";
+    } catch() {
+        log = log + "C";
+    } finally {
+        log = log + "F";
+    }
+    return log;
+}
+edge_eq("catch_without_ident", catch_without_ident_and_finally(), "CF");
+
+func throw_in_finally_overrides_return() {
+    try {
+        try { return 1; }
+        finally { throw 7; }
+    } catch(e) {
+        return e;
+    }
+}
+edge_eq("throw_in_finally_overrides_return", throw_in_finally_overrides_return(), 7);
+
+func return_in_finally_overrides_catch_return() {
+    try {
+        throw 1;
+    } catch(e) {
+        return 2;
+    } finally {
+        return 3;
+    }
+}
+edge_eq("return_in_finally_overrides", return_in_finally_overrides_catch_return(), 3);
+
+func rethrow_runs_finally_chain() {
+    var log = "";
+    try {
+        try {
+            throw 5;
+        } catch(e) {
+            log = log + "C";
+            throw e;
+        } finally {
+            log = log + "F";
+        }
+    } catch(e) {
+        log = log + "O";
+        return str(e) + "|" + log;
+    }
+    return "bad";
+}
+edge_eq("rethrow_finally_chain", rethrow_runs_finally_chain(), "5|CFO");
+
+func inner_finally_throw_outer_catch() {
+    var log = "";
+    try {
+        try {
+            return 0;
+        } finally {
+            log = log + "I";
+            throw 42;
+        }
+    } catch(e) {
+        log = log + "C";
+        return str(e) + "|" + log;
+    } finally {
+        log = log + "F";
+    }
+}
+edge_eq("inner_finally_throw_outer_catch", inner_finally_throw_outer_catch(), "42|IC");
+
+edge_finish("301_try_throw_finally");

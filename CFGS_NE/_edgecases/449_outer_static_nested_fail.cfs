@@ -1,0 +1,9 @@
+class Outer() {
+    class Inner() {
+        static func bad() {
+            return outer;
+        }
+    }
+}
+
+Outer.Inner.bad();

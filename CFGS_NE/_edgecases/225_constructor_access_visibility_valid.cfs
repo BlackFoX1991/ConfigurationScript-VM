@@ -1,0 +1,28 @@
+import "edge_assert.cfs";
+
+edge_begin("225_constructor_access_visibility_valid");
+
+class Vault(v) {
+    var x = 0;
+    private func init(v) { this.x = v; }
+    static func make(v) { return new Vault(v); }
+    func get() { return this.x; }
+}
+
+class Base(v) {
+    var x = 0;
+    protected func init(v) { this.x = v; }
+    func get() { return this.x; }
+}
+
+class Child(v) : Base(v) {
+    func read() { return this.get(); }
+}
+
+var made = Vault.make(5);
+var child = new Child(9);
+
+edge_eq("private_ctor_internal_factory", made.get(), 5);
+edge_eq("protected_ctor_from_derived", child.read(), 9);
+
+edge_finish("225_constructor_access_visibility_valid");

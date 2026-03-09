@@ -1,0 +1,5 @@
+import "mod_shared_dep.cfs";
+
+export func fromB(v) {
+    return shared_add(v) + 20;
+}

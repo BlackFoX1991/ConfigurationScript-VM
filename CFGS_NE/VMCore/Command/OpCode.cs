@@ -91,6 +91,11 @@
         VAR_DECL,
 
         /// <summary>
+        /// Defines the CONST_DECL
+        /// </summary>
+        CONST_DECL,
+
+        /// <summary>
         /// Defines the LOAD_INDEX
         /// </summary>
         LOAD_INDEX,
@@ -119,6 +124,11 @@
         /// Defines the INDEX_SET
         /// </summary>
         INDEX_SET,
+
+        /// <summary>
+        /// Defines the INDEX_SET_INTERNAL
+        /// </summary>
+        INDEX_SET_INTERNAL,
 
         /// <summary>
         /// Defines the NEW_DICT
@@ -346,9 +356,34 @@
         IS_DICT,
 
         /// <summary>
+        /// Defines the IS_ARRAY
+        /// </summary>
+        IS_ARRAY,
+
+        /// <summary>
+        /// Defines the LEN
+        /// </summary>
+        LEN,
+
+        /// <summary>
+        /// Defines the HAS_KEY
+        /// </summary>
+        HAS_KEY,
+
+        /// <summary>
         /// Defines the CALL
         /// </summary>
         CALL,
+
+        /// <summary>
+        /// Defines the MAKE_NAMED_ARG
+        /// </summary>
+        MAKE_NAMED_ARG,
+
+        /// <summary>
+        /// Defines the MAKE_SPREAD_ARG
+        /// </summary>
+        MAKE_SPREAD_ARG,
 
         /// <summary>
         /// Defines the RET
@@ -374,5 +409,10 @@
         /// Defines the AWAIT
         /// </summary>
         AWAIT,
+
+        /// <summary>
+        /// Defines the YIELD
+        /// </summary>
+        YIELD,
     }
 }

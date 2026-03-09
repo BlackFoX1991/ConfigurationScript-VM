@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 class abc {
     var a = [];
     func init() {
@@ -11,3 +11,4 @@ class abc {
 }
 
 print(new abc().a);
+

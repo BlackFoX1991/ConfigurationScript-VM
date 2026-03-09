@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 class foo {
     static var s = [];
     var i = [];
@@ -20,3 +20,4 @@ var f = new foo();
 f.testInstance();
 print(foo.s);
 print(f.i);
+

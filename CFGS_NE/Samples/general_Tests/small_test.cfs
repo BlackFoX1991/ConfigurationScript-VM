@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 # ===== Mini-Test-Helpers =====
 var failed = 0;
 
@@ -33,7 +33,7 @@ class PointA(x, y)
     }
 }
 
-# Zweite Klasse, um Unabhängigkeit & eigene statics zu testen
+# Zweite Klasse, um UnabhÃ¤ngigkeit & eigene statics zu testen
 class Counter(start)
 {
     static var total = 0;
@@ -90,11 +90,11 @@ func main()
     assert_eq("enum_value_green", PointA.Color["Green"], 2);
     assert_eq("enum_value_blue",  PointA.Color["Blue"], 3);
 
-    # Reverse-Mapping über "Name"
+    # Reverse-Mapping Ã¼ber "Name"
     assert_eq("enum_name_1", PointA.Color.name(1), "Red");
     assert_eq("enum_name_3", PointA.Color.name(3), "Blue");
 
-    # ===== Zweite Klasse: unabhängiger static-Container =====
+    # ===== Zweite Klasse: unabhÃ¤ngiger static-Container =====
     Counter.reset();
     assert_eq("Counter.total_after_reset", Counter.totalGet(), 0);
 
@@ -110,11 +110,11 @@ func main()
     c2.tick(); # ++
     assert_eq("Counter.total_after_c2_tick", Counter.totalGet(), 16);
 
-    # Nochmal getrennt prüfen, dass PointA-Statics unberührt bleiben:
+    # Nochmal getrennt prÃ¼fen, dass PointA-Statics unberÃ¼hrt bleiben:
     assert_eq("PointA.static_is_independent", PointA.getX(), 1247);
 
     # ===== Direkte Nutzung in Methodenketten / Verschachtelung =====
-    # t.readX() als Argument in Join-ähnlicher Funktion
+    # t.readX() als Argument in Join-Ã¤hnlicher Funktion
     func join3(a, b, c) { return str(a) + ":" + str(b) + ":" + str(c); }
     assert_eq("join3_with_static_reads", join3(t.readX(), t2.readX(), PointA.getX()), "1247:1247:1247");
 
@@ -126,7 +126,7 @@ func main()
     assert_eq("array_set_rot", arr[1], 12);
 
     var d = {"a": 1};
-    d[] = {"b": 2};                   # dict-push (fügt Key/Value ein)
+    d[] = {"b": 2};                   # dict-push (fÃ¼gt Key/Value ein)
     assert_eq("dict_push_add_b", d["b"], 2);
     d["c"] = 3;
     assert_eq("dict_set_c", d["c"], 3);

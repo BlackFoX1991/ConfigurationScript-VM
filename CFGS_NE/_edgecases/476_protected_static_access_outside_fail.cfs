@@ -1,0 +1,9 @@
+class Base() {
+    protected static var ps = 1;
+}
+
+class Child() : Base() {
+}
+
+var key = "ps";
+var leak = Child[key];

@@ -1,0 +1,7 @@
+class Vault() {
+    private var token = 1;
+}
+
+var v = new Vault();
+var key = "token";
+var leak = v[key];

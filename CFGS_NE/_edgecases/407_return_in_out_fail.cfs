@@ -1,0 +1,6 @@
+func f() {
+    var x = out {
+        return 1;
+    };
+    return x;
+}

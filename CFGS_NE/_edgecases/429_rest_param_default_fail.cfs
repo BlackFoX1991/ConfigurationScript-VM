@@ -1,0 +1,3 @@
+func bad(*rest = 1) {
+    return 0;
+}

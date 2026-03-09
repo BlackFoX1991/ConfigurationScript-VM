@@ -1,0 +1,70 @@
+import "edge_assert.cfs";
+import * as Lib from "_imports/mod_exports_ns.cfs";
+
+edge_begin("215_namespace_declarations");
+
+namespace App.Core {
+    class Foo(v) {
+        var value = 0;
+        func init(v) { this.value = v; }
+        func get() { return this.value; }
+        static func kind() { return "Foo"; }
+    }
+
+    func add(a, b) { return a + b; }
+
+    enum Mode {
+        On = 1,
+        Off = 0
+    }
+
+    var seed = 10;
+    const mul = 3;
+}
+
+namespace App.Core {
+    func sub(a, b) { return a - b; }
+}
+
+namespace A {
+    class Same(v) {
+        var value = 0;
+        func init(v) { this.value = v; }
+        func get() { return this.value; }
+    }
+}
+
+namespace B {
+    class Same(v) {
+        var value = 0;
+        func init(v) { this.value = v; }
+        func get() { return this.value; }
+    }
+}
+
+namespace LocalLib {
+    func local(v) { return v + 1; }
+}
+
+var f = new App.Core.Foo(7);
+edge_eq("ns_new_class", f.get(), 7);
+edge_eq("ns_static_method", App.Core.Foo.kind(), "Foo");
+edge_eq("ns_func_add", App.Core.add(2, 5), 7);
+edge_eq("ns_func_sub", App.Core.sub(9, 4), 5);
+edge_eq("ns_enum", App.Core.Mode["On"], 1);
+edge_eq("ns_var", App.Core.seed, 10);
+edge_eq("ns_const", App.Core.mul, 3);
+
+var a = new A.Same(11);
+var b = new B.Same(22);
+edge_eq("same_name_ns_a", a.get(), 11);
+edge_eq("same_name_ns_b", b.get(), 22);
+
+edge_eq("import_ns_kept", Lib["triple"](4), 12);
+edge_eq("declared_ns_local", LocalLib.local(5), 6);
+
+edge_throws("ns_no_global_class", func() { return Foo; });
+edge_throws("ns_no_global_func", func() { return add(1, 2); });
+edge_throws("ns_no_global_local_ns_func", func() { return local(1); });
+
+edge_finish("215_namespace_declarations");

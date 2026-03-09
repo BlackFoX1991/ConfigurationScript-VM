@@ -1,0 +1,5 @@
+func run() {
+    delete missing[0];
+}
+
+run();

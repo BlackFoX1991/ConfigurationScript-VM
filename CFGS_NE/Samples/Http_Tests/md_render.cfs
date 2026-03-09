@@ -1,5 +1,5 @@
-import "CFGS.StandardLibrary.dll";
-import "CFGS.Web.Http.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
 class MdRenderer
 {
     # --- internal state ---
@@ -104,7 +104,7 @@ class MdRenderer
     {
         var i = 0; var L = line.len(); var hasDigit = false;
 
-        # führende Ziffern sammeln
+        # fÃ¼hrende Ziffern sammeln
         while (i < L && line.substr(i,1) >= "0" && line.substr(i,1) <= "9")
         {
             hasDigit = true;
@@ -340,24 +340,24 @@ class MdRenderer
         this._math = []; this._mathi = 0;
         this._spans = []; this._spani = 0;
 
-        # 1) Code-Spans schützen (Backticks), damit $...$ darin NICHT als Mathe erkannt wird
+        # 1) Code-Spans schÃ¼tzen (Backticks), damit $...$ darin NICHT als Mathe erkannt wird
         t = this._protect_spans(t, "`");
 
-        # 2) Mathe schützen (erst $$...$$, dann $...$)
+        # 2) Mathe schÃ¼tzen (erst $$...$$, dann $...$)
         t = this._protect_math(t, "$$");
         t = this._protect_math(t, "$");
 
         # 3) Auto-Links in <...> (http/https/mailto oder plain E-Mail)
         t = this._replace_autolinks(t);
 
-        # 4) whitelist de-escape für HTML
+        # 4) whitelist de-escape fÃ¼r HTML
         t = this._unescape_whitelisted_html_entities(t);
 
         # 5) Bilder/Links im Markdown-Stil
         t = this._replace_links_or_images(t, true);
         t = this._replace_links_or_images(t, false);
 
-        # 6) Inline-Code/Bold/Italic (Code ist geschützt)
+        # 6) Inline-Code/Bold/Italic (Code ist geschÃ¼tzt)
         #    Wichtig: Backticks selbst werden erst nach dem Restore konvertiert.
         t = this._replace_double_delim(t, "**", "<strong>", "</strong>");
         t = this._replace_delimited(t, "*",  "<em>", "</em>");
@@ -365,14 +365,14 @@ class MdRenderer
         # 7) HTML escapen (unter Erhalt unserer Tags)
         t = this._escape_html_preserving_tags(t);
 
-        # 8) Mathe zurück (raw, mit $-Delimitern; KaTeX rendert später)
+        # 8) Mathe zurÃ¼ck (raw, mit $-Delimitern; KaTeX rendert spÃ¤ter)
         t = this._restore_math(t);
 
-        # 9) Code-Spans zurück und danach erst zu <code> machen
+        # 9) Code-Spans zurÃ¼ck und danach erst zu <code> machen
         t = this._restore_spans(t);
         t = this._replace_delimited(t, "`", "<code>", "</code>");
 
-        # 10) Deep-Unescape für erlaubte HTML-Tags
+        # 10) Deep-Unescape fÃ¼r erlaubte HTML-Tags
         t = this._deep_unescape_whitelist(t);
 
         return t;
@@ -392,7 +392,7 @@ class MdRenderer
                 if (open < 0) { open = i; i = i + dL; continue; }
                 # close
                 var seg = s.substr(open, (i + dL) - open);  # includes both delimiters
-                var key = "§M" + this._mathi + "§";
+                var key = "Â§M" + this._mathi + "Â§";
                 this._math.push(seg);
                 this._mathi = this._mathi + 1;
 
@@ -412,7 +412,7 @@ class MdRenderer
         var i = 0;
         while (i < this._math.len())
         {
-            var key = "§M" + i + "§";
+            var key = "Â§M" + i + "Â§";
             s = s.replace(key, this._math[i]);
             i = i + 1;
         }
@@ -433,9 +433,9 @@ class MdRenderer
             if (s.substr(i, dL) == delim)
             {
                 if (open < 0) { open = i; i = i + dL; continue; }
-                # schließen
+                # schlieÃŸen
                 var seg = s.substr(open, (i + dL) - open);  # inkl. Backticks
-                var key = "§C" + this._spani + "§";
+                var key = "Â§C" + this._spani + "Â§";
                 this._spans.push(seg);
                 this._spani = this._spani + 1;
 
@@ -455,7 +455,7 @@ class MdRenderer
         var i = 0;
         while (i < this._spans.len())
         {
-            var key = "§C" + i + "§";
+            var key = "Â§C" + i + "Â§";
             s = s.replace(key, this._spans[i]);
             i = i + 1;
         }
@@ -542,8 +542,8 @@ class MdRenderer
         # strip inline tags quickly
         s = s.replace("**", ""); s = s.replace("*", ""); s = s.replace("`", "");
         # German umlauts
-        s = s.replace("ä","a"); s = s.replace("ö","o"); s = s.replace("ü","u"); s = s.replace("Ä","a"); s = s.replace("Ö","o"); s = s.replace("Ü","u");
-        s = s.replace("ß","ss");
+        s = s.replace("Ã¤","a"); s = s.replace("Ã¶","o"); s = s.replace("Ã¼","u"); s = s.replace("Ã„","a"); s = s.replace("Ã–","o"); s = s.replace("Ãœ","u");
+        s = s.replace("ÃŸ","ss");
         # lower + keep letters/digits/space/hyphen
         var frameOut = ""; var i = 0; var L = s.len();
         while (i < L)
@@ -997,7 +997,7 @@ class MdRenderer
         while (k < masks.len())
         {
             var token = masks[k];
-            var key = "§" + k + "§";
+            var key = "Â§" + k + "Â§";
             s = s.replace(token, key);
             repl.push(token);
             k = k + 1;
@@ -1008,7 +1008,7 @@ class MdRenderer
         k = 0;
         while (k < masks.len())
         {
-            var key2 = "§" + k + "§";
+            var key2 = "Â§" + k + "Â§";
             s = s.replace(key2, repl[k]);
             k = k + 1;
         }
@@ -1151,3 +1151,4 @@ class MdServer
         return head + body + foot;
     }
 }
+

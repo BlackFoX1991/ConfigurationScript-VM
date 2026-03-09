@@ -1,0 +1,36 @@
+import "edge_assert.cfs";
+import "CFGS.EdgeAwaitables.dll";
+
+edge_begin("231_plugin_nonblocking_loader");
+
+var trace = "";
+
+var t1 = edge_manual_nonblocking_sync(25, 7);
+trace = trace + "A";
+edge_eq("manual_builtin_returns_task", typeof(t1), "Task<Object>");
+edge_eq("manual_builtin_order_before_await", trace, "A");
+edge_eq("manual_builtin_result", await t1, 7);
+
+var t2 = edge_attr_nonblocking_sync(25, 9);
+trace = trace + "B";
+edge_eq("attr_builtin_returns_task", typeof(t2), "Task<Object>");
+edge_eq("attr_builtin_order_before_await", trace, "AB");
+edge_eq("attr_builtin_result", await t2, 9);
+
+var t3 = edge_attr_task_value(11);
+edge_eq("attr_task_builtin_returns_task", typeof(t3), "Task<Object>");
+edge_eq("attr_task_builtin_result", await t3, 11);
+
+var t4 = "x".edge_manual_nonblocking_intrinsic(25, "Y");
+trace = trace + "C";
+edge_eq("manual_intrinsic_returns_task", typeof(t4), "Task<Object>");
+edge_eq("manual_intrinsic_order_before_await", trace, "ABC");
+edge_eq("manual_intrinsic_result", await t4, "xY");
+
+var t5 = "m".edge_attr_nonblocking_intrinsic(25, "N");
+trace = trace + "D";
+edge_eq("attr_intrinsic_returns_task", typeof(t5), "Task<Object>");
+edge_eq("attr_intrinsic_order_before_await", trace, "ABCD");
+edge_eq("attr_intrinsic_result", await t5, "mN");
+
+edge_finish("231_plugin_nonblocking_loader");

@@ -1,0 +1,29 @@
+import "edge_assert.cfs";
+import "CFGS.StandardLibrary.dll";
+import "CFGS.Web.Http.dll";
+
+edge_begin("232_plugin_http_server_async");
+
+var srv = http_server(19081);
+edge_eq("server_handle_type", typeof(srv), "ServerHandle");
+edge_eq("server_running_initial", srv.is_running(), false);
+
+var pollTask = srv.poll_async(1500);
+edge_eq("poll_async_task_type", typeof(pollTask), "Task<Object>");
+edge_eq("poll_async_empty", await pollTask, null);
+
+var respondTask = srv.respond_async("missing", 200, "ok-232");
+edge_eq("respond_async_task_type", typeof(respondTask), "Task<Object>");
+edge_eq("respond_async_missing", await respondTask, 0);
+
+var stopTask = srv.stop_async();
+edge_eq("stop_async_task_type", typeof(stopTask), "Task<Object>");
+var stopped = await stopTask;
+edge_eq("stop_async_result_type", typeof(stopped), "ServerHandle");
+edge_eq("server_running_after_stop", srv.is_running(), false);
+
+var closeTask = srv.close_async();
+edge_eq("close_async_task_type", typeof(closeTask), "Task<Object>");
+edge_eq("close_async_result", await closeTask, 1);
+
+edge_finish("232_plugin_http_server_async");

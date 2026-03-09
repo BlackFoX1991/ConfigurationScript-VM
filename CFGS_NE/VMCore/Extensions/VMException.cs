@@ -1,61 +1,77 @@
-﻿using System.Text;
-
 namespace CFGS_VM.VMCore.Extensions
 {
     /// <summary>
     /// Defines the <see cref="VMException" />
     /// </summary>
-    public sealed class VMException(string message, int line, int column, string? fileSource, bool dbg, MemoryStream dbStream)
-    : Exception(BuildMessage(message, line, column, fileSource, dbg, dbStream))
+    public sealed class VMException : Exception
     {
+        /// <summary>
+        /// Gets the Category
+        /// </summary>
+        public string Category { get; } = "RuntimeError";
+
+        /// <summary>
+        /// Gets the RawMessage
+        /// </summary>
+        public string RawMessage { get; }
+
         /// <summary>
         /// Gets the Line
         /// </summary>
-        public int Line { get; } = line;
+        public int Line { get; }
 
         /// <summary>
         /// Gets the Column
         /// </summary>
-        public int Column { get; } = column;
+        public int Column { get; }
 
         /// <summary>
         /// Gets the FileSource
         /// </summary>
-        public string? FileSource { get; } = fileSource;
+        public string? FileSource { get; }
 
         /// <summary>
-        /// The BuildMessage
+        /// Gets the LanguageStackTrace
+        /// </summary>
+        public string? LanguageStackTrace { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="VMException"/> class.
         /// </summary>
         /// <param name="message">The message<see cref="string"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="column">The column<see cref="int"/></param>
         /// <param name="fileSource">The fileSource<see cref="string?"/></param>
-        /// <returns>The <see cref="string"/></returns>
-        private static string BuildMessage(string message, int line, int column, string? fileSource, bool debug, MemoryStream dbgStream)
+        /// <param name="dbg">The dbg<see cref="bool"/></param>
+        /// <param name="dbStream">The dbStream<see cref="MemoryStream"/></param>
+        /// <param name="languageStackTrace">The languageStackTrace<see cref="string?"/></param>
+        public VMException(
+            string message,
+            int line,
+            int column,
+            string? fileSource,
+            bool dbg,
+            MemoryStream dbStream,
+            string? languageStackTrace = null)
+            : base(NormalizeMessage(message))
         {
-            StringBuilder sb = new();
-            if (!string.IsNullOrEmpty(message))
-            {
-                sb.Append(message.TrimEnd());
-                if (!message.TrimEnd().EndsWith(".")) sb.Append('.');
-            }
+            RawMessage = NormalizeMessage(message);
+            Line = line;
+            Column = column;
+            FileSource = fileSource;
+            LanguageStackTrace = string.IsNullOrWhiteSpace(languageStackTrace) ? null : languageStackTrace;
+        }
 
-            bool hasLine = line >= 0;
-            bool hasCol = column >= 0;
-
-            if (hasLine && hasCol) sb.Append($" ( Line : {line}, Column : {column} )");
-            else if (hasLine) sb.Append($" ( Line : {line} )");
-            else if (hasCol) sb.Append($" ( Column : {column} )");
-
-            if (!string.IsNullOrWhiteSpace(fileSource))
-                sb.Append($" [Source : '{fileSource}']");
-            if (VM.DebugStream is not null && debug && dbgStream is not null)
-            {
-                VM.DebugStream.Position = 0;
-                using FileStream file = File.Create("log_file.log");
-                VM.DebugStream.CopyTo(file);
-            }
-            return sb.ToString();
+        /// <summary>
+        /// The NormalizeMessage
+        /// </summary>
+        /// <param name="message">The message<see cref="string"/></param>
+        /// <returns>The <see cref="string"/></returns>
+        private static string NormalizeMessage(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return "runtime error";
+            return message.Trim();
         }
     }
 }

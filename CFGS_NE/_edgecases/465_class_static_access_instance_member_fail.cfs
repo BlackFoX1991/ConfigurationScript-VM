@@ -1,0 +1,5 @@
+class C() {
+    var token = 1;
+}
+
+var x = C.token;

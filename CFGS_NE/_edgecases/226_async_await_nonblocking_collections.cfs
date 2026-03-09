@@ -1,0 +1,30 @@
+import "edge_assert.cfs";
+
+edge_begin("226_async_await_nonblocking_collections");
+
+async func run() {
+    var t = task();
+
+    var a = t.delay(20, 7);
+    var b = t.delay(5, 9);
+    var listRes = await [a, b, 3];
+    edge_eq("await_list_0", listRes[0], 7);
+    edge_eq("await_list_1", listRes[1], 9);
+    edge_eq("await_list_2", listRes[2], 3);
+
+    var dictRes = await {"x": t.delay(5, 10), "y": 2, "z": t.delay(5, 30)};
+    edge_eq("await_dict_x", dictRes["x"], 10);
+    edge_eq("await_dict_y", dictRes["y"], 2);
+    edge_eq("await_dict_z", dictRes["z"], 30);
+
+    var nested = await {"outer": [t.delay(2, 4), 5], "inner": {"x": t.delay(2, 6)}};
+    edge_eq("await_nested_outer_0", nested["outer"][0], 4);
+    edge_eq("await_nested_outer_1", nested["outer"][1], 5);
+    edge_eq("await_nested_inner_x", nested["inner"]["x"], 6);
+}
+
+var runTask = run();
+edge_eq("async_run_returns_task_type", typeof(runTask), "Task<Object>");
+var _ = await runTask;
+
+edge_finish("226_async_await_nonblocking_collections");

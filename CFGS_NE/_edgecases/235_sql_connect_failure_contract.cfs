@@ -1,0 +1,24 @@
+import "edge_assert.cfs";
+import "CFGS.Microsoft.SQL.dll";
+
+edge_begin("235_sql_connect_failure_contract");
+
+async func main() {
+    var probe = sql_connect("Server=127.0.0.1;Database=master;User Id=sa;Password=bad;Connect Timeout=1;Encrypt=False;TrustServerCertificate=True;");
+    edge_eq("sql_connect_task_type", typeof(probe), "Task<Object>");
+
+    var caught = false;
+    try {
+        var _ = await probe;
+    } catch(e) {
+        caught = true;
+        edge_eq("sql_connect_error_type", e.type(), "AwaitError");
+        edge_true("sql_connect_error_prefix", e.message().contains("SQL connect failed"));
+    }
+
+    edge_true("sql_connect_error_caught", caught);
+}
+
+var _ = await main();
+
+edge_finish("235_sql_connect_failure_contract");

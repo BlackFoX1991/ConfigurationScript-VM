@@ -1,0 +1,67 @@
+import "edge_assert.cfs";
+
+edge_begin("102_control_flow_and_match");
+
+func dangling_else_value() {
+    var x = 0;
+    if (true)
+        if (false) x = 1;
+        else x = 2;
+    return x;
+}
+edge_eq("dangling_else", dangling_else_value(), 2);
+
+func run_control_flow_tests() {
+    var while_n = 0;
+    var while_sum = 0;
+    while (while_n < 6) {
+        while_n = while_n + 1;
+        if (while_n % 2 == 0) { continue; }
+        while_sum = while_sum + while_n;
+        if (while_n >= 5) { break; }
+    }
+    edge_eq("while_break_continue", while_sum, 9);
+
+    var do_count = 0;
+    do {
+        do_count = do_count + 1;
+    } while (false);
+    edge_eq("do_while_runs_once", do_count, 1);
+
+    var for_prod = 1;
+    for (var j = 1; j <= 4; j = j + 1;) {
+        for_prod = for_prod * j;
+    }
+    edge_eq("for_product", for_prod, 24);
+
+    var arr = [2, 4, 6];
+    var arr_sum = 0;
+    foreach (var v in arr) {
+        arr_sum = arr_sum + v;
+    }
+    edge_eq("foreach_array", arr_sum, 12);
+
+    var dict = {"a": 1, "b": 2, "c": 3};
+    var dict_count = 0;
+    foreach (var kv in dict) {
+        dict_count = dict_count + 1;
+    }
+    edge_eq("foreach_dict_count", dict_count, 3);
+
+    var ms = "";
+    match (2) {
+        case 1: { ms = "one"; }
+        case 2: { ms = "two"; }
+        default: { ms = "other"; }
+    }
+    edge_eq("match_statement", ms, "two");
+
+    var me1 = 3 match { 1: "one", 3: "three", _: "many" };
+    var me2 = 9 match { 1: "one" };
+    edge_eq("match_expression_hit", me1, "three");
+    edge_eq("match_expression_no_default", me2, null);
+}
+
+run_control_flow_tests();
+
+edge_finish("102_control_flow_and_match");

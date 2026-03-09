@@ -1,0 +1,56 @@
+import "edge_assert.cfs";
+
+func stmt_array(v) {
+    var res = "none";
+    match (v) {
+        case [var a, var b] if (a < b): { res = "asc:" + str(a + b); }
+        case [var a, var b]: { res = "pair:" + str(a * b); }
+        default: { res = "other"; }
+    }
+    return res;
+}
+
+func stmt_dict(v) {
+    var res = -1;
+    match (v) {
+        case {"kind": "pair", "left": var x, "right": var y} if (x == y): { res = x + y; }
+        case {"kind": "pair", "left": var x, "right": var y}: { res = x - y; }
+        default: { res = 0; }
+    }
+    return res;
+}
+
+func expr_pattern(v) {
+    return v match {
+        [var a, var b] if (a == b): "same",
+        {"tag": "num", "value": var n} if (n > 10): "big",
+        {"tag": "num", "value": var n}: "small",
+        _ if (v == null): "nil",
+        _: "other"
+    };
+}
+
+func stmt_wild_guard(v) {
+    var res = "";
+    match (v) {
+        case _ if (v > 0): { res = "pos"; }
+        default: { res = "other"; }
+    }
+    return res;
+}
+
+edge_begin("208_match_patterns_and_bindings");
+edge_eq("stmt_array_guard", stmt_array([2, 5]), "asc:7");
+edge_eq("stmt_array_fallback_arm", stmt_array([4, 1]), "pair:4");
+edge_eq("stmt_array_length_miss", stmt_array([1, 2, 3]), "other");
+edge_eq("stmt_dict_guard", stmt_dict({"kind": "pair", "left": 4, "right": 4}), 8);
+edge_eq("stmt_dict_second_arm", stmt_dict({"kind": "pair", "left": 7, "right": 2}), 5);
+edge_eq("stmt_dict_missing_key", stmt_dict({"kind": "pair", "left": 7}), 0);
+edge_eq("expr_array", expr_pattern([9, 9]), "same");
+edge_eq("expr_dict_guard", expr_pattern({"tag": "num", "value": 20}), "big");
+edge_eq("expr_dict_fallback", expr_pattern({"tag": "num", "value": 3}), "small");
+edge_eq("expr_wild_guard", expr_pattern(null), "nil");
+edge_eq("expr_default", expr_pattern("x"), "other");
+edge_eq("stmt_wild_guard_true", stmt_wild_guard(3), "pos");
+edge_eq("stmt_wild_guard_default", stmt_wild_guard(0), "other");
+edge_finish("208_match_patterns_and_bindings");

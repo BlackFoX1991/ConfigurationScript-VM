@@ -1,5 +1,5 @@
-import "CFGS.StandardLibrary.dll";
-import "CFGS.Web.Http.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
 # ---------- Utilities ----------
 class util
 {
@@ -61,7 +61,7 @@ class util
         return true;
     }
 
-    # Alphanum-Token (für evtl. zukünftige Parser)
+    # Alphanum-Token (fÃ¼r evtl. zukÃ¼nftige Parser)
     static func is_token_char(c) {
         if (isalnum(c)) return true;
         return c == "-" || c == "_" || c == "." || c == "~";
@@ -126,7 +126,7 @@ class util
     static func parse_form(req) {
         # Liefert { fields: dict, files: dict, _raw: string }
         var ct = req.headers["Content-Type"];
-        if (ct == null) ct = req.headers["content-type"];   # fallback für lowercase
+        if (ct == null) ct = req.headers["content-type"];   # fallback fÃ¼r lowercase
         var body = req.body == null ? "" : req.body;
         var res = {"fields":{}, "files":{}, "_raw":body};
 
@@ -236,7 +236,7 @@ class util
         return util.json_escape_str(str(x));
     }
 
-    # --- Hashing (32-bit, DJB2-Stil über URL-kodierte Bytes) + ETag ---
+    # --- Hashing (32-bit, DJB2-Stil Ã¼ber URL-kodierte Bytes) + ETag ---
     static func _hex_val(c) {
         var m = {
             "0":0,"1":1,"2":2,"3":3,"4":4,"5":5,"6":6,"7":7,"8":8,"9":9,
@@ -420,7 +420,7 @@ class BaseView()
     }
     func content(props) { return []; }
     func footer() { 
-        return dom.h("p", {"style":"color:#a9b1d6"}, "© CFGS Demo"); 
+        return dom.h("p", {"style":"color:#a9b1d6"}, "Â© CFGS Demo"); 
     }
 
     func layout(inner) {
@@ -520,7 +520,7 @@ class router
             }
             i = i + 1;
         }
-        return null; # app kümmert sich um 404-Page
+        return null; # app kÃ¼mmert sich um 404-Page
     }
 }
 
@@ -564,7 +564,7 @@ class app()
                 "Content-Type": "text/html; charset=utf-8",
                 "Cache-Control": "no-store"
             },
-            "body": "<!doctype html><meta http-equiv='refresh' content='0;url="+util.esc(location)+"'>Redirecting…"
+            "body": "<!doctype html><meta http-equiv='refresh' content='0;url="+util.esc(location)+"'>Redirectingâ€¦"
         };
     }
 

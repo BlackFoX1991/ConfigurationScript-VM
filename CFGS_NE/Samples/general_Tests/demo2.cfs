@@ -1,11 +1,11 @@
-# CFGS Try/Catch/Finally – Edge Case Suite PLUS (funktional verpackt)
+﻿# CFGS Try/Catch/Finally â€“ Edge Case Suite PLUS (funktional verpackt)
 # Jede try hat mindestens catch UND finally.
-import "CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 print("=== TRY/CATCH/FINALLY EDGE TESTS PLUS START ===");
 
 func sep(name) { print("-- " + name + " --"); }
 
-# 1) Throw im inneren finally überschreibt frühere Exception
+# 1) Throw im inneren finally Ã¼berschreibt frÃ¼here Exception
 func test1() {
     try {
         try {
@@ -24,7 +24,7 @@ func test1() {
     }
 }
 
-# 2a) return in finally überschreibt return aus try
+# 2a) return in finally Ã¼berschreibt return aus try
 func f2a() {
     try {
         print("2a.try (return 'TRY')");
@@ -41,7 +41,7 @@ func test2a() {
     print("2a.result=" + str(f2a()));
 }
 
-# 2b) return in finally überschreibt return aus catch
+# 2b) return in finally Ã¼berschreibt return aus catch
 func f2b() {
     try {
         print("2b.try (wirft)");
@@ -58,13 +58,13 @@ func test2b() {
     print("2b.result=" + str(f2b()));
 }
 
-# 3a) continue aus catch -> finally läuft davor
+# 3a) continue aus catch -> finally lÃ¤uft davor
 func test3a() {
     for (var i = 0; i < 3; i += 1;) {
         print("3a.loop i=" + str(i) + " (enter)");
         try {
             if (i == 1) {
-                print("3a.try (wirft für continue)");
+                print("3a.try (wirft fÃ¼r continue)");
                 throw "CONT";
             }
             print("3a.try (kein Fehler i=" + str(i) + ")");
@@ -72,20 +72,20 @@ func test3a() {
             print("3a.catch i=" + str(i) + " e=" + str(e) + " (continue)");
             continue;
         } finally {
-            print("3a.finally (läuft vor continue/weiter)");
+            print("3a.finally (lÃ¤uft vor continue/weiter)");
         }
         print("3a.loop i=" + str(i) + " (after try)");
     }
     print("3a.after loop");
 }
 
-# 3b) break aus catch -> finally läuft davor
+# 3b) break aus catch -> finally lÃ¤uft davor
 func test3b() {
     for (var j = 0; j < 4; j += 1;) {
         print("3b.loop j=" + str(j) + " (enter)");
         try {
             if (j == 2) {
-                print("3b.try (wirft für break)");
+                print("3b.try (wirft fÃ¼r break)");
                 throw "BRK";
             }
             print("3b.try (kein Fehler j=" + str(j) + ")");
@@ -93,7 +93,7 @@ func test3b() {
             print("3b.catch j=" + str(j) + " e=" + str(e) + " (break)");
             break;
         } finally {
-            print("3b.finally (läuft vor break/weiter)");
+            print("3b.finally (lÃ¤uft vor break/weiter)");
         }
         print("3b.loop j=" + str(j) + " (after try)");
     }
@@ -183,13 +183,13 @@ func test5() {
 }
 
 # --- Aufrufe am Top-Level (nur erlaubte Statements) ---
-sep("1: throw im inneren finally überschreibt vorherige");
+sep("1: throw im inneren finally Ã¼berschreibt vorherige");
 test1();
 
-sep("2a: return in finally überschreibt return aus try");
+sep("2a: return in finally Ã¼berschreibt return aus try");
 test2a();
 
-sep("2b: return in finally überschreibt return aus catch");
+sep("2b: return in finally Ã¼berschreibt return aus catch");
 test2b();
 
 sep("3a: continue aus catch -> finally vorher");
@@ -205,3 +205,4 @@ sep("5: neue Exception im catch vs rethrow");
 test5();
 
 print("=== TRY/CATCH/FINALLY EDGE TESTS PLUS END ===");
+

@@ -1,0 +1,9 @@
+class C() {
+    var token = 1;
+
+    static func read() {
+        return type.token;
+    }
+}
+
+C.read();

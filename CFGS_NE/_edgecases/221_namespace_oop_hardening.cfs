@@ -1,0 +1,20 @@
+import "edge_assert.cfs";
+
+edge_begin("221_namespace_oop_hardening");
+
+namespace N {
+    class Child(v): Base(v) {
+        func value() { return this.read(); }
+    }
+
+    class Base(v) {
+        var x = 0;
+        func init(v) { this.x = v; }
+        func read() { return this.x; }
+    }
+}
+
+var c = new N.Child(9);
+edge_eq("ns_class_ordering", c.value(), 9);
+
+edge_finish("221_namespace_oop_hardening");

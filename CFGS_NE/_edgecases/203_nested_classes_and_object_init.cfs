@@ -1,0 +1,31 @@
+import "edge_assert.cfs";
+
+edge_begin("203_nested_classes_and_object_init");
+
+class Outer(n) {
+    var n = 0;
+    func init(n) { this.n = n; }
+
+    class Inner() {
+        func who() { return "O:" + str(outer.n); }
+    }
+}
+
+class Box(v) {
+    var v = 0;
+    func init(v) { this.v = v; }
+    func get() { return this.v; }
+}
+
+var o = Outer(42);
+var i1 = o.Inner();
+edge_eq("inner_sees_outer", i1.who(), "O:42");
+
+var IType = Outer.Inner;
+var i2 = IType(null);
+edge_throws("inner_without_outer_throws", func() { return i2.who(); });
+
+var b = new Box(1) { v: 9 };
+edge_eq("new_object_initializer", b.get(), 9);
+
+edge_finish("203_nested_classes_and_object_init");

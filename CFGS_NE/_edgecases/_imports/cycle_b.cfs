@@ -1,0 +1,3 @@
+import "cycle_a.cfs";
+
+func b() { return 2; }

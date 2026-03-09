@@ -1,0 +1,10 @@
+class A() {
+    func f(a, b = 1) { return a + b; }
+}
+
+class B() : A() {
+    func f(a) { return a; }
+}
+
+var b = new B();
+b.f(1);

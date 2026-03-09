@@ -1,5 +1,5 @@
-import "CFGS.StandardLibrary.dll";
-# QR Model 2 – Auto EC (H→Q→M→L) und Auto Version (V1/V2), Byte-Mode, Maske 0
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+# QR Model 2 â€“ Auto EC (Hâ†’Qâ†’Mâ†’L) und Auto Version (V1/V2), Byte-Mode, Maske 0
 class QRTools() {
 
     # ---------- Helpers ----------
@@ -46,7 +46,7 @@ class QRTools() {
         return qrOut;
     }
 
-    # ---------- Kapazitäten (Byte-Mode) je Version ----------
+    # ---------- KapazitÃ¤ten (Byte-Mode) je Version ----------
     # Quelle: Thonky "Error Correction Code Words and Block Information"
     # V1: data bytes L/M/Q/H = 19/16/13/9  (EC: 7/10/13/17), 1 Block
     # V2: data bytes L/M/Q/H = 34/28/22/16 (EC:10/16/22/28), 1 Block
@@ -91,16 +91,16 @@ class QRTools() {
         i = 0; while (i < 7) { m[(n - 1) - i][8] = (f >> (8 + i)) & 1; i = i + 1; }
     }
 
-    # ---------- Encoder (Byte-Mode) für V1/V2 ----------
+    # ---------- Encoder (Byte-Mode) fÃ¼r V1/V2 ----------
     static func encode_bytes_with(v, ec, s) {
         var cap = type.data_bytes(v, ec);
         var bb = type.bits_init();
         type.bits_put(bb, 0b0100, 4);            # Byte-Mode
         var n = len(s); if (n > cap) { n = cap; } # truncate
-        # Character Count Indicator: 8 Bit für V1–9
+        # Character Count Indicator: 8 Bit fÃ¼r V1â€“9
         type.bits_put(bb, n, 8);
         var i = 0; while (i < n) { type.bits_put(bb, type.code_of(s[i]), 8); i = i + 1; }
-        # Terminator und Auffüllen bis Datenlänge für Version/EC
+        # Terminator und AuffÃ¼llen bis DatenlÃ¤nge fÃ¼r Version/EC
         var maxbits = cap * 8;
         var remain = maxbits - len(bb); if (remain > 4) { remain = 4; }
         type.bits_put(bb, 0, remain);
@@ -171,18 +171,18 @@ class QRTools() {
     }
 
     static func draw_alignment_v2(m) {
-        # Zentren lt. Tabelle: {6, 18}; im Überschneidungsfall mit Findern/Separatoren nicht setzen
+        # Zentren lt. Tabelle: {6, 18}; im Ãœberschneidungsfall mit Findern/Separatoren nicht setzen
         var centers = [6, 18];
         var ri = 0; while (ri < len(centers)) {
             var ci = 0; while (ci < len(centers)) {
                 var r = centers[ri]; var c = centers[ci];
-                if (m[r][c] == -1) {  # nur setzen, wenn Fläche frei
+                if (m[r][c] == -1) {  # nur setzen, wenn FlÃ¤che frei
                     var dr = -2; while (dr <= 2) {
                         var dc = -2; while (dc <= 2) {
                             var rr = r + dr; var cc = c + dc;
                             var on = 0;
                             if (dr == 0 && dc == 0) { on = 1; }            # Zentrum dunkel
-                            else if (dr == -2 || dr == 2 || dc == -2 || dc == 2) { on = 1; } # Außenring dunkel
+                            else if (dr == -2 || dr == 2 || dc == -2 || dc == 2) { on = 1; } # AuÃŸenring dunkel
                             else { on = 0; }                                # Innenring hell
                             if (on == 1) { type.set_fun_black(m, rr, cc); } else { type.set_fun_white(m, rr, cc); }
                             dc = dc + 1;
@@ -232,7 +232,7 @@ class QRTools() {
         }
     }
 
-    # 1/3 = schwarz, 0/2 (sowie negatives) = weiß
+    # 1/3 = schwarz, 0/2 (sowie negatives) = weiÃŸ
     static func is_black(v) { if (v == 1) { return 1; } if (v == 3) { return 1; } return 0; }
 
     static func render_console(v, m) {
@@ -240,7 +240,7 @@ class QRTools() {
         var t = 0; while (t < quiet) { print(type.repeat("  ", n + 2 * quiet)); t = t + 1; }
         var r = 0; while (r < n) {
             var line = type.repeat("  ", quiet); var c = 0;
-            while (c < n) { var on = type.is_black(m[r][c]); if (on == 1) { line = line + "██"; } else { line = line + "  "; } c = c + 1; }
+            while (c < n) { var on = type.is_black(m[r][c]); if (on == 1) { line = line + "â–ˆâ–ˆ"; } else { line = line + "  "; } c = c + 1; }
             line = line + type.repeat("  ", quiet); print(line); r = r + 1;
         }
         var b = 0; while (b < quiet) { print(type.repeat("  ", n + 2 * quiet)); b = b + 1; }
@@ -262,7 +262,7 @@ class QRTools() {
         if (ec == "") {
             ec = type.choose_ec_for_version(2, nbytes);
             if (ec == "") {
-                print("Passt nicht in Version 1 oder 2 (Byte-Mode). Höhere Version nötig.");
+                print("Passt nicht in Version 1 oder 2 (Byte-Mode). HÃ¶here Version nÃ¶tig.");
                 return 1;
             }
             version = 2;
@@ -295,3 +295,4 @@ class QRTools() {
         }
     }
 }
+

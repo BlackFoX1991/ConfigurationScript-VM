@@ -13,6 +13,16 @@ namespace CFGS.Microsoft.SQL
     public sealed class SqlHandle : IDisposable
     {
         /// <summary>
+        /// Defines the _serial
+        /// </summary>
+        private readonly SemaphoreSlim _serial = new(1, 1);
+
+        /// <summary>
+        /// Defines the _disposed
+        /// </summary>
+        private int _disposed = 0;
+
+        /// <summary>
         /// Gets the Connection
         /// </summary>
         public SqlConnection Connection { get; }
@@ -32,10 +42,62 @@ namespace CFGS.Microsoft.SQL
         }
 
         /// <summary>
+        /// The ThrowIfDisposed
+        /// </summary>
+        private void ThrowIfDisposed()
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                throw new ObjectDisposedException(nameof(SqlHandle));
+        }
+
+        /// <summary>
+        /// The ExecuteSerialized
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="body">The body<see cref="Func{T}"/></param>
+        /// <returns>The <see cref="T"/></returns>
+        public T ExecuteSerialized<T>(Func<T> body)
+        {
+            ThrowIfDisposed();
+            _serial.Wait();
+            try
+            {
+                ThrowIfDisposed();
+                return body();
+            }
+            finally
+            {
+                _serial.Release();
+            }
+        }
+
+        /// <summary>
+        /// The ExecuteSerializedAsync
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="body">The body<see cref="Func{Task{T}}"/></param>
+        /// <returns>The <see cref="Task{T}"/></returns>
+        public async Task<T> ExecuteSerializedAsync<T>(Func<Task<T>> body)
+        {
+            ThrowIfDisposed();
+            await _serial.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                ThrowIfDisposed();
+                return await body().ConfigureAwait(false);
+            }
+            finally
+            {
+                _serial.Release();
+            }
+        }
+
+        /// <summary>
         /// The EnsureOpen
         /// </summary>
         public void EnsureOpen()
         {
+            ThrowIfDisposed();
             if (Connection == null || Connection.State != ConnectionState.Open)
                 throw new InvalidOperationException("Die SQL-Verbindung ist nicht geöffnet.");
         }
@@ -45,8 +107,12 @@ namespace CFGS.Microsoft.SQL
         /// </summary>
         public void BeginTransaction()
         {
-            EnsureOpen();
-            Transaction = Connection.BeginTransaction();
+            ExecuteSerialized(() =>
+            {
+                EnsureOpen();
+                Transaction = Connection.BeginTransaction();
+                return 0;
+            });
         }
 
         /// <summary>
@@ -54,9 +120,13 @@ namespace CFGS.Microsoft.SQL
         /// </summary>
         public void Commit()
         {
-            Transaction?.Commit();
-            Transaction?.Dispose();
-            Transaction = null;
+            ExecuteSerialized(() =>
+            {
+                Transaction?.Commit();
+                Transaction?.Dispose();
+                Transaction = null;
+                return 0;
+            });
         }
 
         /// <summary>
@@ -64,9 +134,13 @@ namespace CFGS.Microsoft.SQL
         /// </summary>
         public void Rollback()
         {
-            Transaction?.Rollback();
-            Transaction?.Dispose();
-            Transaction = null;
+            ExecuteSerialized(() =>
+            {
+                Transaction?.Rollback();
+                Transaction?.Dispose();
+                Transaction = null;
+                return 0;
+            });
         }
 
         /// <summary>
@@ -74,6 +148,10 @@ namespace CFGS.Microsoft.SQL
         /// </summary>
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            _serial.Wait();
             try
             {
                 Transaction?.Dispose();
@@ -81,6 +159,10 @@ namespace CFGS.Microsoft.SQL
                 Connection?.Dispose();
             }
             catch { }
+            finally
+            {
+                _serial.Release();
+            }
         }
     }
 
@@ -121,21 +203,30 @@ namespace CFGS.Microsoft.SQL
                     throw new VMException("Runtime error: sql_connect requires a string connection string",
                         instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
 
-                return Task.Run<object?>(() =>
-                {
-                    try
-                    {
-                        SqlConnection conn = new(connString);
-                        conn.Open();
-                        return new SqlHandle(conn);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new VMException($"SQL connect failed: {ex.Message}",
-                            instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                    }
-                });
+                return ConnectAsync(connString, instr);
             }, smartAwait: true));
+        }
+
+        /// <summary>
+        /// The ConnectAsync
+        /// </summary>
+        /// <param name="connString">The connString<see cref="string"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private static async Task<object?> ConnectAsync(string connString, Instruction instr)
+        {
+            SqlConnection conn = new(connString);
+            try
+            {
+                await conn.OpenAsync().ConfigureAwait(false);
+                return new SqlHandle(conn);
+            }
+            catch (Exception ex)
+            {
+                try { conn.Dispose(); } catch { }
+                throw new VMException($"SQL connect failed: {ex.Message}",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
         }
 
         /// <summary>
@@ -158,45 +249,97 @@ namespace CFGS.Microsoft.SQL
                 return handle.Connection?.State == ConnectionState.Open;
             }));
 
-            RegisterSqlDual(intrinsics, T, "execute", async cmd =>
-            {
-                List<object> results = new();
-                using SqlDataReader reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
-                while (await reader.ReadAsync().ConfigureAwait(false))
+            RegisterSqlDual(
+                intrinsics,
+                T,
+                "execute",
+                cmd =>
                 {
-                    Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
-                    for (int i = 0; i < reader.FieldCount; i++)
-                        row[reader.GetName(i)] = reader.GetValue(i) == DBNull.Value ? null! : reader.GetValue(i);
-                    results.Add(row);
-                }
-                return results;
-            });
-
-            RegisterSqlDual(intrinsics, T, "execute_scalar", async cmd =>
-            {
-                object? result = await cmd.ExecuteScalarAsync().ConfigureAwait(false);
-                return result == DBNull.Value ? null! : result!;
-            });
-
-            RegisterSqlDual(intrinsics, T, "execute_nonquery", async cmd =>
-            {
-                int rows = await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
-                return (object)rows;
-            });
-
-            RegisterSqlDual(intrinsics, T, "query", async cmd =>
-            {
-                List<object> results = new();
-                using SqlDataReader reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
-                while (await reader.ReadAsync().ConfigureAwait(false))
+                    List<object> results = new();
+                    using SqlDataReader reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
+                        for (int i = 0; i < reader.FieldCount; i++)
+                            row[reader.GetName(i)] = reader.GetValue(i) == DBNull.Value ? null! : reader.GetValue(i);
+                        results.Add(row);
+                    }
+                    return results;
+                },
+                async cmd =>
                 {
-                    Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
-                    for (int i = 0; i < reader.FieldCount; i++)
-                        row[reader.GetName(i)] = reader.GetValue(i) == DBNull.Value ? null! : reader.GetValue(i);
-                    results.Add(row);
-                }
-                return results;
-            });
+                    List<object> results = new();
+                    using SqlDataReader reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
+                    while (await reader.ReadAsync().ConfigureAwait(false))
+                    {
+                        Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
+                        for (int i = 0; i < reader.FieldCount; i++)
+                            row[reader.GetName(i)] = reader.GetValue(i) == DBNull.Value ? null! : reader.GetValue(i);
+                        results.Add(row);
+                    }
+                    return results;
+                });
+
+            RegisterSqlDual(
+                intrinsics,
+                T,
+                "execute_scalar",
+                cmd =>
+                {
+                    object? result = cmd.ExecuteScalar();
+                    return result == DBNull.Value ? null! : result!;
+                },
+                async cmd =>
+                {
+                    object? result = await cmd.ExecuteScalarAsync().ConfigureAwait(false);
+                    return result == DBNull.Value ? null! : result!;
+                });
+
+            RegisterSqlDual(
+                intrinsics,
+                T,
+                "execute_nonquery",
+                cmd =>
+                {
+                    int rows = cmd.ExecuteNonQuery();
+                    return (object)rows;
+                },
+                async cmd =>
+                {
+                    int rows = await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                    return (object)rows;
+                });
+
+            RegisterSqlDual(
+                intrinsics,
+                T,
+                "query",
+                cmd =>
+                {
+                    List<object> results = new();
+                    using SqlDataReader reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
+                        for (int i = 0; i < reader.FieldCount; i++)
+                            row[reader.GetName(i)] = reader.GetValue(i) == DBNull.Value ? null! : reader.GetValue(i);
+                        results.Add(row);
+                    }
+                    return results;
+                },
+                async cmd =>
+                {
+                    List<object> results = new();
+                    using SqlDataReader reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
+                    while (await reader.ReadAsync().ConfigureAwait(false))
+                    {
+                        Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
+                        for (int i = 0; i < reader.FieldCount; i++)
+                            row[reader.GetName(i)] = reader.GetValue(i) == DBNull.Value ? null! : reader.GetValue(i);
+                        results.Add(row);
+                    }
+                    return results;
+                });
 
             intrinsics.Register(T, new IntrinsicDescriptor("begin", 0, 0, (recv, a, i) =>
             {
@@ -228,8 +371,14 @@ namespace CFGS.Microsoft.SQL
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         /// <param name="T">The T<see cref="Type"/></param>
         /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="syncBody">The syncBody<see cref="Func{SqlCommand, object}"/></param>
         /// <param name="asyncBody">The asyncBody<see cref="Func{SqlCommand, Task{object}}"/></param>
-        private static void RegisterSqlDual(IIntrinsicRegistry intrinsics, Type T, string name, Func<SqlCommand, Task<object>> asyncBody)
+        private static void RegisterSqlDual(
+            IIntrinsicRegistry intrinsics,
+            Type T,
+            string name,
+            Func<SqlCommand, object> syncBody,
+            Func<SqlCommand, Task<object>> asyncBody)
         {
             intrinsics.Register(T, new IntrinsicDescriptor(name + "_async", 1, 2, (recv, a, instr) =>
             {
@@ -238,10 +387,7 @@ namespace CFGS.Microsoft.SQL
 
             intrinsics.Register(T, new IntrinsicDescriptor(name, 1, 2, (recv, a, instr) =>
             {
-                return RunSqlSync(recv, a!, instr, cmd =>
-                {
-                    return asyncBody(cmd).GetAwaiter().GetResult();
-                });
+                return RunSqlSync(recv, a!, instr, syncBody);
             }));
         }
 
@@ -251,11 +397,18 @@ namespace CFGS.Microsoft.SQL
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         /// <param name="T">The T<see cref="Type"/></param>
         /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="syncBody">The syncBody<see cref="Func{SqlCommand, object}"/></param>
         /// <param name="asyncBody">The asyncBody<see cref="Func{SqlCommand, Task{object}}"/></param>
         /// <param name="allowZeroArgsForQuery">The allowZeroArgsForQuery<see cref="bool"/></param>
-        private static void RegisterSqlDual(IIntrinsicRegistry intrinsics, Type T, string name, Func<SqlCommand, Task<object>> asyncBody, bool allowZeroArgsForQuery = false)
+        private static void RegisterSqlDual(
+            IIntrinsicRegistry intrinsics,
+            Type T,
+            string name,
+            Func<SqlCommand, object> syncBody,
+            Func<SqlCommand, Task<object>> asyncBody,
+            bool allowZeroArgsForQuery = false)
         {
-            RegisterSqlDual(intrinsics, T, name, asyncBody);
+            RegisterSqlDual(intrinsics, T, name, syncBody, asyncBody);
         }
 
         /// <summary>
@@ -286,10 +439,8 @@ namespace CFGS.Microsoft.SQL
 
             intrinsics.Register(T, new IntrinsicDescriptor("tables_async", 0, 0, (recv, a, instr) =>
             {
-                return Task.Run<object?>(() =>
+                return RunSerializedOffloadedOnHandle(recv, instr, h =>
                 {
-                    SqlHandle h = (SqlHandle)recv;
-                    h.EnsureOpen();
                     List<object> list = new();
                     DataTable tables = h.Connection.GetSchema("Tables");
                     foreach (DataRow row in tables.Rows)
@@ -299,7 +450,7 @@ namespace CFGS.Microsoft.SQL
                             ["schema"] = row["TABLE_SCHEMA"],
                             ["type"] = row["TABLE_TYPE"]
                         });
-                    return (object)list;
+                    return (object)list!;
                 });
             }, smartAwait: true));
 
@@ -329,9 +480,8 @@ namespace CFGS.Microsoft.SQL
 
             intrinsics.Register(T, new IntrinsicDescriptor("columns_async", 1, 1, (recv, a, instr) =>
             {
-                return Task.Run<object?>(() =>
+                return RunSerializedOffloadedOnHandle(recv, instr, h =>
                 {
-                    SqlHandle h = (SqlHandle)recv;
                     string table = a[0]?.ToString() ?? "";
                     if (string.IsNullOrWhiteSpace(table))
                         throw new VMException("columns(tableName): tableName darf nicht leer sein",
@@ -347,7 +497,7 @@ namespace CFGS.Microsoft.SQL
                             ["nullable"] = row["IS_NULLABLE"],
                             ["max_length"] = row["CHARACTER_MAXIMUM_LENGTH"]
                         });
-                    return (object)cols;
+                    return (object)cols!;
                 });
             }, smartAwait: true));
 
@@ -371,10 +521,8 @@ namespace CFGS.Microsoft.SQL
 
             intrinsics.Register(T, new IntrinsicDescriptor("views_async", 0, 0, (recv, a, instr) =>
             {
-                return Task.Run<object?>(() =>
+                return RunSerializedOffloadedOnHandle(recv, instr, h =>
                 {
-                    SqlHandle h = (SqlHandle)recv;
-                    h.EnsureOpen();
                     List<object> list = new();
                     DataTable dt = h.Connection.GetSchema("Views");
                     foreach (DataRow row in dt.Rows)
@@ -383,7 +531,7 @@ namespace CFGS.Microsoft.SQL
                             ["name"] = row["TABLE_NAME"],
                             ["schema"] = row["TABLE_SCHEMA"]
                         });
-                    return (object)list;
+                    return (object)list!;
                 });
             }, smartAwait: true));
 
@@ -408,10 +556,8 @@ namespace CFGS.Microsoft.SQL
 
             intrinsics.Register(T, new IntrinsicDescriptor("procedures_async", 0, 0, (recv, a, instr) =>
             {
-                return Task.Run<object?>(() =>
+                return RunSerializedOffloadedOnHandle(recv, instr, h =>
                 {
-                    SqlHandle h = (SqlHandle)recv;
-                    h.EnsureOpen();
                     List<object> list = new();
                     DataTable procs = h.Connection.GetSchema("Procedures");
                     foreach (DataRow row in procs.Rows)
@@ -421,7 +567,7 @@ namespace CFGS.Microsoft.SQL
                             ["schema"] = row["SPECIFIC_SCHEMA"],
                             ["type"] = row["ROUTINE_TYPE"]
                         });
-                    return (object)list;
+                    return (object)list!;
                 });
             }, smartAwait: true));
         }
@@ -469,11 +615,8 @@ namespace CFGS.Microsoft.SQL
 
             intrinsics.Register(T, new IntrinsicDescriptor("procedure_info_async", 1, 1, (recv, a, instr) =>
             {
-                return Task.Run<object?>(async () =>
+                return RunSerializedAsyncOnHandle(recv, instr, async h =>
                 {
-                    SqlHandle h = (SqlHandle)recv;
-                    h.EnsureOpen();
-
                     string proc = a[0]?.ToString() ?? "";
                     if (string.IsNullOrWhiteSpace(proc))
                         throw new VMException("procedure_info(procName): procName darf nicht leer sein",
@@ -497,7 +640,7 @@ namespace CFGS.Microsoft.SQL
                             ["mode"] = reader["PARAMETER_MODE"]
                         });
                     }
-                    return (object)parameters;
+                    return (object)parameters!;
                 });
             }, smartAwait: true));
 
@@ -525,11 +668,8 @@ namespace CFGS.Microsoft.SQL
 
             intrinsics.Register(T, new IntrinsicDescriptor("view_definition_async", 1, 1, (recv, a, instr) =>
             {
-                return Task.Run<object?>(async () =>
+                return RunSerializedAsyncOnHandle(recv, instr, async h =>
                 {
-                    SqlHandle h = (SqlHandle)recv;
-                    h.EnsureOpen();
-
                     string view = a[0]?.ToString() ?? "";
                     if (string.IsNullOrWhiteSpace(view))
                         throw new VMException("view_definition(viewName): viewName darf nicht leer sein",
@@ -541,7 +681,7 @@ namespace CFGS.Microsoft.SQL
                         WHERE TABLE_NAME = @view", h.Connection);
                     vcmd.Parameters.AddWithValue("@view", view);
                     object? def = await vcmd.ExecuteScalarAsync().ConfigureAwait(false);
-                    return def ?? "";
+                    return def ?? string.Empty;
                 });
             }, smartAwait: true));
         }
@@ -585,10 +725,8 @@ namespace CFGS.Microsoft.SQL
 
             intrinsics.Register(T, new IntrinsicDescriptor("constraints_async", 1, 1, (recv, a, instr) =>
             {
-                return Task.Run<object?>(async () =>
+                return RunSerializedAsyncOnHandle(recv, instr, async h =>
                 {
-                    SqlHandle h = (SqlHandle)recv;
-                    h.EnsureOpen();
                     string table = a[0]?.ToString() ?? "";
                     if (string.IsNullOrWhiteSpace(table))
                         throw new VMException("constraints(tableName): tableName darf nicht leer sein",
@@ -609,7 +747,7 @@ namespace CFGS.Microsoft.SQL
                             ["type"] = reader["CONSTRAINT_TYPE"]
                         });
                     }
-                    return (object)list;
+                    return (object)list!;
                 });
             }, smartAwait: true));
 
@@ -657,10 +795,8 @@ namespace CFGS.Microsoft.SQL
 
             intrinsics.Register(T, new IntrinsicDescriptor("foreign_keys_async", 1, 1, (recv, a, instr) =>
             {
-                return Task.Run<object?>(async () =>
+                return RunSerializedAsyncOnHandle(recv, instr, async h =>
                 {
-                    SqlHandle h = (SqlHandle)recv;
-                    h.EnsureOpen();
                     string table = a[0]?.ToString() ?? "";
                     if (string.IsNullOrWhiteSpace(table))
                         throw new VMException("foreign_keys(tableName): tableName darf nicht leer sein",
@@ -693,10 +829,50 @@ namespace CFGS.Microsoft.SQL
                             ["pk_column"] = reader["pk_column"]
                         });
                     }
-                    return (object)list;
+                    return (object)list!;
                 });
             }, smartAwait: true));
         }
+
+        /// <summary>
+        /// The RunSerializedAsyncOnHandle
+        /// </summary>
+        /// <param name="recv">The recv<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <param name="body">The body<see cref="Func{SqlHandle, Task{object}}"/></param>
+        /// <returns>The <see cref="Task{object}"/></returns>
+        private static async Task<object> RunSerializedAsyncOnHandle(object recv, Instruction instr, Func<SqlHandle, Task<object>> body)
+        {
+            SqlHandle handle = (SqlHandle)recv;
+
+            return await handle.ExecuteSerializedAsync(async () =>
+            {
+                handle.EnsureOpen();
+                try
+                {
+                    return await body(handle).ConfigureAwait(false);
+                }
+                catch (VMException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    throw new VMException($"SQL error ({ex.GetType().Name}): {ex.Message}",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                }
+            }).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// The RunSerializedOffloadedOnHandle
+        /// </summary>
+        /// <param name="recv">The recv<see cref="object"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <param name="body">The body<see cref="Func{SqlHandle, object}"/></param>
+        /// <returns>The <see cref="Task{object}"/></returns>
+        private static Task<object> RunSerializedOffloadedOnHandle(object recv, Instruction instr, Func<SqlHandle, object> body)
+            => RunSerializedAsyncOnHandle(recv, instr, handle => Task.Run(() => body(handle)));
 
         /// <summary>
         /// The RunAsyncSql
@@ -709,25 +885,29 @@ namespace CFGS.Microsoft.SQL
         private static async Task<object> RunAsyncSql(object recv, List<object?> a, Instruction instr, Func<SqlCommand, Task<object>> body)
         {
             SqlHandle handle = (SqlHandle)recv;
-            handle.EnsureOpen();
 
-            string query = a.Count > 0 ? (a[0]?.ToString() ?? "") : "";
-            Dictionary<string, object>? vmParams = a.Count > 1 ? a[1] as Dictionary<string, object> : null;
+            return await handle.ExecuteSerializedAsync(async () =>
+            {
+                handle.EnsureOpen();
 
-            try
-            {
-                using SqlCommand cmd = new(query, handle.Connection);
-                if (handle.Transaction != null)
-                    cmd.Transaction = handle.Transaction;
-                if (vmParams != null)
-                    AddParameters(cmd, vmParams);
-                return await body(cmd).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                throw new VMException($"SQL error ({ex.GetType().Name}): {ex.Message}",
-                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-            }
+                string query = a.Count > 0 ? (a[0]?.ToString() ?? "") : "";
+                Dictionary<string, object>? vmParams = a.Count > 1 ? a[1] as Dictionary<string, object> : null;
+
+                try
+                {
+                    using SqlCommand cmd = new(query, handle.Connection);
+                    if (handle.Transaction != null)
+                        cmd.Transaction = handle.Transaction;
+                    if (vmParams != null)
+                        AddParameters(cmd, vmParams);
+                    return await body(cmd).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    throw new VMException($"SQL error ({ex.GetType().Name}): {ex.Message}",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                }
+            }).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -741,25 +921,28 @@ namespace CFGS.Microsoft.SQL
         private static object RunSqlSync(object recv, List<object?> a, Instruction instr, Func<SqlCommand, object> body)
         {
             SqlHandle handle = (SqlHandle)recv;
-            handle.EnsureOpen();
-
-            string query = a.Count > 0 ? (a[0]?.ToString() ?? "") : "";
-            Dictionary<string, object>? vmParams = a.Count > 1 ? a[1] as Dictionary<string, object> : null;
-
-            try
+            return handle.ExecuteSerialized(() =>
             {
-                using SqlCommand cmd = new(query, handle.Connection);
-                if (handle.Transaction != null)
-                    cmd.Transaction = handle.Transaction;
-                if (vmParams != null)
-                    AddParameters(cmd, vmParams);
-                return body(cmd);
-            }
-            catch (Exception ex)
-            {
-                throw new VMException($"SQL error ({ex.GetType().Name}): {ex.Message}",
-                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-            }
+                handle.EnsureOpen();
+
+                string query = a.Count > 0 ? (a[0]?.ToString() ?? "") : "";
+                Dictionary<string, object>? vmParams = a.Count > 1 ? a[1] as Dictionary<string, object> : null;
+
+                try
+                {
+                    using SqlCommand cmd = new(query, handle.Connection);
+                    if (handle.Transaction != null)
+                        cmd.Transaction = handle.Transaction;
+                    if (vmParams != null)
+                        AddParameters(cmd, vmParams);
+                    return body(cmd);
+                }
+                catch (Exception ex)
+                {
+                    throw new VMException($"SQL error ({ex.GetType().Name}): {ex.Message}",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                }
+            });
         }
 
         /// <summary>

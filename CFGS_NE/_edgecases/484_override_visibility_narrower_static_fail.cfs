@@ -1,0 +1,9 @@
+class Base() {
+    public static var token = 1;
+}
+
+class Child() : Base() {
+    protected static var token = 2;
+}
+
+var x = Child.token;

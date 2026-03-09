@@ -1,0 +1,6 @@
+class Vault() {
+    private func init() {
+    }
+}
+
+var v = new Vault();

@@ -1,0 +1,33 @@
+import "edge_assert.cfs";
+
+edge_begin("230_async_hot_start_call_order");
+
+var trace = "";
+
+async func hot_delay(timer) {
+    trace = trace + "S";
+    var _ = await timer.delay(20, null);
+    trace = trace + "R";
+    return 11;
+}
+
+async func hot_immediate() {
+    trace = trace + "I";
+    return 22;
+}
+
+var timer = task();
+var t1 = hot_delay(timer);
+trace = trace + "C";
+edge_eq("delay_returns_task", typeof(t1), "Task<Object>");
+edge_eq("delay_call_order_before_await", trace, "SC");
+edge_eq("delay_result", await t1, 11);
+edge_eq("delay_call_order_after_await", trace, "SCR");
+
+var t2 = hot_immediate();
+trace = trace + "J";
+edge_eq("immediate_returns_task", typeof(t2), "Task<Object>");
+edge_eq("immediate_call_order_before_await", trace, "SCRIJ");
+edge_eq("immediate_result", await t2, 22);
+
+edge_finish("230_async_hot_start_call_order");

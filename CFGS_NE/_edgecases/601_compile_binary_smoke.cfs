@@ -1,0 +1,2 @@
+var bin_smoke = 1 + 2;
+bin_smoke = bin_smoke + 3;

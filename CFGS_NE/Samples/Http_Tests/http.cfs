@@ -1,5 +1,5 @@
-import "CFGS.StandardLibrary.dll";
-import "CFGS.Web.Http.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
 # CFGS HTTP Sample
 
 var PORT = 8080;
@@ -75,7 +75,7 @@ func home() {
     + "<div class='grid'>"
 
     + "  <section class='card'>"
-    + "    <h3>Übersicht</h3>"
+    + "    <h3>Ãœbersicht</h3>"
     + "    <p class='muted'>Klicke eine Route oder nutze die Formulare. Ergebnisse erscheinen unten im <code>Response</code>.</p>"
     + "    <div class='row'>"
     + "      <a class='btn ghost' href='/echo?name=World'>/echo?name=World</a>"
@@ -100,7 +100,7 @@ func home() {
 
     + "  <section class='card'>"
     + "    <h3>/mirror</h3>"
-    + "    <p class='muted'>Spiegelt den Request-Body. Content-Type frei wählbar.</p>"
+    + "    <p class='muted'>Spiegelt den Request-Body. Content-Type frei wÃ¤hlbar.</p>"
     + "    <div class='row'><select id='ctype'>"
     + "      <option>text/plain; charset=utf-8</option>"
     + "      <option>application/json</option>"
@@ -115,10 +115,10 @@ func home() {
     + "<section class='card' style='margin-top:16px'>"
     + "  <h3>Response</h3>"
     + "  <p class='muted'>Ausgabe der letzten Anfrage (Status, Content-Type &amp; Body):</p>"
-    + "  <pre id='frameOut'>Noch keine Anfrage ausgeführt.</pre>"
+    + "  <pre id='frameOut'>Noch keine Anfrage ausgefÃ¼hrt.</pre>"
     + "</section>"
 
-    + "<footer>CFGS_HTTP • Demo UI • dot-Style Intrinsics</footer>";
+    + "<footer>CFGS_HTTP â€¢ Demo UI â€¢ dot-Style Intrinsics</footer>";
 }
 
 func qv(q, key, def) {

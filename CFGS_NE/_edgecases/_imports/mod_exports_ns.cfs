@@ -1,0 +1,16 @@
+export const nanswer = 7;
+
+export func triple(v) {
+    return v * 3;
+}
+
+export class Crate(v) {
+    var value = 0;
+    func init(v) { this.value = v; }
+    func get() { return this.value; }
+}
+
+export enum Flag {
+    On = 1,
+    Off = 0
+}

@@ -1,0 +1,39 @@
+import "edge_assert.cfs";
+
+edge_begin("104_literals_and_primitives");
+
+# integer literals
+edge_eq("int_decimal", 42, 42);
+edge_eq("int_underscore", 1_000_000, 1000000);
+edge_eq("int_hex", 0xFF, 255);
+edge_eq("int_hex_underscore", 0xAA_BB, 43707);
+edge_eq("int_bin", 0b1010_0011, 163);
+edge_eq("int_oct", 0o755, 493);
+
+# floating point literals
+edge_eq("float_simple", 1.5, 1.5);
+edge_eq("float_exp", 2.0e-3, 0.002);
+edge_eq("float_underscore", 1_234.5_6, 1234.56);
+
+# string escapes
+edge_eq("str_quote_escape", "a\"b", "a\"b");
+edge_eq("str_backslash_escape", "a\\b", "a\\b");
+edge_eq("str_newline_escape", "A\nB", "A\nB");
+edge_eq("str_tab_escape", "A\tB", "A\tB");
+edge_eq("str_unicode_escape", "\u0041", "A");
+
+# char escapes
+edge_eq("char_plain", 'A', 'A');
+edge_eq("char_newline_escape", '\n', '\n');
+edge_eq("char_unicode_escape", '\u0041', 'A');
+
+# booleans and null
+edge_eq("bool_true", true, true);
+edge_eq("bool_false", false, false);
+edge_eq("null_equals_null", null, null);
+
+# primitive comparison sanity
+edge_eq("string_number_eq_false", "7" == 7, false);
+edge_eq("negative_compare", (-5) <= -5, true);
+
+edge_finish("104_literals_and_primitives");

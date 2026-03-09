@@ -191,9 +191,29 @@
         Var,
 
         /// <summary>
+        /// Defines the Const
+        /// </summary>
+        Const,
+
+        /// <summary>
         /// Defines the Static
         /// </summary>
         Static,
+
+        /// <summary>
+        /// Defines the Public
+        /// </summary>
+        Public,
+
+        /// <summary>
+        /// Defines the Private
+        /// </summary>
+        Private,
+
+        /// <summary>
+        /// Defines the Protected
+        /// </summary>
+        Protected,
 
         /// <summary>
         /// Defines the If
@@ -312,9 +332,24 @@
         Import,
 
         /// <summary>
+        /// Defines the Export
+        /// </summary>
+        Export,
+
+        /// <summary>
+        /// Defines the Namespace
+        /// </summary>
+        Namespace,
+
+        /// <summary>
         /// Defines the From
         /// </summary>
         From,
+
+        /// <summary>
+        /// Defines the As
+        /// </summary>
+        As,
 
         /// <summary>
         /// Defines the Out
@@ -380,6 +415,16 @@
         /// Defines the Return
         /// </summary>
         Return,
+
+        /// <summary>
+        /// Defines the Async
+        /// </summary>
+        Async,
+
+        /// <summary>
+        /// Defines the Yield
+        /// </summary>
+        Yield,
 
         /// <summary>
         /// Defines the Await

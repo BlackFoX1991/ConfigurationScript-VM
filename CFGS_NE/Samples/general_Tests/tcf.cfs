@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 func safeDivide(a, b) {
     if (b == 0) throw "Division by zero";
     return a / b;
@@ -12,7 +12,7 @@ func devider()
     } catch (e) {
         print("Fehler: " + str(e));
     } finally {
-        print("finally: Aufräumen");
+        print("finally: AufrÃ¤umen");
     }
 }
 

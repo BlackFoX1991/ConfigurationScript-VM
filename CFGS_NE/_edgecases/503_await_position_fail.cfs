@@ -1,0 +1,5 @@
+import "CFGS.StandardLibrary.dll";
+
+func bad() {
+await 1;
+}

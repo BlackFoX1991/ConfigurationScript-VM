@@ -1,0 +1,50 @@
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import { base as BASE, add, Acc, Mode } from "_modules/mod_math.cfs";
+import * as Tools from "_modules/mod_tools.cfs";
+import triple from "_modules/mod_tools.cfs";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+func finish(tag) {
+    if (failed == 0) {
+        print("ALL PASSED: " + tag);
+    } else {
+        print("FAILED: " + tag + " (" + str(failed) + ")");
+    }
+}
+
+# ---------------------------------------------------------------------------
+# named import (+ alias)
+# ---------------------------------------------------------------------------
+assert_eq("named_const_alias", BASE, 100);
+assert_eq("named_func", add(2, 3), 5);
+
+var acc = new Acc(10);
+assert_eq("named_class", acc.add(7), 17);
+assert_eq("named_enum", Mode["Safe"], 2);
+
+# ---------------------------------------------------------------------------
+# namespace import
+# ---------------------------------------------------------------------------
+assert_eq("namespace_func", Tools["add_base"](5), 105);
+
+var box = Tools["Box"](9);
+assert_eq("namespace_class", box.get(), 9);
+assert_eq("namespace_enum", Tools["Flag"]["On"], 1);
+
+# ---------------------------------------------------------------------------
+# single symbol import
+# ---------------------------------------------------------------------------
+assert_eq("single_ident_import", triple(4), 12);
+
+finish("feature_04_modules_imports");
+

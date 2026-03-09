@@ -1,0 +1,64 @@
+import "edge_assert.cfs";
+
+edge_begin("212_destructuring_general");
+
+var arr = [10, [20, 30], 40];
+var [a, [b, c], _] = arr;
+edge_eq("var_array_a", a, 10);
+edge_eq("var_array_b", b, 20);
+edge_eq("var_array_c", c, 30);
+
+var obj = {"x": 1, "y": 2, "pair": [7, 8], "inner": {"z": 9}};
+const {x, y: yy, pair: [p0, p1], inner: {z}} = obj;
+edge_eq("const_dict_x", x, 1);
+edge_eq("const_dict_y_alias", yy, 2);
+edge_eq("const_dict_pair_0", p0, 7);
+edge_eq("const_dict_pair_1", p1, 8);
+edge_eq("const_dict_inner_z", z, 9);
+
+var q = 0;
+var r = 0;
+[q, r] = [3, 4];
+edge_eq("assign_array_q", q, 3);
+edge_eq("assign_array_r", r, 4);
+
+var dx = 0;
+var dy = 0;
+({x: dx, y: dy} = obj);
+edge_eq("assign_dict_dx", dx, 1);
+edge_eq("assign_dict_dy", dy, 2);
+
+func sum_pair([m, n]) {
+    return m + n;
+}
+
+func read_obj({x, y: y2}) {
+    return x * 10 + y2;
+}
+
+func with_array_default([u, v] = [1, 2]) {
+    return u + v;
+}
+
+func with_dict_default({a, b: bb} = {"a": 3, "b": 4}) {
+    return a + bb;
+}
+
+func order_from_destructure([sx] = [7], sy = sx) {
+    return sy;
+}
+
+func order_from_destructure_dict({tx} = {"tx": 11}, ty = tx) {
+    return ty;
+}
+
+edge_eq("param_array", sum_pair([5, 6]), 11);
+edge_eq("param_dict", read_obj({"x": 2, "y": 7}), 27);
+edge_eq("param_array_default", with_array_default(), 3);
+edge_eq("param_dict_default", with_dict_default(), 7);
+edge_eq("param_order_array_default_dep", order_from_destructure(), 7);
+edge_eq("param_order_array_arg_dep", order_from_destructure([9]), 9);
+edge_eq("param_order_dict_default_dep", order_from_destructure_dict(), 11);
+edge_eq("param_order_dict_arg_dep", order_from_destructure_dict({"tx": 5}), 5);
+
+edge_finish("212_destructuring_general");

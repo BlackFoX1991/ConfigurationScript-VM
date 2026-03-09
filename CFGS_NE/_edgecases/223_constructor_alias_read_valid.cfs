@@ -1,0 +1,18 @@
+import "edge_assert.cfs";
+
+edge_begin("223_constructor_alias_read_valid");
+
+class C(v) {
+    var x = 0;
+    func init(v) { this.x = v; }
+    func get() { return this.x; }
+}
+
+var ctor = C["new"];
+var c = ctor(7);
+edge_eq("ctor_alias_call", c.get(), 7);
+
+var c2 = new C(11);
+edge_eq("ctor_normal_call", c2.get(), 11);
+
+edge_finish("223_constructor_alias_read_valid");

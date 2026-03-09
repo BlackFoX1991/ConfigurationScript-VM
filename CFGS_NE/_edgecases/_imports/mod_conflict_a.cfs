@@ -1,0 +1,3 @@
+func clash(v) {
+    return v + 1;
+}
