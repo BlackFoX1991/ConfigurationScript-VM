@@ -1,0 +1,58 @@
+import "edge_assert.cfs";
+import "CFGS.EdgeAwaitables.dll";
+
+edge_begin("229_await_non_generic_task_valuetask");
+
+async func run() {
+    var taskDelay = edge_task_void_delay(1);
+    edge_eq("task_void_delay_type", typeof(taskDelay), "Task");
+    edge_eq("task_void_delay_result", await taskDelay, null);
+
+    var valueTaskDelay = edge_valuetask_void_delay(1);
+    edge_eq("valuetask_void_delay_type", typeof(valueTaskDelay), "ValueTask");
+    edge_eq("valuetask_void_delay_result", await valueTaskDelay, null);
+
+    var taskFaultType = "NO_THROW";
+    var taskFaultMsg = "";
+    try {
+        var _ = await edge_task_void_fault("EDGE_NON_GENERIC_TASK_FAULT");
+    } catch(e) {
+        taskFaultType = e.type();
+        taskFaultMsg = e.message();
+    }
+    edge_eq("task_void_fault_type", taskFaultType, "AwaitError");
+    edge_true("task_void_fault_message", taskFaultMsg.contains("EDGE_NON_GENERIC_TASK_FAULT"));
+
+    var valueTaskFaultType = "NO_THROW";
+    var valueTaskFaultMsg = "";
+    try {
+        var _ = await edge_valuetask_void_fault("EDGE_NON_GENERIC_VALUETASK_FAULT");
+    } catch(e) {
+        valueTaskFaultType = e.type();
+        valueTaskFaultMsg = e.message();
+    }
+    edge_eq("valuetask_void_fault_type", valueTaskFaultType, "AwaitError");
+    edge_true("valuetask_void_fault_message", valueTaskFaultMsg.contains("EDGE_NON_GENERIC_VALUETASK_FAULT"));
+
+    var taskCanceledType = "NO_THROW";
+    try {
+        var _ = await edge_task_void_canceled();
+    } catch(e) {
+        taskCanceledType = e.type();
+    }
+    edge_eq("task_void_canceled_type", taskCanceledType, "AwaitCanceled");
+
+    var valueTaskCanceledType = "NO_THROW";
+    try {
+        var _ = await edge_valuetask_void_canceled();
+    } catch(e) {
+        valueTaskCanceledType = e.type();
+    }
+    edge_eq("valuetask_void_canceled_type", valueTaskCanceledType, "AwaitCanceled");
+}
+
+var runTask = run();
+edge_eq("run_returns_task", typeof(runTask), "Task<Object>");
+var _ = await runTask;
+
+edge_finish("229_await_non_generic_task_valuetask");

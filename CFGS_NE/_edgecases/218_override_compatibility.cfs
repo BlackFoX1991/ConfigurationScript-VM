@@ -1,0 +1,43 @@
+import "edge_assert.cfs";
+
+edge_begin("218_override_compatibility");
+
+class Base(v) {
+    var value = 0;
+    static var ver = 1;
+
+    func init(v) { this.value = v; }
+
+    func calc(a, b = 2) {
+        return this.value + a + b;
+    }
+
+    static func who(x = 1) {
+        return x + type.ver;
+    }
+}
+
+class Child(v) : Base(v) {
+    var value = 0;
+    static var ver = 2;
+
+    func init(v) {
+        super.init(v);
+        this.value = v * 2;
+    }
+
+    func calc(a, b = 2) {
+        return super.calc(a, b) + this.value;
+    }
+
+    static func who(x = 1) {
+        return super.who(x) + type.ver;
+    }
+}
+
+var c = new Child(3);
+edge_eq("override_instance_method", c.calc(1), 12);
+edge_eq("override_static_method", Child.who(5), 8);
+edge_eq("override_static_field", Child.ver, 2);
+
+edge_finish("218_override_compatibility");

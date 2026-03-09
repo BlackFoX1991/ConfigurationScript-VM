@@ -1,0 +1,75 @@
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
+# Destructuring demo
+# - var/const destructuring
+# - assignment destructuring
+# - parameter destructuring (with defaults)
+
+print("== Destructuring Demo ==");
+
+var arr = [10, [20, 30], 40];
+var [a, [b, c], _] = arr;
+print("var array -> a=" + str(a) + ", b=" + str(b) + ", c=" + str(c));
+
+var obj = {"x": 1, "y": 2, "pair": [7, 8], "inner": {"z": 9}};
+const {x, y: yy, pair: [p0, p1], inner: {z}} = obj;
+print("const dict -> x=" + str(x) + ", yy=" + str(yy) + ", p0=" + str(p0) + ", p1=" + str(p1) + ", z=" + str(z));
+
+var q = 0;
+var r = 0;
+[q, r] = [3, 4];
+print("assign array -> q=" + str(q) + ", r=" + str(r));
+
+var dx = 0;
+var dy = 0;
+# For object assignment destructuring, wrap in parentheses to avoid block parsing.
+({x: dx, y: dy} = obj);
+print("assign dict -> dx=" + str(dx) + ", dy=" + str(dy));
+
+func sum_pair([m, n]) {
+    return m + n;
+}
+
+func read_obj({x, y: y2}) {
+    return x * 10 + y2;
+}
+
+func with_array_default([u, v] = [1, 2]) {
+    return u + v;
+}
+
+func with_dict_default({a, b: bb} = {"a": 3, "b": 4}) {
+    return a + bb;
+}
+
+func order_from_destructure([sx] = [7], sy = sx) {
+    return sy;
+}
+
+func order_from_destructure_dict({tx} = {"tx": 11}, ty = tx) {
+    return ty;
+}
+
+print("param array -> " + str(sum_pair([5, 6])));
+print("param dict -> " + str(read_obj({"x": 2, "y": 7})));
+print("param array default -> " + str(with_array_default()));
+print("param dict default -> " + str(with_dict_default()));
+print("param order array -> " + str(order_from_destructure()));
+print("param order dict -> " + str(order_from_destructure_dict()));
+
+func foreach_demo() {
+    var foreach_total = 0;
+    foreach (var i, v in [10, 20]) {
+        foreach_total = foreach_total + i + v;
+    }
+    print("foreach pair (i,v) -> " + str(foreach_total));
+
+    var kv_total = 0;
+    foreach (var [k, v] in {"a": 3, "b": 4}) {
+        kv_total = kv_total + v;
+    }
+    print("foreach destructure [k,v] -> " + str(kv_total));
+}
+
+foreach_demo();
+

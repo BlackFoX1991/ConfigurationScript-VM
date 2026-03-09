@@ -6,9 +6,19 @@
     public class Env
     {
         /// <summary>
+        /// Defines the SyncRoot
+        /// </summary>
+        public readonly object SyncRoot = new();
+
+        /// <summary>
         /// Defines the Vars
         /// </summary>
         public Dictionary<string, object> Vars = new();
+
+        /// <summary>
+        /// Defines the ConstVars
+        /// </summary>
+        public HashSet<string> ConstVars = new(StringComparer.Ordinal);
 
         /// <summary>
         /// Defines the Parent
@@ -32,7 +42,14 @@
         /// <returns>The <see cref="bool"/></returns>
         public bool TryGetValue(string name, out object? value)
         {
-            if (Vars.TryGetValue(name, out value)) return true;
+            lock (SyncRoot)
+            {
+                if (Vars.TryGetValue(name, out object? local))
+                {
+                    value = local;
+                    return true;
+                }
+            }
             if (Parent != null) return Parent.TryGetValue(name, out value);
             value = null;
             return false;
@@ -43,7 +60,11 @@
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>
         /// <returns>The <see cref="bool"/></returns>
-        public bool HasLocal(string name) => Vars.ContainsKey(name);
+        public bool HasLocal(string name)
+        {
+            lock (SyncRoot)
+                return Vars.ContainsKey(name);
+        }
 
         /// <summary>
         /// The Set
@@ -53,10 +74,13 @@
         /// <returns>The <see cref="bool"/></returns>
         public bool Set(string name, object value)
         {
-            if (Vars.ContainsKey(name))
+            lock (SyncRoot)
             {
-                Vars[name] = value;
-                return true;
+                if (Vars.ContainsKey(name))
+                {
+                    Vars[name] = value;
+                    return true;
+                }
             }
             if (Parent != null) return Parent.Set(name, value);
             return false;
@@ -69,7 +93,33 @@
         /// <param name="value">The value<see cref="object"/></param>
         public void Define(string name, object value)
         {
-            Vars[name] = value;
+            lock (SyncRoot)
+                Vars[name] = value;
+        }
+
+        /// <summary>
+        /// The DefineConst
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="value">The value<see cref="object"/></param>
+        public void DefineConst(string name, object value)
+        {
+            lock (SyncRoot)
+            {
+                Vars[name] = value;
+                ConstVars.Add(name);
+            }
+        }
+
+        /// <summary>
+        /// The IsConstLocal
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        public bool IsConstLocal(string name)
+        {
+            lock (SyncRoot)
+                return ConstVars.Contains(name);
         }
 
         /// <summary>
@@ -77,7 +127,13 @@
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>
         /// <returns>The <see cref="bool"/></returns>
-        public bool RemoveLocal(string name) => Vars.Remove(name);
+        public bool RemoveLocal(string name)
+        {
+            lock (SyncRoot)
+            {
+                ConstVars.Remove(name);
+                return Vars.Remove(name);
+            }
+        }
     }
 }
-

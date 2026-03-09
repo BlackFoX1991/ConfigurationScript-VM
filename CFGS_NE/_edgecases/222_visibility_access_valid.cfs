@@ -1,0 +1,54 @@
+import "edge_assert.cfs";
+
+edge_begin("222_visibility_access_valid");
+
+class Base(v) {
+    private var secret = 0;
+    protected var prot = 0;
+    public var open = 0;
+
+    private static var sPriv = 11;
+    protected static var sProt = 22;
+
+    protected func init(v) {
+        this.secret = v;
+        this.prot = v + 1;
+        this.open = v + 2;
+    }
+
+    func readSecret() { return this.secret; }
+
+    func writeSecretByAlias(n) {
+        var key = "secret";
+        this[key] = n;
+        return this.secret;
+    }
+
+    static func readPrivateStatic() { return type.sPriv; }
+    static func readProtectedStatic() { return type.sProt; }
+}
+
+class Child(v) : Base(v) {
+    func readProtected() { return this.prot; }
+
+    func bumpProtectedByAlias() {
+        var key = "prot";
+        this[key] = this[key] + 10;
+        return this.prot;
+    }
+
+    static func readInheritedProtectedStatic() { return type.sProt; }
+}
+
+var c = new Child(5);
+
+edge_eq("private_instance_in_class", c.readSecret(), 5);
+edge_eq("private_instance_alias_in_class", c.writeSecretByAlias(9), 9);
+edge_eq("protected_instance_in_derived", c.readProtected(), 6);
+edge_eq("protected_instance_alias_in_derived", c.bumpProtectedByAlias(), 16);
+edge_eq("private_static_in_class", Base.readPrivateStatic(), 11);
+edge_eq("protected_static_in_class", Base.readProtectedStatic(), 22);
+edge_eq("protected_static_in_derived", Child.readInheritedProtectedStatic(), 22);
+edge_eq("public_member_external", c.open, 7);
+
+edge_finish("222_visibility_access_valid");

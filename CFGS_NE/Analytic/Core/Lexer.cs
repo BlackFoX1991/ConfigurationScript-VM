@@ -18,6 +18,7 @@ public class Lexer
     public static readonly Dictionary<string, TokenType> Keywords = new(StringComparer.Ordinal)
         {
             { "var", TokenType.Var },
+            { "const", TokenType.Const },
             { "if", TokenType.If },
             { "else", TokenType.Else },
             { "delete", TokenType.Delete },
@@ -40,15 +41,23 @@ public class Lexer
             { "true", TokenType.True },
             { "false", TokenType.False },
             { "import", TokenType.Import },
+            { "export", TokenType.Export },
+            { "namespace", TokenType.Namespace },
             { "enum", TokenType.Enum },
             { "from", TokenType.From },
+            { "as", TokenType.As },
             { "static", TokenType.Static },
+            { "public", TokenType.Public },
+            { "private", TokenType.Private },
+            { "protected", TokenType.Protected },
             { "in", TokenType.In },
             { "foreach", TokenType.ForEach },
             {"super",TokenType.Ident },
             {"this",TokenType.Ident },
             {"outer", TokenType.Ident },
             {"type", TokenType.Ident },
+            {"async", TokenType.Async},
+            {"yield", TokenType.Yield},
             {"await", TokenType.Await},
             {"out", TokenType.Out},
             {"do", TokenType.Do }
@@ -63,7 +72,7 @@ public class Lexer
     /// <returns>The <see cref="Token"/></returns>
     private Token MakeToken(TokenType type, object value)
     {
-        return new Token(type, value, _line, _col, FileName);
+        return new Token(type, value, _tokLine, _tokCol, FileName);
     }
 
     /// <summary>
@@ -111,6 +120,16 @@ public class Lexer
     private int _line = 1;
 
     /// <summary>
+    /// Defines the _tokLine
+    /// </summary>
+    private int _tokLine = 1;
+
+    /// <summary>
+    /// Defines the _tokCol
+    /// </summary>
+    private int _tokCol = 1;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="Lexer"/> class.
     /// </summary>
     /// <param name="name">The name<see cref="string"/></param>
@@ -120,6 +139,8 @@ public class Lexer
         FileName = name;
         _line = 1;
         _col = 1;
+        _tokLine = 1;
+        _tokCol = 1;
         _text = text;
     }
 
@@ -176,6 +197,9 @@ public class Lexer
                     continue;
                 }
             }
+
+            _tokLine = _line;
+            _tokCol = _col;
 
             if (Current == '\"')
             {
@@ -536,9 +560,11 @@ public class Lexer
                 '.' => MakeToken(TokenType.Dot, "."),
                 '~' => MakeToken(TokenType.Range, "~"),
                 '?' => MakeToken(TokenType.Question, "?"),
-                _ => throw new LexerException($"unknown character in input: '{c}'", _line, _col, FileName)
+                _ => throw new LexerException($"unknown character in input: '{c}'", _tokLine, _tokCol, FileName)
             };
         }
+        _tokLine = _line;
+        _tokCol = _col;
         return MakeToken(TokenType.EOF, "");
     }
 }

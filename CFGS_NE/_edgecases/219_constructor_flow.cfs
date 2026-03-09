@@ -1,0 +1,41 @@
+import "edge_assert.cfs";
+
+edge_begin("219_constructor_flow");
+
+class Base() {
+    var value = 0;
+
+    func init(a, b = 2, *rest) {
+        this.value = a + b + len(rest);
+    }
+}
+
+class ChildNamed() : Base(a: 4, b: 3) {
+    func get() { return this.value; }
+}
+
+class ChildSpread() : Base(*[4, 3, 7, 8]) {
+    func get() { return this.value; }
+}
+
+class Outer(seed) {
+    var seed = 0;
+    func init(seed) { this.seed = seed; }
+
+    class Inner(add) {
+        var total = 0;
+        func init(add) { this.total = outer.seed + add; }
+        func get() { return this.total; }
+    }
+}
+
+var cn = new ChildNamed();
+var cs = new ChildSpread();
+edge_eq("base_ctor_named", cn.get(), 7);
+edge_eq("base_ctor_spread", cs.get(), 9);
+
+var o = new Outer(40);
+var i = o.Inner(2);
+edge_eq("nested_ctor_bound_outer", i.get(), 42);
+
+edge_finish("219_constructor_flow");

@@ -1,0 +1,7 @@
+class A() {
+    func f() { return 1; }
+}
+
+class B() : A() {
+    var f = 2;
+}

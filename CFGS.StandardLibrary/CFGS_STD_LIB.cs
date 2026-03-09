@@ -399,10 +399,12 @@ namespace CFGS.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("fromjson", 1, 1, (args, instr) =>
             {
-                var json = args[0]?.ToString();
+                string? json = args[0]?.ToString();
                 if (string.IsNullOrWhiteSpace(json))
                     return null!;
-                return JsonSerializer.Deserialize<Dictionary<string, object>>(json, Options)!;
+
+                using JsonDocument doc = JsonDocument.Parse(json);
+                return JsonToVmValue(doc.RootElement)!;
             }));
 
 
@@ -1096,6 +1098,58 @@ namespace CFGS.StandardLibrary
             {
                 return Task.Run<object?>(() => { dynamic fh = recv; return (string)fh.ReadLine(); });
             }, smartAwait: true));
+        }
+
+        /// <summary>
+        /// The JsonToVmValue
+        /// </summary>
+        /// <param name="elem">The elem<see cref="JsonElement"/></param>
+        /// <returns>The <see cref="object?"/></returns>
+        private static object? JsonToVmValue(JsonElement elem)
+        {
+            switch (elem.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    {
+                        Dictionary<string, object> dict = new(StringComparer.Ordinal);
+                        foreach (JsonProperty prop in elem.EnumerateObject())
+                            dict[prop.Name] = JsonToVmValue(prop.Value)!;
+                        return dict;
+                    }
+
+                case JsonValueKind.Array:
+                    {
+                        List<object> list = new();
+                        foreach (JsonElement item in elem.EnumerateArray())
+                            list.Add(JsonToVmValue(item)!);
+                        return list;
+                    }
+
+                case JsonValueKind.String:
+                    return elem.GetString() ?? string.Empty;
+
+                case JsonValueKind.Number:
+                    {
+                        if (elem.TryGetInt32(out int i32)) return i32;
+                        if (elem.TryGetInt64(out long i64)) return i64;
+                        if (elem.TryGetDecimal(out decimal dec)) return dec;
+                        if (elem.TryGetDouble(out double dbl)) return dbl;
+                        return elem.GetRawText();
+                    }
+
+                case JsonValueKind.True:
+                    return true;
+
+                case JsonValueKind.False:
+                    return false;
+
+                case JsonValueKind.Null:
+                case JsonValueKind.Undefined:
+                    return null;
+
+                default:
+                    return elem.GetRawText();
+            }
         }
 
         /// <summary>

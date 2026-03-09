@@ -1,0 +1,8 @@
+class Solo() {
+    func bad() {
+        return super;
+    }
+}
+
+var s = new Solo();
+s.bad();

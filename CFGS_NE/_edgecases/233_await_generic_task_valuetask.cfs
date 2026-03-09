@@ -1,0 +1,22 @@
+import "edge_assert.cfs";
+import "CFGS.EdgeAwaitables.dll";
+
+edge_begin("233_await_generic_task_valuetask");
+
+var t1 = edge_task_int_value();
+edge_eq("task_int_type", typeof(t1), "Task<Int>");
+edge_eq("task_int_await", await t1, 123);
+
+var t2 = edge_task_string_value();
+edge_eq("task_string_type", typeof(t2), "Task<String>");
+edge_eq("task_string_await", await t2, "EDGE_TASK_STRING");
+
+var v1 = edge_valuetask_int_value();
+edge_eq("valuetask_int_type", typeof(v1), "ValueTask<Int>");
+edge_eq("valuetask_int_await", await v1, 456);
+
+var v2 = edge_valuetask_string_value();
+edge_eq("valuetask_string_type", typeof(v2), "ValueTask<String>");
+edge_eq("valuetask_string_await", await v2, "EDGE_VALUETASK_STRING");
+
+edge_finish("233_await_generic_task_valuetask");

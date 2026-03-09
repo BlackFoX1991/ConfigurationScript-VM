@@ -1,0 +1,4 @@
+namespace Dup {
+    func x() { return 1; }
+    func x() { return 2; }
+}

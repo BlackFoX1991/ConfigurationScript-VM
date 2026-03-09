@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 
 # CFGS Demo Script
 # Zeigt zentrale Sprachfeatures: Variablen, Arrays (Append/Slices), Dicts, Funktionen,
@@ -73,12 +73,21 @@ func forTest()
 }
 forTest();
 
-# --- foreach über Array ---
+# --- foreach Ã¼ber Array/Dict (inkl. neue Pair-Kurzform) ---
 func forEachTest()
 {
 	foreach (var n in nums) {
 		if (n == 3) continue;
 		print("foreach n=" + str(n));
+	}
+
+	foreach (var i, v in nums) {
+		print("foreach pair arr -> i=" + str(i) + ", v=" + str(v));
+	}
+
+	var cfg = {"a": 10, "b": 20};
+	foreach (var k, v in cfg) {
+		print("foreach pair dict -> k=" + str(k) + ", v=" + str(v));
 	}
 }
 forEachTest();
@@ -97,7 +106,7 @@ func tcatchTest()
 	} catch (e) {
 		print("Fehler: " + str(e));
 	} finally {
-		print("finally: Aufräumen");
+		print("finally: AufrÃ¤umen");
 	}
 }
 tcatchTest();
@@ -122,3 +131,4 @@ var adder = func(x) { return x + 10; };
 print("adder(5)=" + str(adder(5)));
 
 # Ende
+

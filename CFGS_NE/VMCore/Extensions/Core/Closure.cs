@@ -23,9 +23,24 @@ public class Closure
     public Env CapturedEnv { get; }
 
     /// <summary>
+    /// Gets the MinArgs
+    /// </summary>
+    public int MinArgs { get; }
+
+    /// <summary>
     /// Gets the Name
     /// </summary>
     public string Name { get; }
+
+    /// <summary>
+    /// Gets the RestParameter
+    /// </summary>
+    public string? RestParameter { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether IsAsync
+    /// </summary>
+    public bool IsAsync { get; }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Closure"/> class.
@@ -34,12 +49,17 @@ public class Closure
     /// <param name="parameters">The parameters<see cref="List{string}"/></param>
     /// <param name="env">The env<see cref="Env"/></param>
     /// <param name="name">The name<see cref="string"/></param>
-    public Closure(int address, List<string> parameters, Env env, string name)
+    /// <param name="restParameter">The restParameter<see cref="string?"/></param>
+    /// <param name="isAsync">The isAsync<see cref="bool"/></param>
+    public Closure(int address, List<string> parameters, int minArgs, Env env, string name, string? restParameter = null, bool isAsync = false)
     {
         Address = address;
         Parameters = parameters;
+        MinArgs = minArgs;
         CapturedEnv = env;
         Name = name ?? "<anon>";
+        RestParameter = restParameter;
+        IsAsync = isAsync;
     }
 
     /// <summary>
@@ -50,9 +70,15 @@ public class Closure
     {
         string paramList = string.Join(", ", Parameters);
         string captured = "";
-        if (CapturedEnv != null && CapturedEnv.Vars.Count > 0)
+        if (CapturedEnv != null)
         {
-            IEnumerable<string> pairs = CapturedEnv.Vars
+            List<KeyValuePair<string, object>> snapshot;
+            lock (CapturedEnv.SyncRoot)
+                snapshot = CapturedEnv.Vars.ToList();
+
+            if (snapshot.Count > 0)
+            {
+                IEnumerable<string> pairs = snapshot
                 .OrderBy(kv => kv.Key, StringComparer.Ordinal)
                 .Select(kvp =>
                 {
@@ -61,9 +87,9 @@ public class Closure
                     if (kvp.Value is FunctionInfo fi) return $"{kvp.Key}=<fn:{fi.Address.ToString()}>";
                     return $"{kvp.Key}={kvp.Value.GetType().Name}";
                 });
-            captured = $" captured: {{{string.Join(", ", pairs)}}}";
+                captured = $" captured: {{{string.Join(", ", pairs)}}}";
+            }
         }
         return $"<closure {Name} at {Address} ({paramList}){captured}>";
     }
 }
-

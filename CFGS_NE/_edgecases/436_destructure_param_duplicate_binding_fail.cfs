@@ -1,0 +1,3 @@
+func bad([a, a]) {
+    return a;
+}

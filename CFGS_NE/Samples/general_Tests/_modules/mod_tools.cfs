@@ -1,0 +1,26 @@
+import { add, scale, base } from "mod_math.cfs";
+
+export func triple(v) {
+    return scale(v, 3);
+}
+
+export func add_base(v) {
+    return add(v, base);
+}
+
+export class Box(v) {
+    var value = 0;
+
+    func init(v) {
+        this.value = v;
+    }
+
+    func get() {
+        return this.value;
+    }
+}
+
+export enum Flag {
+    On = 1,
+    Off = 0
+}

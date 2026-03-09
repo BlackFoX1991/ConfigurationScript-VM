@@ -1,0 +1,202 @@
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+func finish(tag) {
+    if (failed == 0) {
+        print("ALL PASSED: " + tag);
+    } else {
+        print("FAILED: " + tag + " (" + str(failed) + ")");
+    }
+}
+
+class AccessBase(v) {
+    private var secret = 0;
+    protected var prot = 0;
+    public var open = 0;
+
+    private static var sPriv = 11;
+    protected static var sProt = 22;
+
+    protected func init(v) {
+        this.secret = v;
+        this.prot = v + 1;
+        this.open = v + 2;
+    }
+
+    func read_secret() {
+        return this.secret;
+    }
+
+    func write_secret_alias(n) {
+        var key = "secret";
+        this[key] = n;
+        return this.secret;
+    }
+
+    static func read_private_static() {
+        return type.sPriv;
+    }
+
+    static func read_protected_static() {
+        return type.sProt;
+    }
+}
+
+class AccessChild(v) : AccessBase(v) {
+    func read_protected() {
+        return this.prot;
+    }
+
+    func bump_protected_alias() {
+        var key = "prot";
+        this[key] = this[key] + 10;
+        return this.prot;
+    }
+
+    static func read_inherited_protected_static() {
+        return type.sProt;
+    }
+}
+
+class FactoryOnly(v) {
+    var x = 0;
+
+    private func init(v) {
+        this.x = v;
+    }
+
+    static func make(v) {
+        return new FactoryOnly(v);
+    }
+
+    func get() {
+        return this.x;
+    }
+}
+
+async func await_passthrough_value() {
+    return await 5;
+}
+
+async func await_passthrough_expr() {
+    return await (2 + 3);
+}
+
+async func main() {
+    # -----------------------------------------------------------------------
+    # visibility + constructor visibility
+    # -----------------------------------------------------------------------
+    var c = new AccessChild(5);
+    assert_eq("private_instance_in_class", c.read_secret(), 5);
+    assert_eq("private_instance_alias_in_class", c.write_secret_alias(9), 9);
+    assert_eq("protected_instance_in_derived", c.read_protected(), 6);
+    assert_eq("protected_instance_alias_in_derived", c.bump_protected_alias(), 16);
+    assert_eq("private_static_in_class", AccessBase.read_private_static(), 11);
+    assert_eq("protected_static_in_class", AccessBase.read_protected_static(), 22);
+    assert_eq("protected_static_in_derived", AccessChild.read_inherited_protected_static(), 22);
+    assert_eq("public_member_external", c.open, 7);
+
+    var made = FactoryOnly.make(5);
+    assert_eq("private_ctor_internal_factory", made.get(), 5);
+
+    # -----------------------------------------------------------------------
+    # foreach index/value + destructuring
+    # -----------------------------------------------------------------------
+    var sum_pairs = 0;
+    foreach (var i, v in [10, 20, 30]) {
+        sum_pairs = sum_pairs + (i * 10) + v;
+    }
+    assert_eq("foreach_var_index_value_array", sum_pairs, 90);
+
+    var pair_sum = 0;
+    foreach (var [x, y] in [[1, 2], [3, 4], [5, 6]]) {
+        pair_sum = pair_sum + x + y;
+    }
+    assert_eq("foreach_var_array_pattern", pair_sum, 21);
+
+    var x0 = 0;
+    var y0 = 0;
+    var mul_sum = 0;
+    foreach ([x0, y0] in [[2, 3], [4, 5]]) {
+        mul_sum = mul_sum + (x0 * y0);
+    }
+    assert_eq("foreach_assign_array_pattern", mul_sum, 26);
+
+    var dict_pattern_total = 0;
+    foreach (var {x, y: yy} in [{"x": 1, "y": 7}, {"x": 2, "y": 8}]) {
+        dict_pattern_total = dict_pattern_total + x + yy;
+    }
+    assert_eq("foreach_var_dict_destructure", dict_pattern_total, 18);
+
+    # -----------------------------------------------------------------------
+    # out + await
+    # -----------------------------------------------------------------------
+    var out1 = out {
+        var a = 4;
+        a;
+    };
+    assert_eq("out_returns_last_expr", out1, 4);
+
+    var out2 = out {
+        var a = 1;
+    };
+    assert_eq("out_without_expr_returns_null", out2, null);
+
+    var out3 = out {
+        var z = 9;
+        z;
+    };
+    assert_eq("out_scope_value", out3, 9);
+    assert_eq("await_passthrough", await await_passthrough_value(), 5);
+    assert_eq("await_passthrough_expr", await await_passthrough_expr(), 5);
+
+    # -----------------------------------------------------------------------
+    # operators + dict intrinsic key hardening
+    # -----------------------------------------------------------------------
+    assert_eq("bit_and", 6 & 3, 2);
+    assert_eq("bit_or", 6 | 3, 7);
+    assert_eq("bit_xor", 6 ^ 3, 5);
+    assert_eq("bit_shift_left", 3 << 2, 12);
+    assert_eq("bit_shift_right", 20 >> 2, 5);
+
+    var p = 1;
+    p++;
+    ++p;
+    assert_eq("prefix_postfix_inc", p, 3);
+    p--;
+    --p;
+    assert_eq("prefix_postfix_dec", p, 1);
+
+    var caught_literal = 0;
+    try {
+        var bad1 = {"get_or": 1};
+        caught_literal = -1;
+    } catch(e) {
+        caught_literal = 1;
+    }
+    assert_eq("dict_intrinsic_key_literal_blocked", caught_literal, 1);
+
+    var caught_push = 0;
+    try {
+        var bad2 = {};
+        bad2[] = {"get_or": 1};
+        caught_push = -1;
+    } catch(e) {
+        caught_push = 1;
+    }
+    assert_eq("dict_intrinsic_key_push_blocked", caught_push, 1);
+
+    finish("feature_07_visibility_foreach_out_intrinsics");
+}
+
+var _ = await main();

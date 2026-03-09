@@ -57,8 +57,8 @@
         /// <returns>The <see cref="string"/></returns>
         public override string ToString()
         {
-            return $"{eMessage}\n{Type}\n -> {File} at {Line}, position {Col}.";
+            string source = string.IsNullOrWhiteSpace(File) ? "<unknown>" : File;
+            return $"[{Type}] {eMessage} @ {source}:{Line}:{Col}";
         }
     }
 }
-

@@ -1,0 +1,2 @@
+import "CFGS.StandardLibrary.dll";
+var x = async 1;

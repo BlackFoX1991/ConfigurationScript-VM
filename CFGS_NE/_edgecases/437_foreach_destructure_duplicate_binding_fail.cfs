@@ -1,0 +1,6 @@
+func bad(xs) {
+    foreach (var [a, a] in xs) {
+    }
+}
+
+bad([[1, 2]]);

@@ -1,0 +1,5 @@
+class C() {
+}
+
+var t = C;
+t["new"] = 9;

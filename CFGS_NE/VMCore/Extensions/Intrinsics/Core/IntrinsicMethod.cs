@@ -25,6 +25,8 @@
 
         public bool SmartAwait { get; }
 
+        public bool NonBlocking { get; }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="IntrinsicMethod"/> class.
         /// </summary>
@@ -32,10 +34,17 @@
         /// <param name="arityMin">The arityMin<see cref="int"/></param>
         /// <param name="arityMax">The arityMax<see cref="int"/></param>
         /// <param name="invoke">The invoke<see cref="IntrinsicInvoker"/></param>
-        public IntrinsicMethod(string name, int arityMin, int arityMax, IntrinsicInvoker invoke, bool smartAwait = true)
+        public IntrinsicMethod(
+            string name,
+            int arityMin,
+            int arityMax,
+            IntrinsicInvoker invoke,
+            bool smartAwait = true,
+            bool nonBlocking = false)
         {
             Name = name; ArityMin = arityMin; ArityMax = arityMax; Invoke = invoke;
             this.SmartAwait = smartAwait;
+            this.NonBlocking = nonBlocking;
 
         }
 
@@ -46,4 +55,3 @@
         public override string ToString() => $"<intrinsic {Name}>";
     }
 }
-

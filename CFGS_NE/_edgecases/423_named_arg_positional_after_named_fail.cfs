@@ -1,0 +1,5 @@
+func f(a, b, c = 0) {
+    return a + b + c;
+}
+
+f(1, b: 2, 3);

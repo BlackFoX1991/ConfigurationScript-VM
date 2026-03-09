@@ -1,5 +1,5 @@
-# CFGS Hardcore Try/Catch/Finally Tests (no str) - v2 (funktional verpackt)
-import "CFGS.StandardLibrary.dll";
+﻿# CFGS Hardcore Try/Catch/Finally Tests (no str) - v2 (funktional verpackt)
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 # --- Tiny test lib (no str) ---
 var __passed = 0;
 var __failed = 0;
@@ -240,3 +240,4 @@ func run_all() {
 
 # Top-Level: nur erlaubte Dinge
 run_all();
+

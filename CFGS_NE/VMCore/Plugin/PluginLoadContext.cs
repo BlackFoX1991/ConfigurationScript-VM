@@ -7,11 +7,9 @@ namespace CFGS_VM.VMCore.Plugin
     {
         private readonly AssemblyDependencyResolver _resolver;
 
-        // Optional: Name deiner Host-Assembly(s)
-        private static readonly string[] SharedPrefixes =
+        private static readonly HashSet<string> SharedAssemblyNames = new(StringComparer.OrdinalIgnoreCase)
         {
-            "CFGS_VM",
-            "CFGS"
+            "CFGS_VM"
         };
 
         public PluginLoadContext(string pluginPath)
@@ -22,22 +20,13 @@ namespace CFGS_VM.VMCore.Plugin
 
         protected override Assembly? Load(AssemblyName assemblyName)
         {
-            // 1) WICHTIG: Alles was zum Host gehört, NICHT im Plugin-Context laden
+            // Host contracts must stay in default context for type identity.
             string? n = assemblyName.Name;
 
-            if (!string.IsNullOrWhiteSpace(n))
-            {
-                foreach (var p in SharedPrefixes)
-                {
-                    if (n.StartsWith(p, StringComparison.OrdinalIgnoreCase))
-                    {
-                        // null => Default Context übernimmt
-                        return null;
-                    }
-                }
-            }
+            if (!string.IsNullOrWhiteSpace(n) && SharedAssemblyNames.Contains(n))
+                return null;
 
-            // 2) Normale Dependency-Auflösung
+            // Resolve plugin-private dependencies via resolver.
             string? path = _resolver.ResolveAssemblyToPath(assemblyName);
             if (path != null)
                 return LoadFromAssemblyPath(path);

@@ -1,0 +1,14 @@
+class Base() {
+    var token = 1;
+}
+
+class Child() : Base() {
+    static var token = 2;
+
+    func read() {
+        return token;
+    }
+}
+
+var c = new Child();
+print(c.read());

@@ -1,0 +1,28 @@
+import "edge_assert.cfs";
+
+func stmt_guard(v) {
+    var res = 0;
+    match (v) {
+        case 5 if (false): { res = 10; }
+        case 5 if (v > 3): { res = 20; }
+        default: { res = 99; }
+    }
+    return res;
+}
+
+func expr_guard(v) {
+    return v match {
+        1 if (false): 10,
+        1 if (true): 20,
+        2 if (v > 1): 30,
+        _: 40
+    };
+}
+
+edge_begin("206_match_guards");
+edge_eq("stmt_guard_true", stmt_guard(5), 20);
+edge_eq("stmt_guard_default", stmt_guard(2), 99);
+edge_eq("expr_guard_second_arm", expr_guard(1), 20);
+edge_eq("expr_guard_guarded", expr_guard(2), 30);
+edge_eq("expr_guard_default", expr_guard(7), 40);
+edge_finish("206_match_guards");

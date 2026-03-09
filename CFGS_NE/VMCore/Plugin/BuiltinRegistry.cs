@@ -16,5 +16,14 @@ namespace CFGS_VM.VMCore.Plugin
 
         public bool TryGet(string name, out BuiltinDescriptor d)
             => _map.TryGetValue(name, out d!);
+
+        public bool Contains(string name)
+            => _map.ContainsKey(name);
+
+        public bool Remove(string name)
+            => _map.Remove(name);
+
+        public IReadOnlyList<BuiltinDescriptor> Snapshot()
+            => new List<BuiltinDescriptor>(_map.Values);
     }
 }

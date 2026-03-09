@@ -1,0 +1,6 @@
+func bad(xs) {
+    foreach (var i, i in xs) {
+    }
+}
+
+bad([1]);

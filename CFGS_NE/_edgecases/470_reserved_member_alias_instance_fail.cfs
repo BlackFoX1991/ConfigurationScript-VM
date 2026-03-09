@@ -1,0 +1,5 @@
+class C() {
+}
+
+var c = new C();
+c["__type"] = 9;

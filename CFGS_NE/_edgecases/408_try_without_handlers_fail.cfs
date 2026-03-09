@@ -1,0 +1,5 @@
+func f() {
+    try {
+        var x = 1;
+    }
+}

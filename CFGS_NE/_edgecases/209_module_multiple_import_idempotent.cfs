@@ -1,0 +1,9 @@
+import "_imports/mod_extra.cfs";
+import "_imports/mod_extra.cfs";
+import { twice as twice2 } from "_imports/mod_extra.cfs";
+import "edge_assert.cfs";
+
+edge_begin("209_module_multiple_import_idempotent");
+edge_eq("direct_twice", twice(4), 8);
+edge_eq("alias_twice", twice2(5), 10);
+edge_finish("209_module_multiple_import_idempotent");

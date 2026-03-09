@@ -1,0 +1,8 @@
+class Solo() {
+    func bad() {
+        return outer;
+    }
+}
+
+var s = new Solo();
+s.bad();

@@ -1,6 +1,6 @@
-import "CFGS.StandardLibrary.dll";
-import "CFGS.Web.Http.dll";
-func main()
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
+async func main()
 {
     print("== Async/Await Tests starten ==");
 
@@ -14,7 +14,7 @@ func main()
     var r2 = await r2_task;
     print("2a) nach await: status=" + str(r2.status) + ", reason=" + r2.reason);
 
-    # 3) Parallel starten, später awaiten
+    # 3) Parallel starten, spÃ¤ter awaiten
     var t1 = http_get("https://httpbin.org/delay/1", {"User-Agent":"CFGS_HTTP/1.0"});
     var t2 = http_get("https://httpbin.org/delay/2", {"User-Agent":"CFGS_HTTP/1.0"});
     print("3) gestartet: t1 & t2 (keine awaits bisher)");
@@ -33,7 +33,7 @@ func main()
     var rf = await fetch("https://httpbin.org/get");
     print("4) func fetch(): status=" + str(rf.status));
 
-    # 5) Task speichern, später awaiten
+    # 5) Task speichern, spÃ¤ter awaiten
     var t3 = http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"});
     print("5) t3 gespeichert (noch nicht awaited), typeof(t3) = " + typeof(t3));
     var r3 = await t3;
@@ -45,4 +45,5 @@ func main()
     print("== Async/Await Tests fertig ==");
 }
 
-main();
+var _ = await main();
+

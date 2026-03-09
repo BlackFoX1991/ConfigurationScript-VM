@@ -1,0 +1,45 @@
+import "CFGS.StandardLibrary.dll";
+
+var __edge_total = 0;
+var __edge_failed = 0;
+
+func edge_begin(name) {
+    __edge_total = 0;
+    __edge_failed = 0;
+    print("EDGE_BEGIN:" + name);
+}
+
+func edge_eq(name, got, expected) {
+    __edge_total = __edge_total + 1;
+    if (got == expected) {
+        print("EDGE_OK_CASE:" + name);
+    } else {
+        print("EDGE_FAIL_CASE:" + name + " got=" + str(got) + " expected=" + str(expected));
+        __edge_failed = __edge_failed + 1;
+    }
+}
+
+func edge_true(name, cond) {
+    edge_eq(name, cond, true);
+}
+
+func edge_throws(name, thunk) {
+    __edge_total = __edge_total + 1;
+    try {
+        var _ = thunk();
+        print("EDGE_FAIL_CASE:" + name + " expected throw");
+        __edge_failed = __edge_failed + 1;
+    } catch(e) {
+        print("EDGE_OK_CASE:" + name);
+    }
+}
+
+func edge_finish(name) {
+    print("EDGE_SUMMARY:" + name + ":TOTAL=" + str(__edge_total) + ":FAILED=" + str(__edge_failed));
+    if (__edge_failed == 0) {
+        print("EDGE_OK:" + name);
+    } else {
+        print("EDGE_FAIL:" + name);
+    }
+    return __edge_failed;
+}

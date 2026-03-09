@@ -1,5 +1,7 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 
 namespace CFGS_VM.VMCore.Plugin
 {
@@ -8,20 +10,15 @@ namespace CFGS_VM.VMCore.Plugin
     /// </summary>
     public static class PluginLoader
     {
-        /// <summary>
-        /// Defines the _loadedAssemblies
-        /// </summary>
-        private static readonly ConcurrentDictionary<string, byte> _loadedAssemblies = new();
+        private sealed class LoaderState
+        {
+            public readonly ConcurrentDictionary<string, byte> LoadedAssemblies = new();
+            public readonly ConcurrentDictionary<string, byte> ActivatedPluginTypes = new();
+            public readonly ConcurrentDictionary<string, Assembly> LoadedDllByPath = new(StringComparer.OrdinalIgnoreCase);
+            public readonly object SyncRoot = new();
+        }
 
-        /// <summary>
-        /// Defines the _activatedPluginTypes
-        /// </summary>
-        private static readonly ConcurrentDictionary<string, byte> _activatedPluginTypes = new();
-
-        /// <summary>
-        /// Defines the _attrRegistered
-        /// </summary>
-        private static readonly ConcurrentDictionary<string, byte> _attrRegistered = new();
+        private static readonly ConditionalWeakTable<IBuiltinRegistry, LoaderState> _states = new();
 
         /// <summary>
         /// Defines the Verbose
@@ -29,6 +26,194 @@ namespace CFGS_VM.VMCore.Plugin
         private static readonly bool Verbose =
             string.Equals(Environment.GetEnvironmentVariable("CFGS_PLUGIN_VERBOSE"), "1", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(Environment.GetEnvironmentVariable("CFGS_PLUGIN_VERBOSE"), "true", StringComparison.OrdinalIgnoreCase);
+
+        private static LoaderState GetState(IBuiltinRegistry builtins)
+        {
+            ArgumentNullException.ThrowIfNull(builtins);
+            return _states.GetValue(builtins, _ => new LoaderState());
+        }
+
+        private sealed class StagedBuiltinRegistry : IBuiltinRegistry
+        {
+            private readonly IBuiltinRegistry _baseRegistry;
+            private readonly Dictionary<string, BuiltinDescriptor> _staged = new(StringComparer.Ordinal);
+
+            public StagedBuiltinRegistry(IBuiltinRegistry baseRegistry)
+            {
+                _baseRegistry = baseRegistry;
+            }
+
+            public void Register(BuiltinDescriptor d)
+            {
+                if (_staged.ContainsKey(d.Name))
+                    throw new InvalidOperationException($"Duplicate builtin '{d.Name}'.");
+                _staged[d.Name] = d;
+            }
+
+            public bool TryGet(string name, out BuiltinDescriptor d)
+            {
+                if (_staged.TryGetValue(name, out d!))
+                    return true;
+                return _baseRegistry.TryGet(name, out d!);
+            }
+
+            public bool Contains(string name)
+                => _staged.ContainsKey(name) || _baseRegistry.Contains(name);
+
+            public bool Remove(string name)
+                => _staged.Remove(name);
+
+            public IReadOnlyList<BuiltinDescriptor> Snapshot()
+                => _staged.Values.ToList();
+        }
+
+        private sealed class StagedIntrinsicRegistry : IIntrinsicRegistry
+        {
+            private readonly IIntrinsicRegistry _baseRegistry;
+            private readonly Dictionary<Type, Dictionary<string, IntrinsicDescriptor>> _staged = new();
+
+            public StagedIntrinsicRegistry(IIntrinsicRegistry baseRegistry)
+            {
+                _baseRegistry = baseRegistry;
+            }
+
+            public void Register(Type receiverType, IntrinsicDescriptor d)
+            {
+                if (!_staged.TryGetValue(receiverType, out Dictionary<string, IntrinsicDescriptor>? bucket))
+                {
+                    bucket = new Dictionary<string, IntrinsicDescriptor>(StringComparer.Ordinal);
+                    _staged[receiverType] = bucket;
+                }
+
+                if (bucket.ContainsKey(d.Name))
+                    throw new InvalidOperationException($"Duplicate intrinsic '{d.Name}' for {receiverType.Name}.");
+
+                bucket[d.Name] = d;
+            }
+
+            public void Register(Type receiverType, IEnumerable<IntrinsicDescriptor> ds)
+            {
+                foreach (IntrinsicDescriptor d in ds)
+                    Register(receiverType, d);
+            }
+
+            public bool TryGet(Type receiverType, string name, out IntrinsicDescriptor d)
+            {
+                if (_staged.TryGetValue(receiverType, out Dictionary<string, IntrinsicDescriptor>? bucket) &&
+                    bucket.TryGetValue(name, out d!))
+                    return true;
+
+                Type? t = receiverType.BaseType;
+                while (t != null)
+                {
+                    if (_staged.TryGetValue(t, out bucket) && bucket.TryGetValue(name, out d!))
+                        return true;
+                    t = t.BaseType;
+                }
+
+                foreach (Type iface in receiverType.GetInterfaces())
+                {
+                    if (_staged.TryGetValue(iface, out bucket) && bucket.TryGetValue(name, out d!))
+                        return true;
+                }
+
+                return _baseRegistry.TryGet(receiverType, name, out d!);
+            }
+
+            public bool ContainsExact(Type receiverType, string name)
+                => (_staged.TryGetValue(receiverType, out Dictionary<string, IntrinsicDescriptor>? bucket) &&
+                    bucket.ContainsKey(name))
+                   || _baseRegistry.ContainsExact(receiverType, name);
+
+            public bool RemoveExact(Type receiverType, string name)
+            {
+                if (!_staged.TryGetValue(receiverType, out Dictionary<string, IntrinsicDescriptor>? bucket))
+                    return false;
+
+                bool removed = bucket.Remove(name);
+                if (bucket.Count == 0)
+                    _staged.Remove(receiverType);
+
+                return removed;
+            }
+
+            public IReadOnlyList<(Type ReceiverType, IntrinsicDescriptor Descriptor)> Snapshot()
+            {
+                List<(Type ReceiverType, IntrinsicDescriptor Descriptor)> result = new();
+                foreach (KeyValuePair<Type, Dictionary<string, IntrinsicDescriptor>> entry in _staged)
+                {
+                    foreach (IntrinsicDescriptor desc in entry.Value.Values)
+                        result.Add((entry.Key, desc));
+                }
+
+                return result;
+            }
+        }
+
+        private static void RollbackRegistrations(
+            IBuiltinRegistry builtins,
+            IIntrinsicRegistry intrinsics,
+            IReadOnlyList<string> appliedBuiltins,
+            IReadOnlyList<(Type ReceiverType, string Name)> appliedIntrinsics)
+        {
+            for (int i = appliedBuiltins.Count - 1; i >= 0; i--)
+                _ = builtins.Remove(appliedBuiltins[i]);
+
+            for (int i = appliedIntrinsics.Count - 1; i >= 0; i--)
+            {
+                (Type receiverType, string name) = appliedIntrinsics[i];
+                _ = intrinsics.RemoveExact(receiverType, name);
+            }
+        }
+
+        private static void CommitStagedRegistrations(
+            StagedBuiltinRegistry stagedBuiltins,
+            StagedIntrinsicRegistry stagedIntrinsics,
+            IBuiltinRegistry builtins,
+            IIntrinsicRegistry intrinsics,
+            LoaderState state)
+        {
+            IReadOnlyList<BuiltinDescriptor> builtinsToAdd = stagedBuiltins.Snapshot();
+            IReadOnlyList<(Type ReceiverType, IntrinsicDescriptor Descriptor)> intrinsicsToAdd = stagedIntrinsics.Snapshot();
+
+            lock (state.SyncRoot)
+            {
+                foreach (BuiltinDescriptor b in builtinsToAdd)
+                {
+                    if (builtins.Contains(b.Name))
+                        throw new InvalidOperationException($"Duplicate builtin '{b.Name}'.");
+                }
+
+                foreach ((Type ReceiverType, IntrinsicDescriptor Descriptor) entry in intrinsicsToAdd)
+                {
+                    if (intrinsics.ContainsExact(entry.ReceiverType, entry.Descriptor.Name))
+                        throw new InvalidOperationException($"Duplicate intrinsic '{entry.Descriptor.Name}' for {entry.ReceiverType.Name}.");
+                }
+
+                List<string> appliedBuiltins = new();
+                List<(Type ReceiverType, string Name)> appliedIntrinsics = new();
+
+                try
+                {
+                    foreach (BuiltinDescriptor b in builtinsToAdd)
+                    {
+                        builtins.Register(b);
+                        appliedBuiltins.Add(b.Name);
+                    }
+
+                    foreach ((Type ReceiverType, IntrinsicDescriptor Descriptor) entry in intrinsicsToAdd)
+                    {
+                        intrinsics.Register(entry.ReceiverType, entry.Descriptor);
+                        appliedIntrinsics.Add((entry.ReceiverType, entry.Descriptor.Name));
+                    }
+                }
+                catch
+                {
+                    RollbackRegistrations(builtins, intrinsics, appliedBuiltins, appliedIntrinsics);
+                    throw;
+                }
+            }
+        }
 
         /// <summary>
         /// The LoadDirectory
@@ -45,24 +230,23 @@ namespace CFGS_VM.VMCore.Plugin
             }
 
             LogInfo($"Scanning plugin directory: {directoryPath}");
+            List<Exception> failures = new();
 
             foreach (string dll in Directory.EnumerateFiles(directoryPath, "*.dll", SearchOption.TopDirectoryOnly))
             {
                 try
                 {
-                    string full = Path.GetFullPath(dll);
-                    LogInfo($"Loading dll from directory: {full}");
-
-                    var plc = new PluginLoadContext(full);
-                    Assembly asm = plc.LoadFromAssemblyPath(full);
-
-                    LoadFromAssembly(asm, builtins, intrinsics);
+                    LoadDll(dll, builtins, intrinsics);
                 }
                 catch (Exception ex)
                 {
-                    LogError($"Failed to load '{dll}'", ex);
+                    // LoadDll already logs concrete failure details; preserve all failures for caller diagnostics.
+                    failures.Add(new InvalidOperationException($"Failed to load plugin dll '{dll}'.", ex));
                 }
             }
+
+            if (failures.Count > 0)
+                throw new AggregateException($"One or more plugins failed to load from '{directoryPath}'.", failures);
         }
 
         /// <summary>
@@ -73,25 +257,48 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         public static void LoadDll(string dllPath, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
         {
-            if (string.IsNullOrWhiteSpace(dllPath))
-                return;
+            ArgumentNullException.ThrowIfNull(builtins);
+            ArgumentNullException.ThrowIfNull(intrinsics);
 
-            string full = Path.GetFullPath(dllPath);
-            if (!File.Exists(full) || !full.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                return;
+            if (string.IsNullOrWhiteSpace(dllPath))
+                throw new ArgumentException("Plugin dll path is empty.", nameof(dllPath));
+
+            string full = dllPath;
 
             try
             {
-                LogInfo($"Loading dll: {full}");
+                full = Path.GetFullPath(dllPath);
+                if (!full.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException($"Plugin import requires a .dll path, got '{dllPath}'.", nameof(dllPath));
 
-                var plc = new PluginLoadContext(full);
-                Assembly asm = plc.LoadFromAssemblyPath(full);
+                if (!File.Exists(full))
+                    throw new FileNotFoundException("Plugin dll not found.", full);
 
-                LoadFromAssembly(asm, builtins, intrinsics);
+                LoaderState state = GetState(builtins);
+                if (!state.LoadedDllByPath.TryGetValue(full, out Assembly? asm))
+                {
+                    lock (state.SyncRoot)
+                    {
+                        if (!state.LoadedDllByPath.TryGetValue(full, out asm))
+                        {
+                            LogInfo($"Loading dll: {full}");
+                            var plc = new PluginLoadContext(full);
+                            asm = plc.LoadFromAssemblyPath(full);
+                            state.LoadedDllByPath[full] = asm;
+                        }
+                    }
+                }
+                else if (Verbose)
+                {
+                    LogInfo($"DLL already loaded in this VM: {full}");
+                }
+
+                LoadFromAssembly(asm, builtins, intrinsics, state);
             }
             catch (Exception ex)
             {
                 LogError($"Failed to load '{full}'", ex);
+                throw;
             }
         }
 
@@ -102,197 +309,204 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         public static void LoadFromAssembly(Assembly asm, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+            => LoadFromAssembly(asm, builtins, intrinsics, GetState(builtins));
+
+        private static void LoadFromAssembly(Assembly asm, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, LoaderState state)
         {
             if (asm == null) return;
 
             string key = $"{AsmName(asm)}::{AsmLocation(asm)}";
 
-            if (!_loadedAssemblies.TryAdd(key, 0))
+            if (!state.LoadedAssemblies.TryAdd(key, 0))
             {
                 if (Verbose)
                     LogInfo($"Assembly already processed: {AsmName(asm)} @ {AsmLocation(asm)}");
                 return;
             }
 
-            if (Verbose)
-                LogInfo($"Processing assembly: {AsmName(asm)} @ {AsmLocation(asm)}");
-
-            Type[] types = Array.Empty<Type>();
+            bool completed = false;
             try
             {
-                types = asm.GetTypes();
-            }
-            catch (ReflectionTypeLoadException rtle)
-            {
-                types = rtle.Types.Where(t => t != null).Cast<Type>().ToArray();
+                if (Verbose)
+                    LogInfo($"Processing assembly: {AsmName(asm)} @ {AsmLocation(asm)}");
 
-                LogWarn($"Partial type load for '{AsmName(asm)}' � continuing with {types.Length} types.");
-                LogLoaderExceptions(asm, rtle);
-            }
-            catch (Exception ex)
-            {
-                LogError($"GetTypes() failed for '{AsmName(asm)}'", ex);
-                return;
-            }
-
-            int pluginCandidates = 0;
-            int pluginActivated = 0;
-
-            foreach (Type t in types)
-            {
-                if (t is null) continue;
-                if (t.IsAbstract) continue;
-                if (!typeof(IVmPlugin).IsAssignableFrom(t)) continue;
-
-                pluginCandidates++;
-
-                string tkey = t.FullName ?? t.Name;
-                if (!_activatedPluginTypes.TryAdd(tkey, 0))
-                {
-                    if (Verbose)
-                        LogInfo($"Plugin type already activated: {t.FullName}");
-                    continue;
-                }
-
+                Type[] types = Array.Empty<Type>();
                 try
                 {
-                    if (Verbose)
-                        LogInfo($"Activating plugin: {t.FullName}");
-
-                    IVmPlugin plugin = (IVmPlugin)Activator.CreateInstance(t)!;
-                    plugin.Register(builtins, intrinsics);
-
-                    pluginActivated++;
+                    types = asm.GetTypes();
                 }
-                catch (TargetInvocationException tie)
+                catch (ReflectionTypeLoadException rtle)
                 {
-                    Exception? inner = tie.InnerException;
+                    types = rtle.Types.Where(t => t != null).Cast<Type>().ToArray();
 
-                    if (inner != null)
-                        LogError($"Failed to activate {t.FullName} (ctor/initializer)", inner);
-                    else
-                        LogError($"Failed to activate {t.FullName}", tie);
-                }
-                catch (FileNotFoundException fnf)
-                {
-                    LogError($"Failed to activate {t.FullName} (missing dependency?)", fnf);
+                    LogWarn($"Partial type load for '{AsmName(asm)}' – continuing with {types.Length} types.");
+                    LogLoaderExceptions(asm, rtle);
                 }
                 catch (Exception ex)
                 {
-                    LogError($"Failed to activate {t.FullName}", ex);
-                }
-            }
-
-            if (Verbose && pluginCandidates > 0)
-                LogInfo($"Plugin activation summary for '{AsmName(asm)}': candidates={pluginCandidates}, activated={pluginActivated}");
-
-            int builtinCount = 0;
-            int intrinsicCount = 0;
-
-            foreach (Type t in types)
-            {
-                if (t is null) continue;
-
-                MethodInfo[] methods;
-                try
-                {
-                    methods = t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                }
-                catch (Exception ex)
-                {
-                    if (Verbose)
-                        LogError($"GetMethods failed for type {t.FullName}", ex);
-                    continue;
+                    LogError($"GetTypes() failed for '{AsmName(asm)}'", ex);
+                    return;
                 }
 
-                foreach (MethodInfo m in methods)
+                int pluginCandidates = 0;
+                int pluginActivated = 0;
+                List<Exception> pluginActivationFailures = new();
+
+                foreach (Type t in types)
                 {
-                    BuiltinAttribute[] battrs;
-                    try
-                    {
-                        battrs = m.GetCustomAttributes(typeof(BuiltinAttribute), inherit: false)
-                                  .Cast<BuiltinAttribute>()
-                                  .ToArray();
-                    }
-                    catch (Exception ex)
+                    if (t is null) continue;
+                    if (t.IsAbstract) continue;
+                    if (!typeof(IVmPlugin).IsAssignableFrom(t)) continue;
+
+                    pluginCandidates++;
+
+                    string tkey = $"{AsmName(t.Assembly)}::{AsmLocation(t.Assembly)}::{t.FullName ?? t.Name}";
+                    if (!state.ActivatedPluginTypes.TryAdd(tkey, 0))
                     {
                         if (Verbose)
-                            LogError($"GetCustomAttributes(Builtin) failed for {t.FullName}.{m.Name}", ex);
+                            LogInfo($"Plugin type already activated: {tkey}");
                         continue;
                     }
 
-                    foreach (BuiltinAttribute b in battrs)
+                    bool pluginTypeActivated = false;
+                    try
                     {
-                        string bkey = $"builtin::{b.Name}";
-                        if (!_attrRegistered.TryAdd(bkey, 0))
-                            continue;
+                        if (Verbose)
+                            LogInfo($"Activating plugin: {t.FullName}");
 
+                        IVmPlugin plugin = (IVmPlugin)Activator.CreateInstance(t)!;
+                        StagedBuiltinRegistry stagedBuiltins = new(builtins);
+                        StagedIntrinsicRegistry stagedIntrinsics = new(intrinsics);
+                        plugin.Register(stagedBuiltins, stagedIntrinsics);
+                        CommitStagedRegistrations(stagedBuiltins, stagedIntrinsics, builtins, intrinsics, state);
+
+                        pluginActivated++;
+                        pluginTypeActivated = true;
+                    }
+                    catch (TargetInvocationException tie)
+                    {
+                        Exception inner = tie.InnerException ?? tie;
+                        LogError($"Failed to activate {t.FullName} (ctor/initializer)", inner);
+                        pluginActivationFailures.Add(new InvalidOperationException($"Plugin activation failed: {t.FullName}", inner));
+                    }
+                    catch (FileNotFoundException fnf)
+                    {
+                        LogError($"Failed to activate {t.FullName} (missing dependency?)", fnf);
+                        pluginActivationFailures.Add(new InvalidOperationException($"Plugin activation failed: {t.FullName}", fnf));
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError($"Failed to activate {t.FullName}", ex);
+                        pluginActivationFailures.Add(new InvalidOperationException($"Plugin activation failed: {t.FullName}", ex));
+                    }
+                    finally
+                    {
+                        if (!pluginTypeActivated)
+                            _ = state.ActivatedPluginTypes.TryRemove(tkey, out _);
+                    }
+                }
+
+                if (Verbose && pluginCandidates > 0)
+                    LogInfo($"Plugin activation summary for '{AsmName(asm)}': candidates={pluginCandidates}, activated={pluginActivated}");
+
+                if (pluginActivationFailures.Count > 0)
+                    throw new AggregateException($"Plugin activation failed in assembly '{AsmName(asm)}'.", pluginActivationFailures);
+
+                int builtinCount = 0;
+                int intrinsicCount = 0;
+                StagedBuiltinRegistry stagedAttrBuiltins = new(builtins);
+                StagedIntrinsicRegistry stagedAttrIntrinsics = new(intrinsics);
+
+                foreach (Type t in types)
+                {
+                    if (t is null) continue;
+
+                    MethodInfo[] methods;
+                    try
+                    {
+                        methods = t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new InvalidOperationException($"GetMethods failed for type {t.FullName}.", ex);
+                    }
+
+                    foreach (MethodInfo m in methods)
+                    {
+                        BuiltinAttribute[] battrs;
                         try
                         {
-                            BuiltinInvoker inv = (args, instr) => m.Invoke(null, new object?[] { args, instr })!;
-                            builtins.Register(new BuiltinDescriptor(b.Name, b.ArityMin, b.ArityMax, inv));
+                            battrs = m.GetCustomAttributes(typeof(BuiltinAttribute), inherit: false)
+                                      .Cast<BuiltinAttribute>()
+                                      .ToArray();
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new InvalidOperationException($"GetCustomAttributes(Builtin) failed for {t.FullName}.{m.Name}.", ex);
+                        }
+
+                        foreach (BuiltinAttribute b in battrs)
+                        {
+                            BuiltinInvoker inv = (args, instr) => InvokeStaticMethod(m, args, instr)!;
+                            bool smartAwait = b.SmartAwait || IsAwaitableReturnType(m.ReturnType);
+                            stagedAttrBuiltins.Register(new BuiltinDescriptor(
+                                b.Name,
+                                b.ArityMin,
+                                b.ArityMax,
+                                inv,
+                                smartAwait: smartAwait,
+                                nonBlocking: b.NonBlocking));
                             builtinCount++;
 
                             if (Verbose)
-                                LogInfo($"Registered builtin '{b.Name}' from {t.FullName}.{m.Name}");
+                                LogInfo($"Staged builtin '{b.Name}' from {t.FullName}.{m.Name} (smartAwait={smartAwait}, nonBlocking={b.NonBlocking})");
                         }
-                        catch (TargetInvocationException tie)
+
+                        IntrinsicAttribute[] iattrs;
+                        try
                         {
-                            Exception inner = tie.InnerException ?? tie;
-                            LogError($"Builtin '{b.Name}' from {t.FullName}.{m.Name} failed", inner);
+                            iattrs = m.GetCustomAttributes(typeof(IntrinsicAttribute), inherit: false)
+                                      .Cast<IntrinsicAttribute>()
+                                      .ToArray();
                         }
                         catch (Exception ex)
                         {
-                            LogError($"Builtin '{b.Name}' from {t.FullName}.{m.Name} failed", ex);
+                            throw new InvalidOperationException($"GetCustomAttributes(Intrinsic) failed for {t.FullName}.{m.Name}.", ex);
                         }
-                    }
 
-                    IntrinsicAttribute[] iattrs;
-                    try
-                    {
-                        iattrs = m.GetCustomAttributes(typeof(IntrinsicAttribute), inherit: false)
-                                  .Cast<IntrinsicAttribute>()
-                                  .ToArray();
-                    }
-                    catch (Exception ex)
-                    {
-                        if (Verbose)
-                            LogError($"GetCustomAttributes(Intrinsic) failed for {t.FullName}.{m.Name}", ex);
-                        continue;
-                    }
-
-                    foreach (IntrinsicAttribute a in iattrs)
-                    {
-                        Type? recv = a.ReceiverType;
-                        string rname = recv?.FullName ?? recv?.Name ?? "<null>";
-                        string ikey = $"intrinsic::{rname}::{a.Name}";
-                        if (!_attrRegistered.TryAdd(ikey, 0))
-                            continue;
-
-                        try
+                        foreach (IntrinsicAttribute a in iattrs)
                         {
-                            IntrinsicInvoker inv = (recvObj, args, instr) => m.Invoke(null, new object?[] { recvObj, args, instr })!;
-                            intrinsics.Register(a.ReceiverType, new IntrinsicDescriptor(a.Name, a.ArityMin, a.ArityMax, inv));
+                            Type recv = a.ReceiverType ?? throw new InvalidOperationException($"Intrinsic '{a.Name}' has null receiver type on {t.FullName}.{m.Name}.");
+                            string rname = recv.FullName ?? recv.Name;
+                            IntrinsicInvoker inv = (recvObj, args, instr) => InvokeStaticMethod(m, recvObj, args, instr)!;
+                            bool smartAwait = a.SmartAwait || IsAwaitableReturnType(m.ReturnType);
+                            stagedAttrIntrinsics.Register(recv, new IntrinsicDescriptor(
+                                a.Name,
+                                a.ArityMin,
+                                a.ArityMax,
+                                inv,
+                                smartAwait: smartAwait,
+                                nonBlocking: a.NonBlocking));
                             intrinsicCount++;
 
                             if (Verbose)
-                                LogInfo($"Registered intrinsic '{a.Name}' (recv={rname}) from {t.FullName}.{m.Name}");
-                        }
-                        catch (TargetInvocationException tie)
-                        {
-                            Exception inner = tie.InnerException ?? tie;
-                            LogError($"Intrinsic '{a.Name}' (recv={rname}) from {t.FullName}.{m.Name} failed", inner);
-                        }
-                        catch (Exception ex)
-                        {
-                            LogError($"Intrinsic '{a.Name}' (recv={rname}) from {t.FullName}.{m.Name} failed", ex);
+                                LogInfo($"Staged intrinsic '{a.Name}' (recv={rname}) from {t.FullName}.{m.Name} (smartAwait={smartAwait}, nonBlocking={a.NonBlocking})");
                         }
                     }
                 }
-            }
 
-            if (Verbose && (builtinCount > 0 || intrinsicCount > 0))
-                LogInfo($"Attribute registration summary for '{AsmName(asm)}': builtins={builtinCount}, intrinsics={intrinsicCount}");
+                CommitStagedRegistrations(stagedAttrBuiltins, stagedAttrIntrinsics, builtins, intrinsics, state);
+
+                if (Verbose && (builtinCount > 0 || intrinsicCount > 0))
+                    LogInfo($"Attribute registration summary for '{AsmName(asm)}': builtins={builtinCount}, intrinsics={intrinsicCount}");
+
+                completed = true;
+            }
+            finally
+            {
+                if (!completed)
+                    _ = state.LoadedAssemblies.TryRemove(key, out _);
+            }
         }
 
         /// <summary>
@@ -367,6 +581,44 @@ namespace CFGS_VM.VMCore.Plugin
         }
 
         /// <summary>
+        /// The InvokeStaticMethod
+        /// </summary>
+        /// <param name="method">The method<see cref="MethodInfo"/></param>
+        /// <param name="args">The args<see cref="object?[]"/></param>
+        /// <returns>The <see cref="object?"/></returns>
+        private static object? InvokeStaticMethod(MethodInfo method, params object?[] args)
+        {
+            try
+            {
+                return method.Invoke(null, args);
+            }
+            catch (TargetInvocationException tie) when (tie.InnerException != null)
+            {
+                ExceptionDispatchInfo.Capture(tie.InnerException).Throw();
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// The IsAwaitableReturnType
+        /// </summary>
+        /// <param name="returnType">The returnType<see cref="Type"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsAwaitableReturnType(Type returnType)
+        {
+            if (typeof(Task).IsAssignableFrom(returnType))
+                return true;
+
+            if (returnType == typeof(ValueTask))
+                return true;
+
+            if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(ValueTask<>))
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
         /// The LogInfo
         /// </summary>
         /// <param name="msg">The msg<see cref="string"/></param>
@@ -435,3 +687,4 @@ namespace CFGS_VM.VMCore.Plugin
         }
     }
 }
+

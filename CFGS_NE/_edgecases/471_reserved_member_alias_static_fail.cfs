@@ -1,0 +1,5 @@
+class C() {
+}
+
+var T = C;
+T["__base"] = 99;

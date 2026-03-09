@@ -1,0 +1,8 @@
+class C() {
+    func bad() {
+        this = 1;
+    }
+}
+
+var c = new C();
+c.bad();

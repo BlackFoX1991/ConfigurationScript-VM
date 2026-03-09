@@ -1,0 +1,43 @@
+import "edge_assert.cfs";
+
+edge_begin("213_foreach_destructuring");
+
+func run() {
+    var pairs = [[1, 2], [3, 4], [5, 6]];
+    var sum_pairs = 0;
+    foreach (var [x, y] in pairs) {
+        sum_pairs = sum_pairs + x + y;
+    }
+    edge_eq("foreach_var_array_pattern", sum_pairs, 21);
+
+    var dict = {"a": 2, "b": 3, "c": 4};
+    var sum_dict_vals = 0;
+    var seen_keys = 0;
+    foreach (var [k, v] in dict) {
+        if (k != null) {
+            seen_keys = seen_keys + 1;
+        }
+        sum_dict_vals = sum_dict_vals + v;
+    }
+    edge_eq("foreach_var_dict_pattern_values", sum_dict_vals, 9);
+    edge_eq("foreach_var_dict_pattern_count", seen_keys, 3);
+
+    var a = 0;
+    var b = 0;
+    var mul_sum = 0;
+    foreach ([a, b] in [[2, 3], [4, 5]]) {
+        mul_sum = mul_sum + (a * b);
+    }
+    edge_eq("foreach_assign_array_pattern", mul_sum, 26);
+
+    var cfgs = [{"x": 1, "y": 7}, {"x": 2, "y": 8}];
+    var dict_pattern_total = 0;
+    foreach (var {x, y: yy} in cfgs) {
+        dict_pattern_total = dict_pattern_total + x + yy;
+    }
+    edge_eq("foreach_var_dict_destructure", dict_pattern_total, 18);
+}
+
+run();
+
+edge_finish("213_foreach_destructuring");

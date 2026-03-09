@@ -1,0 +1,101 @@
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+func finish(tag) {
+    if (failed == 0) {
+        print("ALL PASSED: " + tag);
+    } else {
+        print("FAILED: " + tag + " (" + str(failed) + ")");
+    }
+}
+
+# ---------------------------------------------------------------------------
+# defaults + named args
+# ---------------------------------------------------------------------------
+func sum3(a, b = 10, c = 100) {
+    return a + b + c;
+}
+
+func with_dep(a, b = a * 2, c = b + 1) {
+    return a + b + c;
+}
+
+assert_eq("defaults_none", sum3(1), 111);
+assert_eq("defaults_partial", sum3(1, 2), 103);
+assert_eq("named_optional", sum3(1, c: 5), 16);
+assert_eq("named_reordered", sum3(1, c: 5, b: 2), 8);
+assert_eq("named_all", sum3(a: 1, b: 2, c: 3), 6);
+assert_eq("default_dep_chain", with_dep(4), 21);
+
+# ---------------------------------------------------------------------------
+# rest + spread
+# ---------------------------------------------------------------------------
+func collect(a, b = 2, *rest) {
+    return a + b + len(rest);
+}
+
+func add3(a, b, c) {
+    return a + b + c;
+}
+
+func forward(*xs) {
+    return add3(*xs);
+}
+
+var vals = [4, 6, 8];
+assert_eq("rest_none", collect(5), 7);
+assert_eq("rest_many", collect(5, 9, 8, 7), 16);
+assert_eq("spread_basic", collect(*vals), 11);
+assert_eq("spread_then_named", collect(*[1], b: 7), 8);
+assert_eq("spread_forward", forward(2, 3, 4), 9);
+
+# ---------------------------------------------------------------------------
+# methods with defaults / named / rest
+# ---------------------------------------------------------------------------
+class CallBox(seed) {
+    var seed = 0;
+
+    func init(seed) {
+        this.seed = seed;
+    }
+
+    func mix(a, b = 5, *rest) {
+        return this.seed + a + b + len(rest);
+    }
+}
+
+var cb = new CallBox(10);
+assert_eq("method_default", cb.mix(2), 17);
+assert_eq("method_named", cb.mix(a: 2, b: 6), 18);
+assert_eq("method_rest", cb.mix(2, 7, 8, 9), 21);
+
+# ---------------------------------------------------------------------------
+# closures + function expressions
+# ---------------------------------------------------------------------------
+func make_multiplier(factor) {
+    return func(v) { return v * factor; };
+}
+
+var mul3 = make_multiplier(3);
+var mul5 = make_multiplier(5);
+assert_eq("closure_mul3", mul3(7), 21);
+assert_eq("closure_mul5", mul5(4), 20);
+
+var captured = 2;
+var adder = func(v) { return v + captured; };
+assert_eq("closure_capture_before", adder(5), 7);
+captured = 9;
+assert_eq("closure_capture_after", adder(5), 14);
+
+finish("feature_02_functions_calls_params");
+

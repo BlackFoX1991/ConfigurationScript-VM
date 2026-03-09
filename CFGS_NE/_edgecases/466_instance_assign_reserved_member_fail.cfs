@@ -1,0 +1,8 @@
+class C() {
+    func bad() {
+        this.__type = 9;
+    }
+}
+
+var c = new C();
+c.bad();

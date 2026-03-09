@@ -1,0 +1,2 @@
+import MissingClass from "_imports/mod_base.cfs";
+print("unreachable");

@@ -1,0 +1,47 @@
+import "edge_assert.cfs";
+
+edge_begin("216_name_resolution_order");
+
+namespace Ns {
+    var value = 50;
+    func calc(v) { return v + 5; }
+}
+
+var value = 100;
+var globalOnly = 77;
+
+class Resolver() {
+    var value = 1;
+    static var valueS = 2;
+
+    func localBeatsMemberAndGlobal() {
+        var value = 3;
+        return value;
+    }
+
+    func memberBeatsGlobal() {
+        return value;
+    }
+
+    static func staticMemberInStaticMethod() {
+        return valueS;
+    }
+
+    func qualifiedNamespaceAccess() {
+        return Ns.value + Ns.calc(2);
+    }
+
+    func globalFallback() {
+        return globalOnly;
+    }
+}
+
+var r = new Resolver();
+
+edge_eq("local_first", r.localBeatsMemberAndGlobal(), 3);
+edge_eq("member_second", r.memberBeatsGlobal(), 1);
+edge_eq("static_member", Resolver.staticMemberInStaticMethod(), 2);
+edge_eq("namespace_qualified", r.qualifiedNamespaceAccess(), 57);
+edge_eq("global_fallback", r.globalFallback(), 77);
+
+edge_finish("216_name_resolution_order");

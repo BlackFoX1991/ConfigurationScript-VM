@@ -1,0 +1,37 @@
+import "edge_assert.cfs";
+
+edge_begin("211_rest_and_spread_calls");
+
+func collect(a, b = 2, *rest) {
+    return a + b + len(rest);
+}
+
+func sum3(a, b, c) {
+    return a + b + c;
+}
+
+func forward(*xs) {
+    return sum3(*xs);
+}
+
+class RestBox() {
+    func init(a, *rest) {
+        this.total = a + len(rest);
+    }
+
+    func get() {
+        return this.total;
+    }
+}
+
+var vals = [4, 6, 8];
+var rb = new RestBox(10, 20, 30);
+
+edge_eq("rest_none", collect(5), 7);
+edge_eq("rest_many", collect(5, 9, 8, 7), 16);
+edge_eq("spread_basic", collect(*vals), 11);
+edge_eq("spread_then_named", collect(*[1], b: 7), 8);
+edge_eq("spread_forward", forward(2, 3, 4), 9);
+edge_eq("class_init_rest_forwarding", rb.get(), 12);
+
+edge_finish("211_rest_and_spread_calls");

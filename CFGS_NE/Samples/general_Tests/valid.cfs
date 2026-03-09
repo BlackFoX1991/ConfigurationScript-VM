@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 # === Try/Catch/Finally Sanity & Edge Tests ===
 # Assertions
 var total = 0;
@@ -235,7 +235,7 @@ var runTests = func() {
     }
   );
 
-  # 13) return im catch: finally läuft trotzdem
+  # 13) return im catch: finally lÃ¤uft trotzdem
   assertEq("return from catch runs finally",
     func() {
       var log = "";
@@ -250,7 +250,7 @@ var runTests = func() {
     "R|F"
   );
 
-  # 14) break im catch: finally läuft vor dem Schleifenende
+  # 14) break im catch: finally lÃ¤uft vor dem Schleifenende
   assertEq("break from catch runs finally",
     func() {
       var log = "";
@@ -264,7 +264,7 @@ var runTests = func() {
     "F"
   );
 
-  # 15) continue im catch: finally läuft vor dem nächsten Iterationsschritt
+  # 15) continue im catch: finally lÃ¤uft vor dem nÃ¤chsten Iterationsschritt
   assertEq("continue from catch runs finally",
     func() {
       var log = "";
@@ -279,7 +279,7 @@ var runTests = func() {
     "FF|2"
   );
 
-  # 16) throw im finally überschreibt pending return
+  # 16) throw im finally Ã¼berschreibt pending return
   assertThrows("throw in finally cancels pending return",
     func() {
       var f = func() {
@@ -290,7 +290,7 @@ var runTests = func() {
     }
   );
 
-  # 17) rethrow im catch -> outer finally läuft, Exception propagiert
+  # 17) rethrow im catch -> outer finally lÃ¤uft, Exception propagiert
   assertThrows("rethrow in catch hits outer finally",
     func() {
       var log = "";
@@ -304,7 +304,7 @@ var runTests = func() {
     }
   );
 
-  # 18) return im finally überschreibt break (falls erlaubt)
+  # 18) return im finally Ã¼berschreibt break (falls erlaubt)
   assertEq("return in finally overrides break",
     func() {
       var f = func() {
@@ -319,7 +319,7 @@ var runTests = func() {
     "R"
   );
 
-  # 19) return im finally überschreibt früheres return (falls erlaubt)
+  # 19) return im finally Ã¼berschreibt frÃ¼heres return (falls erlaubt)
   assertEq("return in finally overrides return",
     func() {
       var f = func() {
@@ -359,12 +359,12 @@ var runTests = func() {
     }
   );
 
-  # 22) Sichtbarkeit mit zusätzlichem Block-Scope im Loop-Körper
+  # 22) Sichtbarkeit mit zusÃ¤tzlichem Block-Scope im Loop-KÃ¶rper
   assertEq("visibility with extra block scope",
     func() {
     var s = "";
     while (true) {
-      { # zusätzlicher Block
+      { # zusÃ¤tzlicher Block
         s = s + "A";
         try { break; }
         finally { s = s + "F"; }
@@ -378,3 +378,4 @@ var runTests = func() {
 
 runTests();
 print("TOTAL: " + ("" + total) + ", FAILED: " + ("" + failed));
+

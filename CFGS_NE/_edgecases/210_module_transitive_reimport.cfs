@@ -1,0 +1,8 @@
+import { fromA } from "_imports/mod_with_dep_a.cfs";
+import { fromB } from "_imports/mod_with_dep_b.cfs";
+import "edge_assert.cfs";
+
+edge_begin("210_module_transitive_reimport");
+edge_eq("fromA_value", fromA(1), 12);
+edge_eq("fromB_value", fromB(1), 22);
+edge_finish("210_module_transitive_reimport");

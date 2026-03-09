@@ -1,0 +1,181 @@
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+func finish(tag) {
+    if (failed == 0) {
+        print("ALL PASSED: " + tag);
+    } else {
+        print("FAILED: " + tag + " (" + str(failed) + ")");
+    }
+}
+
+func main() {
+
+# ---------------------------------------------------------------------------
+# expressions
+# ---------------------------------------------------------------------------
+assert_eq("expr_precedence", 2 + 3 * 4, 14);
+assert_eq("expr_ternary", (5 > 3) ? 1 : 0, 1);
+assert_eq("expr_null_coalesce", null ?? 77, 77);
+assert_eq("expr_pow_right_assoc", 2 ** 3 ** 2, 512);
+assert_eq("expr_pow_paren", (2 ** 3) ** 2, 64);
+
+# ---------------------------------------------------------------------------
+# arrays, dicts, slice, delete
+# ---------------------------------------------------------------------------
+var arr = [1, 2, 3];
+arr[] = 4;
+assert_eq("arr_len_after_push", len(arr), 4);
+assert_eq("arr_tail_after_push", arr[3], 4);
+
+arr[1] = 20;
+assert_eq("arr_set", arr[1], 20);
+
+var part = arr[1~3];
+assert_eq("arr_slice_len", len(part), 2);
+assert_eq("arr_slice_0", part[0], 20);
+assert_eq("arr_slice_1", part[1], 3);
+
+arr[1~3] = [111, 222];
+assert_eq("arr_slice_set_1", arr[1], 111);
+assert_eq("arr_slice_set_2", arr[2], 222);
+
+var cfg = {"mode": "fast", "retries": 2};
+assert_eq("dict_get", cfg["mode"], "fast");
+cfg["mode"] = "safe";
+cfg[] = {"limit": 9};
+assert_eq("dict_set", cfg["mode"], "safe");
+assert_eq("dict_push_one", cfg["limit"], 9);
+
+func remove_retries(d) {
+    delete d["retries"];
+}
+
+remove_retries(cfg);
+assert_eq("dict_delete", cfg["retries"], null);
+
+# ---------------------------------------------------------------------------
+# control flow: if/while/do/for/foreach
+# ---------------------------------------------------------------------------
+var flag = 0;
+if (len(arr) > 0) {
+    flag = 1;
+} else {
+    flag = 99;
+}
+assert_eq("if_else", flag, 1);
+
+var text = "";
+var i = 0;
+while (i < 3) {
+    text = text + str(i);
+    i = i + 1;
+}
+assert_eq("while", text, "012");
+
+var dw = 0;
+do {
+    dw = dw + 1;
+} while (dw < 2);
+assert_eq("do_while", dw, 2);
+
+var total = 0;
+for (var k = 1; k <= 4; k = k + 1;) {
+    total = total + k;
+}
+assert_eq("for", total, 10);
+
+var odd = 0;
+foreach (var n in [1, 2, 3, 4, 5]) {
+    if (n % 2 == 0) {
+        continue;
+    }
+    odd = odd + n;
+}
+assert_eq("foreach_continue", odd, 9);
+
+var pair_sum = 0;
+foreach (var idx, val in [10, 20, 30]) {
+    pair_sum = pair_sum + idx + val;
+}
+assert_eq("foreach_pair_array", pair_sum, 63);
+
+var dict_seen = 0;
+var dict_vals = 0;
+foreach (var k, v in {"a": 2, "b": 5}) {
+    if (k != null) {
+        dict_seen = dict_seen + 1;
+    }
+    dict_vals = dict_vals + v;
+}
+assert_eq("foreach_pair_dict_count", dict_seen, 2);
+assert_eq("foreach_pair_dict_vals", dict_vals, 7);
+
+# ---------------------------------------------------------------------------
+# classes, static, enum
+# ---------------------------------------------------------------------------
+class Point(x, y) {
+    static var Count = 0;
+
+    func init(x, y) {
+        this.x = x;
+        this.y = y;
+        type.Count = type.Count + 1;
+    }
+
+    func sum() {
+        return this.x + this.y;
+    }
+
+    static func origin() {
+        return new Point(0, 0);
+    }
+
+    enum Kind {
+        A = 1,
+        B = 2
+    }
+}
+
+var p = new Point(3, 4);
+var z = Point.origin();
+assert_eq("class_instance_sum", p.sum(), 7);
+assert_eq("class_origin_sum", z.sum(), 0);
+assert_eq("class_static_count", Point.Count, 2);
+assert_eq("class_enum_access", Point.Kind["B"], 2);
+
+# ---------------------------------------------------------------------------
+# try/catch/finally
+# ---------------------------------------------------------------------------
+func risky(n) {
+    if (n == 0) {
+        throw "division by zero";
+    }
+    return 10 / n;
+}
+
+var guard = 0;
+try {
+    risky(0);
+} catch(e) {
+    guard = guard + 1;
+} finally {
+    guard = guard + 10;
+}
+assert_eq("try_catch_finally", guard, 11);
+
+finish("feature_01_core_control_classes");
+}
+
+main();
+

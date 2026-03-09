@@ -1,0 +1,21 @@
+import { answer as ans, twice, Box, Mode } from "_imports/mod_exports.cfs";
+import * as Lib from "_imports/mod_exports_ns.cfs";
+import "edge_assert.cfs";
+
+edge_begin("207_module_exports_imports");
+
+edge_eq("named_alias_const", ans, 42);
+edge_eq("named_func", twice(4), 8);
+
+var b1 = new Box(7);
+edge_eq("named_class", b1.get(), 7);
+edge_eq("named_enum", Mode.B, 2);
+
+edge_eq("star_const", Lib["nanswer"], 7);
+edge_eq("star_func", Lib["triple"](6), 18);
+
+var b2 = Lib["Crate"](9);
+edge_eq("star_class", b2.get(), 9);
+edge_eq("star_enum", Lib["Flag"]["On"], 1);
+
+edge_finish("207_module_exports_imports");

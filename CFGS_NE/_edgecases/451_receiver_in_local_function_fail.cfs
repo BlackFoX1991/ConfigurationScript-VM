@@ -1,0 +1,11 @@
+class C() {
+    func bad() {
+        func inner() {
+            return this;
+        }
+        return inner();
+    }
+}
+
+var c = new C();
+c.bad();

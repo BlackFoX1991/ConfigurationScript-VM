@@ -1,0 +1,5 @@
+class Vault() {
+    private static var token = 1;
+}
+
+var leak = Vault.token;

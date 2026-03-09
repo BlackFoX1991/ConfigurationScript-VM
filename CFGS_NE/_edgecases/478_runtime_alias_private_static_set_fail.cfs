@@ -1,0 +1,6 @@
+class C() {
+    private static var s = 1;
+}
+
+var key = "s";
+C[key] = 9;

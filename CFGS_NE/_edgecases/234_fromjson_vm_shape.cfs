@@ -1,0 +1,23 @@
+import "edge_assert.cfs";
+
+edge_begin("234_fromjson_vm_shape");
+
+var obj = fromjson("{\"a\":1,\"b\":[2,3],\"c\":{\"d\":4},\"s\":\"x\",\"n\":null,\"f\":false}");
+edge_eq("obj_type", typeof(obj), "Dictionary");
+edge_eq("obj_a_type", typeof(obj["a"]), "Int");
+edge_eq("obj_a_value", obj["a"], 1);
+edge_eq("obj_b_type", typeof(obj["b"]), "Array");
+edge_eq("obj_b_0", obj["b"][0], 2);
+edge_eq("obj_c_type", typeof(obj["c"]), "Dictionary");
+edge_eq("obj_c_d", obj["c"]["d"], 4);
+edge_eq("obj_s_type", typeof(obj["s"]), "String");
+edge_eq("obj_s_value", obj["s"], "x");
+edge_eq("obj_n_null", obj["n"], null);
+edge_eq("obj_f_bool", obj["f"], false);
+
+var arr = fromjson("[1,{\"x\":2},3]");
+edge_eq("arr_type", typeof(arr), "Array");
+edge_eq("arr_1_type", typeof(arr[1]), "Dictionary");
+edge_eq("arr_1_x", arr[1]["x"], 2);
+
+edge_finish("234_fromjson_vm_shape");

@@ -1,0 +1,12 @@
+import "../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../dist/Debug/net10.0/CFGS.Microsoft.SQL.dll";
+async func main(){
+ try {
+   var h = await sql_connect("Server=127.0.0.1;Database=master;User Id=sa;Password=bad;Connect Timeout=1;Encrypt=False;TrustServerCertificate=True;");
+   print("unexpected");
+ } catch(e) {
+   print(e.type());
+   print(e.message());
+ }
+}
+var _ = await main();

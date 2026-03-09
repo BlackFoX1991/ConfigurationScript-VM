@@ -1,6 +1,7 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 class A { var x = 1; }
 class B : A { var y = 2; }
 class C : B { func Test() { return super.x + super.y; } }
 
 print(new C().Test());   # Ausgabe 3
+

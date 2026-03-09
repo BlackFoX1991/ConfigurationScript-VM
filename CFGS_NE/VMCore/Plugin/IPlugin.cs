@@ -42,7 +42,12 @@ namespace CFGS_VM.VMCore.Plugin
         /// </summary>
         public BuiltinInvoker Invoke { get; }
 
-        public bool smartAwait { get; }
+        public bool SmartAwait { get; }
+
+        [Obsolete("Use SmartAwait instead.")]
+        public bool smartAwait => SmartAwait;
+
+        public bool NonBlocking { get; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BuiltinDescriptor"/> class.
@@ -51,14 +56,31 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="arityMin">The arityMin<see cref="int"/></param>
         /// <param name="arityMax">The arityMax<see cref="int"/></param>
         /// <param name="invoke">The invoke<see cref="BuiltinInvoker"/></param>
-        public BuiltinDescriptor(string name, int arityMin, int arityMax, BuiltinInvoker invoke, bool smartAwait = true)
+        public BuiltinDescriptor(
+            string name,
+            int arityMin,
+            int arityMax,
+            BuiltinInvoker invoke,
+            bool smartAwait = true,
+            bool nonBlocking = false)
         {
             Name = name ?? throw new ArgumentNullException(nameof(name));
             ArityMin = arityMin;
             ArityMax = arityMax;
             Invoke = invoke ?? throw new ArgumentNullException(nameof(invoke));
-            this.smartAwait = smartAwait;
+            SmartAwait = smartAwait;
+            this.NonBlocking = nonBlocking;
 
+        }
+
+        public BuiltinDescriptor(
+            string name,
+            int arityMin,
+            int arityMax,
+            BuiltinInvoker invoke,
+            bool smartAwait)
+            : this(name, arityMin, arityMax, invoke, smartAwait, nonBlocking: false)
+        {
         }
 
         /// <summary>
@@ -95,6 +117,8 @@ namespace CFGS_VM.VMCore.Plugin
 
         public bool SmartAwait { get; }
 
+        public bool NonBlocking { get; }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="IntrinsicDescriptor"/> class.
         /// </summary>
@@ -102,14 +126,31 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="arityMin">The arityMin<see cref="int"/></param>
         /// <param name="arityMax">The arityMax<see cref="int"/></param>
         /// <param name="invoke">The invoke<see cref="IntrinsicInvoker"/></param>
-        public IntrinsicDescriptor(string name, int arityMin, int arityMax, IntrinsicInvoker invoke, bool smartAwait = true)
+        public IntrinsicDescriptor(
+            string name,
+            int arityMin,
+            int arityMax,
+            IntrinsicInvoker invoke,
+            bool smartAwait = true,
+            bool nonBlocking = false)
         {
             Name = name ?? throw new ArgumentNullException(nameof(name));
             ArityMin = arityMin;
             ArityMax = arityMax;
             Invoke = invoke ?? throw new ArgumentNullException(nameof(invoke));
             SmartAwait = smartAwait;
+            NonBlocking = nonBlocking;
 
+        }
+
+        public IntrinsicDescriptor(
+            string name,
+            int arityMin,
+            int arityMax,
+            IntrinsicInvoker invoke,
+            bool smartAwait)
+            : this(name, arityMin, arityMax, invoke, smartAwait, nonBlocking: false)
+        {
         }
 
         /// <summary>
@@ -137,6 +178,21 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="d">The d<see cref="BuiltinDescriptor"/></param>
         /// <returns>The <see cref="bool"/></returns>
         bool TryGet(string name, out BuiltinDescriptor d);
+
+        /// <summary>
+        /// The Contains
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        bool Contains(string name) => TryGet(name, out _);
+
+        /// <summary>
+        /// The Remove
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        bool Remove(string name)
+            => throw new NotSupportedException("This builtin registry does not support removal.");
     }
 
     /// <summary>
@@ -166,6 +222,23 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="d">The d<see cref="IntrinsicDescriptor"/></param>
         /// <returns>The <see cref="bool"/></returns>
         bool TryGet(Type receiverType, string name, out IntrinsicDescriptor d);
+
+        /// <summary>
+        /// The ContainsExact
+        /// </summary>
+        /// <param name="receiverType">The receiverType<see cref="Type"/></param>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        bool ContainsExact(Type receiverType, string name) => TryGet(receiverType, name, out _);
+
+        /// <summary>
+        /// The RemoveExact
+        /// </summary>
+        /// <param name="receiverType">The receiverType<see cref="Type"/></param>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        bool RemoveExact(Type receiverType, string name)
+            => throw new NotSupportedException("This intrinsic registry does not support removal.");
     }
 
     /// <summary>
@@ -214,6 +287,10 @@ namespace CFGS_VM.VMCore.Plugin
             ArityMin = arityMin;
             ArityMax = arityMax;
         }
+
+        public bool SmartAwait { get; set; } = true;
+
+        public bool NonBlocking { get; set; } = false;
     }
 
     /// <summary>
@@ -256,5 +333,9 @@ namespace CFGS_VM.VMCore.Plugin
             ArityMin = arityMin;
             ArityMax = arityMax;
         }
+
+        public bool SmartAwait { get; set; } = true;
+
+        public bool NonBlocking { get; set; } = false;
     }
 }

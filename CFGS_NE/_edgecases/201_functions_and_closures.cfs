@@ -1,0 +1,44 @@
+import "edge_assert.cfs";
+
+edge_begin("201_functions_and_closures");
+
+var mv_a = 0, mv_b = 0, mv_c = 0;
+edge_eq("multi_var_decl_a", mv_a, 0);
+edge_eq("multi_var_decl_b", mv_b, 0);
+edge_eq("multi_var_decl_c", mv_c, 0);
+
+func add2(a, b) { return a + b; }
+edge_eq("simple_function_call", add2(2, 5), 7);
+
+func maybe_null() { return; }
+edge_eq("return_without_value", maybe_null(), null);
+
+func fact(n) {
+    if (n <= 1) { return 1; }
+    return n * fact(n - 1);
+}
+edge_eq("recursion_factorial", fact(6), 720);
+
+func make_adder(base) {
+    return func(x) { return base + x; };
+}
+var add10 = make_adder(10);
+edge_eq("closure_factory", add10(5), 15);
+
+var cap = 2;
+var read_cap = func() { return cap; };
+edge_eq("closure_capture_before_mutation", read_cap(), 2);
+cap = 9;
+edge_eq("closure_capture_after_mutation", read_cap(), 9);
+
+func outer_fn(a) {
+    var b = a + 1;
+    func inner_fn(c) { return a + b + c; }
+    return inner_fn;
+}
+var inner = outer_fn(3);
+edge_eq("nested_function_closure", inner(4), 11);
+
+edge_throws("arity_mismatch_throws", func() { return add2(1); });
+
+edge_finish("201_functions_and_closures");

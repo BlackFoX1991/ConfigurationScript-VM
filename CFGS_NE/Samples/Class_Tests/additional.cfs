@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+ï»¿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 # Delete-Tests
 
 class Foo {
@@ -10,15 +10,15 @@ class Foo {
 
         print("start a = " + a);
 
-        # Element löschen
+        # Element lÃ¶schen
         delete a[1];        # entfernt 2  -> [1,3,4,5]
         print("after delete a[1] = " + a);
 
-        # Slice löschen (Range: start~end, end exklusiv)
+        # Slice lÃ¶schen (Range: start~end, end exklusiv)
         delete a[1~3];      # entfernt Indizes 1,2 -> [1,5]
         print("after delete a[1~3] = " + a);
 
-        # Alles löschen
+        # Alles lÃ¶schen
         delete a;           # -> []
         print("after delete a; = " + a);
     }
@@ -28,11 +28,11 @@ class Foo {
 
         print("start s = " + s);
 
-        # Element löschen am Index 0
+        # Element lÃ¶schen am Index 0
         delete s[0];        # -> [20,30]
         print("after delete s[0] = " + s);
 
-        # Alles löschen
+        # Alles lÃ¶schen
         delete s;
         print("after delete s; = " + s);
     }
@@ -60,10 +60,10 @@ func testLocalDict() {
     var m = {"a": 1, "b": 2, "c": 3};
     print("start m = " + m);
 
-    delete m["b"];      # Key "b" löschen
+    delete m["b"];      # Key "b" lÃ¶schen
     print("after delete m[\"b\"] = " + m);
 
-    delete m;           # alle Einträge löschen -> {}
+    delete m;           # alle EintrÃ¤ge lÃ¶schen -> {}
     print("after delete m; = " + m);
 }
 
@@ -73,15 +73,15 @@ func testNestedArrays() {
     var a = [[1,2], [3,4], [5,6]];
     print("start a = " + a);
 
-    # Inneres Element löschen: a[1] = [3,4], daraus Index 0 löschen -> [4]
+    # Inneres Element lÃ¶schen: a[1] = [3,4], daraus Index 0 lÃ¶schen -> [4]
     delete a[1][0];
     print("after delete a[1][0] = " + a);
 
-    # Jetzt äußeres Element löschen: a[0] löschen
+    # Jetzt Ã¤uÃŸeres Element lÃ¶schen: a[0] lÃ¶schen
     delete a[0];
     print("after delete a[0] = " + a);
 
-    # Alles löschen
+    # Alles lÃ¶schen
     delete a;
     print("after delete a; = " + a);
 }
@@ -98,3 +98,4 @@ func main()
 }
 
 main();
+

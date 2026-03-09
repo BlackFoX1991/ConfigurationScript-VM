@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 class Foo {
     var a = [1,2,3];
     static var s = [4,5,6];
@@ -21,3 +21,4 @@ class Foo {
 var f = new Foo();
 f.test();
 Foo.testStatic();
+

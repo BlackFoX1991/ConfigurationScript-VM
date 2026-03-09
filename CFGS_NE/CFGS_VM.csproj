@@ -26,6 +26,9 @@
     <Compile Remove="Samples\plugins\**" />
     <EmbeddedResource Remove="Samples\plugins\**" />
     <None Remove="Samples\plugins\**" />
+    <Compile Remove="_edgecases\**" />
+    <EmbeddedResource Remove="_edgecases\**" />
+    <None Remove="_edgecases\**" />
   </ItemGroup>
 
   <ItemGroup>

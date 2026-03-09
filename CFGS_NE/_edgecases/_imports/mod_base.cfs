@@ -1,0 +1,14 @@
+class LibBox(v) {
+    var v = 0;
+    func init(v) { this.v = v; }
+    func get() { return this.v; }
+}
+
+func lib_add(a, b) {
+    return a + b;
+}
+
+enum LibMode {
+    Zero = 0,
+    One = 1
+}

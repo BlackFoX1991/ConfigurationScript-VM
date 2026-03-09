@@ -1,0 +1,5 @@
+func take(a, *rest) {
+    return a;
+}
+
+var _ = take(a: 1, rest: [2, 3]);

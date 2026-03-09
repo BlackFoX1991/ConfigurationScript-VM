@@ -1,0 +1,59 @@
+import "edge_assert.cfs";
+
+edge_begin("202_classes_enums_inheritance");
+
+class Animal(name) {
+    var Name = "";
+    func init(name) { this.Name = name; }
+
+    static var ver = "1.0";
+    static func who() { return "Animal(" + type.ver + ")"; }
+
+    func speak() { return "???"; }
+    func tag() { return "[A:" + this.Name + "]"; }
+}
+
+class Cat(name) : Animal(name) {
+    var damage = 30;
+
+    func speak() { return "meow"; }
+    func superSpeak() { return super.speak(); }
+    func both() { return this.speak() + "/" + super.speak(); }
+    func superTag() { return super.tag(); }
+
+    static var ver = "2.0";
+    static func who() { return "Cat(" + type.ver + ")"; }
+    static func whoBase() { return super.who(); }
+}
+
+enum Level {
+    Low = 1,
+    Mid = 2,
+    High = 3
+}
+
+class Holder() {
+    enum Mode {
+        A = 10,
+        B = 11
+    }
+}
+
+var a = new Animal("Milo");
+var c = new Cat("Nya");
+
+edge_eq("animal_tag", a.tag(), "[A:Milo]");
+edge_eq("cat_speak", c.speak(), "meow");
+edge_eq("cat_super_speak", c.superSpeak(), "???");
+edge_eq("cat_both", c.both(), "meow/???");
+edge_eq("cat_super_tag", c.superTag(), "[A:Nya]");
+
+edge_eq("animal_static_who", Animal.who(), "Animal(1.0)");
+edge_eq("cat_static_who", Cat.who(), "Cat(2.0)");
+edge_eq("cat_static_super_who", Cat.whoBase(), "Animal(1.0)");
+
+edge_eq("enum_level_mid", Level["Mid"], 2);
+edge_eq("enum_level_name", Level.name(3), "High");
+edge_eq("class_enum_a", Holder.Mode["A"], 10);
+
+edge_finish("202_classes_enums_inheritance");

@@ -1,0 +1,5 @@
+import * as Lib from "_imports/mod_exports_ns.cfs";
+
+namespace Lib.Tools {
+    var x = 1;
+}

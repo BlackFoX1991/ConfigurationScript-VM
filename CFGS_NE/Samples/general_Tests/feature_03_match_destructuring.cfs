@@ -1,0 +1,138 @@
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+func finish(tag) {
+    if (failed == 0) {
+        print("ALL PASSED: " + tag);
+    } else {
+        print("FAILED: " + tag + " (" + str(failed) + ")");
+    }
+}
+
+# ---------------------------------------------------------------------------
+# match statement + guards
+# ---------------------------------------------------------------------------
+func stmt_array(v) {
+    var res = "none";
+    match (v) {
+        case [var a, var b] if (a < b): { res = "asc:" + str(a + b); }
+        case [var a, var b]: { res = "pair:" + str(a * b); }
+        default: { res = "other"; }
+    }
+    return res;
+}
+
+func stmt_dict(v) {
+    var res = -1;
+    match (v) {
+        case {"kind": "pair", "left": var x, "right": var y} if (x == y): { res = x + y; }
+        case {"kind": "pair", "left": var x, "right": var y}: { res = x - y; }
+        default: { res = 0; }
+    }
+    return res;
+}
+
+assert_eq("match_stmt_array_guard", stmt_array([2, 5]), "asc:7");
+assert_eq("match_stmt_array_fallback", stmt_array([4, 1]), "pair:4");
+assert_eq("match_stmt_dict_guard", stmt_dict({"kind": "pair", "left": 4, "right": 4}), 8);
+assert_eq("match_stmt_dict_second", stmt_dict({"kind": "pair", "left": 7, "right": 2}), 5);
+
+# ---------------------------------------------------------------------------
+# match expression + wildcard guard
+# ---------------------------------------------------------------------------
+func expr_pattern(v) {
+    return v match {
+        [var a, var b] if (a == b): "same",
+        {"tag": "num", "value": var n} if (n > 10): "big",
+        {"tag": "num", "value": var n}: "small",
+        _ if (v == null): "nil",
+        _: "other"
+    };
+}
+
+assert_eq("match_expr_array", expr_pattern([9, 9]), "same");
+assert_eq("match_expr_big", expr_pattern({"tag": "num", "value": 20}), "big");
+assert_eq("match_expr_small", expr_pattern({"tag": "num", "value": 3}), "small");
+assert_eq("match_expr_nil", expr_pattern(null), "nil");
+assert_eq("match_expr_default", expr_pattern("x"), "other");
+
+# ---------------------------------------------------------------------------
+# destructuring declarations
+# ---------------------------------------------------------------------------
+var arr = [10, [20, 30], 40];
+var [a, [b, c], _] = arr;
+assert_eq("ds_var_array_a", a, 10);
+assert_eq("ds_var_array_b", b, 20);
+assert_eq("ds_var_array_c", c, 30);
+
+var obj = {"x": 1, "y": 2, "pair": [7, 8], "inner": {"z": 9}};
+const {x, y: yy, pair: [p0, p1], inner: {z}} = obj;
+assert_eq("ds_const_dict_x", x, 1);
+assert_eq("ds_const_dict_y_alias", yy, 2);
+assert_eq("ds_const_dict_pair0", p0, 7);
+assert_eq("ds_const_dict_pair1", p1, 8);
+assert_eq("ds_const_dict_inner_z", z, 9);
+
+# ---------------------------------------------------------------------------
+# destructuring assignment
+# ---------------------------------------------------------------------------
+var q = 0;
+var r = 0;
+[q, r] = [3, 4];
+assert_eq("ds_assign_array_q", q, 3);
+assert_eq("ds_assign_array_r", r, 4);
+
+var dx = 0;
+var dy = 0;
+({x: dx, y: dy} = obj);
+assert_eq("ds_assign_dict_dx", dx, 1);
+assert_eq("ds_assign_dict_dy", dy, 2);
+
+# ---------------------------------------------------------------------------
+# parameter destructuring (+ defaults + dependency order)
+# ---------------------------------------------------------------------------
+func sum_pair([m, n]) {
+    return m + n;
+}
+
+func read_obj({x, y: y2}) {
+    return x * 10 + y2;
+}
+
+func with_array_default([u, v] = [1, 2]) {
+    return u + v;
+}
+
+func with_dict_default({a, b: bb} = {"a": 3, "b": 4}) {
+    return a + bb;
+}
+
+func order_from_destructure([sx] = [7], sy = sx) {
+    return sy;
+}
+
+func order_from_destructure_dict({tx} = {"tx": 11}, ty = tx) {
+    return ty;
+}
+
+assert_eq("ds_param_array", sum_pair([5, 6]), 11);
+assert_eq("ds_param_dict", read_obj({"x": 2, "y": 7}), 27);
+assert_eq("ds_param_array_default", with_array_default(), 3);
+assert_eq("ds_param_dict_default", with_dict_default(), 7);
+assert_eq("ds_param_order_array_default", order_from_destructure(), 7);
+assert_eq("ds_param_order_array_arg", order_from_destructure([9]), 9);
+assert_eq("ds_param_order_dict_default", order_from_destructure_dict(), 11);
+assert_eq("ds_param_order_dict_arg", order_from_destructure_dict({"tx": 5}), 5);
+
+finish("feature_03_match_destructuring");
+

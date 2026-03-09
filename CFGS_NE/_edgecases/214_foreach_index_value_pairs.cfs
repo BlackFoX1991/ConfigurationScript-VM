@@ -1,0 +1,44 @@
+import "edge_assert.cfs";
+
+edge_begin("214_foreach_index_value_pairs");
+
+func run_pairs() {
+    var seq = [10, 20, 30];
+    var sum = 0;
+    foreach (var i, v in seq) {
+        sum = sum + (i * 10) + v;
+    }
+    edge_eq("foreach_var_index_value_array", sum, 90);
+
+    var key_acc = "";
+    var val_acc = 0;
+    foreach (var k, v in {"a": 2, "b": 3}) {
+        key_acc = key_acc + k;
+        val_acc = val_acc + v;
+    }
+    edge_eq("foreach_var_key_value_dict_count", len(key_acc), 2);
+    edge_eq("foreach_var_key_value_dict_values", val_acc, 5);
+}
+
+func run_assign_pairs() {
+    var i = -1;
+    var v = -1;
+    var hit = 0;
+    foreach (i, v in [4, 5]) {
+        hit = hit + (i + v);
+    }
+    edge_eq("foreach_assign_index_value_array", hit, 10);
+
+    var k = "";
+    var val = 0;
+    var cnt = 0;
+    foreach (k, val in {"x": 7, "y": 9}) {
+        cnt = cnt + 1;
+    }
+    edge_eq("foreach_assign_key_value_dict_count", cnt, 2);
+}
+
+run_pairs();
+run_assign_pairs();
+
+edge_finish("214_foreach_index_value_pairs");

@@ -1,0 +1,21 @@
+import "edge_assert.cfs";
+
+edge_begin("228_async_function_task_contract");
+
+async func add(a, b) {
+    return a + b;
+}
+
+async func noop() {
+    yield;
+}
+
+var t1 = add(2, 3);
+edge_eq("async_add_returns_task", typeof(t1), "Task<Object>");
+edge_eq("async_add_await_result", await t1, 5);
+
+var t2 = noop();
+edge_eq("async_noop_returns_task", typeof(t2), "Task<Object>");
+edge_eq("async_noop_await_result", await t2, null);
+
+edge_finish("228_async_function_task_contract");

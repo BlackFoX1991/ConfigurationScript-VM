@@ -1,0 +1,11 @@
+import LibBox from "_imports/mod_base.cfs";
+import "_imports/mod_extra.cfs";
+import "edge_assert.cfs";
+
+edge_begin("402_import_named_and_file");
+
+var box = new LibBox(7);
+edge_eq("named_class_import", box.get(), 7);
+edge_eq("file_import_function", twice(4), 8);
+
+edge_finish("402_import_named_and_file");

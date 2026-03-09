@@ -1,0 +1,72 @@
+import "edge_assert.cfs";
+
+edge_begin("101_core_expressions");
+
+# arithmetic / precedence
+edge_eq("add", 3 + 4, 7);
+edge_eq("sub", 9 - 5, 4);
+edge_eq("mul", 6 * 7, 42);
+edge_eq("div_int", 7 / 3, 2);
+edge_eq("mod", 17 % 5, 2);
+edge_eq("expo_right_assoc", 2 ** 3 ** 2, 512);
+edge_eq("paren_precedence", (1 + 2) * 3, 9);
+
+# bitwise / shifts
+edge_eq("bit_and", 6 & 3, 2);
+edge_eq("bit_or", 6 | 3, 7);
+edge_eq("bit_xor", 6 ^ 3, 5);
+edge_eq("shift_left", 3 << 2, 12);
+edge_eq("shift_right", 13 >> 2, 3);
+
+# logical / compare
+edge_true("cmp_lt", 1 < 2);
+edge_true("cmp_le", 2 <= 2);
+edge_true("cmp_ge", 5 >= 4);
+edge_true("cmp_eq", 9 == 9);
+edge_true("cmp_neq", 9 != 8);
+edge_true("logical_and", true && true);
+edge_true("logical_or", false || true);
+
+# null-coalescing short-circuit
+var qq_count = 0;
+func qq_bump() { qq_count = qq_count + 1; return 99; }
+var qq_a = 5 ?? qq_bump();
+var qq_b = null ?? qq_bump();
+edge_eq("qq_a", qq_a, 5);
+edge_eq("qq_b", qq_b, 99);
+edge_eq("qq_short_circuit_count", qq_count, 1);
+
+# ternary
+var t1 = false ? 0 : true ? 11 : 22;
+edge_eq("ternary_right_assoc", t1, 11);
+
+# pre/post ++/--
+var i = 1;
+var a = i++;
+var b = ++i;
+var c = i--;
+var d = --i;
+edge_eq("post_inc_old_value", a, 1);
+edge_eq("pre_inc_new_value", b, 3);
+edge_eq("post_dec_old_value", c, 3);
+edge_eq("pre_dec_new_value", d, 1);
+edge_eq("inc_dec_final_value", i, 1);
+
+# compound assign: var / index / dot-index
+var x = 10;
+x += 5;
+x -= 2;
+x *= 3;
+x /= 4;
+x %= 5;
+edge_eq("compound_var_chain", x, 4);
+
+var arr = [10, 20, 30];
+arr[0] += 5;
+edge_eq("compound_index", arr[0], 15);
+
+var cfg = {"n": 2};
+cfg.n += 3;
+edge_eq("compound_dot_index", cfg.n, 5);
+
+edge_finish("101_core_expressions");

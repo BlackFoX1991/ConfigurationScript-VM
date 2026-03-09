@@ -1,0 +1,49 @@
+import "edge_assert.cfs";
+
+edge_begin("217_receiver_valid_contexts");
+
+class Base(v) {
+    var value = 0;
+    func init(v) { this.value = v; }
+    func iv() { return this.value; }
+    static func sv() { return "Base"; }
+}
+
+class Child(v) : Base(v) {
+    func total() { return this.value + super.iv(); }
+    static func baseName() { return super.sv(); }
+}
+
+class Outer(seed) {
+    var seed = 0;
+    func init(seed) { this.seed = seed; }
+
+    class Inner(add) : Base(add) {
+        var add = 0;
+        static var tag = "Inner";
+
+        func init(add) {
+            super.init(add);
+            this.add = add;
+        }
+
+        func total() {
+            return outer.seed + this.add + super.iv();
+        }
+
+        static func who() {
+            return type.tag;
+        }
+    }
+}
+
+var c = new Child(5);
+edge_eq("this_super_instance", c.total(), 10);
+edge_eq("super_static", Child.baseName(), "Base");
+
+var o = new Outer(40);
+var i = o.Inner(2);
+edge_eq("outer_nested", i.total(), 44);
+edge_eq("type_static_nested", Outer.Inner.who(), "Inner");
+
+edge_finish("217_receiver_valid_contexts");

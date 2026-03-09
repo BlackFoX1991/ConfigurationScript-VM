@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 # ===== Basisklasse =====
 class Auto(pwr)
 {
@@ -100,10 +100,11 @@ print("E1=" + eng.power());       # 220 + 30 = 250
 var badge = bmw.Badge("SPORT");
 print("N1=" + badge.show());      # "BMW-SPORT"
 
-# 6) Nested-Typ über die Basisklasse + Instanz
+# 6) Nested-Typ Ã¼ber die Basisklasse + Instanz
 var base = Auto(100);
 var e2   = base.Engine(25);
 print("E2=" + e2.power());        # 125
 
 # 7) Statisches Feld der Basis
 print("SF=" + Auto.family);
+
