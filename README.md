@@ -13,6 +13,7 @@ If you are opening CFGS for the first time, this is the best reading order.
 9. [Standard Library](09_standard_library.md)
 10. [Using the HTTP and SQL Plugins](10_using_http_and_sql_plugins.md)
 11. [Creating Plugins](11_creating_plugins.md)
+12. [Crypto Plugin](12_crypto_plugin.md)
 
 ## Complete Feature Index
 
@@ -34,7 +35,7 @@ The following topics are covered completely across the English documentation set
 - Modules. `export`. Bare imports. Named imports. Alias imports. Namespace imports. Single symbol imports. File imports. URL imports. DLL imports. Header rules. Import resolution. Cycles.
 - Async model. `async func`. `await`. `yield`. Top level await inside expressions. Hot start behavior. Await on lists and dictionaries. Await on Task and ValueTask values returned by plugins.
 - Standard library. All builtins. All string, array, dictionary, DateTime, DirectoryInfo, FileHandle, exception, and task intrinsics.
-- Official repository plugins. Standard library. HTTP. SQL.
+- Official repository plugins. Standard library. HTTP. SQL. Crypto with hashing, HMAC, PBKDF2, AES GCM, RSA, ECDSA, Ed25519, X25519, JWT, HOTP and TOTP, and X509.
 - Plugin development. `IVmPlugin`. `BuiltinDescriptor`. `IntrinsicDescriptor`. Attribute based registration. `BuiltinAttribute`. `IntrinsicAttribute`. `SmartAwait`. `NonBlocking`. Packaging and importing.
 
 ## Smallest Useful Example
@@ -49,7 +50,8 @@ func main() {
 main();
 ```
 
-If you want to jump straight into the plugin topics, use these two pages.
+If you want to jump straight into the plugin topics, use these three pages.
 
 - [Using the HTTP and SQL Plugins](10_using_http_and_sql_plugins.md)
 - [Creating Plugins](11_creating_plugins.md)
+- [Crypto Plugin](12_crypto_plugin.md)
