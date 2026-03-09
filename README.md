@@ -1,78 +1,49 @@
-<center><img src="CFGS_NE/assets/logo_cfgs.png" width="256" alt="Configuration Language Logo"></center>
+# ConfigurationScript Documentation
 
-# ConfigurationScript (CFGS) – Bytecode VM Edition
+You can read the full documentation in both languages here.
 
-CFGS has been **completely redesigned**.  
-The old prototype (a direct AST interpreter) has been replaced by a **stack-based bytecode Virtual Machine** with its own compiler and runtime.  
-The **syntax was refined** so the **lexer, parser, compiler, and VM** work together cleanly.  
-This project also served to **deepen my compiler engineering knowledge**.
+## German Documentation
 
-> **Note**
-> - The old project is archived for historical reasons but is no longer developed.
-> - CFGS is **work in progress** and may still contain bugs.
+1. [Documentation Overview](Documentation/README.md)
+2. [Getting Started in German](Documentation/01_einstieg_und_ausfuehrung.md)
+3. [Language and Data in German](Documentation/02_sprache_und_daten.md)
+4. [Control Flow and Errors in German](Documentation/03_kontrollfluss_und_fehler.md)
+5. [Functions and Calls in German](Documentation/04_funktionen_und_aufrufe.md)
+6. [Match, Destructuring, and Out in German](Documentation/05_match_destructuring_und_out.md)
+7. [Classes, Enums, Namespaces, and Inheritance in German](Documentation/06_klassen_enums_namespaces_und_vererbung.md)
+8. [Modules, Imports, and Exports in German](Documentation/07_module_importe_und_exporte.md)
+9. [Async, Await, and Yield in German](Documentation/08_async_await_und_yield.md)
+10. [Standard Library in German](Documentation/09_standardbibliothek.md)
+11. [HTTP and SQL Plugins in German](Documentation/10_http_und_sql_plugins.md)
+12. [Creating Plugins in German](Documentation/11_plugins_erstellen.md)
 
----
+## English Documentation
 
-## Getting Started
+1. [Documentation Overview](documentation_en/README.md)
+2. [Getting Started and Running Scripts](documentation_en/01_getting_started_and_running.md)
+3. [Language and Data](documentation_en/02_language_and_data.md)
+4. [Control Flow and Errors](documentation_en/03_control_flow_and_errors.md)
+5. [Functions and Calls](documentation_en/04_functions_and_calls.md)
+6. [Match, Destructuring, and Out](documentation_en/05_match_destructuring_and_out.md)
+7. [Classes, Enums, Namespaces, and Inheritance](documentation_en/06_classes_enums_namespaces_and_inheritance.md)
+8. [Modules, Imports, and Exports](documentation_en/07_modules_imports_and_exports.md)
+9. [Async, Await, and Yield](documentation_en/08_async_await_and_yield.md)
+10. [Standard Library](documentation_en/09_standard_library.md)
+11. [Using the HTTP and SQL Plugins](documentation_en/10_using_http_and_sql_plugins.md)
+12. [Creating Plugins](documentation_en/11_creating_plugins.md)
 
-[Here is a short Introduction](https://github.com/BlackFoX1991/ConfigurationScript-VM/blob/af7cb4bd74b0ef7b580d12349cd174a6a0f059a1/CFGS_NE/Tutorial/Introduction.md)
+## Scope
 
+Both trees cover the same runtime surface.
 
-### Allowed at top level
-
-* **Empty statement:** `;`
-* **Variable declarations:** `var x = ...;`
-* **Function declarations:** `func name(args) { ... }`
-* **Class and enum declarations:** `class ... { ... }`, `enum ... { ... }`
-* **Identifier-leading statements**
-
-  * Calls: `print("hi");`
-  * Assignments: `x = 1;`
-  * Index / push ops that begin with an identifier
-* **Block `{ ... }`** (but still treated as top level: the same restrictions apply inside unless you’re inside a function/class)
-
-### Not allowed at top level
-
-* **Control flow & exceptions:** `if`, `while`, `for`, `foreach`, `match`, `try/catch`, `throw`
-* **Function/loop control:** `return`, `break`, `continue`
-* **`delete`**
-* **Non-identifier-leading expression statements**, e.g.:
-
-  * Leading `await`: `await sleep(100);` ✗
-    (Use it embedded: `var x = await foo();` or `print(await foo());`)
-  * Bare literals: `"hi";`, `123;` ✗
-
-### Rule of thumb
-
-Top level is for **declarations** and **statements that start with an identifier**.
-All control flow, exception handling, `return`/`break`/`continue`, `throw`, and `delete` are only valid **inside function or class bodies**.
-
----
-
-## Table of Contents
-
-
-1. [Algebraic Expressions](algebraic-expressions.md)
-2. [Ternary Operator](ternary-operator.md)
-3. [Null Coalescing](null-coalescing.md)
-4. [Variables](variables.md)
-5. [Arrays](arrays.md)
-6. [Dictionaries (Objects)](dictionaries-objects.md)
-7. [Slicing](slicing.md)
-8. [Strings (Intrinsics)](strings-intrinsics.md)
-9. [Functions](functions.md)
-10. [While Loops](while-loops.md)
-11. [For Loops](for-loops.md)
-12. [If / Else](if-else.md)
-13. [Match / Case](match-case.md)
-14. [Break & Continue](break-continue.md)
-15. [Try-Catch-Finally](try-catch-finally.md)
-16. [Closures / Functions as Values](closures-functions-as-values.md)
-17. [Classes (Instances, Statics, Inheritance)](classes-instances-statics-inheritance.md)
-18. [Enums](enums.md)
-19. [Examples](examples.md)
-
----
-
-## Additional
-[Samples](CFGS_NE/Samples/) · [Safe Datatype initialsation](data_init.md) ·  [Standard Builtins/ Intrinsics](fileio.md)  · [HTTP Functions](httpc.md)  · [SQL Functions](sqlc.md) · [Creating Plugins](plugins.md) 
+- language fundamentals
+- operators and data structures
+- control flow and error handling
+- functions, closures, and argument passing
+- pattern matching, destructuring, and out blocks
+- object oriented features
+- modules and imports
+- async behavior
+- standard library features
+- HTTP and SQL plugin usage
+- plugin authoring
