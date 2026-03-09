@@ -25,10 +25,6 @@ print(d.keys());            # ["a","b","c"] (order by creation)
 
 ---
 
-Klar — hier ist eine sauber integrierte, allgemeinere README-Beschreibung für `import`, jetzt inkl. deiner **`import ClassName from ...`**-Variante. Ich halte es konsistent mit dem, was du schon definiert hast (Basis-Pfad = aktuell ausgeführtes Skript).
-
----
-
 ## Import
 
 The `import` statement loads external code into the current script and helps structure projects into reusable, maintainable modules.
