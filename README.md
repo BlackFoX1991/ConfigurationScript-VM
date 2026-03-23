@@ -1,3 +1,5 @@
+![CFGS_LOGO](https://github.com/BlackFoX1991/ConfigurationScript-VM/blob/9a2513faafe07da740c249968eefc178b3e2d686/CFGS_NE/assets/cfgs_logo_v2.png)
+
 # ConfigurationScript Documentation
 
 If you are opening CFGS for the first time, this is the best reading order.
