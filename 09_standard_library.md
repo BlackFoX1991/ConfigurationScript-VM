@@ -65,7 +65,37 @@ After that, its builtins and intrinsics are available globally.
 
 - `abs(x)` returns the absolute value.
 - `rand(seed, min, max)` returns a pseudo random number.
+- `floor(x)` rounds down to the nearest integer.
+- `ceil(x)` rounds up to the nearest integer.
+- `round(x)` rounds to the nearest integer. `round(x, digits)` rounds to a given number of decimal places.
+- `min(a, b)` returns the smaller value.
+- `max(a, b)` returns the larger value.
+- `sqrt(x)` returns the square root.
+- `pow(base, exp)` returns `base` raised to the power `exp`.
+- `log(x)` returns the natural logarithm. `log(x, base)` returns the logarithm with the given base.
+- `log10(x)` returns the base 10 logarithm.
+- `sin(x)`, `cos(x)`, `tan(x)` are trigonometric functions accepting radians.
+- `sign(x)` returns -1, 0, or 1.
+- `trunc(x)` truncates toward zero.
+- `PI` and `E` are constants.
 - `isdigit(x)`, `isletter(x)`, `isalnum(x)`, `isspace(x)` check character classes.
+
+### Regular Expressions
+
+- `regex_match(input, pattern)` returns the first match as a dictionary with `matched`, `index`, and `groups`, or `null`.
+- `regex_matches(input, pattern)` returns all matches as a list of dictionaries.
+- `regex_replace(input, pattern, replacement)` replaces all matches and returns the result string.
+- `regex_test(input, pattern)` returns `true` if the pattern matches anywhere in the input.
+- `regex_split(input, pattern)` splits the input by the pattern and returns an array.
+
+Example.
+
+```cfs
+print(regex_test("hello123", "\\d+"));
+var m = regex_match("abc 42 def", "(\\d+)");
+print(m["matched"]);
+print(regex_replace("foo bar baz", "\\s+", "-"));
+```
 
 ### JSON
 
@@ -113,6 +143,14 @@ Strings support these methods.
 - `remove_range(start, end)`
 - `replace(old, new)`
 - `insert_at(index, text)`
+- `split(separator)` splits the string by a separator and returns an array. An empty separator splits into individual characters.
+- `startsWith(prefix)` returns `true` if the string starts with the given prefix.
+- `endsWith(suffix)` returns `true` if the string ends with the given suffix.
+- `indexOf(needle)` returns the zero based index of the first occurrence, or -1.
+- `lastIndexOf(needle)` returns the zero based index of the last occurrence, or -1.
+- `repeat(count)` repeats the string the given number of times.
+- `padStart(totalLength, padChar)` pads the beginning of the string.
+- `padEnd(totalLength, padChar)` pads the end of the string.
 - `toDateTime(format = optional)`
 - `toUnixSeconds()`
 - `toUnixMilliseconds()`
@@ -136,6 +174,19 @@ Arrays support these methods.
 - `remove_range(start, end)`
 - `replace_range(start, end, value_or_list)`
 - `slice(start = null, end = null)`
+- `sort()` sorts the array in place and returns it.
+- `reverse()` reverses the array in place and returns it.
+- `indexOf(value)` returns the zero based index of the first occurrence, or -1.
+- `includes(value)` returns `true` if the value is found.
+- `join(separator)` joins the elements into a string.
+- `flat(depth = 1)` flattens nested arrays up to the given depth.
+- `map(fn)` returns a new array with each element transformed by `fn(element, index)`.
+- `filter(fn)` returns a new array with only the elements where `fn(element, index)` returns truthy.
+- `reduce(fn, initial)` reduces the array using `fn(accumulator, element, index)`.
+- `find(fn)` returns the first element where `fn(element, index)` returns truthy, or `null`.
+- `findIndex(fn)` returns the index of the first element where `fn(element, index)` returns truthy, or -1.
+- `every(fn)` returns `true` if `fn(element, index)` returns truthy for every element.
+- `some(fn)` returns `true` if `fn(element, index)` returns truthy for at least one element.
 
 Example.
 
@@ -144,6 +195,21 @@ var arr = [1, 2, 3];
 arr.push(4);
 arr.replace_range(1, 3, [20, 30]);
 print(arr.slice(1, 3));
+```
+
+### Higher Order Example
+
+```cfs
+var nums = [3, 1, 4, 1, 5];
+var doubled = nums.map(func(x) => x * 2);
+var evens = nums.filter(func(x) => x % 2 == 0);
+var sum = nums.reduce(func(acc, x) => acc + x, 0);
+print(doubled);
+print(evens);
+print(sum);
+print(nums.sort());
+print(nums.includes(4));
+print([1, [2, [3]]].flat(2));
 ```
 
 ## Dictionary Intrinsics
@@ -157,6 +223,9 @@ Dictionaries support these methods.
 - `values()`
 - `set(key, value)`
 - `get_or(key, fallback)`
+- `entries()` returns a list of `[key, value]` pairs.
+- `merge(other)` merges another dictionary into this one and returns it. Existing keys are overwritten.
+- `clone()` returns a shallow copy of the dictionary.
 
 Example.
 

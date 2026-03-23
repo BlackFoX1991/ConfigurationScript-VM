@@ -10,6 +10,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text.Unicode;
 using static CFGS_VM.VMCore.VM;
 
@@ -415,6 +416,61 @@ namespace CFGS.StandardLibrary
             builtins.Register(new BuiltinDescriptor("PI", 0, 0, (args, instr) => Math.PI));
 
             builtins.Register(new BuiltinDescriptor("E", 0, 0, (args, instr) => Math.E));
+
+            // Regex builtins
+            builtins.Register(new BuiltinDescriptor("regex_match", 2, 2, (args, instr) =>
+            {
+                string input = args[0]?.ToString() ?? "";
+                string pattern = args[1]?.ToString() ?? "";
+                Match m = Regex.Match(input, pattern);
+                if (!m.Success) return null!;
+                Dictionary<string, object> result = new()
+                {
+                    ["matched"] = m.Value,
+                    ["index"] = m.Index,
+                    ["groups"] = m.Groups.Cast<Group>().Select(g => (object)g.Value).ToList()
+                };
+                return result;
+            }));
+
+            builtins.Register(new BuiltinDescriptor("regex_matches", 2, 2, (args, instr) =>
+            {
+                string input = args[0]?.ToString() ?? "";
+                string pattern = args[1]?.ToString() ?? "";
+                MatchCollection matches = Regex.Matches(input, pattern);
+                return matches.Select(m =>
+                {
+                    Dictionary<string, object> d = new()
+                    {
+                        ["matched"] = m.Value,
+                        ["index"] = m.Index,
+                        ["groups"] = m.Groups.Cast<Group>().Select(g => (object)g.Value).ToList()
+                    };
+                    return (object)d;
+                }).ToList();
+            }));
+
+            builtins.Register(new BuiltinDescriptor("regex_replace", 3, 3, (args, instr) =>
+            {
+                string input = args[0]?.ToString() ?? "";
+                string pattern = args[1]?.ToString() ?? "";
+                string replacement = args[2]?.ToString() ?? "";
+                return Regex.Replace(input, pattern, replacement);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("regex_test", 2, 2, (args, instr) =>
+            {
+                string input = args[0]?.ToString() ?? "";
+                string pattern = args[1]?.ToString() ?? "";
+                return Regex.IsMatch(input, pattern);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("regex_split", 2, 2, (args, instr) =>
+            {
+                string input = args[0]?.ToString() ?? "";
+                string pattern = args[1]?.ToString() ?? "";
+                return Regex.Split(input, pattern).Select(s => (object)s).ToList();
+            }));
 
             builtins.Register(new BuiltinDescriptor("isdigit", 1, 1, (args, instr) =>
             {

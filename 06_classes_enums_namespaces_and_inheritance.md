@@ -249,6 +249,68 @@ class FactoryOnly(v) {
 }
 ```
 
+## Const Fields
+
+Fields can be declared as `const` to prevent reassignment after initialization. This works for both instance fields and static fields.
+
+### Instance Const Fields
+
+Instance const fields are set during construction and cannot be changed afterward.
+
+```cfs
+class User(id, name) {
+    const id;
+    var name;
+
+    func init(id, name) {
+        this.id = id;
+        this.name = name;
+    }
+}
+
+var u = new User(1, "Max");
+u.name = "Moritz";  // ok
+// u.id = 2;        // Runtime error: cannot assign to const field 'id'
+```
+
+Const fields can also have an initializer directly in the class body. The `var` keyword is optional when `const` is used.
+
+```cfs
+class Config() {
+    const version = "1.0";
+    const var maxRetries = 3;
+}
+```
+
+### Static Const Fields
+
+Static const fields are set when the class is created and cannot be changed afterward.
+
+```cfs
+class Math() {
+    static const PI = 3.14159265;
+    static const E = 2.71828182;
+}
+
+print(Math.PI);
+// Math.PI = 0;  // Runtime error: cannot assign to const static field 'PI'
+```
+
+### Visibility and Const
+
+`const` combines with visibility modifiers in any order.
+
+```cfs
+class Token(value) {
+    public const value;
+    private const secret = "internal";
+
+    func init(value) {
+        this.value = value;
+    }
+}
+```
+
 ## Override Rules
 
 Overrides are validated strictly. The compiler checks several things.
@@ -325,6 +387,26 @@ Important practical notes.
 - `import` is not allowed inside a namespace body.
 - `export` is not allowed inside a namespace body.
 - A namespace root must not collide with an already declared top level symbol.
+
+## Type Checking with `is`
+
+The `is` operator checks whether an object is an instance of a given class. It also returns `true` if the object inherits from that class anywhere in the chain.
+
+```cfs
+class Thing() {}
+class Car() : Thing() {}
+
+var c = new Car();
+print(c is Car);      // true
+print(c is Thing);    // true (Car inherits from Thing)
+```
+
+If the left side is not a class instance or the right side is not a class type, `is` returns `false` without throwing an error.
+
+```cfs
+print("hello" is Car);  // false
+print(42 is Car);        // false
+```
 
 ## Reserved Names
 

@@ -176,6 +176,13 @@ namespace CFGS.Microsoft.SQL
         /// </summary>
         public static bool AllowSql { get; set; } = true;
 
+        private static string SanitizeSqlError(Exception ex)
+        {
+            if (ex is SqlException sqlEx)
+                return $"SQL error (code {sqlEx.Number}): {sqlEx.Message.Split('\n')[0]}";
+            return $"SQL error: {ex.GetType().Name}";
+        }
+
         /// <summary>
         /// The Register
         /// </summary>
@@ -224,7 +231,7 @@ namespace CFGS.Microsoft.SQL
             catch (Exception ex)
             {
                 try { conn.Dispose(); } catch { }
-                throw new VMException($"SQL connect failed: {ex.Message}",
+                throw new VMException($"SQL connect failed: {SanitizeSqlError(ex)}",
                     instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
             }
         }
@@ -858,7 +865,7 @@ namespace CFGS.Microsoft.SQL
                 }
                 catch (Exception ex)
                 {
-                    throw new VMException($"SQL error ({ex.GetType().Name}): {ex.Message}",
+                    throw new VMException(SanitizeSqlError(ex),
                         instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 }
             }).ConfigureAwait(false);
@@ -904,7 +911,7 @@ namespace CFGS.Microsoft.SQL
                 }
                 catch (Exception ex)
                 {
-                    throw new VMException($"SQL error ({ex.GetType().Name}): {ex.Message}",
+                    throw new VMException(SanitizeSqlError(ex),
                         instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 }
             }).ConfigureAwait(false);
@@ -939,7 +946,7 @@ namespace CFGS.Microsoft.SQL
                 }
                 catch (Exception ex)
                 {
-                    throw new VMException($"SQL error ({ex.GetType().Name}): {ex.Message}",
+                    throw new VMException(SanitizeSqlError(ex),
                         instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 }
             });

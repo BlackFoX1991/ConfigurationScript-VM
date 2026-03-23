@@ -95,6 +95,9 @@ namespace CFGS_VM.Analytic.Core
         /// </summary>
         private bool IsInOutBlock { get => _outBlock > 0; }
 
+        private const int MaxRecursionDepth = 256;
+        private int _recursionDepth = 0;
+
         /// <summary>
         /// Defines the _loadPluginDll
         /// </summary>
@@ -1823,6 +1826,8 @@ namespace CFGS_VM.Analytic.Core
             Dictionary<string, MemberVisibility> staticMethodVisibility = new(StringComparer.Ordinal);
             Dictionary<string, MemberVisibility> enumVisibility = new(StringComparer.Ordinal);
             Dictionary<string, MemberVisibility> nestedClassVisibility = new(StringComparer.Ordinal);
+            HashSet<string> constFields = new(StringComparer.Ordinal);
+            HashSet<string> staticConstFields = new(StringComparer.Ordinal);
 
             bool CheckFieldNames(string nm) =>
                 (from sm in staticMethods where sm.Name == nm select sm).Any() ||
@@ -1848,6 +1853,8 @@ namespace CFGS_VM.Analytic.Core
                 bool StaticSet = false;
                 bool seenStatic = false;
                 bool seenVisibility = false;
+                bool ConstSet = false;
+                bool seenConst = false;
                 MemberVisibility visibility = MemberVisibility.Public;
 
                 while (true)
@@ -1874,12 +1881,25 @@ namespace CFGS_VM.Analytic.Core
                         continue;
                     }
 
+                    if (_current.Type == TokenType.Const)
+                    {
+                        if (seenConst)
+                            throw new ParserException("duplicate 'const' modifier in class member declaration", _current.Line, _current.Column, _current.Filename);
+
+                        seenConst = true;
+                        ConstSet = true;
+                        Eat(TokenType.Const);
+                        continue;
+                    }
+
                     break;
                 }
 
-                if (_current.Type == TokenType.Var)
+                if (_current.Type == TokenType.Var || (ConstSet && _current.Type == TokenType.Ident))
                 {
-                    Eat(TokenType.Var);
+                    if (_current.Type == TokenType.Var)
+                        Eat(TokenType.Var);
+
                     string fieldName = _current.Value.ToString() ?? "";
                     if (CheckFieldNames(fieldName))
                         throw new ParserException($"Field '{fieldName}' already declared in class '{name}'", _current.Line, _current.Column, _current.Filename);
@@ -1897,11 +1917,13 @@ namespace CFGS_VM.Analytic.Core
                     {
                         staticFields[fieldName] = init ?? new NumberExpr(0, line, col, _current.Filename);
                         staticFieldVisibility[fieldName] = visibility;
+                        if (ConstSet) staticConstFields.Add(fieldName);
                     }
                     else
                     {
                         fields[fieldName] = init ?? new NumberExpr(0, line, col, _current.Filename);
                         fieldVisibility[fieldName] = visibility;
+                        if (ConstSet) constFields.Add(fieldName);
                     }
                 }
                 else if (_current.Type == TokenType.Class)
@@ -1922,7 +1944,9 @@ namespace CFGS_VM.Analytic.Core
                         methodVisibility: inner.MethodVisibility,
                         staticMethodVisibility: inner.StaticMethodVisibility,
                         enumVisibility: inner.EnumVisibility,
-                        nestedClassVisibility: inner.NestedClassVisibility
+                        nestedClassVisibility: inner.NestedClassVisibility,
+                        constFields: inner.ConstFields,
+                        staticConstFields: inner.StaticConstFields
                     );
                     nestedClasses.Add(inner);
                     nestedClassVisibility[inner.Name] = visibility;
@@ -1983,7 +2007,9 @@ namespace CFGS_VM.Analytic.Core
                 methodVisibility,
                 staticMethodVisibility,
                 enumVisibility,
-                nestedClassVisibility
+                nestedClassVisibility,
+                constFields,
+                staticConstFields
             );
         }
 
@@ -3238,7 +3264,13 @@ namespace CFGS_VM.Analytic.Core
         /// The Expr
         /// </summary>
         /// <returns>The <see cref="Expr"/></returns>
-        private Expr Expr() => Coalesce();
+        private Expr Expr()
+        {
+            if (++_recursionDepth > MaxRecursionDepth)
+                throw new ParserException($"Maximum nesting depth ({MaxRecursionDepth}) exceeded", _current.Line, _current.Column, _lexer.FileName);
+            try { return Coalesce(); }
+            finally { _recursionDepth--; }
+        }
 
         /// <summary>
         /// The Coalesce
@@ -3332,7 +3364,8 @@ namespace CFGS_VM.Analytic.Core
             Expr node = BitwiseOr();
             while (_current.Type == TokenType.Eq || _current.Type == TokenType.Neq ||
                    _current.Type == TokenType.Lt || _current.Type == TokenType.Gt ||
-                   _current.Type == TokenType.Le || _current.Type == TokenType.Ge)
+                   _current.Type == TokenType.Le || _current.Type == TokenType.Ge ||
+                   _current.Type == TokenType.Is)
             {
                 TokenType op = _current.Type;
                 int line = _current.Line;

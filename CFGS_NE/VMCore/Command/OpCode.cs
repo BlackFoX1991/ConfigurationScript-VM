@@ -411,6 +411,11 @@
         AWAIT,
 
         /// <summary>
+        /// Defines the IS_TYPE
+        /// </summary>
+        IS_TYPE,
+
+        /// <summary>
         /// Defines the YIELD
         /// </summary>
         YIELD,

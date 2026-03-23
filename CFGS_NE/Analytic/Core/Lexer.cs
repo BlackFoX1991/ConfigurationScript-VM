@@ -51,6 +51,7 @@ public class Lexer
             { "private", TokenType.Private },
             { "protected", TokenType.Protected },
             { "in", TokenType.In },
+            { "is", TokenType.Is },
             { "foreach", TokenType.ForEach },
             {"super",TokenType.Ident },
             {"this",TokenType.Ident },
@@ -378,10 +379,14 @@ public class Lexer
                             long l = Convert.ToInt64(hex, 16);
                             return MakeToken(TokenType.Number, l <= int.MaxValue ? (object)(int)l : l);
                         }
-                        catch
+                        catch (OverflowException)
                         {
                             BigInteger bi = BigInteger.Parse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
                             return MakeToken(TokenType.Number, NarrowIntOrBig(bi));
+                        }
+                        catch (FormatException)
+                        {
+                            throw new LexerException($"invalid hex literal '0x{hex}'", startLine, startCol, FileName);
                         }
                     }
                     else if (Current == 'b' || Current == 'B')
@@ -400,10 +405,14 @@ public class Lexer
                             long l = Convert.ToInt64(bin, 2);
                             return MakeToken(TokenType.Number, l <= int.MaxValue ? (object)(int)l : l);
                         }
-                        catch
+                        catch (OverflowException)
                         {
                             BigInteger bi = ParseBaseBigInteger(bin, 2);
                             return MakeToken(TokenType.Number, NarrowIntOrBig(bi));
+                        }
+                        catch (FormatException)
+                        {
+                            throw new LexerException($"invalid binary literal '0b{bin}'", startLine, startCol, FileName);
                         }
                     }
                     else if (Current == 'o' || Current == 'O')
@@ -422,10 +431,14 @@ public class Lexer
                             long l = Convert.ToInt64(oct, 8);
                             return MakeToken(TokenType.Number, l <= int.MaxValue ? (object)(int)l : l);
                         }
-                        catch
+                        catch (OverflowException)
                         {
                             BigInteger bi = ParseBaseBigInteger(oct, 8);
                             return MakeToken(TokenType.Number, NarrowIntOrBig(bi));
+                        }
+                        catch (FormatException)
+                        {
+                            throw new LexerException($"invalid octal literal '0o{oct}'", startLine, startCol, FileName);
                         }
                     }
                     else

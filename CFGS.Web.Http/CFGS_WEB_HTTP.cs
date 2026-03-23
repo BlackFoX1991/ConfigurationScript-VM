@@ -732,8 +732,18 @@ namespace CFGS.Web.Http
                 string body = "";
                 try
                 {
-                    using StreamReader sr = new(req.InputStream, req.ContentEncoding ?? Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 8192, leaveOpen: true);
-                    body = sr.ReadToEnd();
+                    const int maxBodySize = 10 * 1024 * 1024; // 10 MB
+                    if (req.ContentLength64 > maxBodySize)
+                    {
+                        body = $"[body too large: {req.ContentLength64} bytes, limit {maxBodySize}]";
+                    }
+                    else
+                    {
+                        using StreamReader sr = new(req.InputStream, req.ContentEncoding ?? Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 8192, leaveOpen: true);
+                        char[] buffer = new char[maxBodySize];
+                        int read = sr.ReadBlock(buffer, 0, maxBodySize);
+                        body = new string(buffer, 0, read);
+                    }
                 }
                 catch { }
 
