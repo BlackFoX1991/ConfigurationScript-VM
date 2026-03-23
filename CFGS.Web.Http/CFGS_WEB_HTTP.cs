@@ -64,13 +64,50 @@ namespace CFGS.Web.Http
                 return HttpGetAsync(url, headers, timeout);
             }, smartAwait: true));
 
-            builtins.Register(new BuiltinDescriptor("http_post", 2, 4, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("http_post", 2, 5, (args, instr) =>
             {
                 string url = args[0]?.ToString() ?? "";
                 string body = args[1]?.ToString() ?? "";
                 Dictionary<string, object> headers = args.Count >= 3 && args[2] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
-                return HttpPostAsync(url, body, headers, timeout);
+                string contentType = args.Count >= 5 ? args[4]?.ToString() ?? "text/plain" : "text/plain";
+                return HttpSendWithBodyAsync(HttpMethod.Post, url, body, headers, timeout, contentType);
+            }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("http_put", 2, 5, (args, instr) =>
+            {
+                string url = args[0]?.ToString() ?? "";
+                string body = args[1]?.ToString() ?? "";
+                Dictionary<string, object> headers = args.Count >= 3 && args[2] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
+                int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
+                string contentType = args.Count >= 5 ? args[4]?.ToString() ?? "text/plain" : "text/plain";
+                return HttpSendWithBodyAsync(HttpMethod.Put, url, body, headers, timeout, contentType);
+            }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("http_delete", 1, 3, (args, instr) =>
+            {
+                string url = args[0]?.ToString() ?? "";
+                Dictionary<string, object> headers = args.Count >= 2 && args[1] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
+                int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
+                return HttpDeleteAsync(url, headers, timeout);
+            }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("http_patch", 2, 5, (args, instr) =>
+            {
+                string url = args[0]?.ToString() ?? "";
+                string body = args[1]?.ToString() ?? "";
+                Dictionary<string, object> headers = args.Count >= 3 && args[2] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
+                int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
+                string contentType = args.Count >= 5 ? args[4]?.ToString() ?? "text/plain" : "text/plain";
+                return HttpSendWithBodyAsync(HttpMethod.Patch, url, body, headers, timeout, contentType);
+            }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("http_head", 1, 3, (args, instr) =>
+            {
+                string url = args[0]?.ToString() ?? "";
+                Dictionary<string, object> headers = args.Count >= 2 && args[1] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
+                int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
+                return HttpHeadAsync(url, headers, timeout);
             }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("http_download", 2, 3, (args, instr) =>
@@ -142,11 +179,11 @@ namespace CFGS.Web.Http
         /// <param name="headers">The headers<see cref="Dictionary{string, object}"/></param>
         /// <param name="timeout">The timeout<see cref="int"/></param>
         /// <returns>The <see cref="Task{object?}"/></returns>
-        private static async Task<object?> HttpPostAsync(string url, string body, Dictionary<string, object> headers, int timeout)
+        private static async Task<object?> HttpSendWithBodyAsync(HttpMethod method, string url, string body, Dictionary<string, object> headers, int timeout, string contentType)
         {
             using CancellationTokenSource cts = new(timeout);
-            using HttpRequestMessage req = new(HttpMethod.Post, url);
-            req.Content = new StringContent(body, Encoding.UTF8, "text/plain");
+            using HttpRequestMessage req = new(method, url);
+            req.Content = new StringContent(body, Encoding.UTF8, contentType);
 
             ApplyHeaders(req, headers);
 
@@ -156,6 +193,38 @@ namespace CFGS.Web.Http
 
             string respBody = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
             return ToVmResponse(resp, respBody);
+        }
+
+        private static async Task<object?> HttpDeleteAsync(string url, Dictionary<string, object> headers, int timeout)
+        {
+            using CancellationTokenSource cts = new(timeout);
+            using HttpRequestMessage req = new(HttpMethod.Delete, url);
+
+            if (HasContentType(headers))
+                req.Content = new ByteArrayContent(Array.Empty<byte>());
+
+            ApplyHeaders(req, headers);
+
+            using HttpResponseMessage resp = await _client
+                .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
+                .ConfigureAwait(false);
+
+            string respBody = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            return ToVmResponse(resp, respBody);
+        }
+
+        private static async Task<object?> HttpHeadAsync(string url, Dictionary<string, object> headers, int timeout)
+        {
+            using CancellationTokenSource cts = new(timeout);
+            using HttpRequestMessage req = new(HttpMethod.Head, url);
+
+            ApplyHeaders(req, headers);
+
+            using HttpResponseMessage resp = await _client
+                .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
+                .ConfigureAwait(false);
+
+            return ToVmResponse(resp, "");
         }
 
         /// <summary>
@@ -571,6 +640,11 @@ namespace CFGS.Web.Http
                 }
                 if (string.IsNullOrWhiteSpace(resp.ContentType))
                     resp.ContentType = "text/plain; charset=utf-8";
+
+                if (string.IsNullOrWhiteSpace(resp.Headers["X-Content-Type-Options"]))
+                    resp.Headers["X-Content-Type-Options"] = "nosniff";
+                if (string.IsNullOrWhiteSpace(resp.Headers["X-Frame-Options"]))
+                    resp.Headers["X-Frame-Options"] = "DENY";
 
                 byte[] payload = Array.Empty<byte>();
                 if (!noBody)

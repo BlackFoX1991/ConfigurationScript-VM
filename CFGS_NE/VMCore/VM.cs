@@ -58,6 +58,30 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public static int DEBUG_BUFFER = 100;
 
+        [ThreadStatic]
+        public static VM? CurrentVm;
+
+        /// <summary>
+        /// Invokes a CFGS closure synchronously from within an intrinsic/builtin.
+        /// </summary>
+        public object? InvokeClosureSync(Closure closure, List<object> args, Instruction instr)
+        {
+            if (_program is null || _program.Count == 0)
+                throw new VMException("Cannot invoke closure: no program loaded.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            Env callEnv = BuildCallEnv(closure, args, instr);
+            int callerDepth = _scopes.Count;
+            _scopes.Add(callEnv);
+            _callStack.Push(new CallFrame(_program.Count, callerDepth, null, null, false));
+
+            RunStopReason reason = RunUntilAwaitOrHalt(false, closure.Address);
+
+            if (reason == RunStopReason.AwaitPending)
+                throw new VMException("Runtime error: callback function must not use await.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            return _stack.Count > 0 ? _stack.Pop() : null;
+        }
+
         /// <summary>
         /// The IsNumber
         /// </summary>
@@ -628,6 +652,7 @@ namespace CFGS_VM.VMCore
         /// Gets the Functions
         /// </summary>
         public Dictionary<string, FunctionInfo> Functions { get; } = [];
+        private readonly Dictionary<int, FunctionInfo> _functionsByAddress = new();
 
         /// <summary>
         /// Gets the Builtins
@@ -671,6 +696,7 @@ namespace CFGS_VM.VMCore
                         $"Runtime error: multiple declarations for function '{kv.Key}'",
                         -1, -1, string.Empty, IsDebugging, DebugStream!);
                 Functions[kv.Key] = kv.Value;
+                _functionsByAddress[kv.Value.Address] = kv.Value;
             }
         }
 
@@ -2679,7 +2705,7 @@ namespace CFGS_VM.VMCore
                                 throw new VMException($"Runtime error: Invalid PUSH_CLOSURE operand type {instr.Operand.GetType().Name}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 
-                        FunctionInfo? funcInfo = Functions.Values.FirstOrDefault(f => f.Address == funcAddr);
+                        _functionsByAddress.TryGetValue(funcAddr, out FunctionInfo? funcInfo);
                         if (funcInfo == null)
                             throw new VMException($"Runtime error: PUSH_CLOSURE unknown function address {funcAddr}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
@@ -3381,6 +3407,11 @@ namespace CFGS_VM.VMCore
             if (_program is null || _program.Count == 0)
                 return RunStopReason.Halted;
 
+            VM? prevVm = CurrentVm;
+            CurrentVm = this;
+            try
+            {
+
             bool routed = false;
 
             IsDebugging = debugging;
@@ -3499,6 +3530,12 @@ namespace CFGS_VM.VMCore
             }
 
             return RunStopReason.Halted;
+
+            } // end try
+            finally
+            {
+                CurrentVm = prevVm;
+            }
         }
 
         /// <summary>

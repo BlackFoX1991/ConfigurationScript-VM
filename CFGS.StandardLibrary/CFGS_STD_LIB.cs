@@ -360,6 +360,62 @@ namespace CFGS.StandardLibrary
                     .Next(Convert.ToInt32(args[1]), Convert.ToInt32(args[2]));
             }));
 
+            builtins.Register(new BuiltinDescriptor("floor", 1, 1, (args, instr) =>
+                Math.Floor(Convert.ToDouble(args[0]))));
+
+            builtins.Register(new BuiltinDescriptor("ceil", 1, 1, (args, instr) =>
+                Math.Ceiling(Convert.ToDouble(args[0]))));
+
+            builtins.Register(new BuiltinDescriptor("round", 1, 2, (args, instr) =>
+                args.Count == 1
+                    ? Math.Round(Convert.ToDouble(args[0]))
+                    : Math.Round(Convert.ToDouble(args[0]), Convert.ToInt32(args[1]))));
+
+            builtins.Register(new BuiltinDescriptor("min", 2, 2, (args, instr) =>
+            {
+                dynamic a = args[0], b = args[1];
+                return a < b ? a : b;
+            }));
+
+            builtins.Register(new BuiltinDescriptor("max", 2, 2, (args, instr) =>
+            {
+                dynamic a = args[0], b = args[1];
+                return a > b ? a : b;
+            }));
+
+            builtins.Register(new BuiltinDescriptor("sqrt", 1, 1, (args, instr) =>
+                Math.Sqrt(Convert.ToDouble(args[0]))));
+
+            builtins.Register(new BuiltinDescriptor("pow", 2, 2, (args, instr) =>
+                Math.Pow(Convert.ToDouble(args[0]), Convert.ToDouble(args[1]))));
+
+            builtins.Register(new BuiltinDescriptor("log", 1, 2, (args, instr) =>
+                args.Count == 1
+                    ? Math.Log(Convert.ToDouble(args[0]))
+                    : Math.Log(Convert.ToDouble(args[0]), Convert.ToDouble(args[1]))));
+
+            builtins.Register(new BuiltinDescriptor("log10", 1, 1, (args, instr) =>
+                Math.Log10(Convert.ToDouble(args[0]))));
+
+            builtins.Register(new BuiltinDescriptor("sin", 1, 1, (args, instr) =>
+                Math.Sin(Convert.ToDouble(args[0]))));
+
+            builtins.Register(new BuiltinDescriptor("cos", 1, 1, (args, instr) =>
+                Math.Cos(Convert.ToDouble(args[0]))));
+
+            builtins.Register(new BuiltinDescriptor("tan", 1, 1, (args, instr) =>
+                Math.Tan(Convert.ToDouble(args[0]))));
+
+            builtins.Register(new BuiltinDescriptor("sign", 1, 1, (args, instr) =>
+                Math.Sign(Convert.ToDouble(args[0]))));
+
+            builtins.Register(new BuiltinDescriptor("trunc", 1, 1, (args, instr) =>
+                Math.Truncate(Convert.ToDouble(args[0]))));
+
+            builtins.Register(new BuiltinDescriptor("PI", 0, 0, (args, instr) => Math.PI));
+
+            builtins.Register(new BuiltinDescriptor("E", 0, 0, (args, instr) => Math.E));
+
             builtins.Register(new BuiltinDescriptor("isdigit", 1, 1, (args, instr) =>
             {
                 if (args[0] is null) return false;
@@ -649,6 +705,66 @@ namespace CFGS.StandardLibrary
                 string repl = a[1]?.ToString() ?? "";
                 return s.Substring(0, idx) + repl + s.Substring(idx);
             }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("split", 1, 1, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                string sep = a[0]?.ToString() ?? "";
+                if (sep.Length == 0)
+                    return s.Select(c => (object)c.ToString()).ToList();
+                return s.Split(sep).Select(p => (object)p).ToList();
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("startsWith", 1, 1, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                string prefix = a[0]?.ToString() ?? "";
+                return s.StartsWith(prefix);
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("endsWith", 1, 1, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                string suffix = a[0]?.ToString() ?? "";
+                return s.EndsWith(suffix);
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("indexOf", 1, 1, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                string needle = a[0]?.ToString() ?? "";
+                return s.IndexOf(needle);
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("lastIndexOf", 1, 1, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                string needle = a[0]?.ToString() ?? "";
+                return s.LastIndexOf(needle);
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("repeat", 1, 1, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                int count = Math.Max(0, Convert.ToInt32(a[0]));
+                return string.Concat(Enumerable.Repeat(s, count));
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("padStart", 2, 2, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                int totalWidth = Convert.ToInt32(a[0]);
+                char padChar = (a[1]?.ToString() ?? " ").FirstOrDefault(' ');
+                return s.PadLeft(totalWidth, padChar);
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("padEnd", 2, 2, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                int totalWidth = Convert.ToInt32(a[0]);
+                char padChar = (a[1]?.ToString() ?? " ").FirstOrDefault(' ');
+                return s.PadRight(totalWidth, padChar);
+            }));
         }
 
         /// <summary>
@@ -712,6 +828,167 @@ namespace CFGS.StandardLibrary
                 (int st, int ex) = NormalizeSliceBounds(startObj, endObj, arr.Count);
                 return arr.GetRange(st, ex - st);
             }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("sort", 0, 0, (recv, a, i) =>
+            {
+                List<object> arr = (List<object>)recv;
+                arr.Sort((x, y) =>
+                {
+                    if (x is null && y is null) return 0;
+                    if (x is null) return -1;
+                    if (y is null) return 1;
+                    if (x is IComparable cx) return cx.CompareTo(y);
+                    return string.Compare(x.ToString(), y.ToString(), StringComparison.Ordinal);
+                });
+                return arr;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("reverse", 0, 0, (recv, a, i) =>
+            {
+                List<object> arr = (List<object>)recv;
+                arr.Reverse();
+                return arr;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("indexOf", 1, 1, (recv, a, i) =>
+            {
+                List<object> arr = (List<object>)recv;
+                object target = a[0];
+                for (int idx = 0; idx < arr.Count; idx++)
+                {
+                    if (Equals(arr[idx], target)) return idx;
+                }
+                return -1;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("includes", 1, 1, (recv, a, i) =>
+            {
+                List<object> arr = (List<object>)recv;
+                object target = a[0];
+                foreach (object item in arr)
+                {
+                    if (Equals(item, target)) return true;
+                }
+                return false;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("join", 1, 1, (recv, a, i) =>
+            {
+                List<object> arr = (List<object>)recv;
+                string sep = a[0]?.ToString() ?? "";
+                return string.Join(sep, arr.Select(x => x?.ToString() ?? ""));
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("flat", 0, 1, (recv, a, instr) =>
+            {
+                List<object> arr = (List<object>)recv;
+                int depth = a.Count > 0 ? Convert.ToInt32(a[0]) : 1;
+                return FlattenList(arr, depth);
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("map", 1, 1, (recv, a, instr) =>
+            {
+                List<object> arr = (List<object>)recv;
+                Closure fn = (Closure)a[0];
+                VM vm = VM.CurrentVm!;
+                List<object> result = new(arr.Count);
+                for (int idx = 0; idx < arr.Count; idx++)
+                {
+                    List<object> cbArgs = fn.Parameters.Count >= 2
+                        ? new List<object> { arr[idx], idx }
+                        : new List<object> { arr[idx] };
+                    result.Add(vm.InvokeClosureSync(fn, cbArgs, instr)!);
+                }
+                return result;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("filter", 1, 1, (recv, a, instr) =>
+            {
+                List<object> arr = (List<object>)recv;
+                Closure fn = (Closure)a[0];
+                VM vm = VM.CurrentVm!;
+                List<object> result = new();
+                for (int idx = 0; idx < arr.Count; idx++)
+                {
+                    List<object> cbArgs = fn.Parameters.Count >= 2
+                        ? new List<object> { arr[idx], idx }
+                        : new List<object> { arr[idx] };
+                    object? val = vm.InvokeClosureSync(fn, cbArgs, instr);
+                    if (val is true) result.Add(arr[idx]);
+                }
+                return result;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("reduce", 2, 2, (recv, a, instr) =>
+            {
+                List<object> arr = (List<object>)recv;
+                Closure fn = (Closure)a[0];
+                object accumulator = a[1];
+                VM vm = VM.CurrentVm!;
+                foreach (object item in arr)
+                {
+                    accumulator = vm.InvokeClosureSync(fn, new List<object> { accumulator, item }, instr)!;
+                }
+                return accumulator;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("find", 1, 1, (recv, a, instr) =>
+            {
+                List<object> arr = (List<object>)recv;
+                Closure fn = (Closure)a[0];
+                VM vm = VM.CurrentVm!;
+                for (int idx = 0; idx < arr.Count; idx++)
+                {
+                    List<object> cbArgs = fn.Parameters.Count >= 2
+                        ? new List<object> { arr[idx], idx }
+                        : new List<object> { arr[idx] };
+                    object? val = vm.InvokeClosureSync(fn, cbArgs, instr);
+                    if (val is true) return arr[idx];
+                }
+                return null!;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("findIndex", 1, 1, (recv, a, instr) =>
+            {
+                List<object> arr = (List<object>)recv;
+                Closure fn = (Closure)a[0];
+                VM vm = VM.CurrentVm!;
+                for (int idx = 0; idx < arr.Count; idx++)
+                {
+                    List<object> cbArgs = fn.Parameters.Count >= 2
+                        ? new List<object> { arr[idx], idx }
+                        : new List<object> { arr[idx] };
+                    object? val = vm.InvokeClosureSync(fn, cbArgs, instr);
+                    if (val is true) return idx;
+                }
+                return -1;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("every", 1, 1, (recv, a, instr) =>
+            {
+                List<object> arr = (List<object>)recv;
+                Closure fn = (Closure)a[0];
+                VM vm = VM.CurrentVm!;
+                foreach (object item in arr)
+                {
+                    object? val = vm.InvokeClosureSync(fn, new List<object> { item }, instr);
+                    if (val is not true) return false;
+                }
+                return true;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("some", 1, 1, (recv, a, instr) =>
+            {
+                List<object> arr = (List<object>)recv;
+                Closure fn = (Closure)a[0];
+                VM vm = VM.CurrentVm!;
+                foreach (object item in arr)
+                {
+                    object? val = vm.InvokeClosureSync(fn, new List<object> { item }, instr);
+                    if (val is true) return true;
+                }
+                return false;
+            }));
         }
 
         /// <summary>
@@ -748,6 +1025,33 @@ namespace CFGS.StandardLibrary
                 Dictionary<string, object> d = (Dictionary<string, object>)r;
                 string key = a[0]?.ToString() ?? "";
                 return d.TryGetValue(key, out object? v) ? v : a[1];
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("entries", 0, 0, (r, a, i) =>
+            {
+                Dictionary<string, object> d = (Dictionary<string, object>)r;
+                return d.Select(kv =>
+                {
+                    List<object> pair = new() { kv.Key, kv.Value };
+                    return (object)pair;
+                }).ToList();
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("merge", 1, 1, (r, a, i) =>
+            {
+                Dictionary<string, object> d = (Dictionary<string, object>)r;
+                if (a[0] is Dictionary<string, object> other)
+                {
+                    foreach (KeyValuePair<string, object> kv in other)
+                        d[kv.Key] = kv.Value;
+                }
+                return d;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("clone", 0, 0, (r, a, i) =>
+            {
+                Dictionary<string, object> d = (Dictionary<string, object>)r;
+                return new Dictionary<string, object>(d);
             }));
         }
 
@@ -1259,6 +1563,19 @@ namespace CFGS.StandardLibrary
         /// <param name="idx">The idx<see cref="int"/></param>
         /// <param name="len">The len<see cref="int"/></param>
         /// <returns>The <see cref="int"/></returns>
+        private static List<object> FlattenList(List<object> list, int depth)
+        {
+            List<object> result = new();
+            foreach (object item in list)
+            {
+                if (depth > 0 && item is List<object> subList)
+                    result.AddRange(FlattenList(subList, depth - 1));
+                else
+                    result.Add(item);
+            }
+            return result;
+        }
+
         private static int ClampIndex(int idx, int len)
         {
             if (idx < 0) idx += len;

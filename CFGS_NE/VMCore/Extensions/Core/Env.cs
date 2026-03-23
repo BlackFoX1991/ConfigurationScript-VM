@@ -42,6 +42,7 @@
         /// <returns>The <see cref="bool"/></returns>
         public bool TryGetValue(string name, out object? value)
         {
+            Env? parent;
             lock (SyncRoot)
             {
                 if (Vars.TryGetValue(name, out object? local))
@@ -49,8 +50,9 @@
                     value = local;
                     return true;
                 }
+                parent = Parent;
             }
-            if (Parent != null) return Parent.TryGetValue(name, out value);
+            if (parent != null) return parent.TryGetValue(name, out value);
             value = null;
             return false;
         }
@@ -74,6 +76,7 @@
         /// <returns>The <see cref="bool"/></returns>
         public bool Set(string name, object value)
         {
+            Env? parent;
             lock (SyncRoot)
             {
                 if (Vars.ContainsKey(name))
@@ -81,8 +84,9 @@
                     Vars[name] = value;
                     return true;
                 }
+                parent = Parent;
             }
-            if (Parent != null) return Parent.Set(name, value);
+            if (parent != null) return parent.Set(name, value);
             return false;
         }
 

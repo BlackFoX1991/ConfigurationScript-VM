@@ -353,12 +353,32 @@ internal sealed class LspServer
         }
     }
 
+    private static string GetTextDocumentUri(JsonElement parameters)
+    {
+        if (parameters.TryGetProperty("textDocument", out JsonElement td) &&
+            td.TryGetProperty("uri", out JsonElement u))
+            return u.GetString() ?? string.Empty;
+        return string.Empty;
+    }
+
+    private static (int line, int character) GetPosition(JsonElement parameters)
+    {
+        if (parameters.TryGetProperty("position", out JsonElement pos))
+        {
+            int line = pos.TryGetProperty("line", out JsonElement l) ? l.GetInt32() : 0;
+            int character = pos.TryGetProperty("character", out JsonElement c) ? c.GetInt32() : 0;
+            return (line, character);
+        }
+        return (0, 0);
+    }
+
     private async Task HandleDidOpenAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
-        JsonElement textDocument = parameters.GetProperty("textDocument");
-        string uri = textDocument.GetProperty("uri").GetString() ?? string.Empty;
+        if (!parameters.TryGetProperty("textDocument", out JsonElement textDocument))
+            return;
+        string uri = textDocument.TryGetProperty("uri", out JsonElement uriEl) ? uriEl.GetString() ?? string.Empty : string.Empty;
         int version = textDocument.TryGetProperty("version", out JsonElement versionElement) ? versionElement.GetInt32() : 0;
-        string text = textDocument.GetProperty("text").GetString() ?? string.Empty;
+        string text = textDocument.TryGetProperty("text", out JsonElement textEl) ? textEl.GetString() ?? string.Empty : string.Empty;
 
         DocumentState state = new(uri, text, version);
         _documents[uri] = state;
@@ -367,23 +387,26 @@ internal sealed class LspServer
 
     private async Task HandleDidChangeAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
-        JsonElement textDocument = parameters.GetProperty("textDocument");
-        string uri = textDocument.GetProperty("uri").GetString() ?? string.Empty;
+        if (!parameters.TryGetProperty("textDocument", out JsonElement textDocument))
+            return;
+        string uri = textDocument.TryGetProperty("uri", out JsonElement uriEl) ? uriEl.GetString() ?? string.Empty : string.Empty;
         DocumentState state = EnsureDocument(uri);
 
         if (textDocument.TryGetProperty("version", out JsonElement versionElement))
             state.Version = versionElement.GetInt32();
 
-        JsonElement contentChanges = parameters.GetProperty("contentChanges");
-        if (contentChanges.GetArrayLength() > 0)
-            state.Text = contentChanges[0].GetProperty("text").GetString() ?? string.Empty;
+        if (parameters.TryGetProperty("contentChanges", out JsonElement contentChanges) && contentChanges.GetArrayLength() > 0)
+        {
+            if (contentChanges[0].TryGetProperty("text", out JsonElement textEl))
+                state.Text = textEl.GetString() ?? string.Empty;
+        }
 
         await AnalyzeAndPublishAsync(state, cancellationToken);
     }
 
     private async Task HandleDidCloseAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
-        string uri = parameters.GetProperty("textDocument").GetProperty("uri").GetString() ?? string.Empty;
+        string uri = GetTextDocumentUri(parameters);
         if (_documents.Remove(uri, out DocumentState? state))
         {
             foreach (string publishedUri in state.PublishedDiagnosticUris)
