@@ -1,0 +1,253 @@
+import {
+    clone_dict
+} from "core.cfs";
+import {
+    columns_for,
+    key_column,
+    to_record,
+    try_key_value
+} from "mapping.cfs";
+
+func deep_clone(value) {
+    if (value == null) {
+        return null;
+    }
+
+    return fromjson(tojson(value));
+}
+
+func tracked_entry(mapping, entity_value, original_record = null) {
+    var original_copy = original_record == null ? null : deep_clone(original_record);
+    return {
+        "mapping": mapping,
+        "entity": entity_value,
+        "original": original_copy,
+        "original_json": original_copy == null ? null : tojson(original_copy)
+    };
+}
+
+func snapshot_record(mapping, entity_value) {
+    return to_record(mapping, entity_value);
+}
+
+func records_equal(left, right) {
+    if (left == null || right == null) {
+        return left == right;
+    }
+
+    return tojson(left) == tojson(right);
+}
+
+func mapped_record(mapping, entity_value, mode = "all") {
+    var record = snapshot_record(mapping, entity_value);
+    var result = {};
+
+    foreach (var _, spec in columns_for(mapping, mode)) {
+        var prop = spec["property"];
+        result[prop] = record.get_or(prop, null);
+    }
+
+    return result;
+}
+
+func reset_original(entry) {
+    var record = mapped_record(entry["mapping"], entry["entity"], "all");
+    entry["original"] = deep_clone(record);
+    entry["original_json"] = tojson(record);
+}
+
+func current_record(entry) {
+    return mapped_record(entry["mapping"], entry["entity"], "all");
+}
+
+func current_json(entry) {
+    return tojson(current_record(entry));
+}
+
+func entry_is_dirty(entry) {
+    return entry.get_or("original_json", null) != current_json(entry);
+}
+
+func entry_changes(entry) {
+    var original = entry.get_or("original", {});
+    var current = current_record(entry);
+    var changed = [];
+
+    foreach (var key, value in current) {
+        if (!original.contains(key) || tojson(value) != tojson(original[key])) {
+            changed.push(key);
+        }
+    }
+
+    foreach (var key2, _ in original) {
+        if (!current.contains(key2)) {
+            changed.push(key2);
+        }
+    }
+
+    return changed;
+}
+
+export class UnitOfWork(session) {
+    var session = null;
+    var watched = [];
+    var inserts = [];
+    var deletes = [];
+
+    func init(session) {
+        this.session = session;
+        this.watched = [];
+        this.inserts = [];
+        this.deletes = [];
+    }
+
+    func watch(mapping, entity_value) {
+        var entry = tracked_entry(
+            mapping,
+            entity_value,
+            mapped_record(mapping, entity_value, "all")
+        );
+        this.watched.push(entry);
+        return entity_value;
+    }
+
+    func register_new(mapping, entity_value) {
+        this.inserts.push(tracked_entry(mapping, entity_value, null));
+        return entity_value;
+    }
+
+    func register_deleted(mapping, key_value) {
+        this.deletes.push({
+            "mapping": mapping,
+            "key": key_value
+        });
+        return key_value;
+    }
+
+    func register_deleted_entity(mapping, entity_value) {
+        var key_value = try_key_value(mapping, entity_value);
+        this.deletes.push({
+            "mapping": mapping,
+            "key": key_value
+        });
+        return key_value;
+    }
+
+    func clear() {
+        this.watched = [];
+        this.inserts = [];
+        this.deletes = [];
+    }
+
+    func is_dirty(entity_value) {
+        foreach (var _, entry in this.watched) {
+            if (entry["entity"] == entity_value) {
+                return entry_is_dirty(entry);
+            }
+        }
+
+        return false;
+    }
+
+    func dirty_properties(entity_value) {
+        foreach (var _, entry in this.watched) {
+            if (entry["entity"] == entity_value) {
+                return entry_changes(entry);
+            }
+        }
+
+        return [];
+    }
+
+    func dirty_entries() {
+        var result = [];
+
+        foreach (var _, entry in this.watched) {
+            if (entry_is_dirty(entry)) {
+                result.push({
+                    "mapping": entry["mapping"],
+                    "entity": entry["entity"],
+                    "changes": entry_changes(entry)
+                });
+            }
+        }
+
+        return result;
+    }
+
+    func flush() {
+        foreach (var _, entry in this.inserts) {
+            var mapping = entry["mapping"];
+            var entity_value = entry["entity"];
+            var generated_key = mapping.get_or("key_generated", false) == true;
+
+            if (generated_key) {
+                var created_key = this.session.insert_identity(mapping, entity_value);
+                var key_name = mapping.get_or("key", null);
+                if (key_name != null) {
+                    entity_value[key_name] = created_key;
+                }
+            } else {
+                this.session.insert(mapping, entity_value);
+            }
+        }
+
+        foreach (var _, entry2 in this.watched) {
+            var current = current_record(entry2);
+            if (entry_is_dirty(entry2)) {
+                this.session.update(entry2["mapping"], entry2["entity"]);
+                entry2["original"] = deep_clone(current);
+                entry2["original_json"] = tojson(current);
+            }
+        }
+
+        foreach (var _, entry3 in this.deletes) {
+            this.session.delete_by_key(entry3["mapping"], entry3["key"]);
+        }
+
+        this.inserts = [];
+        this.deletes = [];
+
+        foreach (var _, entry4 in this.watched) {
+            reset_original(entry4);
+        }
+    }
+
+    async func flush_async() {
+        foreach (var _, entry in this.inserts) {
+            var mapping = entry["mapping"];
+            var entity_value = entry["entity"];
+            var generated_key = mapping.get_or("key_generated", false) == true;
+
+            if (generated_key) {
+                var created_key = await this.session.insert_identity_async(mapping, entity_value);
+                var key_name = mapping.get_or("key", null);
+                if (key_name != null) {
+                    entity_value[key_name] = created_key;
+                }
+            } else {
+                await this.session.insert_async(mapping, entity_value);
+            }
+        }
+
+        foreach (var _, entry2 in this.watched) {
+            var current = current_record(entry2);
+            if (entry_is_dirty(entry2)) {
+                await this.session.update_async(entry2["mapping"], entry2["entity"]);
+                entry2["original"] = deep_clone(current);
+                entry2["original_json"] = tojson(current);
+            }
+        }
+
+        foreach (var _, entry3 in this.deletes) {
+            await this.session.delete_by_key_async(entry3["mapping"], entry3["key"]);
+        }
+
+        this.inserts = [];
+        this.deletes = [];
+
+        foreach (var _, entry4 in this.watched) {
+            reset_original(entry4);
+        }
+    }
+}

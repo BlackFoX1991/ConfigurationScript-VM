@@ -1,0 +1,81 @@
+import {
+    clone_array
+} from "core.cfs";
+import {
+    relation_spec
+} from "mapping.cfs";
+import {
+    include_relation as lazy_include_relation,
+    include_relation_async as lazy_include_relation_async
+} from "relations.cfs";
+
+func ensure_entity_list(items) {
+    if (items == null) {
+        return [];
+    }
+
+    if (typeof(items) == "Array") {
+        return items;
+    }
+
+    return [items];
+}
+
+func relation_default_value(mapping, relation_name) {
+    var relation = relation_spec(mapping, relation_name);
+    if (relation["kind"] == "has_many") {
+        return [];
+    }
+
+    return null;
+}
+
+func is_loaded_name(relation_name) {
+    return relation_name + "_loaded";
+}
+
+func loader_name(relation_name) {
+    return "load_" + relation_name;
+}
+
+func attach_single(session, mapping, entity_value, relation_name) {
+    entity_value[relation_name] = relation_default_value(mapping, relation_name);
+    entity_value[is_loaded_name(relation_name)] = false;
+    entity_value[loader_name(relation_name)] = async func() {
+        if (entity_value[is_loaded_name(relation_name)] == true) {
+            return entity_value[relation_name];
+        }
+
+        await lazy_include_relation_async(session, mapping, [entity_value], relation_name);
+        entity_value[is_loaded_name(relation_name)] = true;
+        return entity_value[relation_name];
+    };
+}
+
+export func attach_lazy(session, mapping, items, relation_name) {
+    var resolved_items = ensure_entity_list(items);
+    foreach (var _, item in resolved_items) {
+        attach_single(session, mapping, item, relation_name);
+    }
+    return resolved_items;
+}
+
+export func mark_loaded(items, relation_name) {
+    var resolved_items = ensure_entity_list(items);
+    foreach (var _, item in resolved_items) {
+        item[is_loaded_name(relation_name)] = true;
+    }
+    return resolved_items;
+}
+
+export func load_now(session, mapping, entity_value, relation_name) {
+    lazy_include_relation(session, mapping, [entity_value], relation_name);
+    entity_value[is_loaded_name(relation_name)] = true;
+    return entity_value[relation_name];
+}
+
+export async func load_now_async(session, mapping, entity_value, relation_name) {
+    await lazy_include_relation_async(session, mapping, [entity_value], relation_name);
+    entity_value[is_loaded_name(relation_name)] = true;
+    return entity_value[relation_name];
+}

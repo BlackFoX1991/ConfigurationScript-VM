@@ -1,5 +1,6 @@
 ﻿using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
+using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Plugin;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
@@ -410,7 +411,7 @@ namespace CFGS.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("tojson", 1, 1, (args, instr) =>
             {
-                return JsonSerializer.Serialize(args[0], Options);
+                return JsonSerializer.Serialize(NormalizeForJson(args[0]), Options);
             }));
 
 
@@ -1172,6 +1173,60 @@ namespace CFGS.StandardLibrary
             }
             return 0;
         }
+        private static object? NormalizeForJson(object? value)
+        {
+            if (value is null) return null;
+            if (value is string or bool or int or long or double or float or decimal or char) return value;
+            if (value is BigInteger bi) return bi.ToString();
+
+            if (value is ClassInstance inst)
+            {
+                Dictionary<string, object>? visMap = null;
+                if (inst.Fields.TryGetValue("__type", out object? tObj)
+                    && tObj is StaticInstance st
+                    && st.Fields.TryGetValue("__vis_inst", out object? visObj)
+                    && visObj is Dictionary<string, object> vm)
+                {
+                    visMap = vm;
+                }
+
+                var result = new Dictionary<string, object>();
+                foreach (var kvp in inst.Fields)
+                {
+                    if (kvp.Key.StartsWith("__")) continue;
+                    if (kvp.Value is Closure) continue;
+                    if (kvp.Value is StaticInstance) continue;
+
+                    if (visMap != null && visMap.TryGetValue(kvp.Key, out object? rawVis))
+                    {
+                        int vis = rawVis is int i ? i : 0;
+                        if (vis != 0) continue;
+                    }
+
+                    result[kvp.Key] = NormalizeForJson(kvp.Value)!;
+                }
+                return result;
+            }
+
+            if (value is List<object> list)
+            {
+                var result = new List<object>(list.Count);
+                foreach (var item in list)
+                    result.Add(NormalizeForJson(item)!);
+                return result;
+            }
+
+            if (value is Dictionary<string, object> dict)
+            {
+                var result = new Dictionary<string, object>(dict.Count);
+                foreach (var kvp in dict)
+                    result[kvp.Key] = NormalizeForJson(kvp.Value)!;
+                return result;
+            }
+
+            return value.ToString();
+        }
+
         /// <summary>
         /// The JsonStringify
         /// </summary>

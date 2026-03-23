@@ -1,0 +1,201 @@
+import { clone_array } from "core.cfs";
+import {
+    relation_spec,
+    to_record,
+    materialize
+} from "mapping.cfs";
+import { select_where_in } from "query.cfs";
+
+func value_key(value) {
+    if (value == null) {
+        return "__null__";
+    }
+
+    return typeof(value) + ":" + str(value);
+}
+
+func array_of_items(items) {
+    if (items == null) {
+        return [];
+    }
+
+    if (typeof(items) == "Array") {
+        return items;
+    }
+
+    return [items];
+}
+
+func unique_values(values) {
+    var seen = {};
+    var result = [];
+
+    foreach (var _, value in values) {
+        if (value == null) {
+            continue;
+        }
+
+        var key = value_key(value);
+        if (seen.contains(key)) {
+            continue;
+        }
+
+        seen[key] = true;
+        result.push(value);
+    }
+
+    return result;
+}
+
+func entity_property(mapping, entity_value, property_name) {
+    var record = to_record(mapping, entity_value);
+    if (!record.contains(property_name)) {
+        return null;
+    }
+
+    return record[property_name];
+}
+
+func attach_relation(entity_value, relation_name, relation_value) {
+    entity_value[relation_name] = relation_value;
+}
+
+export func include_relation(session, source_mapping, items, relation_name) {
+    var resolved_items = array_of_items(items);
+    if (len(resolved_items) == 0) {
+        return resolved_items;
+    }
+
+    var relation = relation_spec(source_mapping, relation_name);
+    var target_mapping = relation["target"];
+    var order_by = relation.get_or("order_by", null);
+
+    if (relation["kind"] == "belongs_to") {
+        var fk_property = relation["foreign_key"];
+        var target_key_property = relation["target_key"];
+        var fk_values = [];
+
+        foreach (var _, item in resolved_items) {
+            fk_values.push(entity_property(source_mapping, item, fk_property));
+        }
+
+        var rows = session.query(select_where_in(target_mapping, target_key_property, unique_values(fk_values), order_by));
+        var lookup = {};
+
+        foreach (var _, row in rows) {
+            lookup[value_key(row[target_key_property])] = materialize(target_mapping, row);
+        }
+
+        foreach (var _, item in resolved_items) {
+            var fk_value = entity_property(source_mapping, item, fk_property);
+            attach_relation(item, relation_name, lookup.get_or(value_key(fk_value), null));
+        }
+
+        return resolved_items;
+    }
+
+    var source_key_property = relation["source_key"];
+    var target_fk_property = relation["foreign_key"];
+    var source_values = [];
+
+    foreach (var _, item in resolved_items) {
+        source_values.push(entity_property(source_mapping, item, source_key_property));
+    }
+
+    var rows = session.query(select_where_in(target_mapping, target_fk_property, unique_values(source_values), order_by));
+    var buckets = {};
+
+    foreach (var _, row in rows) {
+        var bucket_key = value_key(row[target_fk_property]);
+        if (!buckets.contains(bucket_key)) {
+            buckets[bucket_key] = [];
+        }
+
+        buckets[bucket_key].push(materialize(target_mapping, row));
+    }
+
+    foreach (var _, item in resolved_items) {
+        var source_value = entity_property(source_mapping, item, source_key_property);
+        var related = buckets.get_or(value_key(source_value), []);
+
+        if (relation["kind"] == "has_one") {
+            attach_relation(item, relation_name, len(related) == 0 ? null : related[0]);
+        } else {
+            attach_relation(item, relation_name, clone_array(related));
+        }
+    }
+
+    return resolved_items;
+}
+
+export async func include_relation_async(session, source_mapping, items, relation_name) {
+    var resolved_items = array_of_items(items);
+    if (len(resolved_items) == 0) {
+        return resolved_items;
+    }
+
+    var relation = relation_spec(source_mapping, relation_name);
+    var target_mapping = relation["target"];
+    var order_by = relation.get_or("order_by", null);
+
+    if (relation["kind"] == "belongs_to") {
+        var fk_property = relation["foreign_key"];
+        var target_key_property = relation["target_key"];
+        var fk_values = [];
+
+        foreach (var _, item in resolved_items) {
+            fk_values.push(entity_property(source_mapping, item, fk_property));
+        }
+
+        var rows = await session.query_async(
+            select_where_in(target_mapping, target_key_property, unique_values(fk_values), order_by)
+        );
+        var lookup = {};
+
+        foreach (var _, row in rows) {
+            lookup[value_key(row[target_key_property])] = materialize(target_mapping, row);
+        }
+
+        foreach (var _, item in resolved_items) {
+            var fk_value = entity_property(source_mapping, item, fk_property);
+            attach_relation(item, relation_name, lookup.get_or(value_key(fk_value), null));
+        }
+
+        return resolved_items;
+    }
+
+    var source_key_property = relation["source_key"];
+    var target_fk_property = relation["foreign_key"];
+    var source_values = [];
+
+    foreach (var _, item in resolved_items) {
+        source_values.push(entity_property(source_mapping, item, source_key_property));
+    }
+
+    var rows = await session.query_async(
+        select_where_in(target_mapping, target_fk_property, unique_values(source_values), order_by)
+    );
+    var buckets = {};
+
+    foreach (var _, row in rows) {
+        var bucket_key = value_key(row[target_fk_property]);
+        if (!buckets.contains(bucket_key)) {
+            buckets[bucket_key] = [];
+        }
+
+        buckets[bucket_key].push(materialize(target_mapping, row));
+    }
+
+    foreach (var _, item in resolved_items) {
+        var source_value = entity_property(source_mapping, item, source_key_property);
+        var related = buckets.get_or(value_key(source_value), []);
+
+        if (relation["kind"] == "has_one") {
+            attach_relation(item, relation_name, len(related) == 0 ? null : related[0]);
+        } else {
+            attach_relation(item, relation_name, clone_array(related));
+        }
+    }
+
+    return resolved_items;
+}
