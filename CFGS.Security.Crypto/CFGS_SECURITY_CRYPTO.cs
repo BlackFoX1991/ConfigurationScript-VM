@@ -327,7 +327,7 @@ namespace CFGS.Security.Crypto
             {
                 byte[] password = ConvertToBytes(args[0], "auto", instr, "password");
                 byte[] salt = ConvertToBytes(args[1], "auto", instr, "salt");
-                int iterations = ReadInt(args[2], "iterations", instr, minValue: 1);
+                int iterations = ReadInt(args[2], "iterations", instr, minValue: 10000);
                 int length = ReadInt(args[3], "length", instr, minValue: 1);
                 string algorithm = ReadStringArg(args, 4, "sha256");
                 string outputEncoding = NormalizeOutputEncoding(ReadStringArg(args, 5, "hex"), instr, "output");

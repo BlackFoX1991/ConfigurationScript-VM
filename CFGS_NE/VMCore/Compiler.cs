@@ -2898,6 +2898,8 @@ namespace CFGS_VM.VMCore
 
                 case ContinueStmt:
                     {
+                        if (_continueLists.Count == 0)
+                            throw new VMException("Compile error: 'continue' outside of loop.", s.Line, s.Col, s.OriginFile, false, null!);
                         int leaveIdx = _insns.Count;
                         _insns.Add(new Instruction(OpCode.LEAVE, null, s.Line, s.Col, s.OriginFile));
                         _continueLists.Peek().Add(new LoopLeavePatch(leaveIdx, _scopeDepth));
@@ -2906,6 +2908,8 @@ namespace CFGS_VM.VMCore
 
                 case BreakStmt:
                     {
+                        if (_breakLists.Count == 0)
+                            throw new VMException("Compile error: 'break' outside of loop.", s.Line, s.Col, s.OriginFile, false, null!);
                         int leaveIdx = _insns.Count;
                         _insns.Add(new Instruction(OpCode.LEAVE, null, s.Line, s.Col, s.OriginFile));
                         _breakLists.Peek().Add(new LoopLeavePatch(leaveIdx, _scopeDepth));

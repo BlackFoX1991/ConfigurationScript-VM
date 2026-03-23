@@ -62,6 +62,24 @@ namespace CFGS_VM.VMCore.Extensions
             LanguageStackTrace = string.IsNullOrWhiteSpace(languageStackTrace) ? null : languageStackTrace;
         }
 
+        public VMException(
+            string message,
+            int line,
+            int column,
+            string? fileSource,
+            bool dbg,
+            MemoryStream dbStream,
+            Exception innerException,
+            string? languageStackTrace = null)
+            : base(NormalizeMessage(message), innerException)
+        {
+            RawMessage = NormalizeMessage(message);
+            Line = line;
+            Column = column;
+            FileSource = fileSource;
+            LanguageStackTrace = string.IsNullOrWhiteSpace(languageStackTrace) ? null : languageStackTrace;
+        }
+
         /// <summary>
         /// The NormalizeMessage
         /// </summary>
