@@ -29,7 +29,7 @@ internal sealed class CfgsAnalyzer
 
     private static readonly string[] Keywords =
     [
-        "var", "const", "if", "else", "delete", "while", "do", "for", "foreach", "in",
+        "var", "const", "if", "else", "delete", "while", "do", "for", "foreach", "in", "is",
         "break", "continue", "func", "return", "match", "case", "default", "try", "catch",
         "finally", "throw", "class", "enum", "new", "null", "true", "false", "import",
         "export", "namespace", "from", "as", "static", "public", "private", "protected",
@@ -625,6 +625,22 @@ internal sealed class CfgsAnalyzer
         {
             string qualifiedName = Qualify(containerName, classDecl.Name);
             List<CfgsSymbol> children = [];
+
+            foreach (KeyValuePair<string, Expr?> field in classDecl.Fields)
+            {
+                bool isConst = classDecl.ConstFields.Contains(field.Key);
+                int kind = isConst ? 14 : 13;
+                string prefix = isConst ? "const" : "var";
+                children.Add(CreateSimpleSymbol(field.Key, qualifiedName, classDecl.Line, classDecl.Col, classDecl.OriginFile, kind, $"{prefix} {field.Key}"));
+            }
+
+            foreach (KeyValuePair<string, Expr?> field in classDecl.StaticFields)
+            {
+                bool isConst = classDecl.StaticConstFields.Contains(field.Key);
+                int kind = isConst ? 14 : 13;
+                string prefix = isConst ? "static const" : "static var";
+                children.Add(CreateSimpleSymbol(field.Key, qualifiedName, classDecl.Line, classDecl.Col, classDecl.OriginFile, kind, $"{prefix} {field.Key}"));
+            }
 
             children.AddRange(classDecl.Methods.Select(method => CreateFunctionSymbol(method, qualifiedName, isMethod: true)));
             children.AddRange(classDecl.StaticMethods.Select(method => CreateFunctionSymbol(method, qualifiedName, isMethod: true)));

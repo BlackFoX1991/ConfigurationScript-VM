@@ -73,7 +73,7 @@
       "patterns": [
         {
           "name": "keyword.control.cfgs",
-          "match": "\\b(?:if|else|while|do|for|foreach|in|break|continue|return|match|case|default|try|catch|finally|throw|await|yield|out)\\b"
+          "match": "\\b(?:if|else|while|do|for|foreach|in|is|break|continue|return|match|case|default|try|catch|finally|throw|await|yield|out)\\b"
         },
         {
           "name": "keyword.declaration.cfgs",
