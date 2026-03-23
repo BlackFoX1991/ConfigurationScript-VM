@@ -1,0 +1,67 @@
+{
+  "name": "cfgs-vscode",
+  "displayName": "CFGS Language Tools",
+  "description": "Visual Studio Code support for ConfigurationScript with the bundled CFGS LSP server.",
+  "version": "0.1.0",
+  "publisher": "blackfox1991",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:cfgs"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configurationDefaults": {
+      "files.associations": {
+        "*.cfs": "cfgs"
+      }
+    },
+    "languages": [
+      {
+        "id": "cfgs",
+        "aliases": [
+          "CFGS",
+          "ConfigurationScript"
+        ],
+        "extensions": [
+          ".cfs"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cfgs",
+        "scopeName": "source.cfgs",
+        "path": "./syntaxes/cfgs.tmGrammar.json"
+      }
+    ],
+    "configuration": {
+      "title": "CFGS",
+      "properties": {
+        "cfgs.server.command": {
+          "type": "string",
+          "default": "",
+          "description": "Optional override for the command used to start the CFGS language server."
+        },
+        "cfgs.server.args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional override for the arguments used to start the CFGS language server."
+        },
+        "cfgs.server.cwd": {
+          "type": "string",
+          "default": "",
+          "description": "Optional working directory for the CFGS language server process."
+        }
+      }
+    }
+  }
+}

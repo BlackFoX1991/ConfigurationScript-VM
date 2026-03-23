@@ -14,6 +14,7 @@ If you are opening CFGS for the first time, this is the best reading order.
 10. [Using the HTTP and SQL Plugins](10_using_http_and_sql_plugins.md)
 11. [Creating Plugins](11_creating_plugins.md)
 12. [Crypto Plugin](12_crypto_plugin.md)
+13. [Visual Studio Code and LSP](13_visual_studio_code_and_lsp.md)
 
 ## Complete Feature Index
 

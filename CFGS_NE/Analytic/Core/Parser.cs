@@ -99,6 +99,7 @@ namespace CFGS_VM.Analytic.Core
         /// Defines the _loadPluginDll
         /// </summary>
         private readonly Action<string>? _loadPluginDll;
+        private readonly Func<string, string?>? _loadImportSource;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Parser"/> class.
@@ -111,7 +112,8 @@ namespace CFGS_VM.Analytic.Core
             Lexer lexer,
             Action<string>? loadPluginDll = null,
             Dictionary<string, List<Stmt>>? sharedAstByHash = null,
-            Stack<string>? sharedImportStack = null)
+            Stack<string>? sharedImportStack = null,
+            Func<string, string?>? loadImportSource = null)
         {
             _lexer = lexer;
             _current = _lexer.GetNextToken();
@@ -120,6 +122,7 @@ namespace CFGS_VM.Analytic.Core
             _loadPluginDll = loadPluginDll;
             _astByImportKey = sharedAstByHash ?? new Dictionary<string, List<Stmt>>();
             _importStack = sharedImportStack ?? new Stack<string>();
+            _loadImportSource = loadImportSource;
         }
 
         /// <summary>
@@ -1338,7 +1341,7 @@ namespace CFGS_VM.Analytic.Core
 
                     Lexer lex = new(resourceId, nsrc);
 
-                    Parser prs = new(lex, _loadPluginDll, _astByImportKey, _importStack);
+                    Parser prs = new(lex, _loadPluginDll, _astByImportKey, _importStack, _loadImportSource);
 
                     List<Stmt> importedAst = prs.Parse();
 
@@ -1412,12 +1415,21 @@ namespace CFGS_VM.Analytic.Core
             _importStack.Push(fullPath);
             try
             {
-                using StreamReader sr = new(fullPath, detectEncodingFromByteOrderMarks: true);
-                string nsrc = sr.ReadToEnd();
+                string? overlaySource = _loadImportSource?.Invoke(fullPath);
+                string nsrc;
+                if (overlaySource is not null)
+                {
+                    nsrc = overlaySource;
+                }
+                else
+                {
+                    using StreamReader sr = new(fullPath, detectEncodingFromByteOrderMarks: true);
+                    nsrc = sr.ReadToEnd();
+                }
 
                 Lexer lex = new(fullPath, nsrc);
 
-                Parser prs = new(lex, _loadPluginDll, _astByImportKey, _importStack);
+                Parser prs = new(lex, _loadPluginDll, _astByImportKey, _importStack, _loadImportSource);
 
                 List<Stmt> importedAst = prs.Parse();
 

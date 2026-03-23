@@ -1,0 +1,454 @@
+import {
+    is_blank_text,
+    join,
+    quote_ident,
+    table_name
+} from "core.cfs";
+import {
+    columns_for,
+    property_spec
+} from "mapping.cfs";
+
+func build_column_sql(spec) {
+    var sql_type = spec.get_or("sql_type", null);
+    if (is_blank_text(sql_type)) {
+        throw "ORM schema requires sql_type for property '" + str(spec["property"]) + "'";
+    }
+
+    var sql = quote_ident(spec["column"]) + " " + str(sql_type);
+
+    if (spec["key"] == true && spec["generated"] == true) {
+        sql = sql + " IDENTITY(1,1)";
+    }
+
+    if (spec["nullable"] == true && spec["key"] != true) {
+        sql = sql + " NULL";
+    } else {
+        sql = sql + " NOT NULL";
+    }
+
+    if (!is_blank_text(spec.get_or("default_sql", null))) {
+        sql = sql + " DEFAULT " + str(spec["default_sql"]);
+    }
+
+    return sql;
+}
+
+func build_foreign_key_sql(mapping, spec) {
+    var references = spec.get_or("references", null);
+    if (references == null) {
+        return null;
+    }
+
+    if (!isdict(references)) {
+        throw "ORM references for property '" + str(spec["property"]) + "' must be a dictionary";
+    }
+
+    var ref_table = references.get_or("table", null);
+    var ref_column = references.get_or("column", "Id");
+    var ref_schema = references.get_or("schema", mapping.get_or("schema", "dbo"));
+
+    if (is_blank_text(ref_table)) {
+        throw "ORM references.table must not be empty";
+    }
+
+    var sql =
+        "FOREIGN KEY (" + quote_ident(spec["column"]) + ") REFERENCES "
+        + quote_ident(ref_schema) + "." + quote_ident(ref_table)
+        + " (" + quote_ident(ref_column) + ")";
+    return sql;
+}
+
+func normalize_type_name(text) {
+    if (text == null) {
+        return "";
+    }
+
+    return str(text).trim().lower().replace(" ", "");
+}
+
+func actual_column_type(entry) {
+    var base_type = normalize_type_name(entry.get_or("type", ""));
+    var max_length = entry.get_or("max_length", null);
+
+    if (base_type == "nvarchar" || base_type == "varchar" || base_type == "nchar" || base_type == "char" || base_type == "varbinary" || base_type == "binary") {
+        if (max_length == null) {
+            return base_type;
+        }
+
+        if (max_length == -1) {
+            return base_type + "(max)";
+        }
+
+        return base_type + "(" + str(max_length) + ")";
+    }
+
+    return base_type;
+}
+
+func desired_column_type(spec) {
+    return normalize_type_name(spec.get_or("sql_type", ""));
+}
+
+func is_nullable_value(value) {
+    if (value == null) {
+        return true;
+    }
+
+    if (typeof(value) == "Boolean") {
+        return value;
+    }
+
+    var text = str(value).trim().lower();
+    return text == "yes" || text == "true" || text == "1";
+}
+
+func alter_column_sql(mapping, property_name) {
+    var spec = property_spec(mapping, property_name);
+    var sql =
+        "ALTER TABLE " + table_name(mapping)
+        + " ALTER COLUMN " + quote_ident(spec["column"]) + " " + str(spec["sql_type"]);
+
+    if (spec["nullable"] == true && spec["key"] != true) {
+        sql = sql + " NULL";
+    } else {
+        sql = sql + " NOT NULL";
+    }
+
+    return sql + ";";
+}
+
+func drop_column_sql(mapping, column_name) {
+    var sql =
+        "ALTER TABLE " + table_name(mapping)
+        + " DROP COLUMN " + quote_ident(column_name) + ";";
+    return sql;
+}
+
+func desired_specs_map(mapping) {
+    var specs = {};
+    foreach (var _, spec in columns_for(mapping, "all")) {
+        specs[spec["column"]] = spec;
+    }
+    return specs;
+}
+
+func actual_specs_map(session, mapping) {
+    var cols = session.raw().columns(mapping["table"]);
+    var specs = {};
+    foreach (var _, entry in cols) {
+        specs[entry["name"]] = entry;
+    }
+    return specs;
+}
+
+async func actual_specs_map_async(session, mapping) {
+    var cols = await session.raw().columns_async(mapping["table"]);
+    var specs = {};
+    foreach (var _, entry in cols) {
+        specs[entry["name"]] = entry;
+    }
+    return specs;
+}
+
+export func create_table_sql(mapping) {
+    var defs = [];
+    var primary_keys = [];
+
+    foreach (var _, spec in columns_for(mapping, "all")) {
+        defs.push(build_column_sql(spec));
+
+        if (spec["key"] == true) {
+            primary_keys.push(quote_ident(spec["column"]));
+        }
+
+        var fk_sql = build_foreign_key_sql(mapping, spec);
+        if (fk_sql != null) {
+            defs.push(fk_sql);
+        }
+    }
+
+    if (len(primary_keys) > 0) {
+        defs.push(
+            "CONSTRAINT " + quote_ident("PK_" + mapping["table"])
+            + " PRIMARY KEY (" + join(primary_keys, ", ") + ")"
+        );
+    }
+
+    var sql =
+        "CREATE TABLE " + table_name(mapping)
+        + " (\n    " + join(defs, ",\n    ") + "\n);";
+    return sql;
+}
+
+export func drop_table_sql(mapping) {
+    return "DROP TABLE " + table_name(mapping) + ";";
+}
+
+export func add_column_sql(mapping, property_name) {
+    var spec = property_spec(mapping, property_name);
+    var sql =
+        "ALTER TABLE " + table_name(mapping)
+        + " ADD " + build_column_sql(spec) + ";";
+    return sql;
+}
+
+export func table_exists(session, table, schema = "dbo") {
+    var tables = session.raw().tables();
+    foreach (var _, entry in tables) {
+        if (entry["name"] == table && entry.get_or("schema", "dbo") == schema) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export async func table_exists_async(session, table, schema = "dbo") {
+    var tables = await session.raw().tables_async();
+    foreach (var _, entry in tables) {
+        if (entry["name"] == table && entry.get_or("schema", "dbo") == schema) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export func column_exists(session, table, column_name) {
+    var cols = session.raw().columns(table);
+    foreach (var _, entry in cols) {
+        if (entry["name"] == column_name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export async func column_exists_async(session, table, column_name) {
+    var cols = await session.raw().columns_async(table);
+    foreach (var _, entry in cols) {
+        if (entry["name"] == column_name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export func missing_columns(session, mapping) {
+    var missing = [];
+    var table = mapping["table"];
+
+    foreach (var _, spec in columns_for(mapping, "all")) {
+        if (!column_exists(session, table, spec["column"])) {
+            missing.push(spec["property"]);
+        }
+    }
+
+    return missing;
+}
+
+export async func missing_columns_async(session, mapping) {
+    var missing = [];
+    var table = mapping["table"];
+    var cols = await session.raw().columns_async(table);
+    var existing = {};
+
+    foreach (var _, entry in cols) {
+        existing[entry["name"]] = true;
+    }
+
+    foreach (var _, spec in columns_for(mapping, "all")) {
+        if (!existing.contains(spec["column"])) {
+            missing.push(spec["property"]);
+        }
+    }
+
+    return missing;
+}
+
+export func ensure_table(session, mapping) {
+    if (!table_exists(session, mapping["table"], mapping.get_or("schema", "dbo"))) {
+        session.raw().execute_nonquery(create_table_sql(mapping));
+        return true;
+    }
+
+    return false;
+}
+
+export async func ensure_table_async(session, mapping) {
+    if (!await table_exists_async(session, mapping["table"], mapping.get_or("schema", "dbo"))) {
+        await session.raw().execute_nonquery_async(create_table_sql(mapping));
+        return true;
+    }
+
+    return false;
+}
+
+export func sync_table(session, mapping) {
+    var created = ensure_table(session, mapping);
+    var added = [];
+
+    if (!created) {
+        foreach (var _, property_name in missing_columns(session, mapping)) {
+            session.raw().execute_nonquery(add_column_sql(mapping, property_name));
+            added.push(property_name);
+        }
+    }
+
+    return {
+        "created": created,
+        "added": added
+    };
+}
+
+export async func sync_table_async(session, mapping) {
+    var created = await ensure_table_async(session, mapping);
+    var added = [];
+
+    if (!created) {
+        foreach (var _, property_name in await missing_columns_async(session, mapping)) {
+            await session.raw().execute_nonquery_async(add_column_sql(mapping, property_name));
+            added.push(property_name);
+        }
+    }
+
+    return {
+        "created": created,
+        "added": added
+    };
+}
+
+export func diff_table(session, mapping, allow_alter = false, allow_drop = false) {
+    if (!table_exists(session, mapping["table"], mapping.get_or("schema", "dbo"))) {
+        return {
+            "create": true,
+            "add": [],
+            "alter": [],
+            "drop": [],
+            "sql": [create_table_sql(mapping)]
+        };
+    }
+
+    var desired = desired_specs_map(mapping);
+    var actual = actual_specs_map(session, mapping);
+    var add = [];
+    var alter = [];
+    var drop = [];
+    var sql = [];
+
+    foreach (var column_name, spec in desired) {
+        if (!actual.contains(column_name)) {
+            add.push(spec["property"]);
+            sql.push(add_column_sql(mapping, spec["property"]));
+            continue;
+        }
+
+        var current = actual[column_name];
+        var type_changed = actual_column_type(current) != desired_column_type(spec);
+        var nullable_changed = is_nullable_value(current.get_or("nullable", null)) != spec["nullable"];
+
+        if (allow_alter && (type_changed || nullable_changed)) {
+            alter.push({
+                "property": spec["property"],
+                "column": column_name,
+                "type_changed": type_changed,
+                "nullable_changed": nullable_changed
+            });
+            sql.push(alter_column_sql(mapping, spec["property"]));
+        }
+    }
+
+    if (allow_drop) {
+        foreach (var column_name2, current2 in actual) {
+            if (!desired.contains(column_name2)) {
+                drop.push(column_name2);
+                sql.push(drop_column_sql(mapping, column_name2));
+            }
+        }
+    }
+
+    return {
+        "create": false,
+        "add": add,
+        "alter": alter,
+        "drop": drop,
+        "sql": sql
+    };
+}
+
+export async func diff_table_async(session, mapping, allow_alter = false, allow_drop = false) {
+    if (!await table_exists_async(session, mapping["table"], mapping.get_or("schema", "dbo"))) {
+        return {
+            "create": true,
+            "add": [],
+            "alter": [],
+            "drop": [],
+            "sql": [create_table_sql(mapping)]
+        };
+    }
+
+    var desired = desired_specs_map(mapping);
+    var actual = await actual_specs_map_async(session, mapping);
+    var add = [];
+    var alter = [];
+    var drop = [];
+    var sql = [];
+
+    foreach (var column_name, spec in desired) {
+        if (!actual.contains(column_name)) {
+            add.push(spec["property"]);
+            sql.push(add_column_sql(mapping, spec["property"]));
+            continue;
+        }
+
+        var current = actual[column_name];
+        var type_changed = actual_column_type(current) != desired_column_type(spec);
+        var nullable_changed = is_nullable_value(current.get_or("nullable", null)) != spec["nullable"];
+
+        if (allow_alter && (type_changed || nullable_changed)) {
+            alter.push({
+                "property": spec["property"],
+                "column": column_name,
+                "type_changed": type_changed,
+                "nullable_changed": nullable_changed
+            });
+            sql.push(alter_column_sql(mapping, spec["property"]));
+        }
+    }
+
+    if (allow_drop) {
+        foreach (var column_name2, current2 in actual) {
+            if (!desired.contains(column_name2)) {
+                drop.push(column_name2);
+                sql.push(drop_column_sql(mapping, column_name2));
+            }
+        }
+    }
+
+    return {
+        "create": false,
+        "add": add,
+        "alter": alter,
+        "drop": drop,
+        "sql": sql
+    };
+}
+
+export func apply_table_diff(session, mapping, allow_alter = false, allow_drop = false) {
+    var diff = diff_table(session, mapping, allow_alter, allow_drop);
+
+    foreach (var _, stmt in diff["sql"]) {
+        session.raw().execute_nonquery(stmt);
+    }
+
+    return diff;
+}
+
+export async func apply_table_diff_async(session, mapping, allow_alter = false, allow_drop = false) {
+    var diff = await diff_table_async(session, mapping, allow_alter, allow_drop);
+
+    foreach (var _, stmt in diff["sql"]) {
+        await session.raw().execute_nonquery_async(stmt);
+    }
+
+    return diff;
+}
