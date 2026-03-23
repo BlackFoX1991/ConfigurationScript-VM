@@ -58,7 +58,7 @@ print(crypto_hmac("secret", "payload"));
 
 - `crypto_pbkdf2(password, salt, iterations, length, algorithm = "sha256", output = "hex")`
 
-This is the right tool when you need deterministic key material from a password and a salt.
+The `iterations` parameter must be at least 10000 to prevent insecure configurations. This is the right tool when you need deterministic key material from a password and a salt.
 
 ```cfs
 var salt = crypto_random_bytes(16);

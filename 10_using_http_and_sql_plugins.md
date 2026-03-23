@@ -17,15 +17,21 @@ After that, their builtins and intrinsics are available globally.
 ### Available Builtins
 
 - `http_get(url, headers = optional, timeoutMs = optional)`
-- `http_post(url, body, headers = optional, timeoutMs = optional)`
+- `http_post(url, body, headers = optional, timeoutMs = optional, contentType = optional)`
+- `http_put(url, body, headers = optional, timeoutMs = optional, contentType = optional)`
+- `http_patch(url, body, headers = optional, timeoutMs = optional, contentType = optional)`
+- `http_delete(url, headers = optional, timeoutMs = optional)`
+- `http_head(url, headers = optional, timeoutMs = optional)`
 - `http_download(url, path, timeoutMs = optional)`
 - `urlencode(text)`
 - `urldecode(text)`
 - `http_server(port)`
 
-### Return Shape of `http_get` and `http_post`
+`http_post`, `http_put`, and `http_patch` accept an optional `contentType` parameter. The default is `application/json`.
 
-The response is a dictionary with these keys.
+### Return Shape of `http_get`, `http_post`, and Others
+
+All HTTP request builtins are async. The response is a dictionary with these keys.
 
 - `status`
 - `reason`
@@ -213,17 +219,18 @@ try {
 
 ### HTTP
 
-HTTP failures come back as normal exceptions from the specific await or call site.
+HTTP failures come back as normal exceptions from the specific await or call site. Request bodies are limited to 10 MB.
 
 ### SQL
 
 `sql_connect` throws a CFGS error when the connection cannot be established, with a message like `SQL connect failed: ...`.
 
-The actual query helpers wrap database failures into messages like `SQL error (SqlException): ...`.
+The actual query helpers wrap database failures into sanitized error messages that do not expose internal SQL details.
 
 ## Security and Enablement Switches
 
 - HTTP downloads depend on file I O. If file operations are globally disabled, `http_download` cannot write.
+- The HTTP server automatically adds `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY` to all responses.
 - The SQL plugin has its own `AllowSql` switch. If it is disabled, `sql_connect` rejects the call.
 
 ## When to Use Which Plugin

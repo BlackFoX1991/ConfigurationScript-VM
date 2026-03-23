@@ -78,6 +78,7 @@ internal sealed class LspServer
                                     prepareProvider = true
                                 },
                                 documentSymbolProvider = true,
+                                foldingRangeProvider = true,
                                 signatureHelpProvider = new
                                 {
                                     triggerCharacters = new[] { "(", "," },
@@ -137,6 +138,17 @@ internal sealed class LspServer
                         string uri = parameters.GetProperty("textDocument").GetProperty("uri").GetString() ?? string.Empty;
                         DocumentState state = EnsureDocument(uri);
                         await SendResponseAsync(idElement, state.Analysis.DocumentSymbols.Select(ToDocumentSymbolPayload).ToList(), cancellationToken);
+                    }
+                    return true;
+
+                case "textDocument/foldingRange":
+                    if (hasId)
+                    {
+                        string uri = GetTextDocumentUri(parameters);
+                        DocumentState state = EnsureDocument(uri);
+                        List<object> ranges = new();
+                        CollectFoldingRanges(state.Analysis.DocumentSymbols, ranges);
+                        await SendResponseAsync(idElement, ranges, cancellationToken);
                     }
                     return true;
 
@@ -966,6 +978,25 @@ internal sealed class LspServer
         selectionRange = ToRangePayload(symbol.SelectionRange),
         children = symbol.Children.Select(ToDocumentSymbolPayload).ToList()
     };
+
+    private static void CollectFoldingRanges(IReadOnlyList<CfgsSymbol> symbols, List<object> ranges)
+    {
+        foreach (CfgsSymbol symbol in symbols)
+        {
+            int startLine = symbol.Range.Start.Line;
+            int endLine = symbol.Range.End.Line;
+            if (endLine > startLine)
+            {
+                ranges.Add(new
+                {
+                    startLine,
+                    endLine,
+                    kind = "region"
+                });
+            }
+            CollectFoldingRanges(symbol.Children, ranges);
+        }
+    }
 
     private static object ToLocationPayload(CfgsSymbol symbol) => new
     {

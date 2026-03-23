@@ -2293,6 +2293,32 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(OpCode.NEW_DICT, staticVisibilityEntries.Count, cds.Line, cds.Col, s.OriginFile));
                         _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
 
+                        if (cds.ConstFields.Count > 0)
+                        {
+                            _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__const_inst", cds.Line, cds.Col, s.OriginFile));
+                            foreach (string cfName in cds.ConstFields)
+                            {
+                                _insns.Add(new Instruction(OpCode.PUSH_STR, cfName, cds.Line, cds.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.PUSH_INT, 1, cds.Line, cds.Col, s.OriginFile));
+                            }
+                            _insns.Add(new Instruction(OpCode.NEW_DICT, cds.ConstFields.Count, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
+                        }
+
+                        if (cds.StaticConstFields.Count > 0)
+                        {
+                            _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__const_static", cds.Line, cds.Col, s.OriginFile));
+                            foreach (string cfName in cds.StaticConstFields)
+                            {
+                                _insns.Add(new Instruction(OpCode.PUSH_STR, cfName, cds.Line, cds.Col, s.OriginFile));
+                                _insns.Add(new Instruction(OpCode.PUSH_INT, 1, cds.Line, cds.Col, s.OriginFile));
+                            }
+                            _insns.Add(new Instruction(OpCode.NEW_DICT, cds.StaticConstFields.Count, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
+                        }
+
                         _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
                         _insns.Add(new Instruction(OpCode.PUSH_STR, "new", cds.Line, cds.Col, s.OriginFile));
                         _insns.Add(new Instruction(
@@ -3545,6 +3571,7 @@ namespace CFGS_VM.VMCore
             TokenType.Gt => OpCode.GT,
             TokenType.Le => OpCode.LE,
             TokenType.Ge => OpCode.GE,
+            TokenType.Is => OpCode.IS_TYPE,
             TokenType.AndAnd => OpCode.AND,
             TokenType.OrOr => OpCode.OR,
             TokenType.PlusAssign => OpCode.ADD,

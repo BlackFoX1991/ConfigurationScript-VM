@@ -277,6 +277,11 @@
         In,
 
         /// <summary>
+        /// Defines the Is
+        /// </summary>
+        Is,
+
+        /// <summary>
         /// Defines the Null
         /// </summary>
         Null,

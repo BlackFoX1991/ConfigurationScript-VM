@@ -27,7 +27,9 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
 
         public void Dispose()
         {
-            try { _writer?.Flush(); } catch { }
+            try { _writer?.Flush(); }
+            catch (ObjectDisposedException) { }
+            catch (IOException) { }
             _writer?.Dispose(); _reader?.Dispose(); _fs?.Dispose();
             _writer = null; _reader = null; _fs = null;
             GC.SuppressFinalize(this);

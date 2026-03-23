@@ -2381,6 +2381,33 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case OpCode.IS_TYPE:
+                    {
+                        RequireStack(2, instr, "IS_TYPE");
+                        object? right = _stack.Pop();
+                        object? left = _stack.Pop();
+
+                        if (left is not ClassInstance ci || right is not StaticInstance target)
+                        {
+                            _stack.Push(false);
+                            break;
+                        }
+
+                        bool found = false;
+                        if (TryGetStaticType(ci, out StaticInstance instType))
+                        {
+                            StaticInstance? cur = instType;
+                            while (cur != null)
+                            {
+                                if (ReferenceEquals(cur, target))
+                                { found = true; break; }
+                                cur = cur.Fields.TryGetValue("__base", out object? b) && b is StaticInstance bs ? bs : null;
+                            }
+                        }
+                        _stack.Push(found);
+                        break;
+                    }
+
                 case OpCode.LT:
                     {
                         RequireStack(2, instr, "LT");
@@ -4272,6 +4299,28 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// Checks whether a field is declared as const anywhere in the class hierarchy.
+        /// </summary>
+        private static bool IsConstFieldInHierarchy(StaticInstance startType, string fieldName, bool isStatic)
+        {
+            string mapName = isStatic ? "__const_static" : "__const_inst";
+            StaticInstance current = startType;
+            while (true)
+            {
+                if (current.Fields.TryGetValue(mapName, out object? mapObj) &&
+                    mapObj is Dictionary<string, object> map &&
+                    map.ContainsKey(fieldName))
+                    return true;
+
+                if (!current.Fields.TryGetValue("__base", out object? bObj) || bObj is not StaticInstance baseType)
+                    break;
+
+                current = baseType;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// The TryResolveInstanceMemberInHierarchy
         /// </summary>
         /// <param name="start">The start<see cref="ClassInstance"/></param>
@@ -4693,6 +4742,15 @@ namespace CFGS_VM.VMCore
                             EnforceRuntimeVisibility(ownerType, visCode, key, isStatic: false, instr);
                         }
 
+                        if (!allowReservedRuntimeSlotWrites &&
+                            TryGetStaticType(obj, out StaticInstance constCheckType) &&
+                            IsConstFieldInHierarchy(constCheckType, key, isStatic: false))
+                        {
+                            throw new VMException(
+                                $"Runtime error: cannot assign to const field '{key}'.",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        }
+
                         obj.Fields[key] = value;
                         break;
                     }
@@ -4723,6 +4781,14 @@ namespace CFGS_VM.VMCore
                             TryResolveDeclaredVisibilityInHierarchy(st, expectInstance: false, key, out StaticInstance ownerType, out int visCode))
                         {
                             EnforceRuntimeVisibility(ownerType, visCode, key, isStatic: true, instr);
+                        }
+
+                        if (!allowReservedRuntimeSlotWrites &&
+                            IsConstFieldInHierarchy(st, key, isStatic: true))
+                        {
+                            throw new VMException(
+                                $"Runtime error: cannot assign to const static field '{key}'.",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 
                         st.Fields[key] = value;

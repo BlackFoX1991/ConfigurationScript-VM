@@ -968,6 +968,16 @@ namespace CFGS_VM.Analytic.Tree
         public Dictionary<string, MemberVisibility> NestedClassVisibility;
 
         /// <summary>
+        /// Defines the ConstFields
+        /// </summary>
+        public HashSet<string> ConstFields;
+
+        /// <summary>
+        /// Defines the StaticConstFields
+        /// </summary>
+        public HashSet<string> StaticConstFields;
+
+        /// <summary>
         /// Defines the BaseName
         /// </summary>
         public string? BaseName;
@@ -1029,7 +1039,9 @@ namespace CFGS_VM.Analytic.Tree
             Dictionary<string, MemberVisibility>? methodVisibility = null,
             Dictionary<string, MemberVisibility>? staticMethodVisibility = null,
             Dictionary<string, MemberVisibility>? enumVisibility = null,
-            Dictionary<string, MemberVisibility>? nestedClassVisibility = null
+            Dictionary<string, MemberVisibility>? nestedClassVisibility = null,
+            HashSet<string>? constFields = null,
+            HashSet<string>? staticConstFields = null
         ) : base(line, col, fname)
         {
             Name = name;
@@ -1049,6 +1061,8 @@ namespace CFGS_VM.Analytic.Tree
             StaticMethodVisibility = staticMethodVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
             EnumVisibility = enumVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
             NestedClassVisibility = nestedClassVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
+            ConstFields = constFields ?? new HashSet<string>(StringComparer.Ordinal);
+            StaticConstFields = staticConstFields ?? new HashSet<string>(StringComparer.Ordinal);
         }
     }
 

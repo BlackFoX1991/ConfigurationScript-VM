@@ -41,6 +41,8 @@ namespace CFGS.Security.Crypto
             Value = rsa ?? throw new ArgumentNullException(nameof(rsa));
         }
 
+        ~RsaHandle() { Dispose(); }
+
         public RSA Value { get; }
 
         public int KeySize
@@ -94,6 +96,8 @@ namespace CFGS.Security.Crypto
             Value = ecdsa ?? throw new ArgumentNullException(nameof(ecdsa));
             CurveName = string.IsNullOrWhiteSpace(curveName) ? "unknown" : curveName;
         }
+
+        ~EcdsaHandle() { Dispose(); }
 
         public ECDsa Value { get; }
 
@@ -149,6 +153,8 @@ namespace CFGS.Security.Crypto
         {
             Value = certificate ?? throw new ArgumentNullException(nameof(certificate));
         }
+
+        ~X509CertHandle() { Dispose(); }
 
         public X509Certificate2 Value { get; }
 

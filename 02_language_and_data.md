@@ -139,6 +139,7 @@ CFGS covers the usual operator families.
 
 - Arithmetic. `+`, `-`, `*`, `/`, `%`, `**`
 - Comparison. `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Type checking. `value is ClassName`
 - Logic. `!`, `&&`, `||`
 - Null coalescing. `??`
 - Ternary. `condition ? then : else`
