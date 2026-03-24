@@ -2,7 +2,7 @@
   "name": "cfgs-vscode",
   "displayName": "CFGS Language Tools",
   "description": "Visual Studio Code support for ConfigurationScript with the bundled CFGS LSP server.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "blackfox1991",
   "engines": {
     "vscode": "^1.90.0"
