@@ -12,7 +12,7 @@ func devider()
     } catch (e) {
         print("Fehler: " + str(e));
     } finally {
-        print("finally: AufrÃ¤umen");
+        print("finally: Aufräumen");
     }
 }
 

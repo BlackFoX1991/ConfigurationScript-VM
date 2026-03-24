@@ -1,4 +1,4 @@
-﻿# CFGS Self-Check Test Harness (no str) â€“ v2 (funktional verpackt)
+﻿# CFGS Self-Check Test Harness (no str) – v2 (funktional verpackt)
 import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 # --- Tiny test lib ---
 var __passed = 0;
@@ -45,7 +45,7 @@ func run_case1() {
         push(log, "outer.try.after");
     } catch (e) {
         push(log, "OUTER_CATCH");
-        assertArrayEq("Case1 throw in finally â†’ outer catch",
+        assertArrayEq("Case1 throw in finally → outer catch",
             ["inner.try","inner.finally","OUTER_CATCH"], log);
         return;
     } finally {

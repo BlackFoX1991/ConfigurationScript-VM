@@ -73,7 +73,7 @@ func forTest()
 }
 forTest();
 
-# --- foreach Ã¼ber Array/Dict (inkl. neue Pair-Kurzform) ---
+# --- foreach über Array/Dict (inkl. neue Pair-Kurzform) ---
 func forEachTest()
 {
 	foreach (var n in nums) {
@@ -106,7 +106,7 @@ func tcatchTest()
 	} catch (e) {
 		print("Fehler: " + str(e));
 	} finally {
-		print("finally: AufrÃ¤umen");
+		print("finally: Aufräumen");
 	}
 }
 tcatchTest();
