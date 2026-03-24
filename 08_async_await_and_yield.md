@@ -98,6 +98,58 @@ print(await t);
 
 Before the await, `trace` is already `SC`. The start is hot, not fully lazy.
 
+## Common Pitfall: `delay` Takes a Value, Not a Callback
+
+`task().delay(ms, value)` waits and then returns `value`. The second argument is evaluated immediately when the call is made.
+
+That matters when you combine it with `out`, because `out` is also an eager expression block.
+
+This is misleading.
+
+```cfs
+async func wrong(timer) {
+    return await timer.delay(200, out {
+        print("DONE");
+    });
+}
+```
+
+The `print("DONE")` runs right away. After 200 ms the task simply completes with `null`.
+
+If you want the side effect to happen after the wait, place it after the `await`.
+
+```cfs
+async func correct(timer) {
+    var _ = await timer.delay(200);
+    print("DONE");
+}
+```
+
+The same rule explains call order in concurrent code.
+
+```cfs
+async func slow(timer) {
+    var _ = await timer.delay(200);
+    print("DONE");
+}
+
+async func fast(timer) {
+    var _ = await timer.delay(5);
+    print("FIRST!!");
+}
+
+async func run() {
+    var timer = task();
+    var a = slow(timer);
+    var b = fast(timer);
+    var _ = await [a, b];
+}
+
+var _ = await run();
+```
+
+This prints `FIRST!!` first and `DONE` second.
+
 ## Where `await` Is Allowed
 
 Inside synchronous functions, `await` is not allowed.
