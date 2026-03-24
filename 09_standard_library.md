@@ -118,6 +118,8 @@ The object returned by `task()` supports these intrinsics.
 - `completed()` creates a completed task with `null`.
 - `delay(ms, value = null)` waits and then returns `value`.
 
+Important detail. `delay` takes a value, not a callback. That means the `value` expression is evaluated before the wait starts.
+
 Example.
 
 ```cfs
@@ -125,6 +127,25 @@ var t = task();
 var answer = await t.delay(50, 42);
 print(answer);
 ```
+
+For delayed side effects, put the side effect after the `await`.
+
+```cfs
+var t = task();
+var _ = await t.delay(50);
+print("done");
+```
+
+This is not delayed.
+
+```cfs
+var t = task();
+var _ = await t.delay(50, out {
+    print("done");
+});
+```
+
+In that version the `print("done")` runs immediately and `delay` later returns `null`.
 
 ## String Intrinsics
 
