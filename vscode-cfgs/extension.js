@@ -6,7 +6,7 @@ const vscode = require('vscode');
 let activeClient = null;
 const semanticTokenLegend = new vscode.SemanticTokensLegend(
   ['namespace', 'class', 'enum', 'enumMember', 'function', 'method', 'parameter', 'variable'],
-  ['declaration', 'readonly']
+  ['declaration', 'readonly', 'static', 'async', 'defaultLibrary']
 );
 
 function activate(context) {
@@ -215,7 +215,7 @@ class CfgsLanguageClient {
           return result.map(toCodeAction);
         }
       }, {
-        providedCodeActionKinds: [vscode.CodeActionKind.QuickFix]
+        providedCodeActionKinds: [vscode.CodeActionKind.QuickFix, vscode.CodeActionKind.Refactor]
       }),
       vscode.languages.registerRenameProvider(selector, {
         prepareRename: async (document, position) => {
@@ -262,9 +262,10 @@ class CfgsLanguageClient {
         }
       }, '(', ','),
       vscode.languages.registerCompletionItemProvider(selector, {
-        provideCompletionItems: async (document) => {
+        provideCompletionItems: async (document, position) => {
           const result = await this.sendRequest('textDocument/completion', {
-            textDocument: { uri: document.uri.toString() }
+            textDocument: { uri: document.uri.toString() },
+            position: toLspPosition(position)
           });
 
           if (!Array.isArray(result)) {
@@ -273,7 +274,7 @@ class CfgsLanguageClient {
 
           return result.map(toCompletionItem);
         }
-      }),
+      }, '.'),
       vscode.languages.registerDocumentSemanticTokensProvider(selector, {
         provideDocumentSemanticTokens: async (document) => {
           const result = await this.sendRequest('textDocument/semanticTokens/full', {
@@ -286,7 +287,109 @@ class CfgsLanguageClient {
 
           return new vscode.SemanticTokens(new Uint32Array(result.data));
         }
-      }, semanticTokenLegend)
+      }, semanticTokenLegend),
+      vscode.languages.registerTypeDefinitionProvider(selector, {
+        provideTypeDefinition: async (document, position) => {
+          const result = await this.sendRequest('textDocument/typeDefinition', {
+            textDocument: { uri: document.uri.toString() },
+            position: toLspPosition(position)
+          });
+          if (!Array.isArray(result)) { return undefined; }
+          return result.map(toLocation);
+        }
+      }),
+      vscode.languages.registerImplementationProvider(selector, {
+        provideImplementation: async (document, position) => {
+          const result = await this.sendRequest('textDocument/implementation', {
+            textDocument: { uri: document.uri.toString() },
+            position: toLspPosition(position)
+          });
+          if (!Array.isArray(result)) { return undefined; }
+          return result.map(toLocation);
+        }
+      }),
+      vscode.languages.registerWorkspaceSymbolProvider({
+        provideWorkspaceSymbols: async (query) => {
+          const result = await this.sendRequest('workspace/symbol', { query });
+          if (!Array.isArray(result)) { return []; }
+          return result.map(toWorkspaceSymbol);
+        }
+      }),
+      vscode.languages.registerDocumentFormattingEditProvider(selector, {
+        provideDocumentFormattingEdits: async (document, options) => {
+          const result = await this.sendRequest('textDocument/formatting', {
+            textDocument: { uri: document.uri.toString() },
+            options: {
+              tabSize: options.tabSize,
+              insertSpaces: options.insertSpaces
+            }
+          });
+          if (!Array.isArray(result)) { return []; }
+          return result.map(toTextEdit);
+        }
+      }),
+      vscode.languages.registerDocumentLinkProvider(selector, {
+        provideDocumentLinks: async (document) => {
+          const result = await this.sendRequest('textDocument/documentLink', {
+            textDocument: { uri: document.uri.toString() }
+          });
+          if (!Array.isArray(result)) { return []; }
+          return result.map(toDocumentLink);
+        }
+      }),
+      vscode.languages.registerSelectionRangeProvider(selector, {
+        provideSelectionRanges: async (document, positions) => {
+          const result = await this.sendRequest('textDocument/selectionRange', {
+            textDocument: { uri: document.uri.toString() },
+            positions: positions.map(toLspPosition)
+          });
+          if (!Array.isArray(result)) { return []; }
+          return result.map(toSelectionRange);
+        }
+      }),
+      vscode.languages.registerCodeLensProvider(selector, {
+        provideCodeLenses: async (document) => {
+          const result = await this.sendRequest('textDocument/codeLens', {
+            textDocument: { uri: document.uri.toString() }
+          });
+          if (!Array.isArray(result)) { return []; }
+          return result.map(toCodeLens);
+        }
+      }),
+      vscode.languages.registerInlayHintsProvider(selector, {
+        provideInlayHints: async (document, range) => {
+          const result = await this.sendRequest('textDocument/inlayHint', {
+            textDocument: { uri: document.uri.toString() },
+            range: toLspRange(range)
+          });
+          if (!Array.isArray(result)) { return []; }
+          return result.map(toInlayHint);
+        }
+      }),
+      vscode.languages.registerCallHierarchyProvider(selector, {
+        prepareCallHierarchy: async (document, position) => {
+          const result = await this.sendRequest('textDocument/prepareCallHierarchy', {
+            textDocument: { uri: document.uri.toString() },
+            position: toLspPosition(position)
+          });
+          if (!Array.isArray(result)) { return undefined; }
+          return result.map(toCallHierarchyItem);
+        },
+        provideCallHierarchyIncomingCalls: async (item) => {
+          const result = await this.sendRequest('callHierarchy/incomingCalls', {
+            item: fromCallHierarchyItem(item)
+          });
+          if (!Array.isArray(result)) { return []; }
+          return result.map(toIncomingCall);
+        },
+        provideCallHierarchyOutgoingCalls: async (item) => {
+          const result = await this.sendRequest('callHierarchy/outgoingCalls', {
+            item: fromCallHierarchyItem(item)
+          });
+          if (!Array.isArray(result)) { return []; }
+          return result.map(toOutgoingCall);
+        }
+      })
     );
   }
 
@@ -530,6 +633,9 @@ function toDocumentSymbol(item) {
 function toCompletionItem(item) {
   const completion = new vscode.CompletionItem(item.label, toCompletionItemKind(item.kind));
   completion.detail = item.detail || '';
+  if (item.insertTextFormat === 2 && item.insertText) {
+    completion.insertText = new vscode.SnippetString(item.insertText);
+  }
   return completion;
 }
 
@@ -668,6 +774,9 @@ function toCodeActionKind(kind) {
   if (kind === 'quickfix') {
     return vscode.CodeActionKind.QuickFix;
   }
+  if (kind === 'refactor') {
+    return vscode.CodeActionKind.Refactor;
+  }
 
   return vscode.CodeActionKind.Empty;
 }
@@ -709,12 +818,113 @@ function toCompletionItemKind(kind) {
       return vscode.CompletionItemKind.Enum;
     case 14:
       return vscode.CompletionItemKind.Keyword;
+    case 15:
+      return vscode.CompletionItemKind.Snippet;
     case 20:
       return vscode.CompletionItemKind.EnumMember;
     case 21:
       return vscode.CompletionItemKind.Constant;
     default:
       return vscode.CompletionItemKind.Text;
+  }
+}
+
+function toTextEdit(edit) {
+  return new vscode.TextEdit(toRange(edit.range), edit.newText || '');
+}
+
+function toDocumentLink(item) {
+  const link = new vscode.DocumentLink(toRange(item.range), vscode.Uri.parse(item.target));
+  return link;
+}
+
+function toSelectionRange(item) {
+  if (!item || !item.range) { return new vscode.SelectionRange(new vscode.Range(0, 0, 0, 0)); }
+  const parent = item.parent ? toSelectionRange(item.parent) : undefined;
+  return new vscode.SelectionRange(toRange(item.range), parent);
+}
+
+function toCodeLens(item) {
+  const range = toRange(item.range);
+  const command = item.command ? {
+    title: item.command.title || '',
+    command: item.command.command || ''
+  } : undefined;
+  return new vscode.CodeLens(range, command);
+}
+
+function toInlayHint(item) {
+  const position = new vscode.Position(item.position.line, item.position.character);
+  const hint = new vscode.InlayHint(position, item.label, toInlayHintKind(item.kind));
+  if (item.paddingRight) { hint.paddingRight = true; }
+  if (item.paddingLeft) { hint.paddingLeft = true; }
+  return hint;
+}
+
+function toInlayHintKind(kind) {
+  switch (kind) {
+    case 1: return vscode.InlayHintKind.Type;
+    case 2: return vscode.InlayHintKind.Parameter;
+    default: return undefined;
+  }
+}
+
+function toCallHierarchyItem(item) {
+  return new vscode.CallHierarchyItem(
+    toSymbolKind(item.kind),
+    item.name,
+    item.detail || '',
+    vscode.Uri.parse(item.uri),
+    toRange(item.range),
+    toRange(item.selectionRange)
+  );
+}
+
+function fromCallHierarchyItem(item) {
+  return {
+    name: item.name,
+    kind: fromSymbolKind(item.kind),
+    uri: item.uri.toString(),
+    range: toLspRange(item.range),
+    selectionRange: toLspRange(item.selectionRange),
+    detail: item.detail || ''
+  };
+}
+
+function toIncomingCall(item) {
+  return new vscode.CallHierarchyIncomingCall(
+    toCallHierarchyItem(item.from),
+    Array.isArray(item.fromRanges) ? item.fromRanges.map(toRange) : []
+  );
+}
+
+function toOutgoingCall(item) {
+  return new vscode.CallHierarchyOutgoingCall(
+    toCallHierarchyItem(item.to),
+    Array.isArray(item.fromRanges) ? item.fromRanges.map(toRange) : []
+  );
+}
+
+function toWorkspaceSymbol(item) {
+  return new vscode.SymbolInformation(
+    item.name,
+    toSymbolKind(item.kind),
+    '',
+    item.location ? toLocation(item.location) : undefined
+  );
+}
+
+function fromSymbolKind(kind) {
+  switch (kind) {
+    case vscode.SymbolKind.Namespace: return 3;
+    case vscode.SymbolKind.Class: return 5;
+    case vscode.SymbolKind.Method: return 6;
+    case vscode.SymbolKind.Enum: return 10;
+    case vscode.SymbolKind.Function: return 12;
+    case vscode.SymbolKind.Variable: return 13;
+    case vscode.SymbolKind.Constant: return 14;
+    case vscode.SymbolKind.EnumMember: return 22;
+    default: return 13;
   }
 }
 
