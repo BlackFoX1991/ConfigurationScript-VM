@@ -1956,7 +1956,7 @@ namespace CFGS_VM.VMCore
                         Env? owner = FindEnvWithLocal(name);
                         if (owner != null && TryGetLocalVar(owner, name, out object? val))
                         {
-                            _stack.Push(val);
+                            _stack.Push(val!);
                             break;
                         }
 
@@ -2762,7 +2762,7 @@ namespace CFGS_VM.VMCore
                                     args.Insert(0, _stack.Pop());
                                 }
                                 object? ret = InvokeBuiltinForCall(desc, args, instr);
-                                _stack.Push(ret);
+                                _stack.Push(ret!);
                                 break;
                             }
 
@@ -2839,7 +2839,7 @@ namespace CFGS_VM.VMCore
                                     );
 
                                 object? result = InvokeIntrinsicForCall(ib_ex.Method, ib_ex.Receiver, argsList, instr);
-                                _stack.Push(result);
+                                _stack.Push(result!);
                                 return StepResult.Continue;
                             }
                             else if (callee is BuiltinCallable bc)
@@ -2853,7 +2853,7 @@ namespace CFGS_VM.VMCore
                                         instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                                 object? result = InvokeBuiltinForCall(desc, argsList, instr);
-                                _stack.Push(result);
+                                _stack.Push(result!);
 
                                 return StepResult.Continue;
 
@@ -2990,7 +2990,7 @@ namespace CFGS_VM.VMCore
                                 }
 
                                 object? result = InvokeIntrinsicForCall(ib.Method, ib.Receiver, argsB, instr);
-                                _stack.Push(result);
+                                _stack.Push(result!);
                                 return StepResult.Continue;
                             }
                             else if (callee is BuiltinCallable bc2)
@@ -3010,7 +3010,7 @@ namespace CFGS_VM.VMCore
 
                                 object? result = InvokeBuiltinForCall(desc, argsB, instr);
 
-                                _stack.Push(result);
+                                _stack.Push(result!);
 
                                 return StepResult.Continue;
 
