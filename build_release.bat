@@ -47,7 +47,7 @@ echo.
 echo [2/2] Publishing plugin DLLs (framework-dependent)...
 echo.
 
-set PLUGINS=CFGS.StandardLibrary CFGS.Web.Http CFGS.Microsoft.SQL CFGS.Security.Crypto
+set PLUGINS=CFGS.StandardLibrary CFGS.Web.Http CFGS.Microsoft.SQL CFGS.Security.Crypto CFGS.Lsp
 
 for %%P in (%PLUGINS%) do (
     echo   Publishing %%P ...
