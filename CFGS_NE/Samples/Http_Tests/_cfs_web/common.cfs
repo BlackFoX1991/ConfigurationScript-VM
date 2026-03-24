@@ -1,0 +1,154 @@
+import "../../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
+export class Util
+{
+    static func esc(v) {
+        if (v == null) { return ""; }
+        var s = str(v);
+        s = s.replace("&", "&amp;");
+        s = s.replace("<", "&lt;");
+        s = s.replace(">", "&gt;");
+        s = s.replace("\"", "&quot;");
+        s = s.replace("'", "&#39;");
+        return s;
+    }
+
+    static func join(arr, sep) {
+        var frameOut = "";
+        var i = 0;
+        while (i < len(arr)) {
+            if (i > 0) { frameOut = frameOut + sep; }
+            frameOut = frameOut + arr[i];
+            i = i + 1;
+        }
+        return frameOut;
+    }
+
+    static func header(headers, name) {
+        var direct = headers[name];
+        if (direct != null) { return direct; }
+
+        var wanted = str(name).lower();
+        foreach (var k, v in headers) {
+            if (str(k).lower() == wanted) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    static func starts_with(s, prefix) {
+        if (s == null) { return false; }
+        if (len(s) < len(prefix)) { return false; }
+        return s.substr(0, len(prefix)) == prefix;
+    }
+
+    static func ends_with(s, suffix) {
+        if (s == null) { return false; }
+        if (suffix == null) { return false; }
+        if (len(s) < len(suffix)) { return false; }
+        return s.substr(len(s) - len(suffix), len(suffix)) == suffix;
+    }
+
+    static func split_segments(path) {
+        var clean = path == null ? "" : str(path);
+
+        if (clean == "" || clean == "/") {
+            return [];
+        }
+
+        if (Util.starts_with(clean, "/")) {
+            clean = clean.substr(1, len(clean) - 1);
+        }
+
+        while (len(clean) > 0 && clean.substr(len(clean) - 1, 1) == "/") {
+            clean = clean.substr(0, len(clean) - 1);
+        }
+
+        if (clean == "") {
+            return [];
+        }
+
+        var parts = clean.split("/");
+        var result = [];
+        var i = 0;
+        while (i < len(parts)) {
+            if (parts[i] != "") {
+                result[] = parts[i];
+            }
+            i = i + 1;
+        }
+        return result;
+    }
+
+    static func parse_query(text) {
+        var result = {};
+        if (text == null || text == "") { return result; }
+
+        var parts = text.split("&");
+        var i = 0;
+        while (i < len(parts)) {
+            var part = parts[i].trim();
+            if (part != "") {
+                var eq = part.indexOf("=");
+                if (eq >= 0) {
+                    var key = urldecode(part.substr(0, eq));
+                    var value = urldecode(part.substr(eq + 1, len(part) - (eq + 1)));
+                    result[key] = value;
+                } else {
+                    result[urldecode(part)] = "";
+                }
+            }
+            i = i + 1;
+        }
+        return result;
+    }
+
+    static func parse_cookies(raw) {
+        var result = {};
+        if (raw == null || raw == "") { return result; }
+
+        var parts = raw.split(";");
+        var i = 0;
+        while (i < len(parts)) {
+            var part = parts[i].trim();
+            if (part != "") {
+                var eq = part.indexOf("=");
+                if (eq >= 0) {
+                    var key = part.substr(0, eq).trim();
+                    var value = part.substr(eq + 1, len(part) - (eq + 1)).trim();
+                    result[key] = value;
+                }
+            }
+            i = i + 1;
+        }
+        return result;
+    }
+
+    static func build_query(values) {
+        if (values == null) { return ""; }
+
+        var parts = [];
+        foreach (var k, v in values) {
+            if (v == null) { continue; }
+            parts[] = urlencode(str(k)) + "=" + urlencode(str(v));
+        }
+        return Util.join(parts, "&");
+    }
+
+    static func content_type_from_path(path) {
+        var p = path == null ? "" : str(path).lower();
+
+        if (Util.ends_with(p, ".css")) { return "text/css; charset=utf-8"; }
+        if (Util.ends_with(p, ".js")) { return "application/javascript; charset=utf-8"; }
+        if (Util.ends_with(p, ".json")) { return "application/json; charset=utf-8"; }
+        if (Util.ends_with(p, ".html")) { return "text/html; charset=utf-8"; }
+        if (Util.ends_with(p, ".svg")) { return "image/svg+xml"; }
+        if (Util.ends_with(p, ".txt")) { return "text/plain; charset=utf-8"; }
+        if (Util.ends_with(p, ".png")) { return "image/png"; }
+        if (Util.ends_with(p, ".jpg") || Util.ends_with(p, ".jpeg")) { return "image/jpeg"; }
+        if (Util.ends_with(p, ".gif")) { return "image/gif"; }
+
+        return "application/octet-stream";
+    }
+}

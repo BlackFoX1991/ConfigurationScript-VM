@@ -1,0 +1,563 @@
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
+
+class util
+{
+    static func esc(v) {
+        if (v == null) { return ""; }
+        var s = str(v);
+        s = s.replace("&", "&amp;");
+        s = s.replace("<", "&lt;");
+        s = s.replace(">", "&gt;");
+        s = s.replace("\"", "&quot;");
+        s = s.replace("'", "&#39;");
+        return s;
+    }
+
+    static func esc_js_single(v) {
+        if (v == null) { return ""; }
+        var s = str(v);
+        s = s.replace("\\", "\\\\");
+        s = s.replace("'", "\\'");
+        s = s.replace("\r", "\\r");
+        s = s.replace("\n", "\\n");
+        return s;
+    }
+
+    static func join(arr, sep) {
+        var frameOut = "";
+        var i = 0;
+        while (i < len(arr)) {
+            if (i > 0) { frameOut = frameOut + sep; }
+            frameOut = frameOut + arr[i];
+            i = i + 1;
+        }
+        return frameOut;
+    }
+
+    static func starts_with(s, prefix) {
+        if (s == null) { return false; }
+        if (len(s) < len(prefix)) { return false; }
+        return s.substr(0, len(prefix)) == prefix;
+    }
+
+    static func header(headers, name) {
+        var direct = headers[name];
+        if (direct != null) { return direct; }
+
+        var wanted = str(name).lower();
+        foreach (var k, v in headers) {
+            if (str(k).lower() == wanted) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    static func parse_query(text) {
+        var result = {};
+        if (text == null || text == "") { return result; }
+
+        var parts = text.split("&");
+        var i = 0;
+        while (i < len(parts)) {
+            var part = parts[i].trim();
+            if (part != "") {
+                var eq = part.indexOf("=");
+                if (eq >= 0) {
+                    var key = urldecode(part.substr(0, eq));
+                    var value = urldecode(part.substr(eq + 1, len(part) - (eq + 1)));
+                    result[key] = value;
+                } else {
+                    result[urldecode(part)] = "";
+                }
+            }
+            i = i + 1;
+        }
+        return result;
+    }
+
+    static func parse_cookies(raw) {
+        var result = {};
+        if (raw == null || raw == "") { return result; }
+
+        var parts = raw.split(";");
+        var i = 0;
+        while (i < len(parts)) {
+            var part = parts[i].trim();
+            if (part != "") {
+                var eq = part.indexOf("=");
+                if (eq >= 0) {
+                    var key = part.substr(0, eq).trim();
+                    var value = part.substr(eq + 1, len(part) - (eq + 1)).trim();
+                    result[key] = value;
+                }
+            }
+            i = i + 1;
+        }
+        return result;
+    }
+}
+
+class vnode
+{
+    var tag;
+    var props;
+    var children;
+
+    func init(tag, props, children) {
+        this.tag = tag;
+        this.props = props == null ? {} : props;
+        if (children == null) {
+            this.children = [];
+        } else if (typeof(children) == "Array") {
+            this.children = children;
+        } else {
+            this.children = [children];
+        }
+    }
+}
+
+class dom
+{
+    static func h(tag, props, children) {
+        return new vnode(tag, props, children);
+    }
+
+    static func event_button(label, event_name, payload_js, props) {
+        var p = props == null ? {} : props;
+        p["type"] = "button";
+
+        var payload_expr = payload_js == null ? "{}" : payload_js;
+        p["onclick"] = "__cfs_event('" + util.esc_js_single(event_name) + "', " + payload_expr + ")";
+        return dom.h("button", p, label);
+    }
+
+    static func _render_props(props) {
+        if (props == null) { return ""; }
+
+        var frameOut = "";
+        foreach (var k, v in props) {
+            if (v == null || v == false) { continue; }
+            if (v == true) {
+                frameOut = frameOut + " " + str(k);
+            } else {
+                frameOut = frameOut + " " + str(k) + "=\"" + util.esc(v) + "\"";
+            }
+        }
+        return frameOut;
+    }
+
+    static func _render_child(child) {
+        if (child == null) { return ""; }
+
+        var t = typeof(child);
+        if (t == "String" || t == "Int" || t == "Float" || t == "Bool") {
+            return util.esc(child);
+        }
+        if (t == "Array") {
+            var parts = [];
+            var i = 0;
+            while (i < len(child)) {
+                parts[] = dom._render_child(child[i]);
+                i = i + 1;
+            }
+            return util.join(parts, "");
+        }
+        if (t == "vnode") {
+            return dom.render(child);
+        }
+        return "";
+    }
+
+    static func render(node) {
+        if (node == null) { return ""; }
+
+        var t = typeof(node);
+        if (t == "String" || t == "Int" || t == "Float" || t == "Bool") {
+            return util.esc(node);
+        }
+
+        var open = "<" + node.tag + dom._render_props(node.props) + ">";
+        var inner = "";
+        var i = 0;
+        while (i < len(node.children)) {
+            inner = inner + dom._render_child(node.children[i]);
+            i = i + 1;
+        }
+        return open + inner + "</" + node.tag + ">";
+    }
+}
+
+class html
+{
+    static var CSS =
+":root{--bg:#f4efe4;--ink:#1f1f1f;--muted:#625a53;--panel:#fffaf1;--line:#d8c9b6;--brand:#ad3b24;--brand-2:#f0b13a;--soft:#f3e2c2;--ok:#2f855a}" +
+"*{box-sizing:border-box}" +
+"html,body{height:100%}" +
+"body{margin:0;background:radial-gradient(circle at top left,#fff7e8 0,transparent 35%),linear-gradient(180deg,#f7f0e3 0,#efe4d2 100%);color:var(--ink);font:16px/1.5 Georgia,'Times New Roman',serif}" +
+".page{max-width:980px;margin:0 auto;padding:32px 20px 64px}" +
+".hero{display:grid;gap:12px;margin-bottom:18px}" +
+".eyebrow{letter-spacing:.12em;text-transform:uppercase;color:var(--brand);font-size:12px;font-weight:700}" +
+".title{margin:0;font-size:42px;line-height:1.05}" +
+".lead{margin:0;color:var(--muted);max-width:60ch}" +
+".panel{background:rgba(255,250,241,.92);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 18px 50px rgba(73,47,24,.10)}" +
+".grid{display:grid;grid-template-columns:1.3fr .9fr;gap:18px}" +
+".stack{display:grid;gap:14px}" +
+".row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}" +
+".btn{appearance:none;border:1px solid var(--ink);background:var(--ink);color:#fff8ef;padding:10px 16px;border-radius:999px;cursor:pointer;font:600 14px/1.2 system-ui,sans-serif}" +
+".btn.secondary{background:#fff8ef;color:var(--ink)}" +
+".btn.ghost{background:transparent;color:var(--ink)}" +
+".metric{display:grid;gap:6px;padding:16px;border:1px dashed var(--line);border-radius:16px;background:rgba(255,255,255,.45)}" +
+".metric .value{font:700 44px/1 system-ui,sans-serif;color:var(--brand)}" +
+".metric .label{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.08em}" +
+".field{display:grid;gap:8px}" +
+".field label{font-weight:700}" +
+".field input{width:100%;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:#fffdf8;color:var(--ink);font:15px/1.3 system-ui,sans-serif}" +
+".session{font:12px/1.4 system-ui,sans-serif;color:var(--muted)}" +
+".log{padding:14px 16px;border-radius:16px;background:var(--soft);border:1px solid #e4c992}" +
+".code{font-family:Consolas,monospace;background:#2b211a;color:#fff7ee;padding:2px 6px;border-radius:8px}" +
+"@media (max-width:820px){.grid{grid-template-columns:1fr}.title{font-size:34px}}";
+
+    static var BRIDGE_JS =
+"async function __cfs_event(name,payload){"+
+"  try{"+
+"    const res=await fetch('/__event',{"+
+"      method:'POST',"+
+"      headers:{'Content-Type':'application/json'},"+
+"      body:JSON.stringify({name:name,payload:payload||{}})"+
+"    });"+
+"    const data=await res.json();"+
+"    if(data.html!==undefined){"+
+"      document.getElementById('app-root').innerHTML=data.html;"+
+"    }"+
+"    if(data.title){document.title=data.title;}"+
+"  }catch(err){"+
+"    console.error(err);"+
+"    alert('Event failed: '+err);"+
+"  }"+
+"}";
+
+    static func page(title, body_node) {
+        return "<!doctype html><html><head>"
+            + "<meta charset='utf-8'>"
+            + "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            + "<title>" + util.esc(title) + "</title>"
+            + "<style>" + type.CSS + "</style>"
+            + "</head><body>"
+            + "<div class='page'><div id='app-root'>" + dom.render(body_node) + "</div></div>"
+            + "<script>" + type.BRIDGE_JS + "</script>"
+            + "</body></html>";
+    }
+}
+
+class MiniApp(port)
+{
+    static var NextSessionId = 0;
+
+    var port = 0;
+    var root_view = null;
+    var events = {};
+    var sessions = {};
+
+    func init(port) {
+        this.port = port;
+    }
+
+    func mount(root_view) {
+        this.root_view = root_view;
+        return this;
+    }
+
+    func on_event(name, handler) {
+        this.events[name] = handler;
+        return this;
+    }
+
+    func _new_session_id() {
+        type.NextSessionId = type.NextSessionId + 1;
+        return "sid_" + str(type.NextSessionId);
+    }
+
+    func _ensure_session_defaults(session) {
+        if (!session.contains("count")) { session["count"] = 0; }
+        if (!session.contains("name")) { session["name"] = "Guest"; }
+        if (!session.contains("last_event")) { session["last_event"] = "none"; }
+        if (!session.contains("visits")) { session["visits"] = 0; }
+    }
+
+    func _session_for(req) {
+        var cookies = util.parse_cookies(util.header(req.headers, "Cookie"));
+        var sid = cookies["cfs_sid"];
+        var is_new = false;
+
+        if (sid == null || sid == "" || !this.sessions.contains(sid)) {
+            sid = this._new_session_id();
+            this.sessions[sid] = {};
+            is_new = true;
+        }
+
+        var session = this.sessions[sid];
+        this._ensure_session_defaults(session);
+        session["visits"] = session["visits"] + 1;
+
+        return {
+            "sid": sid,
+            "data": session,
+            "cookie_header": is_new ? "cfs_sid=" + sid + "; Path=/; HttpOnly; SameSite=Lax" : null
+        };
+    }
+
+    func _context(req) {
+        var session_info = this._session_for(req);
+        return {
+            "req": req,
+            "sid": session_info["sid"],
+            "session": session_info["data"],
+            "cookie_header": session_info["cookie_header"]
+        };
+    }
+
+    func _headers(content_type, ctx) {
+        var headers = {"Content-Type": content_type};
+        if (ctx.cookie_header != null) {
+            headers["Set-Cookie"] = ctx.cookie_header;
+        }
+        return headers;
+    }
+
+    func _root_response(ctx) {
+        var body_node = this.root_view(ctx);
+        return {
+            "status": 200,
+            "headers": this._headers("text/html; charset=utf-8", ctx),
+            "body": html.page("Mini CFS Web Framework", body_node)
+        };
+    }
+
+    func _parse_event_body(req) {
+        var raw = req.body == null ? "" : req.body;
+        if (raw == "") { return {}; }
+
+        var ct = util.header(req.headers, "Content-Type");
+        ct = ct == null ? "" : str(ct).lower();
+
+        if (ct.contains("application/json")) {
+            try {
+                return fromjson(raw);
+            } catch (e) {
+                return {"_raw": raw, "_parse_error": e.message()};
+            }
+        }
+
+        if (ct.contains("application/x-www-form-urlencoded")) {
+            return util.parse_query(raw);
+        }
+
+        return {"_raw": raw};
+    }
+
+    func _event_response(ctx, payload) {
+        var event_name = payload["name"];
+        if (event_name == null || event_name == "") {
+            return {
+                "status": 400,
+                "headers": this._headers("application/json; charset=utf-8", ctx),
+                "body": tojson({"ok": false, "error": "missing event name"})
+            };
+        }
+
+        var handler = this.events[event_name];
+        if (handler == null) {
+            return {
+                "status": 404,
+                "headers": this._headers("application/json; charset=utf-8", ctx),
+                "body": tojson({"ok": false, "error": "unknown event", "event": event_name})
+            };
+        }
+
+        var event_payload = payload["payload"];
+        if (event_payload == null) { event_payload = {}; }
+
+        var result = handler(ctx, event_payload);
+        if (result == null) { result = {}; }
+
+        var next_html = result["html"];
+        if (next_html == null) {
+            next_html = dom.render(this.root_view(ctx));
+        }
+
+        var response_json = {
+            "ok": true,
+            "event": event_name,
+            "html": next_html,
+            "title": "Mini CFS Web Framework",
+            "state": {
+                "count": ctx.session["count"],
+                "name": ctx.session["name"],
+                "last_event": ctx.session["last_event"],
+                "visits": ctx.session["visits"],
+                "sid": ctx.sid
+            }
+        };
+
+        return {
+            "status": 200,
+            "headers": this._headers("application/json; charset=utf-8", ctx),
+            "body": tojson(response_json)
+        };
+    }
+
+    func handle(req, run_state) {
+        var ctx = this._context(req);
+
+        if (req.method == "GET" && req.path == "/") {
+            return this._root_response(ctx);
+        }
+
+        if (req.method == "POST" && req.path == "/__event") {
+            var payload = this._parse_event_body(req);
+            return this._event_response(ctx, payload);
+        }
+
+        if (req.method == "GET" && req.path == "/exit") {
+            run_state["running"] = false;
+            return {
+                "status": 200,
+                "headers": this._headers("text/plain; charset=utf-8", ctx),
+                "body": "Server stopping"
+            };
+        }
+
+        return {
+            "status": 404,
+            "headers": this._headers("text/plain; charset=utf-8", ctx),
+            "body": "Not Found"
+        };
+    }
+
+    func run() {
+        var run_state = {"running": true};
+        var srv = http_server(this.port).start();
+
+        print("Mini web framework running on http://localhost:" + str(this.port) + "/");
+        print("Stop with GET /exit");
+
+        while (srv.is_running() && run_state["running"]) {
+            var req = srv.poll(1000);
+            if (req == null) { continue; }
+
+            var res = this.handle(req, run_state);
+            srv.respond(req.id, res.status, res.body, res.headers);
+        }
+
+        srv.stop();
+        srv.close();
+        print("Server stopped");
+    }
+}
+
+func app_view(ctx) {
+    var session = ctx.session;
+
+    return dom.h("div", {"class":"stack"}, [
+        dom.h("div", {"class":"hero"}, [
+            dom.h("div", {"class":"eyebrow"}, "CFS only UI + HTTP event bridge"),
+            dom.h("h1", {"class":"title"}, "Mini Web Framework"),
+            dom.h("p", {"class":"lead"}, "HTML, CSS, routing, events and session state all come from this .cfs script. The browser only forwards clicks with fetch().")
+        ]),
+
+        dom.h("div", {"class":"grid"}, [
+            dom.h("div", {"class":"panel stack"}, [
+                dom.h("div", {"class":"metric"}, [
+                    dom.h("div", {"class":"label"}, "Counter"),
+                    dom.h("div", {"class":"value"}, str(session["count"]))
+                ]),
+
+                dom.h("div", {"class":"row"}, [
+                    dom.event_button("+1", "counter.increment", "{}", {"class":"btn"}),
+                    dom.event_button("-1", "counter.decrement", "{}", {"class":"btn secondary"}),
+                    dom.event_button("Reset", "counter.reset", "{}", {"class":"btn ghost"})
+                ]),
+
+                dom.h("div", {"class":"field"}, [
+                    dom.h("label", {"for":"nameBox"}, "Display name"),
+                    dom.h("input", {
+                        "id":"nameBox",
+                        "name":"name",
+                        "value": session["name"],
+                        "placeholder":"Type a name"
+                    }, "")
+                ]),
+
+                dom.h("div", {"class":"row"}, [
+                    dom.event_button(
+                        "Save name",
+                        "profile.rename",
+                        "{name:document.getElementById('nameBox').value}",
+                        {"class":"btn"}
+                    )
+                ])
+            ]),
+
+            dom.h("div", {"class":"panel stack"}, [
+                dom.h("div", {"class":"session"}, "Session id: " + ctx.sid),
+                dom.h("div", {"class":"session"}, "Requests in this session: " + str(session["visits"])),
+                dom.h("div", {"class":"log"}, [
+                    dom.h("strong", null, "Last event"),
+                    dom.h("div", null, session["last_event"])
+                ]),
+                dom.h("div", {"class":"log"}, [
+                    dom.h("strong", null, "Notes"),
+                    dom.h("p", null, "Buttons call "),
+                    dom.h("span", {"class":"code"}, "POST /__event"),
+                    dom.h("p", null, "The CFS server updates session state and returns fresh HTML.")
+                ]),
+                dom.h("div", {"class":"log"}, [
+                    dom.h("strong", null, "Hello"),
+                    dom.h("div", null, "Welcome, " + session["name"] + ".")
+                ])
+            ])
+        ])
+    ]);
+}
+
+func on_increment(ctx, payload) {
+    ctx.session["count"] = ctx.session["count"] + 1;
+    ctx.session["last_event"] = "counter.increment";
+    return {};
+}
+
+func on_decrement(ctx, payload) {
+    ctx.session["count"] = ctx.session["count"] - 1;
+    ctx.session["last_event"] = "counter.decrement";
+    return {};
+}
+
+func on_reset(ctx, payload) {
+    ctx.session["count"] = 0;
+    ctx.session["last_event"] = "counter.reset";
+    return {};
+}
+
+func on_rename(ctx, payload) {
+    var next_name = payload["name"];
+    if (next_name == null || next_name.trim() == "") {
+        next_name = "Guest";
+    }
+    ctx.session["name"] = next_name;
+    ctx.session["last_event"] = "profile.rename";
+    return {};
+}
+
+func main() {
+    var app = new MiniApp(8091);
+    app.mount(app_view);
+    app.on_event("counter.increment", on_increment);
+    app.on_event("counter.decrement", on_decrement);
+    app.on_event("counter.reset", on_reset);
+    app.on_event("profile.rename", on_rename);
+    app.run();
+}
+
+main();

@@ -1,0 +1,26 @@
+import { ServerApp } from "server.cfs";
+
+export class Guards
+{
+    static func protect(handler, predicate, on_fail = null) {
+        return func(ctx) {
+            if (predicate(ctx)) {
+                return handler(ctx);
+            }
+
+            if (on_fail != null) {
+                return on_fail(ctx);
+            }
+
+            return ServerApp.text("Forbidden", 403);
+        };
+    }
+
+    static func require_session_flag(key, handler, redirect_to = "/", expected = true) {
+        return Guards.protect(
+            handler,
+            func(ctx) { return ctx.session[key] == expected; },
+            func(ctx) { return ServerApp.redirect(redirect_to, 302); }
+        );
+    }
+}

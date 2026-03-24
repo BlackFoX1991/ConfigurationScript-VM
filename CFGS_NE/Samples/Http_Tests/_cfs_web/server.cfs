@@ -1,0 +1,722 @@
+import "../../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
+import { Util } from "common.cfs";
+import { Cookies } from "cookies.cfs";
+
+export class RequestView(ctx)
+{
+    var ctx;
+
+    func init(ctx) {
+        this.ctx = ctx;
+    }
+
+    func method() {
+        return this.ctx.req.method;
+    }
+
+    func path() {
+        return this.ctx.req.path;
+    }
+
+    func param(name, fallback = null) {
+        var value = this.ctx.params[name];
+        return value == null ? fallback : value;
+    }
+
+    func query(name, fallback = null) {
+        var value = this.ctx.query[name];
+        return value == null ? fallback : value;
+    }
+
+    func form(name, fallback = null) {
+        var value = this.ctx.form[name];
+        return value == null ? fallback : value;
+    }
+
+    func cookie(name, fallback = null) {
+        return Cookies.read(this.ctx, name, fallback);
+    }
+
+    func url(name, params = null, query = null) {
+        return this.ctx.app.url(name, params, query);
+    }
+
+    func local(name, fallback = null) {
+        var value = this.ctx.locals[name];
+        return value == null ? fallback : value;
+    }
+
+    func session(name, fallback = null) {
+        var value = this.ctx.session[name];
+        return value == null ? fallback : value;
+    }
+
+    func shared(name, fallback = null) {
+        var value = this.ctx.shared[name];
+        return value == null ? fallback : value;
+    }
+
+    func is_get() {
+        return this.ctx.req.method == "GET";
+    }
+
+    func is_post() {
+        return this.ctx.req.method == "POST";
+    }
+}
+
+export class ResponseView(ctx)
+{
+    var ctx;
+
+    func init(ctx) {
+        this.ctx = ctx;
+    }
+
+    func response(status, body, content_type = "text/plain; charset=utf-8", headers = null) {
+        var hdr = headers == null ? {} : headers;
+        if (content_type != null) {
+            hdr["Content-Type"] = content_type;
+        }
+        return {
+            "status": status,
+            "headers": hdr,
+            "body": body
+        };
+    }
+
+    func text(body, status = 200, headers = null) {
+        return this.response(status, body, "text/plain; charset=utf-8", headers);
+    }
+
+    func html(body, status = 200, headers = null) {
+        return this.response(status, body, "text/html; charset=utf-8", headers);
+    }
+
+    func json(value, status = 200, headers = null) {
+        return this.response(status, tojson(value), "application/json; charset=utf-8", headers);
+    }
+
+    func redirect(location, status = 303) {
+        return {
+            "status": status,
+            "headers": {
+                "Location": location,
+                "Content-Type": "text/html; charset=utf-8",
+                "Cache-Control": "no-store"
+            },
+            "body": "<!doctype html><meta http-equiv='refresh' content='0;url=" + Util.esc(location) + "'>Redirecting..."
+        };
+    }
+
+    func redirect_to(name, params = null, query = null, status = 303) {
+        return this.redirect(this.ctx.app.url(name, params, query), status);
+    }
+
+    func with_cookie(res, name, value, attrs = null) {
+        return Cookies.with_cookie(res, name, value, attrs);
+    }
+
+    func expire_cookie(res, name, attrs = null) {
+        return Cookies.expire_cookie(res, name, attrs);
+    }
+
+    func back(fallback = "/", status = 302) {
+        var target = Util.header(this.ctx.req.headers, "Referer");
+        if (target == null || target == "") {
+            target = fallback;
+        }
+        return this.redirect(target, status);
+    }
+}
+
+export class ServerApp(port)
+{
+    static var NextSessionId = 0;
+
+    var port = 0;
+    var routes = [];
+    var named_routes = {};
+    var befores = [];
+    var afters = [];
+    var errors = [];
+    var static_mounts = [];
+    var sessions = {};
+    var shared = {};
+    var stop_requested = false;
+
+    func init(port) {
+        this.port = port;
+    }
+
+    func route(method, pattern, handler, name = null) {
+        var route = {
+            "method": method,
+            "pattern": pattern,
+            "handler": handler,
+            "name": name
+        };
+        this.routes[] = route;
+
+        if (name != null) {
+            if (this.named_routes.contains(name)) {
+                throw "Duplicate route name: " + name;
+            }
+            this.named_routes[name] = route;
+        }
+
+        return this;
+    }
+
+    func get(pattern, handler) {
+        return this.route("GET", pattern, handler);
+    }
+
+    func post(pattern, handler) {
+        return this.route("POST", pattern, handler);
+    }
+
+    func get_named(name, pattern, handler) {
+        return this.route("GET", pattern, handler, name);
+    }
+
+    func post_named(name, pattern, handler) {
+        return this.route("POST", pattern, handler, name);
+    }
+
+    func group(prefix, name_prefix = "") {
+        return new RouteGroup(this, prefix, name_prefix);
+    }
+
+    func use_before(f) {
+        this.befores[] = f;
+        return this;
+    }
+
+    func use_after(f) {
+        this.afters[] = f;
+        return this;
+    }
+
+    func use_error(f) {
+        this.errors[] = f;
+        return this;
+    }
+
+    func serve_static_with(prefix, loader_func, max_age = 3600) {
+        this.static_mounts[] = {
+            "prefix": prefix,
+            "loader": loader_func,
+            "max_age": max_age
+        };
+        return this;
+    }
+
+    func serve_static_map(prefix, files, max_age = 3600) {
+        return this.serve_static_with(prefix, func(rel) {
+            if (files == null || !files.contains(rel)) {
+                return null;
+            }
+
+            var hit = files[rel];
+            if (typeof(hit) == "String") {
+                return {
+                    "data": hit,
+                    "content_type": Util.content_type_from_path(rel)
+                };
+            }
+
+            return hit;
+        }, max_age);
+    }
+
+    func request_stop() {
+        this.stop_requested = true;
+        return 1;
+    }
+
+    func _path_for_pattern(pattern, params = null) {
+        var segs = Util.split_segments(pattern);
+        if (len(segs) == 0) {
+            return "/";
+        }
+
+        var parts = [];
+        var actual = params == null ? {} : params;
+        var i = 0;
+        while (i < len(segs)) {
+            var seg = segs[i];
+
+            if (seg == "*") {
+                var rest = actual["*"];
+                if (rest != null && str(rest) != "") {
+                    var rs = Util.split_segments(rest);
+                    var r = 0;
+                    while (r < len(rs)) {
+                        parts[] = urlencode(str(rs[r]));
+                        r = r + 1;
+                    }
+                }
+            } else if (len(seg) > 0 && seg.substr(0, 1) == ":") {
+                var key = seg.substr(1, len(seg) - 1);
+                var value = actual[key];
+                if (value == null) {
+                    throw "Missing route parameter: " + key;
+                }
+                parts[] = urlencode(str(value));
+            } else {
+                parts[] = seg;
+            }
+
+            i = i + 1;
+        }
+
+        return "/" + Util.join(parts, "/");
+    }
+
+    func url(name, params = null, query = null) {
+        var route = this.named_routes[name];
+        if (route == null) {
+            throw "Unknown route name: " + str(name);
+        }
+
+        var path = this._path_for_pattern(route["pattern"], params);
+        var qs = Util.build_query(query);
+        if (qs != "") {
+            path = path + "?" + qs;
+        }
+        return path;
+    }
+
+    static func response(status, body, content_type = "text/plain; charset=utf-8", headers = null) {
+        var hdr = headers == null ? {} : headers;
+        if (content_type != null) {
+            hdr["Content-Type"] = content_type;
+        }
+        return {
+            "status": status,
+            "headers": hdr,
+            "body": body
+        };
+    }
+
+    static func text(body, status = 200, headers = null) {
+        return ServerApp.response(status, body, "text/plain; charset=utf-8", headers);
+    }
+
+    static func html(body, status = 200, headers = null) {
+        return ServerApp.response(status, body, "text/html; charset=utf-8", headers);
+    }
+
+    static func json(value, status = 200, headers = null) {
+        return ServerApp.response(status, tojson(value), "application/json; charset=utf-8", headers);
+    }
+
+    static func redirect(location, status = 303) {
+        return new ResponseView({}).redirect(location, status);
+    }
+
+    func _new_session_id() {
+        type.NextSessionId = type.NextSessionId + 1;
+        return "sid_" + str(type.NextSessionId);
+    }
+
+    func _ensure_session_defaults(session) {
+        if (!session.contains("visits")) {
+            session["visits"] = 0;
+        }
+    }
+
+    func _session_for(req) {
+        var cookies = Util.parse_cookies(Util.header(req.headers, "Cookie"));
+        var sid = cookies["cfs_sid"];
+        var is_new = false;
+
+        if (sid == null || sid == "" || !this.sessions.contains(sid)) {
+            sid = this._new_session_id();
+            this.sessions[sid] = {};
+            is_new = true;
+        }
+
+        var session = this.sessions[sid];
+        this._ensure_session_defaults(session);
+        session["visits"] = session["visits"] + 1;
+
+        return {
+            "sid": sid,
+            "data": session,
+            "cookie_header": is_new ? "cfs_sid=" + sid + "; Path=/; HttpOnly; SameSite=Lax" : null
+        };
+    }
+
+    func _parse_body(req) {
+        var raw = req.body == null ? "" : req.body;
+        if (raw == "") { return {}; }
+
+        var ct = Util.header(req.headers, "Content-Type");
+        ct = ct == null ? "" : str(ct).lower();
+
+        if (ct.contains("application/x-www-form-urlencoded")) {
+            return Util.parse_query(raw);
+        }
+
+        if (ct.contains("application/json")) {
+            try {
+                return fromjson(raw);
+            } catch (e) {
+                return {"_raw": raw, "_parse_error": e.message()};
+            }
+        }
+
+        return {"_raw": raw};
+    }
+
+    func _read_query(req) {
+        var q = req.query;
+        if (q == null) { return {}; }
+        if (typeof(q) == "String") {
+            return Util.parse_query(q);
+        }
+        return q;
+    }
+
+    func _context(req) {
+        var session_info = this._session_for(req);
+        var ctx = {
+            "app": this,
+            "req": req,
+            "sid": session_info["sid"],
+            "session": session_info["data"],
+            "shared": this.shared,
+            "query": this._read_query(req),
+            "form": this._parse_body(req),
+            "params": {},
+            "locals": {},
+            "route": null,
+            "cookie_header": session_info["cookie_header"]
+        };
+        ctx["request"] = new RequestView(ctx);
+        ctx["response"] = new ResponseView(ctx);
+        return ctx;
+    }
+
+    func _match_route(pattern, path) {
+        var pat = Util.split_segments(pattern);
+        var got = Util.split_segments(path);
+
+        var has_wild = len(pat) > 0 && pat[len(pat) - 1] == "*";
+        if (has_wild) {
+            if (len(got) < len(pat) - 1) {
+                return null;
+            }
+        } else if (len(got) != len(pat)) {
+            return null;
+        }
+
+        var params = {};
+        var i = 0;
+        while (i < len(pat)) {
+            var want = pat[i];
+            if (want == "*") {
+                var rest = [];
+                var j = i;
+                while (j < len(got)) {
+                    rest[] = got[j];
+                    j = j + 1;
+                }
+                params["*"] = Util.join(rest, "/");
+                return params;
+            }
+
+            var seg = got[i];
+            if (len(want) > 0 && want.substr(0, 1) == ":") {
+                params[want.substr(1, len(want) - 1)] = seg;
+            } else if (want != seg) {
+                return null;
+            }
+
+            i = i + 1;
+        }
+        return params;
+    }
+
+    func _dispatch(ctx) {
+        var i = 0;
+        while (i < len(this.routes)) {
+            var route = this.routes[i];
+            if (route["method"] == ctx.req.method) {
+                var params = this._match_route(route["pattern"], ctx.req.path);
+                if (params != null) {
+                    ctx["params"] = params;
+                    ctx["route"] = route;
+                    return route["handler"](ctx);
+                }
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    func _run_befores(ctx) {
+        var i = 0;
+        while (i < len(this.befores)) {
+            var res = this.befores[i](ctx);
+            if (res != null) {
+                return res;
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    func _run_afters(ctx, res) {
+        var current = res;
+        var i = 0;
+        while (i < len(this.afters)) {
+            var next = this.afters[i](ctx, current);
+            if (next != null) {
+                current = next;
+            }
+            i = i + 1;
+        }
+        return current;
+    }
+
+    func _run_errors(ctx, err) {
+        var i = 0;
+        while (i < len(this.errors)) {
+            var res = this.errors[i](ctx, err);
+            if (res != null) {
+                return res;
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    func _static_response(hit, rel, max_age) {
+        var status = 200;
+        var headers = {};
+        var body = hit;
+        var content_type = Util.content_type_from_path(rel);
+
+        if (typeof(hit) != "String") {
+            status = hit["status"] == null ? 200 : hit["status"];
+            headers = hit["headers"] == null ? {} : hit["headers"];
+            body = hit["data"] == null ? hit["body"] : hit["data"];
+
+            if (hit["content_type"] != null) {
+                content_type = hit["content_type"];
+            } else if (headers["Content-Type"] != null) {
+                content_type = null;
+            }
+        }
+
+        if (max_age != null && headers["Cache-Control"] == null) {
+            headers["Cache-Control"] = "public, max-age=" + str(max_age);
+        }
+
+        return ServerApp.response(status, body, content_type, headers);
+    }
+
+    func _try_static(ctx) {
+        if (ctx.req.method != "GET") {
+            return null;
+        }
+
+        var i = 0;
+        while (i < len(this.static_mounts)) {
+            var mount = this.static_mounts[i];
+            var prefix = mount["prefix"];
+
+            if (Util.starts_with(ctx.req.path, prefix)) {
+                var rel = ctx.req.path.substr(len(prefix), len(ctx.req.path) - len(prefix));
+                var hit = mount["loader"](rel);
+                if (hit != null) {
+                    return this._static_response(hit, rel, mount["max_age"]);
+                }
+            }
+
+            i = i + 1;
+        }
+
+        return null;
+    }
+
+    func _finalize_headers(ctx, headers) {
+        var hdr = headers == null ? {} : headers;
+        if (ctx.cookie_header != null) {
+            if (hdr["Set-Cookie"] == null || hdr["Set-Cookie"] == "") {
+                hdr["Set-Cookie"] = ctx.cookie_header;
+            } else {
+                hdr["Set-Cookie"] = hdr["Set-Cookie"] + "\n" + ctx.cookie_header;
+            }
+        }
+        return hdr;
+    }
+
+    func handle(req) {
+        var ctx = this._context(req);
+        try {
+            var res = this._run_befores(ctx);
+            if (res == null) {
+                res = this._try_static(ctx);
+            }
+            if (res == null) {
+                res = this._dispatch(ctx);
+            }
+            if (res == null) {
+                res = ServerApp.text("Not Found", 404);
+            }
+            res = this._run_afters(ctx, res);
+            res["headers"] = this._finalize_headers(ctx, res["headers"]);
+            return res;
+        } catch (e) {
+            var err_res = this._run_errors(ctx, e);
+            if (err_res == null) {
+                err_res = ServerApp.text("Internal Server Error\n" + str(e), 500);
+            }
+            err_res = this._run_afters(ctx, err_res);
+            err_res["headers"] = this._finalize_headers(ctx, err_res["headers"]);
+            return err_res;
+        }
+    }
+
+    func run() {
+        this.stop_requested = false;
+        var srv = http_server(this.port).start();
+
+        print("ServerApp running on http://localhost:" + str(this.port) + "/");
+
+        while (srv.is_running() && !this.stop_requested) {
+            var req = srv.poll(1000);
+            if (req == null) { continue; }
+
+            var res = this.handle(req);
+            srv.respond(req.id, res.status, res.body, res.headers);
+        }
+
+        srv.stop();
+        srv.close();
+        print("ServerApp stopped");
+    }
+}
+
+export class RouteGroup(app, prefix)
+{
+    var app;
+    var prefix = "";
+    var name_prefix = "";
+    var befores = [];
+    var afters = [];
+
+    func init(app, prefix, name_prefix = "") {
+        this.app = app;
+        this.prefix = prefix == null ? "" : prefix;
+        this.name_prefix = name_prefix == null ? "" : name_prefix;
+    }
+
+    func _join(pattern) {
+        var a = this.prefix == null ? "" : this.prefix;
+        var b = pattern == null ? "" : pattern;
+
+        if (a == "") { return b == "" ? "/" : b; }
+        if (b == "") { return a; }
+
+        var left = Util.ends_with(a, "/") ? a.substr(0, len(a) - 1) : a;
+        var right = Util.starts_with(b, "/") ? b.substr(1, len(b) - 1) : b;
+
+        if (right == "") { return left; }
+        return left + "/" + right;
+    }
+
+    func use_before(f) {
+        this.befores[] = f;
+        return this;
+    }
+
+    func use_after(f) {
+        this.afters[] = f;
+        return this;
+    }
+
+    func _wrap(handler) {
+        var before_list = this.befores;
+        var after_list = this.afters;
+
+        return func(ctx) {
+            var res = null;
+
+            var i = 0;
+            while (i < len(before_list)) {
+                res = before_list[i](ctx);
+                if (res != null) { break; }
+                i = i + 1;
+            }
+
+            if (res == null) {
+                res = handler(ctx);
+            }
+
+            var j = 0;
+            while (j < len(after_list)) {
+                var next = after_list[j](ctx, res);
+                if (next != null) {
+                    res = next;
+                }
+                j = j + 1;
+            }
+
+            return res;
+        };
+    }
+
+    func route(method, pattern, handler) {
+        this.app.route(method, this._join(pattern), this._wrap(handler));
+        return this;
+    }
+
+    func _name(name) {
+        if (this.name_prefix == "") { return name; }
+        if (name == null || name == "") { return this.name_prefix; }
+        return this.name_prefix + "." + name;
+    }
+
+    func get(pattern, handler) {
+        return this.route("GET", pattern, handler);
+    }
+
+    func post(pattern, handler) {
+        return this.route("POST", pattern, handler);
+    }
+
+    func get_named(name, pattern, handler) {
+        this.app.route("GET", this._join(pattern), this._wrap(handler), this._name(name));
+        return this;
+    }
+
+    func post_named(name, pattern, handler) {
+        this.app.route("POST", this._join(pattern), this._wrap(handler), this._name(name));
+        return this;
+    }
+
+    func group(prefix, name_prefix = null) {
+        var actual_name_prefix = name_prefix == null ? "" : name_prefix;
+        var child = new RouteGroup(this.app, this._join(prefix), this._name(actual_name_prefix));
+
+        var i = 0;
+        while (i < len(this.befores)) {
+            child.befores[] = this.befores[i];
+            i = i + 1;
+        }
+
+        var j = 0;
+        while (j < len(this.afters)) {
+            child.afters[] = this.afters[j];
+            j = j + 1;
+        }
+
+        return child;
+    }
+}

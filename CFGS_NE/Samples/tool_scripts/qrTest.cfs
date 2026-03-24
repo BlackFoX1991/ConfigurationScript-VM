@@ -1,5 +1,4 @@
-﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
-import QRTools from "qrCode.cfs";
+﻿import QRTools from "qrCode.cfs";
 
 func main()
 {

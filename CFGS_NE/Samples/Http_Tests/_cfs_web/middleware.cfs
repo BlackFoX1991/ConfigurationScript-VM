@@ -1,0 +1,44 @@
+export class Middleware
+{
+    static func request_logger(prefix = null) {
+        var actual_prefix = prefix == null ? "" : prefix + " ";
+
+        return func(ctx) {
+            print(actual_prefix + ctx.req.method + " " + ctx.req.path);
+            return null;
+        };
+    }
+
+    static func counter(shared_key = "request_count", local_key = null) {
+        return func(ctx) {
+            if (!ctx.shared.contains(shared_key)) {
+                ctx.shared[shared_key] = 0;
+            }
+
+            ctx.shared[shared_key] = ctx.shared[shared_key] + 1;
+
+            if (local_key != null) {
+                ctx.locals[local_key] = ctx.shared[shared_key];
+            }
+
+            return null;
+        };
+    }
+
+    static func header(name, value) {
+        return func(ctx, res) {
+            var headers = res["headers"];
+            if (headers == null) {
+                headers = {};
+                res["headers"] = headers;
+            }
+
+            headers[name] = value;
+            return res;
+        };
+    }
+
+    static func no_store() {
+        return Middleware.header("Cache-Control", "no-store");
+    }
+}

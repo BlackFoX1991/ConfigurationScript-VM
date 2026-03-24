@@ -1,0 +1,43 @@
+import { Dom, Ui } from "dom.cfs";
+
+export class Forms
+{
+    static func text_field(label_text, field_name, value = "", placeholder = null, id = null, error_text = null) {
+        var actual_id = id == null ? field_name : id;
+        var props = {
+            "type":"text",
+            "name": field_name,
+            "value": value == null ? "" : value,
+            "id": actual_id
+        };
+
+        if (placeholder != null) { props["placeholder"] = placeholder; }
+        if (error_text != null) {
+            props["class"] = "invalid";
+            props["aria-invalid"] = "true";
+        }
+
+        return Dom.h("div", {"class":"field"}, [
+            Ui.label(label_text, actual_id),
+            Dom.h("input", props, ""),
+            error_text == null ? null : Dom.h("div", {"class":"form-error"}, error_text)
+        ]);
+    }
+
+    static func event_button(action, label, btn_class = "btn", extra_fields = null) {
+        return Ui.button_form(action, label, btn_class, extra_fields);
+    }
+
+    static func button_row(children) {
+        return Dom.h("div", {"class":"row"}, children);
+    }
+
+    static func text_post(action, label_text, field_name, value = "", placeholder = null, submit_label = "Save", id = null, error_text = null) {
+        return Ui.form(action, "POST", [
+            Forms.text_field(label_text, field_name, value, placeholder, id, error_text),
+            Dom.h("div", {"class":"row"}, [
+                Ui.submit(submit_label)
+            ])
+        ], {"class":"stack"});
+    }
+}

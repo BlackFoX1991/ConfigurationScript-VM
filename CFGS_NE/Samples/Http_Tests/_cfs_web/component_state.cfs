@@ -1,0 +1,56 @@
+export class ComponentState
+{
+    static func _root(ctx) {
+        if (!ctx.session.contains("__component_state") || ctx.session["__component_state"] == null) {
+            ctx.session["__component_state"] = {};
+        }
+        return ctx.session["__component_state"];
+    }
+
+    static func scope(ctx, component_id, defaults = null) {
+        var root = ComponentState._root(ctx);
+
+        if (!root.contains(component_id) || root[component_id] == null) {
+            root[component_id] = {};
+        }
+
+        var state = root[component_id];
+        if (defaults != null) {
+            foreach (var k, v in defaults) {
+                if (!state.contains(k)) {
+                    state[k] = v;
+                }
+            }
+        }
+
+        return state;
+    }
+
+    static func read(ctx, component_id, key, fallback = null) {
+        var state = ComponentState.scope(ctx, component_id, null);
+        var value = state[key];
+        return value == null ? fallback : value;
+    }
+
+    static func write(ctx, component_id, key, value) {
+        var state = ComponentState.scope(ctx, component_id, null);
+        state[key] = value;
+        return value;
+    }
+
+    static func patch(ctx, component_id, values) {
+        var state = ComponentState.scope(ctx, component_id, null);
+        if (values != null) {
+            foreach (var k, v in values) {
+                state[k] = v;
+            }
+        }
+        return state;
+    }
+
+    static func reset(ctx, component_id) {
+        var root = ComponentState._root(ctx);
+        root[component_id] = {};
+        return root[component_id];
+    }
+}

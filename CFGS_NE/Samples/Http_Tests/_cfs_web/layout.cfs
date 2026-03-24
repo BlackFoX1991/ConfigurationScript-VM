@@ -1,0 +1,35 @@
+import { Dom } from "dom.cfs";
+
+export class Layout
+{
+    static func stack(children, class_name = "stack") {
+        return Dom.h("div", {"class": class_name}, children);
+    }
+
+    static func row(children, class_name = "row") {
+        return Dom.h("div", {"class": class_name}, children);
+    }
+
+    static func panel(children, class_name = "panel stack") {
+        return Dom.h("div", {"class": class_name}, children);
+    }
+
+    static func grid(children, class_name = "grid") {
+        return Dom.h("div", {"class": class_name}, children);
+    }
+
+    static func hero(eyebrow, title, lead) {
+        return Dom.h("div", {"class":"hero"}, [
+            Dom.h("div", {"class":"eyebrow"}, eyebrow),
+            Dom.h("h1", {"class":"title"}, title),
+            Dom.h("p", {"class":"lead"}, lead)
+        ]);
+    }
+
+    static func page_shell(eyebrow, title, lead, children) {
+        return Layout.stack([
+            Layout.hero(eyebrow, title, lead),
+            children
+        ]);
+    }
+}

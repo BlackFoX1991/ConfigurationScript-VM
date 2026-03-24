@@ -1,0 +1,170 @@
+import { Dom, Html } from "dom.cfs";
+import { Layout } from "layout.cfs";
+
+export class ViewModels
+{
+    static func _slots() {
+        return {
+            "top": [],
+            "before": [],
+            "after": [],
+            "footer": []
+        };
+    }
+
+    static func page(title, eyebrow = "", lead = "", meta = null) {
+        return {
+            "title": title,
+            "eyebrow": eyebrow == null ? "" : eyebrow,
+            "lead": lead == null ? "" : lead,
+            "meta": meta == null ? {} : meta,
+            "slots": ViewModels._slots()
+        };
+    }
+
+    static func dashboard(title, eyebrow = "", lead = "", meta = null) {
+        var vm = ViewModels.page(title, eyebrow, lead, meta);
+        vm["main"] = [];
+        vm["aside"] = [];
+        return vm;
+    }
+
+    static func set_slot(model, name, content) {
+        if (model["slots"] == null) {
+            model["slots"] = ViewModels._slots();
+        }
+        model["slots"][name] = content;
+        return model;
+    }
+
+    static func push_slot(model, name, content) {
+        if (model["slots"] == null) {
+            model["slots"] = ViewModels._slots();
+        }
+
+        if (!model["slots"].contains(name) || model["slots"][name] == null) {
+            model["slots"][name] = [];
+        }
+
+        if (typeof(content) == "Array") {
+            var i = 0;
+            while (i < len(content)) {
+                model["slots"][name][] = content[i];
+                i = i + 1;
+            }
+        } else {
+            model["slots"][name][] = content;
+        }
+
+        return model;
+    }
+}
+
+export class Templates
+{
+    static func _slot_items(model, name) {
+        var slots = model["slots"];
+        if (slots == null) { return []; }
+
+        var content = slots[name];
+        if (content == null) { return []; }
+        if (typeof(content) == "Array") { return content; }
+        return [content];
+    }
+
+    static func shell(model, body) {
+        var parts = [];
+
+        var top = Templates._slot_items(model, "top");
+        var i = 0;
+        while (i < len(top)) {
+            parts[] = top[i];
+            i = i + 1;
+        }
+
+        parts[] = Layout.hero(
+            model["eyebrow"],
+            model["title"],
+            model["lead"]
+        );
+
+        var before = Templates._slot_items(model, "before");
+        var j = 0;
+        while (j < len(before)) {
+            parts[] = before[j];
+            j = j + 1;
+        }
+
+        parts[] = Templates._content_node(body);
+
+        var after = Templates._slot_items(model, "after");
+        var k = 0;
+        while (k < len(after)) {
+            parts[] = after[k];
+            k = k + 1;
+        }
+
+        var footer = Templates._slot_items(model, "footer");
+        var m = 0;
+        while (m < len(footer)) {
+            parts[] = footer[m];
+            m = m + 1;
+        }
+
+        return Html.page(model["title"], Layout.stack(parts));
+    }
+
+    static func _content_node(content) {
+        if (content == null) {
+            return Dom.h("div", null, "");
+        }
+        if (typeof(content) == "Array") {
+            return Layout.stack(content);
+        }
+        return content;
+    }
+
+    static func page(model, content) {
+        return Templates.shell(model, content);
+    }
+
+    static func section(title, content, lead = null) {
+        var body = [];
+
+        if (lead != null) {
+            body[] = Dom.h("p", {"class":"lead"}, lead);
+        }
+
+        if (content != null) {
+            if (typeof(content) == "Array") {
+                var i = 0;
+                while (i < len(content)) {
+                    body[] = content[i];
+                    i = i + 1;
+                }
+            } else {
+                body[] = content;
+            }
+        }
+
+        return Layout.panel([
+            Dom.h("h2", {"class":"title", "style":"font-size:28px"}, title),
+            Layout.stack(body)
+        ]);
+    }
+
+    static func dashboard(model) {
+        return Templates.with_sidebar(model, model["main"], model["aside"]);
+    }
+
+    static func with_sidebar(model, main, aside) {
+        return Templates.page(model, Layout.grid([
+            Layout.panel(main),
+            Layout.panel(aside)
+        ]));
+    }
+
+    static func sections(model, sections) {
+        return Templates.page(model, Layout.stack(sections));
+    }
+}
