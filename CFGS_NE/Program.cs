@@ -4,7 +4,9 @@ using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
 using System.Globalization;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 using System.Text;
 
 /// <summary>
@@ -134,6 +136,12 @@ public class Program
     /// <param name="args">The args<see cref="string[]"/></param>
     public static async Task Main(string[] args)
     {
+        if (TryGetLspArguments(args, out string[] lspArgs))
+        {
+            Environment.ExitCode = await RunLspModeAsync(lspArgs);
+            return;
+        }
+
         if (OperatingSystem.IsWindows())
             AnsiConsole.EnableAnsi();
 
@@ -284,6 +292,96 @@ public class Program
         {
             string phase = currentSourceForError is null && files.Count == 0 ? "startup" : "script-run";
             PrintTrackedException(ex, phase, currentSourceForError);
+        }
+    }
+
+    /// <summary>
+    /// Detects whether the current invocation should start the embedded LSP mode.
+    /// </summary>
+    /// <param name="args">The args<see cref="string[]"/></param>
+    /// <param name="forwardedArgs">The forwardedArgs<see cref="string[]"/></param>
+    /// <returns>The <see cref="bool"/></returns>
+    private static bool TryGetLspArguments(string[] args, out string[] forwardedArgs)
+    {
+        List<string> remaining = new(args.Length);
+        bool lspMode = false;
+
+        foreach (string arg in args)
+        {
+            if (string.Equals(arg, "-lsp", StringComparison.OrdinalIgnoreCase))
+            {
+                lspMode = true;
+                continue;
+            }
+
+            remaining.Add(arg);
+        }
+
+        forwardedArgs = remaining.ToArray();
+        return lspMode;
+    }
+
+    /// <summary>
+    /// Starts the CFGS language server by loading the external LSP host assembly on demand.
+    /// </summary>
+    /// <param name="args">The args<see cref="string[]"/></param>
+    /// <returns>The <see cref="Task{int}"/></returns>
+    private static async Task<int> RunLspModeAsync(string[] args)
+    {
+        string[] searchPaths =
+        {
+            Path.Combine(AppContext.BaseDirectory, "CFGS.Lsp.dll"),
+            Path.Combine(AppContext.BaseDirectory, "plugins", "CFGS.Lsp.dll")
+        };
+
+        string? lspAssemblyPath = searchPaths.FirstOrDefault(File.Exists);
+        if (lspAssemblyPath is null)
+        {
+            Console.Error.WriteLine("Could not locate CFGS.Lsp.dll for -lsp mode.");
+            foreach (string path in searchPaths)
+                Console.Error.WriteLine($"  searched: {path}");
+
+            return 1;
+        }
+
+        try
+        {
+            Assembly lspAssembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(lspAssemblyPath);
+            MethodInfo? entryPoint = lspAssembly.EntryPoint;
+            if (entryPoint is null)
+            {
+                Console.Error.WriteLine($"CFGS.Lsp entry point not found in '{lspAssemblyPath}'.");
+                return 1;
+            }
+
+            ParameterInfo[] parameters = entryPoint.GetParameters();
+            object? invocationResult = parameters.Length switch
+            {
+                0 => entryPoint.Invoke(null, null),
+                1 => entryPoint.Invoke(null, new object?[] { args }),
+                _ => throw new InvalidOperationException($"Unsupported CFGS.Lsp entry point signature with {parameters.Length} parameters.")
+            };
+
+            if (invocationResult is Task<int> exitCodeTask)
+                return await exitCodeTask;
+
+            if (invocationResult is Task task)
+            {
+                await task;
+                return Environment.ExitCode;
+            }
+
+            return invocationResult is int exitCode ? exitCode : Environment.ExitCode;
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is not null)
+        {
+            Console.Error.WriteLine($"Failed to start CFGS LSP mode: {ex.InnerException.Message}");
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to start CFGS LSP mode: {ex.Message}");
+            return 1;
         }
     }
 
