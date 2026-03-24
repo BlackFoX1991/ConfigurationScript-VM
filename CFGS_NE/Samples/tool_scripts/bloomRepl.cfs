@@ -1,4 +1,4 @@
-﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+﻿import "CFGS.StandardLibrary.dll";
 import "bloom.cfs";
 
 # ====== BloomFilter-REPL ======
