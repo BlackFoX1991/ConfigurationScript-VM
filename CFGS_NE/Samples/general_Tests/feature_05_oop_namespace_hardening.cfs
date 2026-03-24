@@ -1,3 +1,5 @@
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
 var failed = 0;
 
 func assert_eq(name, actual, expected) {
@@ -123,4 +125,4 @@ var cfg = new Config("localhost", 80) { host: "api.local", port: 443 };
 assert_eq("initializer_known_host", cfg.host, "api.local");
 assert_eq("initializer_known_port", cfg.port, 443);
 
-finish("feature_05_oop_namespace_hardening");
+print(finish("ALL PASSED: feature_05_oop_namespace_hardening"));

@@ -12,7 +12,7 @@ func assert_eq(name, actual, expected) {
 }
 func main()
 {
-    # ===== BinÃ¤re Operatoren / Reihenfolge / AssoziativitÃ¤t =====
+    # ===== Binäre Operatoren / Reihenfolge / Assoziativität =====
     var a = 7;
     var b = 3;
     assert_eq("bin_add", a + b, 10);
@@ -99,10 +99,10 @@ func main()
         func swap()   { return str(this.y) + ":" + str(this.x); }
     }
     var p = new Pair(7, 9);
-    assert_eq("class_ctor_fields", p.asText(), "7:9"); # ctor-Params mÃ¼ssen als Felder Ã¼bernommen sein
-    assert_eq("class_method_this", p.swap(),   "9:7"); # Zugriff Ã¼ber this, Reihenfolge geprÃ¼ft
+    assert_eq("class_ctor_fields", p.asText(), "7:9"); # ctor-Params müssen als Felder übernommen sein
+    assert_eq("class_method_this", p.swap(),   "9:7"); # Zugriff über this, Reihenfolge geprüft
 
-    # Methoden mit zusÃ¤tzlichem Param (Receiver + Param)
+    # Methoden mit zusätzlichem Param (Receiver + Param)
     class Acc(v) {
         func add(delta) { return this.v + delta; }
     }
@@ -117,7 +117,7 @@ func main()
     assert_eq("cmp_string_num_eq_false", "7" == 7, false);
     assert_eq("cmp_neg_lt", (-5) < 0, true);
     assert_eq("cmp_neg_le", (-5) <= -5, true);
-    assert_eq("mod_negative", (-7) % 5, -2);     # Ã¼bliches mathematisches Mod-Verhalten
+    assert_eq("mod_negative", (-7) % 5, -2);     # übliches mathematisches Mod-Verhalten
 
     # Division (falls / vorhanden und integer-truncated sein soll, anpassen)
     var d = 7 / 3;                # wenn deine VM ganzzahlig teilt -> 2; sonst 2.333...

@@ -5,7 +5,7 @@ func main()
 {
 	while(true)
 	{
-		put("Enter your text for QR-Generation : ");
+		put("Text fuer QR-Code eingeben (--exit zum Beenden): ");
 		var ln = getl();
 		if(ln == "--exit")break;
 		QRTools.qr_auto_console_v1_v2(ln);

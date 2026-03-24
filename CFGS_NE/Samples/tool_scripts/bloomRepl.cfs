@@ -47,11 +47,11 @@ func parse_int(s)
 # --- REPL selbst ---
 func repl()
 {
-    # GrÃ¶ÃŸe des Filters frei wÃ¤hlbar
+    # Größe des Filters frei wählbar
     var size = 128;
     var bf = new BloomFilter(size);
 
-    print("BloomFilter REPL â€“ size=" + size);
+    print("BloomFilter REPL – size=" + size);
     print("Befehle: add <wort> | check <wort> | bits [breite] | cap | help | quit");
 
     while (true)
@@ -71,11 +71,11 @@ func repl()
         }
         else if (cmd == "help")
         {
-            print("add <wort>      â€“ Wort einfÃ¼gen");
-            print("check <wort>    â€“ Testen, ob evtl. enthalten");
-            print("bits [breite]   â€“ Bitfeld ausgeben (Standard 64 pro Zeile)");
-            print("cap             â€“ belegte Slots in %");
-            print("quit            â€“ Ende");
+            print("add <wort>      – Wort einfügen");
+            print("check <wort>    – Testen, ob evtl. enthalten");
+            print("bits [breite]   – Bitfeld ausgeben (Standard 64 pro Zeile)");
+            print("cap             – belegte Slots in %");
+            print("quit            – Ende");
         }
         else if (cmd == "add")
         {
@@ -111,7 +111,7 @@ func repl()
         }
         else
         {
-            print("Unbekanntes Kommando. 'help' tippen fÃ¼r Hilfe.");
+            print("Unbekanntes Kommando. 'help' tippen für Hilfe.");
         }
     }
 }

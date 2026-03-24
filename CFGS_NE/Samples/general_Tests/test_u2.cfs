@@ -76,7 +76,7 @@ assert_eq("dict_set_b",         d["b"],        2);
 d[] = {"c": 3};
 assert_eq("dict_push_c",        d["c"],        3);
 
-# String-Slice read ok, write verboten â†’ read mit ~, write via try/catch (in Funktion)
+# String-Slice read ok, write verboten → read mit ~, write via try/catch (in Funktion)
 func test_string_slice_write_forbidden() {
     var strx = "hello";
     assert_eq("string_slice_read",  strx[1~4],  "ell");

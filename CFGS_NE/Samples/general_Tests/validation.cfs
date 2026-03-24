@@ -72,7 +72,7 @@ var z = true ? onlyThen() : onlyElse();
 test("ternary evaluates single branch", z == 11 && t == 1);
 
 # ----------------------------- Loops & Flow --------------------------------
-# continue: kapseln und Ergebnis zurÃ¼ckgeben
+# continue: kapseln und Ergebnis zurückgeben
 func do_continue_skips_evens() {
   var s = "";
   for (var k = 0; k < 5; k = k + 1;) {

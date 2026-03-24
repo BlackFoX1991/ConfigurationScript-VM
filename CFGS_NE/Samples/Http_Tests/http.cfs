@@ -1,6 +1,8 @@
 ﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
-# CFGS HTTP Sample
+# CFGS HTTP server sample.
+# Run it, open http://localhost:8080/, and call /exit to stop it.
+# The /getbin route performs an outbound HTTP request and may fail offline.
 
 var PORT = 8080;
 
@@ -75,7 +77,7 @@ func home() {
     + "<div class='grid'>"
 
     + "  <section class='card'>"
-    + "    <h3>Ãœbersicht</h3>"
+    + "    <h3>Übersicht</h3>"
     + "    <p class='muted'>Klicke eine Route oder nutze die Formulare. Ergebnisse erscheinen unten im <code>Response</code>.</p>"
     + "    <div class='row'>"
     + "      <a class='btn ghost' href='/echo?name=World'>/echo?name=World</a>"
@@ -100,7 +102,7 @@ func home() {
 
     + "  <section class='card'>"
     + "    <h3>/mirror</h3>"
-    + "    <p class='muted'>Spiegelt den Request-Body. Content-Type frei wÃ¤hlbar.</p>"
+    + "    <p class='muted'>Spiegelt den Request-Body. Content-Type frei wählbar.</p>"
     + "    <div class='row'><select id='ctype'>"
     + "      <option>text/plain; charset=utf-8</option>"
     + "      <option>application/json</option>"
@@ -115,10 +117,10 @@ func home() {
     + "<section class='card' style='margin-top:16px'>"
     + "  <h3>Response</h3>"
     + "  <p class='muted'>Ausgabe der letzten Anfrage (Status, Content-Type &amp; Body):</p>"
-    + "  <pre id='frameOut'>Noch keine Anfrage ausgefÃ¼hrt.</pre>"
+    + "  <pre id='frameOut'>Noch keine Anfrage ausgeführt.</pre>"
     + "</section>"
 
-    + "<footer>CFGS_HTTP â€¢ Demo UI â€¢ dot-Style Intrinsics</footer>";
+    + "<footer>CFGS_HTTP • Demo UI • dot-Style Intrinsics</footer>";
 }
 
 func qv(q, key, def) {
@@ -127,17 +129,11 @@ func qv(q, key, def) {
     return val;
 }
 
-func main()
+async func main()
 {
     print("Starte Server auf http://localhost:" + str(PORT) + "/");
+    print("Beenden ueber GET /exit");
     var srv = http_server(PORT).start();   # dot-style start()
-
-    # Demo Client
-    var r_get = await http_get("https://httpbin.org/get", {"User-Agent":"CFGS_HTTP/1.0"});
-    print("GET status: " + str(r_get.status) + " " + r_get.reason);
-
-    var r_post = await http_post("https://httpbin.org/post", "{\"msg\":\"Hallo\"}", {"Content-Type":"application/json"});
-    print("POST status: " + str(r_post.status));
 
     var enc = urlencode("a b&c=1");
     var dec = urldecode(enc);
@@ -177,11 +173,15 @@ func main()
                 srv.respond(req.id, 200, req.body, {"Content-Type":ctype});
             }
             else if (method == "GET" && path == "/getbin") {
-                var r = http_get("https://httpbin.org/uuid");
-                if (r.status == 200) {
-                    srv.respond(req.id, 200, r.body, {"Content-Type":"application/json"});
-                } else {
-                    srv.respond(req.id, 502, "{\"error\":\"upstream\"}", {"Content-Type":"application/json"});
+                try {
+                    var r = await http_get("https://httpbin.org/uuid", {"User-Agent":"CFGS_HTTP/1.0"});
+                    if (r.status == 200) {
+                        srv.respond(req.id, 200, r.body, {"Content-Type":"application/json"});
+                    } else {
+                        srv.respond(req.id, 502, "{\"error\":\"upstream_status\"}", {"Content-Type":"application/json"});
+                    }
+                } catch (e) {
+                    srv.respond(req.id, 502, "{\"error\":\"upstream_unavailable\"}", {"Content-Type":"application/json"});
                 }
             }
             else {
@@ -194,4 +194,4 @@ func main()
     srv.close();
     print("Server beendet.");
 }
-main();
+var _ = await main();

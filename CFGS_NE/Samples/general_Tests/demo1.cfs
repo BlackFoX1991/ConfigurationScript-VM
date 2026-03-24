@@ -1,11 +1,11 @@
-﻿# CFGS Try/Catch/Finally â€“ Edge Case Suite (funktional verpackt)
+﻿# CFGS Try/Catch/Finally – Edge Case Suite (funktional verpackt)
 import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 print("=== TRY/CATCH/FINALLY EDGE TESTS START ===");
 
 # Helper
 func sep(name) { print("-- " + name + " --"); }
 
-# A) Kein Fehler im try: catch Ã¼bersprungen, finally lÃ¤uft
+# A) Kein Fehler im try: catch übersprungen, finally läuft
 func testA() {
     try {
         print("A.try");
@@ -16,7 +16,7 @@ func testA() {
     }
 }
 
-# B) Fehler im try: catch lÃ¤uft, danach finally
+# B) Fehler im try: catch läuft, danach finally
 func testB() {
     try {
         print("B.try (wirft gleich)");
@@ -28,7 +28,7 @@ func testB() {
     }
 }
 
-# C) Fehler im Callee: Callee-Catch rethrow, Caller fÃ¤ngt, beide finallys
+# C) Fehler im Callee: Callee-Catch rethrow, Caller fängt, beide finallys
 func testC() {
     func callee_throw_and_rethrow() {
         try {
@@ -53,7 +53,7 @@ func testC() {
     }
 }
 
-# D) return im try: finally MUSS vor RÃ¼ckkehr laufen
+# D) return im try: finally MUSS vor Rückkehr laufen
 func ret_in_try() {
     try {
         print("D.func.try (return gleich)");
@@ -62,7 +62,7 @@ func ret_in_try() {
         print("D.func.catch (sollte NICHT)");
         return "D.C";
     } finally {
-        print("D.func.finally (sollte VOR RÃ¼ckkehr laufen)");
+        print("D.func.finally (sollte VOR Rückkehr laufen)");
     }
 }
 func testD() {
@@ -70,7 +70,7 @@ func testD() {
     print("D.result=" + str(d));
 }
 
-# E) return im catch: finally lÃ¤uft dennoch
+# E) return im catch: finally läuft dennoch
 func ret_in_catch() {
     try {
         print("E.func.try (wirft)");
@@ -87,7 +87,7 @@ func testE() {
     print("E.result=" + str(e));
 }
 
-# F) Verschachtelt: innerer try fÃ¤ngt, inner finally vor outer finally
+# F) Verschachtelt: innerer try fängt, inner finally vor outer finally
 func testF() {
     try {
         print("F.outer.try (start)");
@@ -204,10 +204,10 @@ testB();
 sep("C: Throw im Callee -> rethrow -> Caller catch -> beide finally");
 testC();
 
-sep("D: return im try -> finally lÃ¤uft vor RÃ¼ckkehr");
+sep("D: return im try -> finally läuft vor Rückkehr");
 testD();
 
-sep("E: return im catch -> finally lÃ¤uft trotzdem");
+sep("E: return im catch -> finally läuft trotzdem");
 testE();
 
 sep("F: verschachtelt (inner catch/finally) -> outer finally");
@@ -222,7 +222,7 @@ testH();
 sep("I: rethrow im catch -> outer catch -> outer finally");
 testI();
 
-sep("J: return im inneren try -> inner finally -> outer finally -> RÃ¼ckkehr");
+sep("J: return im inneren try -> inner finally -> outer finally -> Rückkehr");
 testJ();
 
 print("=== TRY/CATCH/FINALLY EDGE TESTS END ===");

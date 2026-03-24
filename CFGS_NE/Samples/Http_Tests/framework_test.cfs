@@ -5,24 +5,24 @@ import "framework.cfs";
 # ---------- 404/500 Seiten ----------
 class NotFoundPage(path) : BaseView
 {
-    func heading() { return "404 â€“ Not Found"; }
+    func heading() { return "404 – Not Found"; }
     func content(props) {
         return [
             dom.h("p", null, "Die angeforderte Ressource wurde nicht gefunden: "),
             dom.h("code", null, this.path),
-            dom.h("p", null, ["ZurÃ¼ck zur ", dom.h("a", {"href":"/"}, "Startseite")])
+            dom.h("p", null, ["Zurück zur ", dom.h("a", {"href":"/"}, "Startseite")])
         ];
     }
 }
 
 class ErrorPage(msg) : BaseView
 {
-    func heading() { return "500 â€“ Serverfehler"; }
+    func heading() { return "500 – Serverfehler"; }
     func content(props) {
         return [
             dom.h("p", null, "Es ist ein Fehler aufgetreten."),
             dom.h("pre", null, this.msg),
-            dom.h("p", null, ["ZurÃ¼ck zur ", dom.h("a", {"href":"/"}, "Startseite")])
+            dom.h("p", null, ["Zurück zur ", dom.h("a", {"href":"/"}, "Startseite")])
         ];
     }
 }
@@ -33,7 +33,7 @@ class HomePage : BaseView
     func heading() { return "Routen"; }
 
     func nav() {
-        return dom.h("p", {"class":"muted"}, "Navigation Â· Demo");
+        return dom.h("p", {"class":"muted"}, "Navigation · Demo");
     }
 
     func content(props) {
@@ -58,7 +58,7 @@ class EchoPage(name) : BaseView
     func content(props) {
         return [
             dom.h("h2", null, "Hello, " + this.name + "!"),
-            dom.h("p", null, ["ZurÃ¼ck zur ", dom.h("a", {"href":"/"}, "Startseite")])
+            dom.h("p", null, ["Zurück zur ", dom.h("a", {"href":"/"}, "Startseite")])
         ];
     }
 }
@@ -69,7 +69,7 @@ class HelloPage : BaseView
     func render(props) {
         var inner = [
             dom.h("h2", null, "Hello World!"),
-            dom.h("p", null, ["ZurÃ¼ck zur ", dom.h("a", {"href":"/"}, "Startseite")])
+            dom.h("p", null, ["Zurück zur ", dom.h("a", {"href":"/"}, "Startseite")])
         ];
         return super.layout(inner);
     }
@@ -83,7 +83,7 @@ class MirrorFormPage : BaseView
             dom.h("form", {"action":"/mirror", "method":"POST", "enctype":"application/x-www-form-urlencoded"},
                 [
                     dom.h("p", null, dom.h("input", {"name":"who","placeholder":"Name"}, "")),
-                    dom.h("p", null, dom.h("textarea", {"name":"payload","rows":"6","cols":"60","placeholder":"Text hierâ€¦"}, "")),
+                    dom.h("p", null, dom.h("textarea", {"name":"payload","rows":"6","cols":"60","placeholder":"Text hier…"}, "")),
                     dom.h("p", null, dom.h("button", {"type":"submit"}, "abschicken"))
                 ]
             ),
@@ -98,7 +98,7 @@ class MirrorFormPage : BaseView
 
 func main()
 {
-    var PORT = 8080;
+    var PORT = 5000;
     print("Starte Server auf http://localhost:" + str(PORT) + "/");
     var srv = http_server(PORT).start();
 

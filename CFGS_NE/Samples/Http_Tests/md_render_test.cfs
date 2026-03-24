@@ -4,7 +4,7 @@ import "md_render.cfs";
 
 func main()
 {
-	var app = new MdServer(8080, get_workspace() + "\\docs\\test.md");
+	var app = new MdServer(5000, get_workspace() + "\\docs\\test.md");
 	app.run();
 }
 main();
