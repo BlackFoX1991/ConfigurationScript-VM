@@ -44,6 +44,18 @@ The server output is written to:
 dist/Debug/net10.0/CFGS.Lsp.dll
 ```
 
+The main CFGS executable can also forward into LSP mode:
+
+```powershell
+.\dist\Debug\net10.0\CFGS_VM.exe -lsp
+```
+
+For release builds produced by `build_release.bat`, the same switch works with the shipped `plugins\CFGS.Lsp.dll`:
+
+```powershell
+.\dist_release\CFGS_VM.exe -lsp
+```
+
 ## Use the VS Code Extension
 
 1. Open this repository in Visual Studio Code.
