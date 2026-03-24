@@ -1,0 +1,391 @@
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import { Dom } from "_cfs_web/dom.cfs";
+import { ServerApp } from "_cfs_web/server.cfs";
+import { Layout } from "_cfs_web/layout.cfs";
+import { Components } from "_cfs_web/components.cfs";
+import { Forms } from "_cfs_web/forms.cfs";
+import { Middleware } from "_cfs_web/middleware.cfs";
+import { ViewModels, Templates } from "_cfs_web/views.cfs";
+import { Guards } from "_cfs_web/guards.cfs";
+import { ComponentState } from "_cfs_web/component_state.cfs";
+import { Validation } from "_cfs_web/validation.cfs";
+
+func ensure_defaults(session) {
+    if (!session.contains("count")) { session["count"] = 0; }
+    if (!session.contains("name")) { session["name"] = "Guest"; }
+    if (!session.contains("last_event")) { session["last_event"] = "none"; }
+    if (!session.contains("is_admin")) { session["is_admin"] = false; }
+}
+
+func widget_state(ctx) {
+    var component_id = ctx.request.local("component_namespace", "home.widget");
+    return ComponentState.scope(ctx, component_id, {
+        "clicks": 0,
+        "note": "Server-side widget note",
+        "mode": "idle"
+    });
+}
+
+func home_model(ctx) {
+    ensure_defaults(ctx.session);
+    var widget = widget_state(ctx);
+
+    var vm = ViewModels.dashboard(
+        "Mini Web Framework - CFS only",
+        "Reusable server-side base",
+        "The browser only sends normal HTML form requests. Routing, state, rendering and event handling stay in CFS."
+    );
+
+    ViewModels.push_slot(vm, "top", Layout.panel([
+        Components.log_box("Named routes", [
+            Dom.h("p", null, [
+                Dom.h("a", {"href": ctx.request.url("home")}, "home"),
+                " · ",
+                Dom.h("a", {"href": ctx.request.url("hello.show", {"name": ctx.session["name"]})}, "hello"),
+                " · ",
+                Dom.h("a", {"href": ctx.request.url("admin.home")}, "admin"),
+                " · ",
+                Dom.h("a", {"href": ctx.request.url("api.widget", {"name":"home.widget"})}, "widget api")
+            ])
+        ])
+    ]));
+
+    ViewModels.push_slot(vm, "footer", Layout.panel([
+        Components.session_line("Layout slot footer rendered after the page body."),
+        Components.session_line("Current route helper sample: " + ctx.request.url("theme.switch", {"mode":"classic"}))
+    ]));
+
+    vm["main"] = [
+        Components.metric("Counter", str(ctx.session["count"])),
+        Forms.button_row([
+            Forms.event_button(ctx.request.url("counter.increment"), "+1", "btn", null),
+            Forms.event_button(ctx.request.url("counter.decrement"), "-1", "btn secondary", null),
+            Forms.event_button(ctx.request.url("counter.reset"), "Reset", "btn ghost", null)
+        ]),
+        Forms.text_post(ctx.request.url("profile.rename"), "Display name", "name", ctx.locals["profile_name_value"] == null ? ctx.session["name"] : ctx.locals["profile_name_value"], "Type a name", "Save name", "nameBox", ctx.locals["profile_name_error"]),
+        Components.log_box("Component state", [
+            Dom.h("div", null, "clicks = " + str(widget["clicks"])),
+            Dom.h("div", null, "mode = " + widget["mode"]),
+            Dom.h("div", null, "note = " + widget["note"])
+        ]),
+        Forms.button_row([
+            Forms.event_button(ctx.request.url("widget.pulse"), "Pulse widget", "btn", null),
+            Forms.event_button(ctx.request.url("widget.reset"), "Reset widget", "btn secondary", null)
+        ]),
+        Forms.text_post(ctx.request.url("widget.note"), "Widget note", "note", ctx.locals["widget_note_value"] == null ? widget["note"] : ctx.locals["widget_note_value"], "Update widget note", "Save widget", "widgetNoteBox", ctx.locals["widget_note_error"])
+    ];
+
+    vm["aside"] = [
+        Components.session_line("Session id: " + ctx.sid),
+        Components.session_line("Requests in this session: " + str(ctx.session["visits"])),
+        Components.session_line("Requests across all sessions: " + str(ctx.request.shared("request_count", 0))),
+        Components.session_line("Theme cookie: " + ctx.request.cookie("ui_theme", "classic")),
+        Components.session_line("Admin session: " + str(ctx.session["is_admin"])),
+        Components.log_box("Last event", Dom.h("div", null, ctx.session["last_event"])),
+        Components.log_box("Route params", [
+            Dom.h("p", null, "The route "),
+            Components.code("/hello/:name"),
+            Dom.h("p", null, [" is active. Try ", Dom.h("a", {"href": ctx.request.url("hello.show", {"name": ctx.session["name"]})}, ctx.request.url("hello.show", {"name": ctx.session["name"]})), "."])
+        ]),
+        Components.log_box("Static files", [
+            Dom.h("p", null, ["Mounted under ", Components.code("/static/*"), "."]),
+            Dom.h("p", null, [Dom.h("a", {"href":"/static/hello.txt"}, "hello.txt"), " and ", Dom.h("a", {"href":"/static/theme.css"}, "theme.css")])
+        ]),
+        Components.log_box("Cookies", [
+            Dom.h("p", null, "The theme switch writes a normal browser cookie via a CFS helper."),
+            Dom.h("p", null, [
+                Dom.h("a", {"href": ctx.request.url("theme.switch", {"mode":"classic"})}, "theme classic"),
+                " · ",
+                Dom.h("a", {"href": ctx.request.url("theme.switch", {"mode":"ink"})}, "theme ink"),
+                " · ",
+                Dom.h("a", {"href": ctx.request.url("theme.switch", {"mode":"clear"})}, "clear theme")
+            ])
+        ]),
+        Components.log_box("Runtime model", [
+            Dom.h("p", null, "Every submit hits a CFS route on the server. The handler updates session state and redirects back to "),
+            Components.code("/"),
+            Dom.h("p", null, " where the full page is rendered again in CFS.")
+        ]),
+        Components.log_box("Middleware", [
+            Dom.h("p", null, "Before middleware logs requests and counts them globally. After middleware adds response headers. Error middleware renders a page."),
+            Dom.h("p", null, ["Try ", Dom.h("a", {"href": ctx.request.url("boom")}, ctx.request.url("boom")), " to trigger the error template."])
+        ]),
+        Components.log_box("Guarded route", [
+            Dom.h("p", null, ["The route ", Components.code("/admin"), " is wrapped with a session guard."]),
+            Dom.h("p", null, [
+                Dom.h("a", {"href": ctx.request.url("admin.home")}, "open admin"),
+                " · ",
+                Dom.h("a", {"href": ctx.request.url("auth.login")}, "sign in as admin"),
+                " · ",
+                Dom.h("a", {"href": ctx.request.url("auth.logout")}, "sign out")
+            ])
+        ]),
+        Components.log_box("Route groups + helper objects", [
+            Dom.h("p", null, "Counter, auth, theme, widget and api routes are now registered through groups."),
+            Dom.h("p", null, "Handlers use ctx.request.* and ctx.response.* instead of reading raw dictionaries everywhere."),
+            Dom.h("p", null, [Dom.h("a", {"href": ctx.request.url("api.widget", {"name":"home.widget"})}, "open widget JSON API")])
+        ]),
+        Components.log_box("Hello", Dom.h("div", null, "Welcome, " + ctx.session["name"] + "."))
+    ];
+
+    return vm;
+}
+
+func home(ctx) {
+    return ctx.response.html(Templates.dashboard(home_model(ctx)));
+}
+
+func event_done(ctx, name) {
+    ensure_defaults(ctx.session);
+    ctx.session["last_event"] = name;
+    return ctx.response.redirect_to("home");
+}
+
+func counter_increment(ctx) {
+    ensure_defaults(ctx.session);
+    ctx.session["count"] = ctx.session["count"] + 1;
+    return event_done(ctx, "counter.increment");
+}
+
+func counter_decrement(ctx) {
+    ensure_defaults(ctx.session);
+    ctx.session["count"] = ctx.session["count"] - 1;
+    return event_done(ctx, "counter.decrement");
+}
+
+func counter_reset(ctx) {
+    ensure_defaults(ctx.session);
+    ctx.session["count"] = 0;
+    return event_done(ctx, "counter.reset");
+}
+
+func profile_rename(ctx) {
+    ensure_defaults(ctx.session);
+    var form = Validation.from_request(ctx);
+    form.text("name", ctx.request.session("name", "Guest"));
+    form.require("name", "Please enter a display name.");
+    form.min_len("name", 2, "Display name must be at least 2 characters.");
+
+    if (!form.is_valid()) {
+        ctx.locals["profile_name_value"] = form.value("name", "");
+        ctx.locals["profile_name_error"] = form.error("name");
+        ctx.session["last_event"] = "profile.rename.invalid";
+        return home(ctx);
+    }
+
+    ctx.session["name"] = form.value("name", "Guest");
+    return event_done(ctx, "profile.rename");
+}
+
+func hello_name(ctx) {
+    var name = ctx.request.param("name", "Guest");
+    var vm = ViewModels.page(
+        "Hello " + name,
+        "Route params",
+        "This page is driven by the pattern /hello/:name."
+    );
+
+    return ctx.response.html(Templates.page(vm, [
+        Layout.panel([
+            Components.log_box("Resolved params", [
+                Dom.h("div", null, "name = " + name),
+                Dom.h("div", null, "path = " + ctx.request.path())
+            ]),
+            Components.log_box("Request helpers", [
+                Dom.h("div", null, "cookie ui_theme = " + ctx.request.cookie("ui_theme", "classic")),
+                Dom.h("div", null, "shared request_count = " + str(ctx.request.shared("request_count", 0)))
+            ]),
+            Components.log_box("Session", Dom.h("div", null, "Current session name is still " + ctx.request.session("name", "Guest") + ".")),
+            Dom.h("p", null, [Dom.h("a", {"href": ctx.request.url("home")}, "Back to home")])
+        ])
+    ]));
+}
+
+func boom(ctx) {
+    throw "Intentional demo error from /boom";
+}
+
+func render_error(ctx, err) {
+    var vm = ViewModels.page(
+        "Error",
+        "Error middleware",
+        "The error response was rendered by a registered CFS middleware."
+    );
+
+    return ctx.response.html(Templates.page(vm, [
+        Layout.panel([
+            Components.log_box("Exception", Dom.h("pre", null, str(err))),
+            Dom.h("p", null, [Dom.h("a", {"href": ctx.request.url("home")}, "Back to home")])
+        ])
+    ]), 500);
+}
+
+func admin_page(ctx) {
+    ensure_defaults(ctx.session);
+
+    var vm = ViewModels.page(
+        "Admin",
+        "Nested layout",
+        "This route is protected by a session guard and rendered with section templates."
+    );
+
+    return ctx.response.html(Templates.sections(vm, [
+        Templates.section("Admin console", [
+            Dom.h("p", null, "You are inside a guarded route."),
+            Dom.h("p", null, "Current user: " + ctx.request.session("name", "Guest")),
+            Dom.h("p", null, "Theme cookie: " + ctx.request.cookie("ui_theme", "classic"))
+        ], "Protected content"),
+        Templates.section("Diagnostics", [
+            Dom.h("div", null, "request_count = " + str(ctx.request.shared("request_count", 0))),
+            Dom.h("div", null, "session_id = " + ctx.sid),
+            Dom.h("div", null, "path = " + ctx.request.path())
+        ]),
+        Templates.section("Navigation", [
+            Dom.h("p", null, [Dom.h("a", {"href": ctx.request.url("home")}, "Back to home"), " · ", Dom.h("a", {"href": ctx.request.url("auth.logout")}, "sign out")])
+        ])
+    ]));
+}
+
+func auth_login(ctx) {
+    ensure_defaults(ctx.session);
+    ctx.session["is_admin"] = true;
+    ctx.session["last_event"] = "auth.login";
+    return ctx.response.redirect_to("admin.home");
+}
+
+func auth_logout(ctx) {
+    ensure_defaults(ctx.session);
+    ctx.session["is_admin"] = false;
+    ctx.session["last_event"] = "auth.logout";
+    return ctx.response.redirect_to("home");
+}
+
+func theme_switch(ctx) {
+    var mode = ctx.request.param("mode", "classic");
+    var res = ctx.response.redirect("/");
+
+    if (mode == "clear") {
+        return ctx.response.expire_cookie(res, "ui_theme", {"Path":"/", "SameSite":"Lax"});
+    }
+
+    return ctx.response.with_cookie(res, "ui_theme", mode, {"Path":"/", "SameSite":"Lax"});
+}
+
+func widget_pulse(ctx) {
+    var state = widget_state(ctx);
+    state["clicks"] = state["clicks"] + 1;
+    state["mode"] = "pulse";
+    ctx.session["last_event"] = "widget.pulse";
+    return ctx.response.back("/", 303);
+}
+
+func widget_reset(ctx) {
+    ComponentState.reset(ctx, "home.widget");
+    var state = widget_state(ctx);
+    state["mode"] = "reset";
+    ctx.session["last_event"] = "widget.reset";
+    return ctx.response.back("/", 303);
+}
+
+func widget_note(ctx) {
+    var state = widget_state(ctx);
+    var form = Validation.from_request(ctx);
+    form.text("note", state["note"]);
+    form.require("note", "Please enter a widget note.");
+    form.max_len("note", 40, "Widget note must be at most 40 characters.");
+
+    if (!form.is_valid()) {
+        state["mode"] = "invalid";
+        ctx.locals["widget_note_value"] = form.value("note", "");
+        ctx.locals["widget_note_error"] = form.error("note");
+        ctx.session["last_event"] = "widget.note.invalid";
+        return home(ctx);
+    }
+
+    state["note"] = form.value("note", state["note"]);
+    state["mode"] = "saved";
+    ctx.session["last_event"] = "widget.note";
+    return ctx.response.back("/", 303);
+}
+
+func widget_api(ctx) {
+    var component_id = ctx.request.param("name", "home.widget");
+    var state = ComponentState.scope(ctx, component_id, {
+        "clicks": 0,
+        "note": "Server-side widget note",
+        "mode": "idle"
+    });
+
+    return ctx.response.json({
+        "component": component_id,
+        "state": state,
+        "theme": ctx.request.cookie("ui_theme", "classic"),
+        "request_count": ctx.request.shared("request_count", 0)
+    });
+}
+
+func exit_app(ctx) {
+    ctx.app.request_stop();
+    return ctx.response.text("Server stopping");
+}
+
+func main() {
+    var app = new ServerApp(8092);
+    var counter = app.group("/counter", "counter");
+    var auth = app.group("/auth", "auth");
+    var theme = app.group("/theme", "theme");
+    var widgets = app.group("/widgets", "widget");
+    var api = app.group("/api", "api");
+
+    app.use_before(Middleware.request_logger("[mini]"));
+    app.use_before(Middleware.counter("request_count", "request_number"));
+    app.use_after(Middleware.header("X-CFS-App", "mini-web-framework"));
+    app.use_after(Middleware.no_store());
+    app.use_error(render_error);
+
+    app.serve_static_map("/static/", {
+        "hello.txt": {
+            "data":"Hello from the reusable CFS static mount.\n",
+            "content_type":"text/plain; charset=utf-8"
+        },
+        "theme.css": {
+            "data":"body{outline:4px solid #ad3b24;outline-offset:-12px}",
+            "content_type":"text/css; charset=utf-8"
+        }
+    }, 600);
+
+    app.get_named("home", "/", home);
+    app.get_named("hello.show", "/hello/:name", hello_name);
+    app.get_named("admin.home", "/admin", Guards.require_session_flag("is_admin", admin_page, "/"));
+    app.get_named("boom", "/boom", boom);
+    app.post_named("profile.rename", "/profile/rename", profile_rename);
+    app.get_named("exit", "/exit", exit_app);
+
+    counter.post_named("increment", "/increment", counter_increment);
+    counter.post_named("decrement", "/decrement", counter_decrement);
+    counter.post_named("reset", "/reset", counter_reset);
+
+    auth.get_named("login", "/login", auth_login);
+    auth.get_named("logout", "/logout", auth_logout);
+
+    theme.get_named("switch", "/:mode", theme_switch);
+
+    widgets.use_before(func(ctx) {
+        ctx.locals["component_namespace"] = "home.widget";
+        return null;
+    });
+    widgets.use_after(Middleware.header("X-CFS-Group", "widgets"));
+
+    var widget_home = widgets.group("/home");
+
+    widget_home.post_named("pulse", "/pulse", widget_pulse);
+    widget_home.post_named("reset", "/reset", widget_reset);
+    widget_home.post_named("note", "/note", widget_note);
+
+    api.use_after(Middleware.header("X-CFS-Group", "api"));
+    api.get_named("widget", "/widget/:name", widget_api);
+
+    app.run();
+}
+
+main();

@@ -1,0 +1,110 @@
+export class BoundForm(source)
+{
+    var source;
+    var field_values = {};
+    var field_errors = {};
+
+    func init(source) {
+        this.source = source == null ? {} : source;
+    }
+
+    func text(name, fallback = "", trim = true) {
+        var value = this.source[name];
+        if (value == null) {
+            value = fallback;
+        }
+        if (value == null) {
+            value = "";
+        }
+
+        value = str(value);
+        if (trim) {
+            value = value.trim();
+        }
+
+        this.field_values[name] = value;
+        return value;
+    }
+
+    func value(name, fallback = null) {
+        var value = this.field_values[name];
+        return value == null ? fallback : value;
+    }
+
+    func add_error(name, message) {
+        if (!this.field_errors.contains(name)) {
+            this.field_errors[name] = message;
+        }
+        return this;
+    }
+
+    func require(name, message = null) {
+        var value = this.field_values[name];
+        if (value == null || str(value).trim() == "") {
+            return this.add_error(name, message == null ? ("Field '" + name + "' is required.") : message);
+        }
+        return this;
+    }
+
+    func min_len(name, min_len, message = null) {
+        var value = this.field_values[name];
+        if (value != null && len(str(value)) < min_len) {
+            return this.add_error(name, message == null ? ("Field '" + name + "' must be at least " + str(min_len) + " characters.") : message);
+        }
+        return this;
+    }
+
+    func max_len(name, max_len, message = null) {
+        var value = this.field_values[name];
+        if (value != null && len(str(value)) > max_len) {
+            return this.add_error(name, message == null ? ("Field '" + name + "' must be at most " + str(max_len) + " characters.") : message);
+        }
+        return this;
+    }
+
+    func one_of(name, allowed, message = null) {
+        var value = this.field_values[name];
+        var ok = false;
+
+        var i = 0;
+        while (i < len(allowed)) {
+            if (allowed[i] == value) {
+                ok = true;
+                break;
+            }
+            i = i + 1;
+        }
+
+        if (!ok) {
+            return this.add_error(name, message == null ? ("Field '" + name + "' has an invalid value.") : message);
+        }
+        return this;
+    }
+
+    func has_error(name) {
+        return this.field_errors[name] != null;
+    }
+
+    func error(name, fallback = null) {
+        var value = this.field_errors[name];
+        return value == null ? fallback : value;
+    }
+
+    func is_valid() {
+        foreach (var k, v in this.field_errors) {
+            return false;
+        }
+        return true;
+    }
+}
+
+export class Validation
+{
+    static func bind(source) {
+        return new BoundForm(source);
+    }
+
+    static func from_request(ctx) {
+        return Validation.bind(ctx.form);
+    }
+}

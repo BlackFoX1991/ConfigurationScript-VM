@@ -1,0 +1,37 @@
+import { Dom } from "dom.cfs";
+
+export class Components
+{
+    static func metric(label, value) {
+        return Dom.h("div", {"class":"metric"}, [
+            Dom.h("div", {"class":"label"}, label),
+            Dom.h("div", {"class":"value"}, value)
+        ]);
+    }
+
+    static func session_line(text) {
+        return Dom.h("div", {"class":"session"}, text);
+    }
+
+    static func code(text) {
+        return Dom.h("span", {"class":"code"}, text);
+    }
+
+    static func log_box(title, body) {
+        var children = [Dom.h("strong", null, title)];
+
+        if (body != null) {
+            if (typeof(body) == "Array") {
+                var i = 0;
+                while (i < len(body)) {
+                    children[] = body[i];
+                    i = i + 1;
+                }
+            } else {
+                children[] = body;
+            }
+        }
+
+        return Dom.h("div", {"class":"log"}, children);
+    }
+}

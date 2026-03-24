@@ -1,4 +1,4 @@
-﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+﻿import "plugins/CFGS.StandardLibrary.dll";
 # QR Model 2 – Auto EC (H→Q→M→L) und Auto Version (V1/V2), Byte-Mode, Maske 0
 class QRTools() {
 

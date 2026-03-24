@@ -1,0 +1,60 @@
+import { Util } from "common.cfs";
+
+export class Cookies
+{
+    static func all(ctx) {
+        return Util.parse_cookies(Util.header(ctx.req.headers, "Cookie"));
+    }
+
+    static func read(ctx, name, fallback = null) {
+        var values = Cookies.all(ctx);
+        var value = values[name];
+        if (value == null) { return fallback; }
+        return value;
+    }
+
+    static func serialize(name, value, attrs = null) {
+        var parts = [str(name) + "=" + str(value)];
+        var actual = attrs == null ? {} : attrs;
+
+        foreach (var k, v in actual) {
+            if (v == null || v == false) { continue; }
+            if (v == true) {
+                parts[] = str(k);
+            } else {
+                parts[] = str(k) + "=" + str(v);
+            }
+        }
+
+        return Util.join(parts, "; ");
+    }
+
+    static func with_cookie(res, name, value, attrs = null) {
+        var headers = res["headers"];
+        if (headers == null) {
+            headers = {};
+            res["headers"] = headers;
+        }
+
+        var actual = attrs == null ? {} : attrs;
+        if (!actual.contains("Path")) {
+            actual["Path"] = "/";
+        }
+
+        var cookie = Cookies.serialize(name, value, actual);
+        if (headers["Set-Cookie"] == null || headers["Set-Cookie"] == "") {
+            headers["Set-Cookie"] = cookie;
+        } else {
+            headers["Set-Cookie"] = headers["Set-Cookie"] + "\n" + cookie;
+        }
+
+        return res;
+    }
+
+    static func expire_cookie(res, name, attrs = null) {
+        var actual = attrs == null ? {} : attrs;
+        actual["Path"] = actual["Path"] == null ? "/" : actual["Path"];
+        actual["Max-Age"] = 0;
+        return Cookies.with_cookie(res, name, "", actual);
+    }
+}
