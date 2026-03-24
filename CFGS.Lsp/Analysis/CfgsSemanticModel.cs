@@ -1514,4 +1514,82 @@ internal static class SignatureLocator
 
         return true;
     }
+
+    public static int TryFindCallArgPositions(string sourceText, int line, int endCharacter)
+    {
+        int absoluteIndex = TryGetAbsoluteIndex(sourceText, line, endCharacter);
+        if (absoluteIndex < 0 || absoluteIndex >= sourceText.Length)
+            return -1;
+
+        int searchStart = absoluteIndex;
+        while (searchStart < sourceText.Length && char.IsWhiteSpace(sourceText[searchStart]))
+            searchStart++;
+
+        if (searchStart < sourceText.Length && sourceText[searchStart] == '(')
+            return searchStart;
+
+        return -1;
+    }
+
+    public static IReadOnlyList<(PositionInfo Position, int ArgIndex)> GetArgumentPositions(string sourceText, int line, int openParenAbsoluteIndex)
+    {
+        List<(PositionInfo, int)> positions = [];
+        int argIndex = 0;
+        int parenDepth = 0;
+        int bracketDepth = 0;
+        int braceDepth = 0;
+        int start = openParenAbsoluteIndex + 1;
+
+        while (start < sourceText.Length && char.IsWhiteSpace(sourceText[start]))
+            start++;
+
+        if (start < sourceText.Length && sourceText[start] == ')')
+            return positions;
+
+        if (TryGetLineCharacter(sourceText, start, out int firstLine, out int firstChar))
+            positions.Add((new PositionInfo(firstLine, firstChar), argIndex));
+
+        for (int i = start; i < sourceText.Length; i++)
+        {
+            char ch = sourceText[i];
+            switch (ch)
+            {
+                case '(':
+                    parenDepth++;
+                    break;
+                case ')':
+                    if (parenDepth == 0)
+                        return positions;
+                    parenDepth--;
+                    break;
+                case '[':
+                    bracketDepth++;
+                    break;
+                case ']':
+                    if (bracketDepth > 0)
+                        bracketDepth--;
+                    break;
+                case '{':
+                    braceDepth++;
+                    break;
+                case '}':
+                    if (braceDepth > 0)
+                        braceDepth--;
+                    break;
+                case ',':
+                    if (parenDepth == 0 && bracketDepth == 0 && braceDepth == 0)
+                    {
+                        argIndex++;
+                        int argStart = i + 1;
+                        while (argStart < sourceText.Length && char.IsWhiteSpace(sourceText[argStart]))
+                            argStart++;
+                        if (TryGetLineCharacter(sourceText, argStart, out int argLine, out int argChar))
+                            positions.Add((new PositionInfo(argLine, argChar), argIndex));
+                    }
+                    break;
+            }
+        }
+
+        return positions;
+    }
 }
