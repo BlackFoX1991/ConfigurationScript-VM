@@ -66,19 +66,34 @@ internal sealed class LspServer
                             {
                                 textDocumentSync = 1,
                                 definitionProvider = true,
+                                typeDefinitionProvider = true,
+                                implementationProvider = true,
                                 hoverProvider = true,
                                 documentHighlightProvider = true,
                                 referencesProvider = true,
                                 codeActionProvider = new
                                 {
-                                    codeActionKinds = new[] { "quickfix" }
+                                    codeActionKinds = new[] { "quickfix", "refactor" }
                                 },
                                 renameProvider = new
                                 {
                                     prepareProvider = true
                                 },
                                 documentSymbolProvider = true,
+                                workspaceSymbolProvider = true,
                                 foldingRangeProvider = true,
+                                selectionRangeProvider = true,
+                                documentFormattingProvider = true,
+                                documentLinkProvider = new
+                                {
+                                    resolveProvider = false
+                                },
+                                codeLensProvider = new
+                                {
+                                    resolveProvider = false
+                                },
+                                inlayHintProvider = true,
+                                callHierarchyProvider = true,
                                 signatureHelpProvider = new
                                 {
                                     triggerCharacters = new[] { "(", "," },
@@ -86,7 +101,8 @@ internal sealed class LspServer
                                 },
                                 completionProvider = new
                                 {
-                                    resolveProvider = false
+                                    resolveProvider = false,
+                                    triggerCharacters = new[] { "." }
                                 },
                                 semanticTokensProvider = new
                                 {
@@ -101,7 +117,7 @@ internal sealed class LspServer
                             serverInfo = new
                             {
                                 name = "CFGS Language Server",
-                                version = "0.1.0"
+                                version = "0.2.0"
                             }
                         }, cancellationToken);
                     }
@@ -332,10 +348,13 @@ internal sealed class LspServer
                     if (hasId)
                     {
                         string uri = parameters.GetProperty("textDocument").GetProperty("uri").GetString() ?? string.Empty;
+                        (int line, int character) = GetPosition(parameters);
                         DocumentState state = EnsureDocument(uri);
                         CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
-                        IReadOnlyList<CfgsCompletionItem> completions = _analyzer.GetCompletions(analysis);
-                        await SendResponseAsync(idElement, completions.Select(ToCompletionPayload).ToList(), cancellationToken);
+                        List<object> items = _analyzer.GetCompletions(analysis, line, character)
+                            .Select(ToCompletionPayload).ToList();
+                        items.AddRange(_analyzer.GetSnippetCompletions().Select(ToSnippetCompletionPayload));
+                        await SendResponseAsync(idElement, items, cancellationToken);
                     }
                     return true;
 
@@ -347,6 +366,141 @@ internal sealed class LspServer
                         CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
                         IReadOnlyList<int> data = _analyzer.GetSemanticTokens(analysis);
                         await SendResponseAsync(idElement, new { data }, cancellationToken);
+                    }
+                    return true;
+
+                case "textDocument/typeDefinition":
+                    if (hasId)
+                    {
+                        string uri = GetTextDocumentUri(parameters);
+                        (int line, int character) = GetPosition(parameters);
+                        DocumentState state = EnsureDocument(uri);
+                        IReadOnlyList<CfgsSymbol> typeDefs = _analyzer.FindTypeDefinition(state.Analysis, line, character);
+                        object? payload = typeDefs.Count == 0 ? null : typeDefs.Select(ToLocationPayload).ToList();
+                        await SendResponseAsync(idElement, payload, cancellationToken);
+                    }
+                    return true;
+
+                case "textDocument/implementation":
+                    if (hasId)
+                    {
+                        string uri = GetTextDocumentUri(parameters);
+                        (int line, int character) = GetPosition(parameters);
+                        DocumentState state = EnsureDocument(uri);
+                        IReadOnlyList<CfgsSymbol> implementations = FindWorkspaceImplementations(state, line, character);
+                        object? payload = implementations.Count == 0 ? null : implementations.Select(ToLocationPayload).ToList();
+                        await SendResponseAsync(idElement, payload, cancellationToken);
+                    }
+                    return true;
+
+                case "workspace/symbol":
+                    if (hasId)
+                    {
+                        string query = parameters.TryGetProperty("query", out JsonElement queryEl) ? queryEl.GetString() ?? string.Empty : string.Empty;
+                        IReadOnlyList<object> workspaceSymbols = FindWorkspaceSymbols(query);
+                        await SendResponseAsync(idElement, workspaceSymbols.Count == 0 ? null : workspaceSymbols, cancellationToken);
+                    }
+                    return true;
+
+                case "textDocument/formatting":
+                    if (hasId)
+                    {
+                        string uri = GetTextDocumentUri(parameters);
+                        int tabSize = 4;
+                        bool insertSpaces = true;
+                        if (parameters.TryGetProperty("options", out JsonElement options))
+                        {
+                            if (options.TryGetProperty("tabSize", out JsonElement ts))
+                                tabSize = ts.GetInt32();
+                            if (options.TryGetProperty("insertSpaces", out JsonElement isp))
+                                insertSpaces = isp.GetBoolean();
+                        }
+                        DocumentState state = EnsureDocument(uri);
+                        IReadOnlyList<CfgsTextEdit> formatEdits = _analyzer.FormatDocument(state.Analysis, tabSize, insertSpaces);
+                        await SendResponseAsync(idElement, formatEdits.Count == 0 ? null : formatEdits.Select(ToTextEditPayload).ToList(), cancellationToken);
+                    }
+                    return true;
+
+                case "textDocument/documentLink":
+                    if (hasId)
+                    {
+                        string uri = GetTextDocumentUri(parameters);
+                        DocumentState state = EnsureDocument(uri);
+                        IReadOnlyList<CfgsDocumentLink> links = _analyzer.GetDocumentLinks(state.Analysis);
+                        await SendResponseAsync(idElement, links.Count == 0 ? null : links.Select(ToDocumentLinkPayload).ToList(), cancellationToken);
+                    }
+                    return true;
+
+                case "textDocument/selectionRange":
+                    if (hasId)
+                    {
+                        string uri = GetTextDocumentUri(parameters);
+                        DocumentState state = EnsureDocument(uri);
+                        List<PositionInfo> positions = [];
+                        if (parameters.TryGetProperty("positions", out JsonElement positionsEl))
+                        {
+                            foreach (JsonElement pos in positionsEl.EnumerateArray())
+                            {
+                                int pl = pos.TryGetProperty("line", out JsonElement pll) ? pll.GetInt32() : 0;
+                                int pc = pos.TryGetProperty("character", out JsonElement pcc) ? pcc.GetInt32() : 0;
+                                positions.Add(new PositionInfo(pl, pc));
+                            }
+                        }
+                        IReadOnlyList<CfgsSelectionRange> selectionRanges = _analyzer.GetSelectionRanges(state.Analysis, positions);
+                        await SendResponseAsync(idElement, selectionRanges.Select(ToSelectionRangePayload).ToList(), cancellationToken);
+                    }
+                    return true;
+
+                case "textDocument/codeLens":
+                    if (hasId)
+                    {
+                        string uri = GetTextDocumentUri(parameters);
+                        DocumentState state = EnsureDocument(uri);
+                        IReadOnlyList<CfgsCodeLens> codeLenses = _analyzer.GetCodeLenses(state.Analysis);
+                        await SendResponseAsync(idElement, codeLenses.Select(ToCodeLensPayload).ToList(), cancellationToken);
+                    }
+                    return true;
+
+                case "textDocument/inlayHint":
+                    if (hasId)
+                    {
+                        string uri = GetTextDocumentUri(parameters);
+                        RangeInfo hintRange = parameters.TryGetProperty("range", out JsonElement rangeEl)
+                            ? ToRangeInfo(rangeEl)
+                            : new RangeInfo(new PositionInfo(0, 0), new PositionInfo(int.MaxValue, 0));
+                        DocumentState state = EnsureDocument(uri);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        IReadOnlyList<CfgsInlayHint> inlayHints = _analyzer.GetInlayHints(analysis, hintRange);
+                        await SendResponseAsync(idElement, inlayHints.Count == 0 ? null : inlayHints.Select(ToInlayHintPayload).ToList(), cancellationToken);
+                    }
+                    return true;
+
+                case "textDocument/prepareCallHierarchy":
+                    if (hasId)
+                    {
+                        string uri = GetTextDocumentUri(parameters);
+                        (int line, int character) = GetPosition(parameters);
+                        DocumentState state = EnsureDocument(uri);
+                        CfgsCallHierarchyItem? item = _analyzer.PrepareCallHierarchy(state.Analysis, line, character);
+                        await SendResponseAsync(idElement, item is null ? null : new[] { ToCallHierarchyItemPayload(item) }, cancellationToken);
+                    }
+                    return true;
+
+                case "callHierarchy/incomingCalls":
+                    if (hasId)
+                    {
+                        CfgsCallHierarchyItem callItem = ParseCallHierarchyItem(parameters.GetProperty("item"));
+                        IReadOnlyList<CfgsCallHierarchyIncomingCall> incoming = FindWorkspaceIncomingCalls(callItem);
+                        await SendResponseAsync(idElement, incoming.Count == 0 ? null : incoming.Select(ToIncomingCallPayload).ToList(), cancellationToken);
+                    }
+                    return true;
+
+                case "callHierarchy/outgoingCalls":
+                    if (hasId)
+                    {
+                        CfgsCallHierarchyItem callItem = ParseCallHierarchyItem(parameters.GetProperty("item"));
+                        IReadOnlyList<CfgsCallHierarchyOutgoingCall> outgoing = FindWorkspaceOutgoingCalls(callItem);
+                        await SendResponseAsync(idElement, outgoing.Count == 0 ? null : outgoing.Select(ToOutgoingCallPayload).ToList(), cancellationToken);
                     }
                     return true;
 
@@ -543,19 +697,127 @@ internal sealed class LspServer
         return edits.Count == 0 ? null : new CfgsRenameResult(edits);
     }
 
-    private IReadOnlyList<object> GetCodeActions(DocumentState state, string uri, RangeInfo requestRange)
+    private IReadOnlyList<CfgsSymbol> FindWorkspaceImplementations(DocumentState anchorState, int line, int character)
     {
-        if (!state.Analysis.DiagnosticsByUri.TryGetValue(uri, out List<CfgsDiagnostic>? diagnostics) || diagnostics.Count == 0)
+        CfgsSymbol? symbol = _analyzer.ResolveSymbol(anchorState.Analysis, line, character);
+        if (symbol is null)
             return [];
 
-        List<CfgsCodeAction> actions = [];
-        foreach (CfgsDiagnostic diagnostic in diagnostics)
+        return EnumerateWorkspaceStates(anchorState.Uri)
+            .SelectMany(state => _analyzer.FindImplementations(state.Analysis, line, character))
+            .GroupBy(s => (s.QualifiedName, s.Uri))
+            .Select(static g => g.First())
+            .ToList();
+    }
+
+    private IReadOnlyList<object> FindWorkspaceSymbols(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return [];
+
+        List<object> results = [];
+        HashSet<string> seen = new(StringComparer.Ordinal);
+
+        foreach (DocumentState state in _documents.Values)
         {
-            if (!Intersects(diagnostic.Range, requestRange))
+            foreach (CfgsSymbol symbol in _analyzer.FindWorkspaceSymbols(state.Analysis, query))
+            {
+                string key = $"{symbol.QualifiedName}|{symbol.Uri}";
+                if (seen.Add(key))
+                    results.Add(ToWorkspaceSymbolPayload(symbol));
+            }
+        }
+
+        foreach (string uri in EnumerateWorkspaceDocumentUris(_documents.Values.FirstOrDefault()?.Uri ?? string.Empty))
+        {
+            if (_documents.ContainsKey(uri))
                 continue;
 
-            AddQuickFixes(actions, state, diagnostic);
+            DocumentState state = EnsureDocument(uri);
+            foreach (CfgsSymbol symbol in _analyzer.FindWorkspaceSymbols(state.Analysis, query))
+            {
+                string key = $"{symbol.QualifiedName}|{symbol.Uri}";
+                if (seen.Add(key))
+                    results.Add(ToWorkspaceSymbolPayload(symbol));
+            }
         }
+
+        return results;
+    }
+
+    private IReadOnlyList<CfgsCallHierarchyIncomingCall> FindWorkspaceIncomingCalls(CfgsCallHierarchyItem item)
+    {
+        Dictionary<string, (CfgsCallHierarchyItem Caller, List<RangeInfo> Ranges)> merged = new(StringComparer.Ordinal);
+
+        foreach (DocumentState state in EnumerateWorkspaceStates(item.Uri))
+        {
+            foreach (CfgsCallHierarchyIncomingCall call in _analyzer.FindIncomingCalls(state.Analysis, item))
+            {
+                string key = $"{call.From.Uri}|{call.From.Name}";
+                if (!merged.TryGetValue(key, out var entry))
+                {
+                    entry = (call.From, []);
+                    merged[key] = entry;
+                }
+                entry.Ranges.AddRange(call.FromRanges);
+            }
+        }
+
+        return merged.Values
+            .Select(e => new CfgsCallHierarchyIncomingCall(e.Caller, e.Ranges))
+            .ToList();
+    }
+
+    private IReadOnlyList<CfgsCallHierarchyOutgoingCall> FindWorkspaceOutgoingCalls(CfgsCallHierarchyItem item)
+    {
+        Dictionary<string, (CfgsCallHierarchyItem Callee, List<RangeInfo> Ranges)> merged = new(StringComparer.Ordinal);
+
+        foreach (DocumentState state in EnumerateWorkspaceStates(item.Uri))
+        {
+            foreach (CfgsCallHierarchyOutgoingCall call in _analyzer.FindOutgoingCalls(state.Analysis, item))
+            {
+                string key = $"{call.To.Uri}|{call.To.Name}";
+                if (!merged.TryGetValue(key, out var entry))
+                {
+                    entry = (call.To, []);
+                    merged[key] = entry;
+                }
+                entry.Ranges.AddRange(call.FromRanges);
+            }
+        }
+
+        return merged.Values
+            .Select(e => new CfgsCallHierarchyOutgoingCall(e.Callee, e.Ranges))
+            .ToList();
+    }
+
+    private static CfgsCallHierarchyItem ParseCallHierarchyItem(JsonElement element)
+    {
+        string name = element.GetProperty("name").GetString() ?? string.Empty;
+        int kind = element.GetProperty("kind").GetInt32();
+        string uri = element.GetProperty("uri").GetString() ?? string.Empty;
+        RangeInfo range = ToRangeInfo(element.GetProperty("range"));
+        RangeInfo selectionRange = ToRangeInfo(element.GetProperty("selectionRange"));
+        string detail = element.TryGetProperty("detail", out JsonElement detailEl) ? detailEl.GetString() ?? string.Empty : string.Empty;
+        return new CfgsCallHierarchyItem(name, kind, uri, range, selectionRange, detail);
+    }
+
+    private IReadOnlyList<object> GetCodeActions(DocumentState state, string uri, RangeInfo requestRange)
+    {
+        List<CfgsCodeAction> actions = [];
+
+        if (state.Analysis.DiagnosticsByUri.TryGetValue(uri, out List<CfgsDiagnostic>? diagnostics) && diagnostics.Count > 0)
+        {
+            foreach (CfgsDiagnostic diagnostic in diagnostics)
+            {
+                if (!Intersects(diagnostic.Range, requestRange))
+                    continue;
+
+                AddQuickFixes(actions, state, diagnostic);
+            }
+        }
+
+        AddRefactorings(actions, state, uri, requestRange);
 
         return actions
             .GroupBy(static action => action.Title, StringComparer.Ordinal)
@@ -639,6 +901,80 @@ internal sealed class LspServer
             [diagnostic],
             new CfgsWorkspaceEdit([], [new CfgsTextEdit(targetUri, CreateAppendRange(existingText), stub)]));
         return true;
+    }
+
+    private static void AddRefactorings(List<CfgsCodeAction> actions, DocumentState state, string uri, RangeInfo requestRange)
+    {
+        if (requestRange.Start.Line == requestRange.End.Line && requestRange.Start.Character == requestRange.End.Character)
+            return;
+
+        string selectedText = ExtractText(state.Text, requestRange);
+        if (string.IsNullOrWhiteSpace(selectedText))
+            return;
+
+        string lineEnding = DetectLineEnding(state.Text);
+        string trimmed = selectedText.Trim();
+
+        if (!trimmed.Contains('\n', StringComparison.Ordinal))
+        {
+            string varName = "__extracted";
+            string insertLine = $"var {varName} = {trimmed};{lineEnding}";
+            int insertAtLine = requestRange.Start.Line;
+            string[] lines = state.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+            string indentation = insertAtLine < lines.Length
+                ? new string(lines[insertAtLine].TakeWhile(char.IsWhiteSpace).ToArray())
+                : string.Empty;
+
+            actions.Add(new CfgsCodeAction(
+                "Extract to variable",
+                "refactor",
+                [],
+                new CfgsWorkspaceEdit([], [
+                    new CfgsTextEdit(uri, new RangeInfo(new PositionInfo(insertAtLine, 0), new PositionInfo(insertAtLine, 0)), indentation + insertLine),
+                    new CfgsTextEdit(uri, requestRange, varName)
+                ])));
+        }
+
+        actions.Add(new CfgsCodeAction(
+            "Surround with try-catch",
+            "refactor",
+            [],
+            new CfgsWorkspaceEdit([], [
+                new CfgsTextEdit(uri, requestRange,
+                    $"try {{{lineEnding}\t{trimmed}{lineEnding}}} catch (err) {{{lineEnding}\t# handle error{lineEnding}}}")
+            ])));
+    }
+
+    private static string ExtractText(string sourceText, RangeInfo range)
+    {
+        string[] lines = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        if (range.Start.Line >= lines.Length)
+            return string.Empty;
+
+        if (range.Start.Line == range.End.Line)
+        {
+            string line = lines[range.Start.Line];
+            int start = Math.Min(range.Start.Character, line.Length);
+            int end = Math.Min(range.End.Character, line.Length);
+            return line[start..end];
+        }
+
+        StringBuilder sb = new();
+        for (int i = range.Start.Line; i <= Math.Min(range.End.Line, lines.Length - 1); i++)
+        {
+            string line = lines[i];
+            if (i == range.Start.Line)
+                sb.Append(line[Math.Min(range.Start.Character, line.Length)..]);
+            else if (i == range.End.Line)
+                sb.Append(line[..Math.Min(range.End.Character, line.Length)]);
+            else
+                sb.Append(line);
+
+            if (i < range.End.Line)
+                sb.Append('\n');
+        }
+
+        return sb.ToString();
     }
 
     private string GetDocumentText(string uri)
@@ -1010,6 +1346,91 @@ internal sealed class LspServer
         kind = item.Kind,
         detail = item.Detail
     };
+
+    private static object ToSnippetCompletionPayload(CfgsCompletionItem item) => new
+    {
+        label = item.Label,
+        kind = item.Kind,
+        detail = item.Detail,
+        insertText = item.InsertText,
+        insertTextFormat = 2
+    };
+
+    private static object ToWorkspaceSymbolPayload(CfgsSymbol symbol) => new
+    {
+        name = symbol.Name,
+        kind = symbol.Kind,
+        location = ToLocationPayload(symbol)
+    };
+
+    private static object ToDocumentLinkPayload(CfgsDocumentLink link) => new
+    {
+        range = ToRangePayload(link.Range),
+        target = link.Target
+    };
+
+    private static object ToCodeLensPayload(CfgsCodeLens lens) => new
+    {
+        range = ToRangePayload(lens.Range),
+        command = new
+        {
+            title = lens.CommandTitle,
+            command = string.Empty
+        }
+    };
+
+    private static object ToInlayHintPayload(CfgsInlayHint hint) => new
+    {
+        position = new
+        {
+            line = hint.Position.Line,
+            character = hint.Position.Character
+        },
+        label = hint.Label,
+        kind = (int)hint.Kind,
+        paddingRight = true
+    };
+
+    private static object ToCallHierarchyItemPayload(CfgsCallHierarchyItem item) => new
+    {
+        name = item.Name,
+        kind = item.Kind,
+        uri = item.Uri,
+        range = ToRangePayload(item.Range),
+        selectionRange = ToRangePayload(item.SelectionRange),
+        detail = item.Detail
+    };
+
+    private static object ToIncomingCallPayload(CfgsCallHierarchyIncomingCall call) => new
+    {
+        from = ToCallHierarchyItemPayload(call.From),
+        fromRanges = call.FromRanges.Select(ToRangePayload).ToList()
+    };
+
+    private static object ToOutgoingCallPayload(CfgsCallHierarchyOutgoingCall call) => new
+    {
+        to = ToCallHierarchyItemPayload(call.To),
+        fromRanges = call.FromRanges.Select(ToRangePayload).ToList()
+    };
+
+    private static object ToSelectionRangePayload(CfgsSelectionRange range)
+    {
+        object result = new
+        {
+            range = ToRangePayload(range.Range)
+        };
+
+        if (range.Parent is not null)
+        {
+            result = new
+            {
+                range = ToRangePayload(range.Range),
+                parent = ToSelectionRangePayload(range.Parent)
+            };
+        }
+
+        return result;
+    }
 
     private static object ToSignaturePayload(CfgsSignature signature) => new
     {
