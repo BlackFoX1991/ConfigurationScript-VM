@@ -16,7 +16,7 @@ dotnet dist\Debug\net10.0\CFGS_VM.dll CFGS_NE\Samples\general_Tests\feature_08_a
 
 Recommended entry points.
 
-- `general_Tests/feature_01_core_control_classes.cfs` through `feature_08_async_await_yield.cfs` are the current feature-oriented reference set.
+- `general_Tests/feature_01_core_control_classes.cfs` through `feature_09_binary_bytes.cfs` are the current feature-oriented reference set.
 - `general_Tests/destructuring.cfs`, `foreach.cfs`, and `small_test.cfs` are compact focused examples.
 - `Class_Tests/classes.cfs` and `Class_Tests/inheritance.cfs` are the clearest OOP samples from the older set.
 - `Http_Tests/mini_web_framework_cfs_only.cfs` is the cleanest starting point for a server-side CFS web app without custom browser JavaScript.

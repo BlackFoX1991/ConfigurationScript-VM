@@ -14,6 +14,7 @@ CFGS is a lightweight, dynamic, C-like scripting language (comparable in spirit 
 
 - Expressions, ternary operator, null coalescing (`??`)
 - Arrays, dictionaries, slicing
+- Byte conversion and binary file I O
 - Variables, functions, closures
 - Classes, inheritance, enums
 - Control flow (`if`, `while`, `for`, `foreach`, `match`)
@@ -394,7 +395,7 @@ cfgs.exe Samples\general_Tests\feature_01_core_control_classes.cfs
 cfgs.exe Samples\general_Tests\feature_05_oop_namespace_hardening.cfs
 ```
 
-## Feature scripts 06-08
+## Feature scripts 06-09
 
 These scripts map directly to the latest hardening/features:
 
@@ -412,6 +413,11 @@ These scripts map directly to the latest hardening/features:
   - await on list/dictionary of awaitables
   - hot-start call order (`call -> sync prefix -> caller continues -> await resume`)
   - final `yield` semantics (`yield;` as scheduling statement in `async func`)
+- `feature_09_binary_bytes.cfs`
+  - `byte(...)` conversion with `0..255` range checks
+  - `readAllBytes` and `writeAllBytes`
+  - `fbopen` with raw byte reads, writes, seek, and EOF behavior
+  - bitwise byte patching on normal CFGS arrays
 
 Run them:
 
@@ -419,6 +425,7 @@ Run them:
 cfgs.exe Samples\general_Tests\feature_06_plugins_integration.cfs
 cfgs.exe Samples\general_Tests\feature_07_visibility_foreach_out_intrinsics.cfs
 cfgs.exe Samples\general_Tests\feature_08_async_await_yield.cfs
+cfgs.exe Samples\general_Tests\feature_09_binary_bytes.cfs
 ```
 
 ---

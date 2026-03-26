@@ -17,13 +17,21 @@ After that, its builtins and intrinsics are available globally.
 - `typeof(value)` returns a friendly type name such as `Int`, `String`, `Array`, `Dictionary`, `Task<Object>`, or the class name of an instance.
 - `len(value)` returns the length of a string, array, or dictionary.
 - `str(value)` and `string(value)` convert values to text.
-- `int(value)`, `long(value)`, `double(value)`, `float(value)`, `decimal(value)`, `char(value)`, `bool(value)`, `bigint(value)` perform direct conversions.
+- `int(value)`, `byte(value)`, `long(value)`, `double(value)`, `float(value)`, `decimal(value)`, `char(value)`, `bool(value)`, `bigint(value)` perform direct conversions.
 - `toi(value)`, `toi16(value)`, `toi32(value)`, `toi64(value)` are numeric helper conversions.
 - `chr(value)` converts to a char.
 - `array(value)` builds an array. Arrays are copied. Single values are wrapped into a one element array.
 - `dictionary(value)` builds a dictionary. Dictionaries are copied. Single values produce an empty dictionary.
 - `isarray(value)` and `isdict(value)` check collection types.
 - `getfields(dict)` returns the keys of a dictionary as an array.
+
+Example.
+
+```cfs
+print(typeof(byte(255)));
+print(byte(0x41));
+print(byte(300));   # runtime error: value must be between 0 and 255
+```
 
 ### Output and Console
 
@@ -40,7 +48,10 @@ After that, its builtins and intrinsics are available globally.
 - `get_workspace()` returns the current working directory.
 - `getDirectory(path)` returns the directory part of a path.
 - `fopen(path, mode)` opens a file and returns a `FileHandle`.
+- `fbopen(path, mode)` opens a file and returns a `BinaryFileHandle`.
 - `fexist(path)` checks whether a file exists.
+- `readAllBytes(path)` reads the full file into an array of byte values.
+- `writeAllBytes(path, bytes)` writes an array of byte values and returns the written byte count.
 - `readTextAsync(path)`, `writeTextAsync(path, text)`, `appendTextAsync(path, text)` are asynchronous file helpers.
 
 `fopen` supports these modes.
@@ -50,6 +61,17 @@ After that, its builtins and intrinsics are available globally.
 - `2` creates a new file for writing.
 - `3` opens for append.
 - `4` opens or creates for writing.
+
+`fbopen` uses the same mode values, but the returned handle works on raw bytes instead of UTF-8 text.
+
+Small binary example.
+
+```cfs
+writeAllBytes("demo.bin", [0x41, 0x42, 0x43]);
+var bytes = readAllBytes("demo.bin");
+bytes[1] = byte(bytes[1] | 0x20);
+writeAllBytes("demo.bin", bytes);
+```
 
 ### Environment and Arguments
 
@@ -363,6 +385,68 @@ var f = fopen("demo.txt", 2);
 f.writeln("Hello");
 f.flush();
 f.close();
+```
+
+## BinaryFileHandle Intrinsics
+
+A `BinaryFileHandle` returned by `fbopen` supports these methods.
+
+- `writeByte(value)`
+- `writeBytes(bytes)`
+- `flush()`
+- `readByte()`
+- `readBytes(count)`
+- `seek(offset, origin)`
+- `tell()`
+- `eof()`
+- `close()`
+- `writeByteAsync(value)`
+- `writeBytesAsync(bytes)`
+- `flushAsync()`
+- `readByteAsync()`
+- `readBytesAsync(count)`
+
+Byte arrays use normal CFGS arrays whose elements must stay in the range `0..255`.
+
+`readByte()` returns the next byte as an integer `0..255`. At end of file it returns `-1`.
+
+Example: whole file patch.
+
+```cfs
+var f = fbopen("demo.bin", 2);
+f.writeBytes([0x41, 0x42, 0x43, 0x44]);
+f.flush();
+f.close();
+
+var inp = fbopen("demo.bin", 0);
+var bytes = inp.readBytes(4);
+bytes[0] = bytes[0] | 0x20;
+inp.close();
+
+writeAllBytes("demo.bin", bytes);
+```
+
+Example: patch a single byte in place.
+
+```cfs
+var f = fbopen("demo.bin", 1);
+f.seek(1, 0);
+var b = f.readByte();
+f.seek(-1, 1);
+f.writeByte(byte(b ^ 0x20));
+f.flush();
+f.close();
+```
+
+Example: async read of a fixed header.
+
+```cfs
+async func read_magic(path) {
+    var f = fbopen(path, 0);
+    var header = await f.readBytesAsync(4);
+    f.close();
+    return header;
+}
 ```
 
 ## Exception Intrinsics

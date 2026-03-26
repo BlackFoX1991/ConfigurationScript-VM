@@ -1,0 +1,75 @@
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+func assert_arr_eq(name, actual, expected) {
+    if (len(actual) != len(expected)) {
+        print("FAIL " + name + " -> len " + str(len(actual)) + ", expected " + str(len(expected)));
+        failed = failed + 1;
+        return;
+    }
+
+    var i = 0;
+    while (i < len(actual)) {
+        if (actual[i] != expected[i]) {
+            print("FAIL " + name + " -> idx " + str(i) + ", got " + str(actual[i]) + ", expected " + str(expected[i]));
+            failed = failed + 1;
+            return;
+        }
+        i = i + 1;
+    }
+
+    print("OK   " + name + " = " + str(actual));
+}
+
+func finish(tag) {
+    if (failed == 0) {
+        print("ALL PASSED: " + tag);
+    } else {
+        print("FAILED: " + tag + " (" + str(failed) + ")");
+    }
+}
+
+func main() {
+    var path = "_tmp_binary_bytes.bin";
+
+    assert_eq("byte_builtin_type", typeof(byte(255)), "Byte");
+    assert_eq("byte_builtin_value", byte(255), 255);
+
+    assert_eq("write_all_bytes_count", writeAllBytes(path, [0x10, 0x20, 0x7F, 0xFF]), 4);
+    assert_arr_eq("read_all_bytes", readAllBytes(path), [16, 32, 127, 255]);
+
+    var fh = fbopen(path, 0);
+    assert_eq("read_byte_0", fh.readByte(), 16);
+    assert_eq("read_byte_1", fh.readByte(), 32);
+    assert_eq("tell_after_two_reads", fh.tell(), 2);
+    assert_eq("seek_absolute_one", fh.seek(1, 0), 1);
+    assert_eq("read_byte_after_seek", fh.readByte(), 32);
+    fh.close();
+
+    var edit = readAllBytes(path);
+    edit[0] = byte(edit[0] | 0x80);
+    edit[1] = byte(edit[1] ^ 0x0F);
+    edit[2] = byte((edit[2] << 1) & 0xFF);
+
+    assert_eq("write_modified_count", writeAllBytes(path, edit), 4);
+    assert_arr_eq("modified_bytes", readAllBytes(path), [144, 47, 254, 255]);
+
+    var eofh = fbopen(path, 0);
+    var _ = eofh.readBytes(4);
+    assert_eq("read_byte_eof", eofh.readByte(), -1);
+    eofh.close();
+
+    finish("feature_09_binary_bytes");
+}
+
+main();

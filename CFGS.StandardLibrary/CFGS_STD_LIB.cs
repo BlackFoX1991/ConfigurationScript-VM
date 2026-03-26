@@ -38,6 +38,7 @@ namespace CFGS.StandardLibrary
         {
             if (t == typeof(void)) return "Void";
             if (t == typeof(bool)) return "Boolean";
+            if (t == typeof(byte)) return "Byte";
             if (t == typeof(int)) return "Int";
             if (t == typeof(long)) return "Long";
             if (t == typeof(double)) return "Double";
@@ -63,6 +64,7 @@ namespace CFGS.StandardLibrary
             RegisterDict(intrinsics);
             RegisterException(intrinsics);
             RegisterFile(intrinsics);
+            RegisterBinaryFile(intrinsics);
             RegisterDateTime(intrinsics);
             RegisterDirectoryInfo(intrinsics);
             RegisterTaskNamespace(intrinsics);
@@ -97,6 +99,157 @@ namespace CFGS.StandardLibrary
                     return value;
                 });
             }, smartAwait: true));
+        }
+
+        private static void EnsureFileIo(Instruction instr)
+        {
+            if (!AllowFileIO)
+                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+        }
+
+        private static byte ConvertToByteValue(object value, Instruction instr, string name)
+        {
+            try
+            {
+                int intValue = Convert.ToInt32(value, CultureInfo.InvariantCulture);
+                if (intValue is < 0 or > 255)
+                {
+                    throw new VMException(
+                        $"Runtime error: {name} must be between 0 and 255",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                }
+
+                return (byte)intValue;
+            }
+            catch (VMException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new VMException(
+                    $"Runtime error: {name} is not a valid byte ({ex.GetType().Name}: {ex.Message})",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+        }
+
+        private static byte[] ConvertVmValueToBytes(object? value, Instruction instr, string name)
+        {
+            if (value is not List<object> list)
+            {
+                throw new VMException(
+                    $"Runtime error: {name} must be an array of byte values",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+
+            return ConvertVmArrayToBytes(list, instr, name);
+        }
+
+        private static byte[] ConvertVmArrayToBytes(List<object> list, Instruction instr, string name)
+        {
+            byte[] bytes = new byte[list.Count];
+            for (int i = 0; i < list.Count; i++)
+                bytes[i] = ConvertToByteValue(list[i], instr, $"{name}[{i}]");
+
+            return bytes;
+        }
+
+        private static List<object> ToVmByteArray(byte[] bytes)
+        {
+            List<object> result = new(bytes.Length);
+            foreach (byte b in bytes)
+                result.Add((int)b);
+            return result;
+        }
+
+        private static (string Path, int Mode) ParseFileOpenArgs(List<object> args, Instruction instr, string opName)
+        {
+            object a0 = args[0];
+            object a1 = args[1];
+
+            if (a0 is string or char)
+                return (a0.ToString() ?? "", Convert.ToInt32(a1, CultureInfo.InvariantCulture));
+
+            if (a1 is string or char)
+                return (a1.ToString() ?? "", Convert.ToInt32(a0, CultureInfo.InvariantCulture));
+
+            throw new VMException(
+                $"Runtime error: {opName} needs a string path and a numeric mode",
+                instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+        }
+
+        private static (FileMode FileMode, FileAccess Access, bool CanRead, bool CanWrite) ResolveFileOpenMode(int mode, Instruction instr, string opName)
+        {
+            return mode switch
+            {
+                0 => (FileMode.Open, FileAccess.Read, true, false),
+                1 => (FileMode.OpenOrCreate, FileAccess.ReadWrite, true, true),
+                2 => (FileMode.Create, FileAccess.Write, false, true),
+                3 => (FileMode.Append, FileAccess.Write, false, true),
+                4 => (FileMode.OpenOrCreate, FileAccess.Write, false, true),
+                _ => throw new VMException(
+                    $"Runtime error: invalid {opName} mode {mode} (0..4 expected)",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!)
+            };
+        }
+
+        private static (string Path, int Mode, FileStream Stream, bool CanRead, bool CanWrite) OpenFileStream(List<object> args, Instruction instr, string opName)
+        {
+            EnsureFileIo(instr);
+
+            (string path, int mode) = ParseFileOpenArgs(args, instr, opName);
+            (FileMode fileMode, FileAccess access, bool canRead, bool canWrite) = ResolveFileOpenMode(mode, instr, opName);
+
+            try
+            {
+                FileStream fs = new(path, fileMode, access, FileShare.Read);
+                if (mode == 3)
+                    fs.Seek(0, SeekOrigin.End);
+
+                return (path, mode, fs, canRead, canWrite);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new VMException(
+                    $"Runtime error: {opName} unauthorized for '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                throw new VMException(
+                    $"Runtime error: {opName} path not found '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+            catch (FileNotFoundException ex)
+            {
+                throw new VMException(
+                    $"Runtime error: {opName} file not found '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+            catch (IOException ex)
+            {
+                throw new VMException(
+                    $"Runtime error: {opName} I/O error for '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+            catch (Exception ex)
+            {
+                throw new VMException(
+                    $"Runtime error: {opName}('{path}', {mode}) failed: {ex.GetType().Name}: {ex.Message}",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+        }
+
+        private static SeekOrigin ToSeekOrigin(object value)
+        {
+            int origin = Convert.ToInt32(value, CultureInfo.InvariantCulture);
+            return origin switch
+            {
+                0 => SeekOrigin.Begin,
+                1 => SeekOrigin.Current,
+                2 => SeekOrigin.End,
+                _ => SeekOrigin.Begin
+            };
         }
 
         /// <summary>
@@ -213,6 +366,12 @@ namespace CFGS.StandardLibrary
             {
                 if (args[0] is null) return null!;
                 return Convert.ToInt32(args[0], CultureInfo.InvariantCulture);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("byte", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                return ConvertToByteValue(args[0], instr, "value");
             }));
 
             builtins.Register(new BuiltinDescriptor("long", 1, 1, (args, instr) =>
@@ -531,83 +690,46 @@ namespace CFGS.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("fopen", 2, 2, (args, instr) =>
             {
-                if (!AllowFileIO)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                (string path, int mode, FileStream fs, bool canRead, bool canWrite) = OpenFileStream(args, instr, "fopen");
+                return new FileHandle(path, mode, fs, canRead, canWrite);
+            }));
 
-                object a0 = args[0];
-                object a1 = args[1];
+            builtins.Register(new BuiltinDescriptor("fbopen", 2, 2, (args, instr) =>
+            {
+                (string path, int mode, FileStream fs, bool canRead, bool canWrite) = OpenFileStream(args, instr, "fbopen");
+                return new BinaryFileHandle(path, mode, fs, canRead, canWrite);
+            }));
 
-                string path;
-                int mode;
-
-                if (a0 is string || a0 is char)
-                {
-                    path = a0.ToString() ?? "";
-                    mode = Convert.ToInt32(a1, CultureInfo.InvariantCulture);
-                }
-                else if (a1 is string || a1 is char)
-                {
-                    path = a1.ToString() ?? "";
-                    mode = Convert.ToInt32(a0, CultureInfo.InvariantCulture);
-                }
-                else
-                {
-                    throw new VMException("Runtime error: fopen needs a string path and a numeric mode",
-                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                }
-
-                FileMode fmode; FileAccess facc; bool canRead = false, canWrite = false;
-                switch (mode)
-                {
-                    case 0: fmode = FileMode.Open; facc = FileAccess.Read; canRead = true; break;
-                    case 1: fmode = FileMode.OpenOrCreate; facc = FileAccess.ReadWrite; canRead = true; canWrite = true; break;
-                    case 2: fmode = FileMode.Create; facc = FileAccess.Write; canWrite = true; break;
-                    case 3: fmode = FileMode.Append; facc = FileAccess.Write; canWrite = true; break;
-                    case 4: fmode = FileMode.OpenOrCreate; facc = FileAccess.Write; canWrite = true; break;
-                    default:
-                        throw new VMException($"Runtime error: invalid fopen mode {mode} (0..4 expected)",
-                            instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                }
-
+            builtins.Register(new BuiltinDescriptor("readAllBytes", 1, 1, (args, instr) =>
+            {
+                EnsureFileIo(instr);
+                string path = args[0]?.ToString() ?? "";
                 try
                 {
-                    FileStream fs = new(path, fmode, facc, FileShare.Read);
-                    if (mode == 3) fs.Seek(0, SeekOrigin.End);
-
-                    return (object)Activator.CreateInstance(
-                        Type.GetType("CFGS_VM.VMCore.Extensions.Intrinsics.Handles.FileHandle, CFGS_VM") ??
-                        Type.GetType("CFGS_VM.VMCore.Extensions.Intrinsics.Handles.FileHandle", throwOnError: true)!,
-                        args: new object?[] { path, mode, fs, canRead, canWrite }
-                    )!;
-                }
-                catch (UnauthorizedAccessException ex)
-                {
-                    throw new VMException(
-                        $"Runtime error: fopen unauthorized for '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
-                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                }
-                catch (DirectoryNotFoundException ex)
-                {
-                    throw new VMException(
-                        $"Runtime error: fopen path not found '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
-                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                }
-                catch (FileNotFoundException ex)
-                {
-                    throw new VMException(
-                        $"Runtime error: fopen file not found '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
-                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                }
-                catch (IOException ex)
-                {
-                    throw new VMException(
-                        $"Runtime error: fopen I/O error for '{path}' (mode={mode}): {ex.GetType().Name}: {ex.Message}",
-                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                    return ToVmByteArray(File.ReadAllBytes(path));
                 }
                 catch (Exception ex)
                 {
                     throw new VMException(
-                        $"Runtime error: fopen('{path}', {mode}) failed: {ex.GetType().Name}: {ex.Message}",
+                        $"Runtime error: readAllBytes('{path}') failed: {ex.GetType().Name}: {ex.Message}",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                }
+            }));
+
+            builtins.Register(new BuiltinDescriptor("writeAllBytes", 2, 2, (args, instr) =>
+            {
+                EnsureFileIo(instr);
+                string path = args[0]?.ToString() ?? "";
+                byte[] bytes = ConvertVmValueToBytes(args[1], instr, "data");
+                try
+                {
+                    File.WriteAllBytes(path, bytes);
+                    return bytes.Length;
+                }
+                catch (Exception ex)
+                {
+                    throw new VMException(
+                        $"Runtime error: writeAllBytes('{path}', data) failed: {ex.GetType().Name}: {ex.Message}",
                         instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 }
             }));
@@ -1427,9 +1549,8 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("seek", 2, 2, (recv, a, i) =>
             {
                 dynamic fh = recv;
-                long off = Convert.ToInt64(a[0]); int org = Convert.ToInt32(a[1]);
-                SeekOrigin o = org switch { 0 => SeekOrigin.Begin, 1 => SeekOrigin.Current, 2 => SeekOrigin.End, _ => SeekOrigin.Begin };
-                return (long)fh.Seek(off, o);
+                long off = Convert.ToInt64(a[0]);
+                return (long)fh.Seek(off, ToSeekOrigin(a[1]));
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("tell", 0, 0, (recv, a, i) => { dynamic fh = recv; return (long)fh.Tell(); }));
             intrinsics.Register(T, new IntrinsicDescriptor("eof", 0, 0, (recv, a, i) => { dynamic fh = recv; return (bool)fh.Eof(); }));
@@ -1458,6 +1579,118 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("readlineAsync", 0, 0, (recv, a, i) =>
             {
                 return Task.Run<object?>(() => { dynamic fh = recv; return (string)fh.ReadLine(); });
+            }, smartAwait: true));
+        }
+
+        private static void RegisterBinaryFile(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(BinaryFileHandle);
+
+            intrinsics.Register(T, new IntrinsicDescriptor("writeByte", 1, 1, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                fh.WriteByte(ConvertToByteValue(a[0], instr, "value"));
+                return recv;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("writeBytes", 1, 1, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                fh.WriteBytes(ConvertVmValueToBytes(a[0], instr, "value"));
+                return recv;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("flush", 0, 0, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                fh.Flush();
+                return recv;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("readByte", 0, 0, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                return fh.ReadByte();
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("readBytes", 1, 1, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                return ToVmByteArray(fh.ReadBytes(Convert.ToInt32(a[0], CultureInfo.InvariantCulture)));
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("seek", 2, 2, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                long off = Convert.ToInt64(a[0], CultureInfo.InvariantCulture);
+                return fh.Seek(off, ToSeekOrigin(a[1]));
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("tell", 0, 0, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                return fh.Tell();
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("eof", 0, 0, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                return fh.Eof();
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("close", 0, 0, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                fh.Close();
+                return 1;
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("writeByteAsync", 1, 1, (recv, a, instr) =>
+            {
+                return Task.Run<object?>(() =>
+                {
+                    BinaryFileHandle fh = (BinaryFileHandle)recv;
+                    fh.WriteByte(ConvertToByteValue(a[0], instr, "value"));
+                    return recv;
+                });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("writeBytesAsync", 1, 1, (recv, a, instr) =>
+            {
+                return Task.Run<object?>(() =>
+                {
+                    BinaryFileHandle fh = (BinaryFileHandle)recv;
+                    fh.WriteBytes(ConvertVmValueToBytes(a[0], instr, "value"));
+                    return recv;
+                });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("flushAsync", 0, 0, (recv, a, instr) =>
+            {
+                return Task.Run<object?>(() =>
+                {
+                    BinaryFileHandle fh = (BinaryFileHandle)recv;
+                    fh.Flush();
+                    return recv;
+                });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("readByteAsync", 0, 0, (recv, a, instr) =>
+            {
+                return Task.Run<object?>(() =>
+                {
+                    BinaryFileHandle fh = (BinaryFileHandle)recv;
+                    return fh.ReadByte();
+                });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("readBytesAsync", 1, 1, (recv, a, instr) =>
+            {
+                return Task.Run<object?>(() =>
+                {
+                    BinaryFileHandle fh = (BinaryFileHandle)recv;
+                    return (object)ToVmByteArray(fh.ReadBytes(Convert.ToInt32(a[0], CultureInfo.InvariantCulture)));
+                });
             }, smartAwait: true));
         }
 
