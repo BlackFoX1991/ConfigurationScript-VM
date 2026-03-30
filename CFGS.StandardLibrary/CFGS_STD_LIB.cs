@@ -305,6 +305,33 @@ namespace CFGS.StandardLibrary
                 return -1;
             }));
 
+            builtins.Register(new BuiltinDescriptor("destroy", 1, 2, (args, instr) =>
+            {
+                bool recursive = false;
+                if (args.Count >= 2)
+                {
+                    try
+                    {
+                        recursive = Convert.ToBoolean(args[1], CultureInfo.InvariantCulture);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new VMException(
+                            $"Runtime error: destroy() optional recursive flag must be boolean-convertible ({ex.GetType().Name}: {ex.Message})",
+                            instr.Line,
+                            instr.Col,
+                            instr.OriginFile,
+                            VM.IsDebugging,
+                            VM.DebugStream!);
+                    }
+                }
+
+                VM vm = VM.CurrentVm
+                    ?? throw new VMException("Runtime error: destroy() requires an active VM.", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+
+                return vm.DestroyValue(args[0], instr, recursive);
+            }));
+
             builtins.Register(new BuiltinDescriptor("print", 1, 1, (args, instr) =>
             {
                 PrintValue(args[0], Console.Out, escapeNewlines: false);

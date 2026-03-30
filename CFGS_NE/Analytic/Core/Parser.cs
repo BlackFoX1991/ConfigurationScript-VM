@@ -346,6 +346,8 @@ namespace CFGS_VM.Analytic.Core
                     case "class":
                         _seenClasses.Add(name);
                         break;
+                    case "interface":
+                        break;
                     case "enum":
                         _seenEnums.Add(name);
                         break;
@@ -381,6 +383,7 @@ namespace CFGS_VM.Analytic.Core
             {
                 "function" => "function",
                 "class" => "class",
+                "interface" => "interface",
                 "enum" => "enum",
                 "constant" => "constant",
                 "variable" => "variable",
@@ -506,6 +509,9 @@ namespace CFGS_VM.Analytic.Core
                 case ClassDeclStmt c:
                     name = c.Name;
                     return true;
+                case InterfaceDeclStmt i:
+                    name = i.Name;
+                    return true;
                 case EnumDeclStmt e:
                     name = e.Name;
                     return true;
@@ -542,6 +548,10 @@ namespace CFGS_VM.Analytic.Core
                 case ClassDeclStmt c:
                     name = c.Name;
                     kind = "class";
+                    return true;
+                case InterfaceDeclStmt i:
+                    name = i.Name;
+                    kind = "interface";
                     return true;
                 case EnumDeclStmt e:
                     name = e.Name;
@@ -602,6 +612,7 @@ namespace CFGS_VM.Analytic.Core
             {
                 "function" => $"duplicate function '{name}'",
                 "class" => $"duplicate class '{name}'",
+                "interface" => $"duplicate interface '{name}'",
                 "enum" => $"duplicate enum '{name}'",
                 "constant" => $"duplicate constant '{name}'",
                 "variable" => $"duplicate variable '{name}'",
@@ -801,6 +812,40 @@ namespace CFGS_VM.Analytic.Core
             }
 
             return parts;
+        }
+
+        /// <summary>
+        /// The ParseQualifiedTypeName
+        /// </summary>
+        /// <returns>The <see cref="string"/></returns>
+        private string ParseQualifiedTypeName()
+        {
+            if (_current.Type != TokenType.Ident)
+                throw new ParserException("expected type name", _current.Line, _current.Column, _current.Filename);
+
+            StringBuilder sb = new();
+            while (true)
+            {
+                if (_current.Type != TokenType.Ident)
+                    throw new ParserException("expected identifier in type name", _current.Line, _current.Column, _current.Filename);
+
+                string part = _current.Value?.ToString() ?? "";
+                if (Lexer.Keywords.ContainsKey(part))
+                    throw new ParserException($"invalid symbol declaration name '{part}'", _current.Line, _current.Column, _current.Filename);
+
+                if (sb.Length > 0)
+                    sb.Append('.');
+                sb.Append(part);
+
+                Eat(TokenType.Ident);
+
+                if (_current.Type != TokenType.Dot)
+                    break;
+
+                Eat(TokenType.Dot);
+            }
+
+            return sb.ToString();
         }
 
         /// <summary>
@@ -1521,6 +1566,9 @@ namespace CFGS_VM.Analytic.Core
                 case TokenType.Class:
                     stmt = ParseClassDecl();
                     return true;
+                case TokenType.Interface:
+                    stmt = ParseInterfaceDecl();
+                    return true;
                 case TokenType.Enum:
                     stmt = ParseEnumDecl();
                     return true;
@@ -1540,6 +1588,8 @@ namespace CFGS_VM.Analytic.Core
             {
                 case TokenType.ForEach: return ParseForeach();
                 case TokenType.Try: return ParseTry();
+                case TokenType.Using: return ParseUsing();
+                case TokenType.Defer: return ParseDefer();
                 case TokenType.Throw: return ParseThrow();
                 case TokenType.Return: return ParseReturnStmt();
                 case TokenType.Yield: return ParseYieldStmt();
@@ -1574,6 +1624,161 @@ namespace CFGS_VM.Analytic.Core
             throw new ParserException(
                 $"invalid top-level statement {_current.Type}",
                 _current.Line, _current.Column, _current.Filename);
+        }
+
+        /// <summary>
+        /// The ParseUsing
+        /// </summary>
+        /// <returns>The <see cref="Stmt"/></returns>
+        private Stmt ParseUsing()
+        {
+            int line = _current.Line, col = _current.Column;
+            string file = _current.Filename;
+
+            Eat(TokenType.Using);
+
+            if (_current.Type == TokenType.Var || _current.Type == TokenType.Const)
+                throw new ParserException("short using declarations are only allowed inside '{...}' blocks", _current.Line, _current.Column, _current.Filename);
+
+            Eat(TokenType.LParen);
+
+            string? bindingName = null;
+            bool bindingIsConst = false;
+
+            if (_current.Type == TokenType.Var || _current.Type == TokenType.Const)
+            {
+                bindingIsConst = _current.Type == TokenType.Const;
+                Advance();
+
+                if (_current.Type != TokenType.Ident)
+                    throw new ParserException("expected identifier in using binding", _current.Line, _current.Column, _current.Filename);
+
+                bindingName = _current.Value?.ToString();
+                if (bindingName is not null && Lexer.Keywords.ContainsKey(bindingName))
+                    throw new ParserException($"invalid symbol declaration name '{bindingName}'", _current.Line, _current.Column, _current.Filename);
+
+                Advance();
+                Eat(TokenType.Assign);
+            }
+
+            Expr resource = Expr();
+            Eat(TokenType.RParen);
+
+            BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
+            return new UsingStmt(bindingName, bindingIsConst, resource, body, line, col, file);
+        }
+
+        /// <summary>
+        /// The ParseDefer
+        /// </summary>
+        /// <returns>The <see cref="Stmt"/></returns>
+        private Stmt ParseDefer()
+            => throw new ParserException("defer is only allowed inside '{...}' blocks", _current.Line, _current.Column, _current.Filename);
+
+        /// <summary>
+        /// Gets a value indicating whether the current token starts a short using declaration inside a block.
+        /// </summary>
+        private bool IsUsingScopeDeclarationStart
+            => _current.Type == TokenType.Using && (_next.Type == TokenType.Var || _next.Type == TokenType.Const);
+
+        /// <summary>
+        /// Gets a value indicating whether the current token starts a block scoped defer declaration.
+        /// </summary>
+        private bool IsDeferScopeDeclarationStart
+            => _current.Type == TokenType.Defer;
+
+        /// <summary>
+        /// The ParseUsingScopeDeclarationInBlock
+        /// </summary>
+        /// <returns>The <see cref="UsingStmt"/></returns>
+        private UsingStmt ParseUsingScopeDeclarationInBlock()
+        {
+            int line = _current.Line, col = _current.Column;
+            string file = _current.Filename;
+
+            Eat(TokenType.Using);
+
+            bool bindingIsConst = _current.Type == TokenType.Const;
+            if (_current.Type != TokenType.Var && _current.Type != TokenType.Const)
+                throw new ParserException("expected 'var' or 'const' after 'using'", _current.Line, _current.Column, _current.Filename);
+
+            Advance();
+
+            if (_current.Type != TokenType.Ident)
+                throw new ParserException("expected identifier in using binding", _current.Line, _current.Column, _current.Filename);
+
+            string bindingName = _current.Value?.ToString() ?? "";
+            if (Lexer.Keywords.ContainsKey(bindingName))
+                throw new ParserException($"invalid symbol declaration name '{bindingName}'", _current.Line, _current.Column, _current.Filename);
+
+            Advance();
+            Eat(TokenType.Assign);
+
+            Expr resource = Expr();
+            Eat(TokenType.Semi);
+
+            int bodyLine = _current.Line;
+            int bodyCol = _current.Column;
+            string bodyFile = _current.Filename;
+
+            List<Stmt> remaining = ParseBlockStatementsUntilRBrace();
+            BlockStmt body = new(remaining, bodyLine, bodyCol, bodyFile);
+
+            return new UsingStmt(bindingName, bindingIsConst, resource, body, line, col, file);
+        }
+
+        /// <summary>
+        /// The ParseDeferScopeDeclarationInBlock
+        /// </summary>
+        /// <returns>The <see cref="TryStmt"/></returns>
+        private TryStmt ParseDeferScopeDeclarationInBlock()
+        {
+            int line = _current.Line, col = _current.Column;
+            string file = _current.Filename;
+
+            Eat(TokenType.Defer);
+
+            BlockStmt finallyBlock = ParseEmbeddedBlockOrSingleStatement();
+
+            int bodyLine = _current.Line;
+            int bodyCol = _current.Column;
+            string bodyFile = _current.Filename;
+
+            List<Stmt> remaining = ParseBlockStatementsUntilRBrace();
+            BlockStmt body = new(remaining, bodyLine, bodyCol, bodyFile);
+
+            return new TryStmt(body, null, null, finallyBlock, line, col, file);
+        }
+
+        /// <summary>
+        /// The ParseBlockStatementsUntilRBrace
+        /// </summary>
+        /// <returns>The <see cref="List{Stmt}"/></returns>
+        private List<Stmt> ParseBlockStatementsUntilRBrace()
+        {
+            List<Stmt> stmts = new();
+
+            while (_current.Type != TokenType.RBrace)
+            {
+                if (_current.Type == TokenType.EOF)
+                    throw new ParserException("expected '}' before end of file", _current.Line, _current.Column, _current.Filename);
+
+                if (IsUsingScopeDeclarationStart)
+                {
+                    stmts.Add(ParseUsingScopeDeclarationInBlock());
+                    break;
+                }
+
+                if (IsDeferScopeDeclarationStart)
+                {
+                    stmts.Add(ParseDeferScopeDeclarationInBlock());
+                    break;
+                }
+
+                stmts.Add(Statement());
+            }
+
+            return stmts;
         }
 
         /// <summary>
@@ -1747,6 +1952,98 @@ namespace CFGS_VM.Analytic.Core
         }
 
         /// <summary>
+        /// The ParseInterfaceMethodDecl
+        /// </summary>
+        /// <returns>The <see cref="InterfaceMethodDecl"/></returns>
+        private InterfaceMethodDecl ParseInterfaceMethodDecl()
+        {
+            int line = _current.Line;
+            int col = _current.Column;
+            string file = _current.Filename;
+
+            bool isAsync = false;
+            if (_current.Type == TokenType.Async)
+            {
+                isAsync = true;
+                Eat(TokenType.Async);
+            }
+
+            Eat(TokenType.Func);
+
+            if (_current.Type != TokenType.Ident)
+                throw new ParserException("expected method name", _current.Line, _current.Column, _current.Filename);
+
+            string name = _current.Value?.ToString() ?? "";
+            if (Lexer.Keywords.ContainsKey(name))
+                throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
+            Eat(TokenType.Ident);
+
+            (List<string> parameters, int minArgs, string? restParameter, _) = ParseFunctionParamsWithDefaults();
+            Eat(TokenType.Semi);
+
+            return new InterfaceMethodDecl(name, parameters, minArgs, restParameter, line, col, file, isAsync);
+        }
+
+        /// <summary>
+        /// The ParseInterfaceDecl
+        /// </summary>
+        /// <returns>The <see cref="InterfaceDeclStmt"/></returns>
+        private InterfaceDeclStmt ParseInterfaceDecl()
+        {
+            int line = _current.Line;
+            int col = _current.Column;
+            string file = _current.Filename;
+
+            Eat(TokenType.Interface);
+
+            if (_current.Type != TokenType.Ident)
+                throw new ParserException("expected interface name", line, col, file);
+
+            string name = _current.Value?.ToString() ?? "";
+            if (Lexer.Keywords.ContainsKey(name))
+                throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
+            Eat(TokenType.Ident);
+
+            List<string> baseInterfaces = new();
+            if (_current.Type == TokenType.Colon)
+            {
+                Eat(TokenType.Colon);
+
+                while (true)
+                {
+                    string baseName = ParseQualifiedTypeName();
+                    if (string.Equals(baseName, name, StringComparison.Ordinal))
+                        throw new ParserException("self inheritance not allowed", _current.Line, _current.Column, _current.Filename);
+
+                    baseInterfaces.Add(baseName);
+
+                    if (_current.Type != TokenType.Comma)
+                        break;
+
+                    Eat(TokenType.Comma);
+                }
+            }
+
+            Eat(TokenType.LBrace);
+
+            List<InterfaceMethodDecl> methods = new();
+            while (_current.Type != TokenType.RBrace)
+            {
+                if (_current.Type != TokenType.Func && _current.Type != TokenType.Async)
+                {
+                    throw new ParserException(
+                        "interfaces support only method signatures declared with 'func' or 'async func'",
+                        _current.Line, _current.Column, _current.Filename);
+                }
+
+                methods.Add(ParseInterfaceMethodDecl());
+            }
+
+            Eat(TokenType.RBrace);
+            return new InterfaceDeclStmt(name, methods, baseInterfaces, line, col, file);
+        }
+
+        /// <summary>
         /// Gets the ParseExprStmt
         /// </summary>
         private Stmt ParseExprStmt
@@ -1785,19 +2082,15 @@ namespace CFGS_VM.Analytic.Core
 
             string? baseName = null;
             List<Expr> baseArgs = new();
+            List<string> implementedInterfaces = new();
             if (_current.Type == TokenType.Colon)
             {
                 Eat(TokenType.Colon);
 
-                if (_current.Type != TokenType.Ident)
-                    throw new ParserException("expected base class name after ':'", line, col, _current.Filename);
-
-                baseName = _current.Value.ToString() ?? "";
+                baseName = ParseQualifiedTypeName();
 
                 if (baseName == name)
                     throw new ParserException("self inheritance not allowed", _current.Line, _current.Column, _current.Filename);
-
-                Eat(TokenType.Ident);
 
                 if (_current.Type == TokenType.LParen)
                 {
@@ -1807,6 +2100,12 @@ namespace CFGS_VM.Analytic.Core
                         baseArgs = ParseExprList(allowNamedArgs: true);
 
                     Eat(TokenType.RParen);
+                }
+
+                while (_current.Type == TokenType.Comma)
+                {
+                    Eat(TokenType.Comma);
+                    implementedInterfaces.Add(ParseQualifiedTypeName());
                 }
             }
 
@@ -1938,7 +2237,7 @@ namespace CFGS_VM.Analytic.Core
                         inner.Name, inner.Methods, inner.Enums,
                         inner.Fields, inner.StaticFields, inner.StaticMethods,
                         inner.Parameters, inner.Line, inner.Col, inner.OriginFile,
-                        inner.BaseName, inner.BaseCtorArgs, inner.NestedClasses, isNested: true,
+                        inner.BaseName, inner.BaseCtorArgs, inner.ImplementedInterfaces, inner.NestedClasses, isNested: true,
                         fieldVisibility: inner.FieldVisibility,
                         staticFieldVisibility: inner.StaticFieldVisibility,
                         methodVisibility: inner.MethodVisibility,
@@ -2000,6 +2299,7 @@ namespace CFGS_VM.Analytic.Core
                 _current.Filename,
                 baseName,
                 baseArgs,
+                implementedInterfaces,
                 nestedClasses,
                 false,
                 fieldVisibility,
@@ -2697,10 +2997,11 @@ namespace CFGS_VM.Analytic.Core
                 TokenType.Func => ParseFuncDecl(),
                 TokenType.Async => ParseFuncDecl(),
                 TokenType.Class => ParseClassDecl(),
+                TokenType.Interface => ParseInterfaceDecl(),
                 TokenType.Enum => ParseEnumDecl(),
                 TokenType.Var => ParseSingleVarDecl(),
                 TokenType.Const => ParseConstDecl,
-                _ => throw new ParserException("export supports only var/const/func(async func)/class/enum declarations", _current.Line, _current.Column, _current.Filename),
+                _ => throw new ParserException("export supports only var/const/func(async func)/class/interface/enum declarations", _current.Line, _current.Column, _current.Filename),
             };
 
             if (!TryGetNamedTopLevel(inner, out string? name) || string.IsNullOrWhiteSpace(name))
@@ -3021,18 +3322,12 @@ namespace CFGS_VM.Analytic.Core
         /// <returns>The <see cref="BlockStmt"/></returns>
         private BlockStmt ParseBlock()
         {
-            List<Stmt> stmts = new();
             int line = _current.Line;
             int col = _current.Column;
             string file = _current.Filename;
 
             Eat(TokenType.LBrace);
-            while (_current.Type != TokenType.RBrace)
-            {
-                if (_current.Type == TokenType.EOF)
-                    throw new ParserException("expected '}' before end of file", _current.Line, _current.Column, _current.Filename);
-                stmts.Add(Statement());
-            }
+            List<Stmt> stmts = ParseBlockStatementsUntilRBrace();
 
             Eat(TokenType.RBrace);
 

@@ -1,0 +1,132 @@
+import "edge_assert.cfs";
+
+var defer_log = [];
+
+func useBasic() {
+    defer defer_log.push("basic_defer");
+    defer_log.push("basic_body");
+}
+
+func useBlockDefer() {
+    defer {
+        defer_log.push("block_defer_1");
+        defer_log.push("block_defer_2");
+    }
+
+    defer_log.push("block_body");
+}
+
+func useLifo() {
+    defer defer_log.push("lifo_outer");
+    defer defer_log.push("lifo_inner");
+    defer_log.push("lifo_body");
+}
+
+func useReturn() {
+    defer defer_log.push("return_defer");
+    return 7;
+}
+
+func useThrow() {
+    try {
+        defer defer_log.push("throw_defer");
+        throw "boom";
+    } catch (e) {
+        edge_true("defer_throw_message", str(e).contains("boom"));
+    }
+}
+
+func useNestedScope() {
+    {
+        defer defer_log.push("inner_defer");
+        defer_log.push("inner_body");
+    }
+
+    defer_log.push("after_inner");
+}
+
+func useContinueInLoop() {
+    for (var i = 0; i < 3; i = i + 1;) {
+        defer defer_log.push("continue_defer_" + str(i));
+        if (i == 1) {
+            continue;
+        }
+
+        defer_log.push("continue_body_" + str(i));
+    }
+}
+
+func useBreakInLoop() {
+    for (var i = 0; i < 4; i = i + 1;) {
+        defer defer_log.push("break_defer_" + str(i));
+        defer_log.push("break_body_" + str(i));
+        if (i == 1) {
+            break;
+        }
+    }
+}
+
+async func useAwaitInDefer() {
+    defer {
+        var _ = await pause_once();
+        defer_log.push("await_defer");
+    }
+
+    defer_log.push("await_body");
+    return 9;
+}
+
+async func pause_once() {
+    yield;
+    return null;
+}
+
+edge_begin("238_defer_statement");
+
+useBasic();
+edge_eq("defer_basic_body", defer_log[0], "basic_body");
+edge_eq("defer_basic_cleanup", defer_log[1], "basic_defer");
+
+useBlockDefer();
+edge_eq("defer_block_body", defer_log[2], "block_body");
+edge_eq("defer_block_cleanup_1", defer_log[3], "block_defer_1");
+edge_eq("defer_block_cleanup_2", defer_log[4], "block_defer_2");
+
+useLifo();
+edge_eq("defer_lifo_body", defer_log[5], "lifo_body");
+edge_eq("defer_lifo_inner", defer_log[6], "lifo_inner");
+edge_eq("defer_lifo_outer", defer_log[7], "lifo_outer");
+
+edge_eq("defer_return_value", useReturn(), 7);
+edge_eq("defer_return_cleanup", defer_log[8], "return_defer");
+
+useThrow();
+edge_eq("defer_throw_cleanup", defer_log[9], "throw_defer");
+
+useNestedScope();
+edge_eq("defer_inner_body", defer_log[10], "inner_body");
+edge_eq("defer_inner_cleanup", defer_log[11], "inner_defer");
+edge_eq("defer_after_inner", defer_log[12], "after_inner");
+
+useContinueInLoop();
+edge_eq("defer_continue_body_0", defer_log[13], "continue_body_0");
+edge_eq("defer_continue_cleanup_0", defer_log[14], "continue_defer_0");
+edge_eq("defer_continue_cleanup_1", defer_log[15], "continue_defer_1");
+edge_eq("defer_continue_body_2", defer_log[16], "continue_body_2");
+edge_eq("defer_continue_cleanup_2", defer_log[17], "continue_defer_2");
+
+useBreakInLoop();
+edge_eq("defer_break_body_0", defer_log[18], "break_body_0");
+edge_eq("defer_break_cleanup_0", defer_log[19], "break_defer_0");
+edge_eq("defer_break_body_1", defer_log[20], "break_body_1");
+edge_eq("defer_break_cleanup_1", defer_log[21], "break_defer_1");
+
+var awaitTask = useAwaitInDefer();
+edge_eq("defer_await_returns_task", typeof(awaitTask), "Task<Object>");
+edge_eq("defer_await_result", await awaitTask, 9);
+edge_eq("defer_await_body", defer_log[22], "await_body");
+edge_eq("defer_await_cleanup", defer_log[23], "await_defer");
+
+edge_eq("defer_total_log_size", len(defer_log), 24);
+
+edge_finish("238_defer_statement");

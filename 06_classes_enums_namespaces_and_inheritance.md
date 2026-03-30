@@ -89,6 +89,37 @@ var cfg = new Config("localhost", 80) { host: "api.local", port: 443 };
 
 This is especially practical for data objects and configuration holders.
 
+## Explicit Destruction
+
+CFGS instances live on the managed .NET heap, so normal memory is still reclaimed by the CLR garbage collector. If you need deterministic cleanup, define an instance method named `destroy` and call the standard-library builtin `destroy(obj)`.
+
+```cfs
+class TempFile(path) {
+    var path = "";
+    var closed = false;
+
+    func init(path) {
+        this.path = path;
+    }
+
+    private func destroy() {
+        this.closed = true;
+        print("cleanup " + this.path);
+    }
+}
+
+var file = new TempFile("demo.tmp");
+destroy(file);
+```
+
+Important details.
+
+- `destroy(obj)` may call a `private` destructor method.
+- `destroy(obj, true)` also walks nested fields, arrays, and dictionaries recursively.
+- A destroyed instance can no longer be used through member access.
+- `destroy` must stay synchronous. `await` inside `destroy` is rejected.
+- If a base class also needs cleanup, call `super.destroy()` explicitly from the derived destructor.
+
 ## Receivers `this`, `type`, `super`, `outer`
 
 ### `this`
@@ -195,6 +226,69 @@ class SpreadChild() : SpreadBase(*[3, 4, 9]) {
 ```
 
 The runtime and compiler validate these calls strictly. Unknown named arguments, too few arguments, or the wrong ordering produce clear errors.
+
+## Interfaces
+
+CFGS also supports interface declarations with method signatures only.
+
+```cfs
+interface IAnimal {
+    func speak();
+}
+
+interface IWalker {
+    func steps();
+}
+
+interface IPet : IAnimal {
+    func pet_name();
+}
+```
+
+Important rules.
+
+- Interfaces may inherit from one or more interfaces with `:`.
+- Interface bodies may contain only `func ...;` or `async func ...;` signatures.
+- Interface members are instance methods only. No fields, no static members, no default bodies.
+- Signature compatibility checks include arity, optional/default parameter shape, rest-parameter usage, and `async`.
+
+Classes implement interfaces in the class header. The base class, if present, comes first, followed by interfaces.
+
+```cfs
+class Dog(name) : Animal(name), IPet, IWalker {
+    func speak() { return "woof"; }
+    func pet_name() { return this.name; }
+    func steps() { return 4; }
+}
+```
+
+An inherited public instance method may satisfy an interface contract.
+
+```cfs
+class Creature(name) {
+    func pet_name() { return this.name; }
+}
+
+class Dog(name) : Creature(name), IPet {
+    func speak() { return "woof"; }
+}
+```
+
+## Interfaces in Namespaces
+
+Interfaces can also live inside namespaces and are accessed through qualified names.
+
+```cfs
+namespace App.Contracts {
+    interface ITagged {
+        func tag();
+    }
+}
+
+class User(id) : App.Contracts.ITagged {
+    func tag() { return "user:" + str(id); }
+}
+```
 
 ## Visibility
 
@@ -384,24 +478,36 @@ Important practical notes.
 
 - Qualified namespace names such as `A.B.C` are allowed.
 - Multiple `namespace App.Tools { ... }` declarations can extend the same namespace.
+- Namespace bodies may contain functions, classes, interfaces, enums, variables, and constants.
 - `import` is not allowed inside a namespace body.
 - `export` is not allowed inside a namespace body.
 - A namespace root must not collide with an already declared top level symbol.
 
 ## Type Checking with `is`
 
-The `is` operator checks whether an object is an instance of a given class. It also returns `true` if the object inherits from that class anywhere in the chain.
+The `is` operator checks whether an object matches a class or interface type. For classes it walks the base-class chain. For interfaces it also walks implemented interfaces and inherited interfaces transitively.
 
 ```cfs
 class Thing() {}
 class Car() : Thing() {}
 
+interface IVehicle {
+    func drive();
+}
+
+class Truck() : Car(), IVehicle {
+    func drive() { }
+}
+
 var c = new Car();
 print(c is Car);      // true
 print(c is Thing);    // true (Car inherits from Thing)
+
+var t = new Truck();
+print(t is IVehicle); // true
 ```
 
-If the left side is not a class instance or the right side is not a class type, `is` returns `false` without throwing an error.
+If the left side is not a class instance or the right side is not a class or interface type, `is` returns `false` without throwing an error.
 
 ```cfs
 print("hello" is Car);  // false
@@ -417,7 +523,7 @@ These names are semantically reserved and should not be used as normal bindings.
 - `super`
 - `outer`
 
-Internal runtime slots such as `__type` and `__outer` also belong to the VM, not to your application model.
+Internal runtime slots such as `__type`, `__base`, `__interfaces`, `__is_interface`, and `__outer` also belong to the VM, not to your application model.
 
 ## Combined Example
 

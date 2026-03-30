@@ -1,0 +1,10 @@
+interface IClose {
+    func close();
+}
+
+class HiddenCloser() : IClose {
+    private func close() {
+    }
+}
+
+var x = new HiddenCloser();

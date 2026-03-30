@@ -1,0 +1,6 @@
+func main() {
+    if (true)
+        defer print("nope");
+}
+
+main();

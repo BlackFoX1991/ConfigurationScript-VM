@@ -1,0 +1,61 @@
+import "edge_assert.cfs";
+
+class Resource(name) {
+    static var destroyed = 0;
+    var name = "";
+    var alive = true;
+
+    func init(name) {
+        this.name = name;
+    }
+
+    private func destroy() {
+        type.destroyed = type.destroyed + 1;
+        this.alive = false;
+    }
+
+    func aliveState() {
+        return this.alive;
+    }
+}
+
+class Child() {
+    static var destroyed = 0;
+
+    private func destroy() {
+        type.destroyed = type.destroyed + 1;
+    }
+}
+
+class Parent() {
+    var child = null;
+
+    func init() {
+        this.child = new Child();
+    }
+}
+
+func run() {
+    edge_begin("236_destroy_builtin");
+
+    var r = new Resource("one");
+    edge_true("destroy_return_true", destroy(r));
+    edge_eq("private_destroy_called", Resource.destroyed, 1);
+    edge_eq("double_destroy_noop", destroy(r), false);
+
+    var blocked = false;
+    try {
+        r.aliveState();
+    } catch (e) {
+        blocked = e.message().contains("destroyed");
+    }
+    edge_true("destroy_blocks_member_access", blocked);
+
+    var p = new Parent();
+    edge_true("recursive_destroy_parent", destroy(p, true));
+    edge_eq("recursive_child_destroy", Child.destroyed, 1);
+
+    edge_finish("236_destroy_builtin");
+}
+
+run();

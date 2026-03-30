@@ -16,6 +16,8 @@ After that, its builtins and intrinsics are available globally.
 
 - `typeof(value)` returns a friendly type name such as `Int`, `String`, `Array`, `Dictionary`, `Task<Object>`, or the class name of an instance.
 - `len(value)` returns the length of a string, array, or dictionary.
+- `destroy(value)` explicitly destroys a class instance or disposable handle.
+- `destroy(value, true)` recursively destroys nested values found in instance fields, arrays, and dictionaries.
 - `str(value)` and `string(value)` convert values to text.
 - `int(value)`, `byte(value)`, `long(value)`, `double(value)`, `float(value)`, `decimal(value)`, `char(value)`, `bool(value)`, `bigint(value)` perform direct conversions.
 - `toi(value)`, `toi16(value)`, `toi32(value)`, `toi64(value)` are numeric helper conversions.
@@ -31,6 +33,25 @@ Example.
 print(typeof(byte(255)));
 print(byte(0x41));
 print(byte(300));   # runtime error: value must be between 0 and 255
+```
+
+Cleanup example.
+
+```cfs
+class Resource(name) {
+    var name = "";
+
+    func init(name) {
+        this.name = name;
+    }
+
+    private func destroy() {
+        print("destroy " + this.name);
+    }
+}
+
+var r = new Resource("cache");
+destroy(r);
 ```
 
 ### Output and Console
