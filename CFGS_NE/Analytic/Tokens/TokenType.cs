@@ -317,6 +317,16 @@
         Finally,
 
         /// <summary>
+        /// Defines the Using
+        /// </summary>
+        Using,
+
+        /// <summary>
+        /// Defines the Defer
+        /// </summary>
+        Defer,
+
+        /// <summary>
         /// Defines the Throw
         /// </summary>
         Throw,
@@ -325,6 +335,11 @@
         /// Defines the Class
         /// </summary>
         Class,
+
+        /// <summary>
+        /// Defines the Interface
+        /// </summary>
+        Interface,
 
         /// <summary>
         /// Defines the Enum

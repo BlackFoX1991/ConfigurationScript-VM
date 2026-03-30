@@ -69,7 +69,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Defines the InheritedMemberInfo
         /// </summary>
-        private readonly record struct InheritedMemberInfo(InheritedMemberKind Kind, string OwnerClass, FuncDeclStmt? MethodDecl = null);
+        private readonly record struct InheritedMemberInfo(InheritedMemberKind Kind, ClassDeclStmt OwnerDecl, FuncDeclStmt? MethodDecl = null);
 
         /// <summary>
         /// Defines the ConstructorSignature
@@ -83,6 +83,8 @@ namespace CFGS_VM.VMCore
         {
             "__type",
             "__base",
+            "__interfaces",
+            "__is_interface",
             "__outer",
             "new"
         };
@@ -113,14 +115,34 @@ namespace CFGS_VM.VMCore
         private readonly Dictionary<string, ClassDeclStmt> _topLevelClassDecls = new(StringComparer.Ordinal);
 
         /// <summary>
+        /// Defines the _topLevelInterfaceDecls
+        /// </summary>
+        private readonly Dictionary<string, InterfaceDeclStmt> _topLevelInterfaceDecls = new(StringComparer.Ordinal);
+
+        /// <summary>
         /// Defines all known class declarations indexed by qualified path.
         /// </summary>
         private readonly Dictionary<string, ClassDeclStmt> _qualifiedClassDecls = new(StringComparer.Ordinal);
 
         /// <summary>
+        /// Defines all known interface declarations indexed by qualified path.
+        /// </summary>
+        private readonly Dictionary<string, InterfaceDeclStmt> _qualifiedInterfaceDecls = new(StringComparer.Ordinal);
+
+        /// <summary>
         /// Defines the qualified path for each known class declaration.
         /// </summary>
         private readonly Dictionary<ClassDeclStmt, string> _classQualifiedPaths = new();
+
+        /// <summary>
+        /// Defines the qualified path for each known interface declaration.
+        /// </summary>
+        private readonly Dictionary<InterfaceDeclStmt, string> _interfaceQualifiedPaths = new();
+
+        /// <summary>
+        /// Defines the _interfaceContractCache
+        /// </summary>
+        private readonly Dictionary<InterfaceDeclStmt, Dictionary<string, InterfaceMethodDecl>> _interfaceContractCache = new();
 
         /// <summary>
         /// Defines the _classMemberSetCache
@@ -186,8 +208,12 @@ namespace CFGS_VM.VMCore
 
                 _classInfos.Clear();
                 _topLevelClassDecls.Clear();
+                _topLevelInterfaceDecls.Clear();
                 _qualifiedClassDecls.Clear();
+                _qualifiedInterfaceDecls.Clear();
                 _classQualifiedPaths.Clear();
+                _interfaceQualifiedPaths.Clear();
+                _interfaceContractCache.Clear();
                 _classMemberSetCache.Clear();
                 _currentClass = null;
                 _currentClassDecl = null;
@@ -198,6 +224,7 @@ namespace CFGS_VM.VMCore
                 _asyncFunctionDepth = 0;
 
                 List<FuncDeclStmt> funcDecls = new();
+                List<InterfaceDeclStmt> interfaceDecls = new();
                 List<ClassDeclStmt> classDecls = new();
 
                 foreach (Stmt raw in program)
@@ -220,13 +247,23 @@ namespace CFGS_VM.VMCore
                         _topLevelClassDecls[c.Name] = c;
                         RegisterQualifiedClassDecl(c, c.Name);
                     }
+                    else if (s is InterfaceDeclStmt i)
+                    {
+                        interfaceDecls.Add(i);
+                        _topLevelInterfaceDecls[i.Name] = i;
+                        RegisterQualifiedInterfaceDecl(i, i.Name);
+                    }
                     else if (s is BlockStmt b && TryGetNamespaceScopePath(b, out string nsPath))
                     {
                         RegisterNamespaceScopeClasses(b, nsPath);
+                        RegisterNamespaceScopeInterfaces(b, nsPath);
                     }
                 }
 
+                ValidateReservedInterfaceDeclarations(_qualifiedInterfaceDecls.Values.Distinct());
                 ValidateReservedClassDeclarations(_qualifiedClassDecls.Values.Distinct());
+                NormalizeClassInheritanceDeclarations(_qualifiedClassDecls.Values.Distinct());
+                ValidateAllKnownInterfaces();
 
                 int jmpOverAllFuncsIdx = _insns.Count;
                 _insns.Add(new Instruction(OpCode.JMP, null, 0, 0));
@@ -295,9 +332,14 @@ namespace CFGS_VM.VMCore
                         fd.Line, fd.Col, fd.OriginFile));
                 }
 
+                List<InterfaceDeclStmt> sortedInterfaces = OrderInterfacesByInheritance(interfaceDecls);
+                foreach (InterfaceDeclStmt ids in sortedInterfaces)
+                    CompileStmt(ids, insideFunction: false);
+
                 List<ClassDeclStmt> sortedClasses = OrderClassesByInheritance(classDecls);
                 ValidateInheritanceOverrides(sortedClasses);
                 ValidateBaseConstructorCalls(sortedClasses);
+                ValidateInterfaceImplementations(sortedClasses);
 
                 BuildClassInfos(sortedClasses);
 
@@ -323,6 +365,7 @@ namespace CFGS_VM.VMCore
                 {
                     Stmt unwrapped = s is ExportStmt exportStmt ? exportStmt.Inner : s;
                     if (unwrapped is FuncDeclStmt) continue;
+                    if (unwrapped is InterfaceDeclStmt) continue;
                     if (unwrapped is ClassDeclStmt) continue;
 
                     try
@@ -377,6 +420,23 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// The RegisterQualifiedInterfaceDecl
+        /// </summary>
+        /// <param name="decl">The decl<see cref="InterfaceDeclStmt"/></param>
+        /// <param name="qualifiedPath">The qualifiedPath<see cref="string"/></param>
+        private void RegisterQualifiedInterfaceDecl(InterfaceDeclStmt decl, string qualifiedPath)
+        {
+            if (!_qualifiedInterfaceDecls.TryAdd(qualifiedPath, decl))
+            {
+                throw new CompilerException(
+                    $"duplicate interface '{qualifiedPath}'",
+                    decl.Line, decl.Col, decl.OriginFile);
+            }
+
+            _interfaceQualifiedPaths[decl] = qualifiedPath;
+        }
+
+        /// <summary>
         /// The RegisterNamespaceScopeClasses
         /// </summary>
         /// <param name="namespaceScope">The namespaceScope<see cref="BlockStmt"/></param>
@@ -389,6 +449,22 @@ namespace CFGS_VM.VMCore
                     continue;
 
                 RegisterQualifiedClassDecl(c, $"{namespacePath}.{c.Name}");
+            }
+        }
+
+        /// <summary>
+        /// The RegisterNamespaceScopeInterfaces
+        /// </summary>
+        /// <param name="namespaceScope">The namespaceScope<see cref="BlockStmt"/></param>
+        /// <param name="namespacePath">The namespacePath<see cref="string"/></param>
+        private void RegisterNamespaceScopeInterfaces(BlockStmt namespaceScope, string namespacePath)
+        {
+            foreach (Stmt stmt in namespaceScope.Statements)
+            {
+                if (stmt is not InterfaceDeclStmt i)
+                    continue;
+
+                RegisterQualifiedInterfaceDecl(i, $"{namespacePath}.{i.Name}");
             }
         }
 
@@ -459,6 +535,46 @@ namespace CFGS_VM.VMCore
         /// The ValidateReservedClassDeclarations
         /// </summary>
         /// <param name="classDecls">The classDecls<see cref="IEnumerable{ClassDeclStmt}"/></param>
+        private static void ValidateReservedInterfaceDeclarations(IEnumerable<InterfaceDeclStmt> interfaceDecls)
+        {
+            foreach (InterfaceDeclStmt iface in interfaceDecls)
+            {
+                HashSet<string> seenMethods = new(StringComparer.Ordinal);
+                HashSet<string> seenBases = new(StringComparer.Ordinal);
+
+                foreach (string baseName in iface.BaseInterfaces)
+                {
+                    if (!seenBases.Add(baseName))
+                    {
+                        throw new CompilerException(
+                            $"duplicate base interface '{baseName}' in interface '{iface.Name}'",
+                            iface.Line, iface.Col, iface.OriginFile);
+                    }
+                }
+
+                foreach (InterfaceMethodDecl m in iface.Methods)
+                {
+                    if (!seenMethods.Add(m.Name))
+                    {
+                        throw new CompilerException(
+                            $"duplicate method '{m.Name}' in interface '{iface.Name}'",
+                            m.Line, m.Col, m.OriginFile);
+                    }
+
+                    if (IsReservedRuntimeMemberName(m.Name) || IsReservedInternalMemberName(m.Name))
+                    {
+                        throw new CompilerException(
+                            $"invalid member declaration '{m.Name}' in interface '{iface.Name}': reserved member name",
+                            m.Line, m.Col, m.OriginFile);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The ValidateReservedClassDeclarations
+        /// </summary>
+        /// <param name="classDecls">The classDecls<see cref="IEnumerable{ClassDeclStmt}"/></param>
         private static void ValidateReservedClassDeclarations(IEnumerable<ClassDeclStmt> classDecls)
         {
             foreach (ClassDeclStmt cls in classDecls)
@@ -516,57 +632,101 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// The MethodArityShape
+        /// </summary>
+        /// <param name="parameterCount">The parameterCount<see cref="int"/></param>
+        /// <param name="minArgs">The minArgs<see cref="int"/></param>
+        /// <param name="hasRest">The hasRest<see cref="bool"/></param>
+        /// <returns>The <see cref="string"/></returns>
+        private static string MethodArityShape(int parameterCount, int minArgs, bool hasRest)
+            => hasRest
+                ? $"{minArgs}..*"
+                : $"{minArgs}..{parameterCount}";
+
+        /// <summary>
         /// The OrderClassesByInheritance
         /// </summary>
         /// <param name="classDecls">The classDecls<see cref="List{ClassDeclStmt}"/></param>
         /// <returns>The <see cref="List{ClassDeclStmt}"/></returns>
-        private static List<ClassDeclStmt> OrderClassesByInheritance(List<ClassDeclStmt> classDecls)
+        private List<ClassDeclStmt> OrderClassesByInheritance(List<ClassDeclStmt> classDecls)
         {
-            Dictionary<string, ClassDeclStmt> byName = new(StringComparer.Ordinal);
-            foreach (ClassDeclStmt cds in classDecls)
-            {
-                if (!byName.TryAdd(cds.Name, cds))
-                {
-                    throw new CompilerException(
-                        $"duplicate class '{cds.Name}'",
-                        cds.Line, cds.Col, cds.OriginFile);
-                }
-            }
-
+            HashSet<ClassDeclStmt> knownClasses = new(classDecls);
             List<ClassDeclStmt> result = new();
-            HashSet<string> permMark = new(StringComparer.Ordinal);
-            HashSet<string> tempMark = new(StringComparer.Ordinal);
+            HashSet<ClassDeclStmt> permMark = new();
+            HashSet<ClassDeclStmt> tempMark = new();
 
-            void Visit(string name)
+            void Visit(ClassDeclStmt cls)
             {
-                if (permMark.Contains(name))
+                if (permMark.Contains(cls))
                     return;
 
-                if (tempMark.Contains(name))
+                if (tempMark.Contains(cls))
                 {
-                    ClassDeclStmt cds = byName[name];
                     throw new CompilerException(
-                        $"cyclic inheritance involving class '{name}'",
-                        cds.Line, cds.Col, cds.OriginFile);
+                        $"cyclic inheritance involving class '{cls.Name}'",
+                        cls.Line, cls.Col, cls.OriginFile);
                 }
 
-                tempMark.Add(name);
+                tempMark.Add(cls);
 
-                ClassDeclStmt cls = byName[name];
-
-                if (!string.IsNullOrEmpty(cls.BaseName) &&
-                    byName.ContainsKey(cls.BaseName))
+                if (TryResolveBaseClassDecl(cls, out ClassDeclStmt baseDecl) && knownClasses.Contains(baseDecl))
                 {
-                    Visit(cls.BaseName);
+                    Visit(baseDecl);
                 }
 
-                tempMark.Remove(name);
-                permMark.Add(name);
+                tempMark.Remove(cls);
+                permMark.Add(cls);
                 result.Add(cls);
             }
 
-            foreach (string name in byName.Keys)
-                Visit(name);
+            foreach (ClassDeclStmt cls in classDecls)
+                Visit(cls);
+
+            return result;
+        }
+
+        /// <summary>
+        /// The OrderInterfacesByInheritance
+        /// </summary>
+        /// <param name="interfaceDecls">The interfaceDecls<see cref="List{InterfaceDeclStmt}"/></param>
+        /// <returns>The <see cref="List{InterfaceDeclStmt}"/></returns>
+        private List<InterfaceDeclStmt> OrderInterfacesByInheritance(List<InterfaceDeclStmt> interfaceDecls)
+        {
+            HashSet<InterfaceDeclStmt> knownInterfaces = new(interfaceDecls);
+            List<InterfaceDeclStmt> result = new();
+            HashSet<InterfaceDeclStmt> permMark = new();
+            HashSet<InterfaceDeclStmt> tempMark = new();
+
+            void Visit(InterfaceDeclStmt iface)
+            {
+                if (permMark.Contains(iface))
+                    return;
+
+                if (tempMark.Contains(iface))
+                {
+                    throw new CompilerException(
+                        $"cyclic inheritance involving interface '{iface.Name}'",
+                        iface.Line, iface.Col, iface.OriginFile);
+                }
+
+                tempMark.Add(iface);
+
+                foreach (string baseName in iface.BaseInterfaces)
+                {
+                    if (TryResolveBaseInterfaceDecl(iface, baseName, out InterfaceDeclStmt baseIface) &&
+                        knownInterfaces.Contains(baseIface))
+                    {
+                        Visit(baseIface);
+                    }
+                }
+
+                tempMark.Remove(iface);
+                permMark.Add(iface);
+                result.Add(iface);
+            }
+
+            foreach (InterfaceDeclStmt iface in interfaceDecls)
+                Visit(iface);
 
             return result;
         }
@@ -577,12 +737,62 @@ namespace CFGS_VM.VMCore
         /// <param name="m">The m<see cref="FuncDeclStmt"/></param>
         /// <returns>The <see cref="string"/></returns>
         private static string MethodArityShape(FuncDeclStmt m)
+            => MethodArityShape(m.Parameters.Count, m.MinArgs, !string.IsNullOrWhiteSpace(m.RestParameter));
+
+        /// <summary>
+        /// The MethodArityShape
+        /// </summary>
+        /// <param name="m">The m<see cref="InterfaceMethodDecl"/></param>
+        /// <returns>The <see cref="string"/></returns>
+        private static string MethodArityShape(InterfaceMethodDecl m)
+            => MethodArityShape(m.Parameters.Count, m.MinArgs, !string.IsNullOrWhiteSpace(m.RestParameter));
+
+        /// <summary>
+        /// The HaveCompatibleMethodShapes
+        /// </summary>
+        private static bool HaveCompatibleMethodShapes(
+            int expectedParamCount,
+            int expectedMinArgs,
+            string? expectedRestParameter,
+            bool expectedIsAsync,
+            int actualParamCount,
+            int actualMinArgs,
+            string? actualRestParameter,
+            bool actualIsAsync)
         {
-            bool hasRest = !string.IsNullOrWhiteSpace(m.RestParameter);
-            return hasRest
-                ? $"{m.MinArgs}..*"
-                : $"{m.MinArgs}..{m.Parameters.Count}";
+            return expectedMinArgs == actualMinArgs &&
+                   expectedParamCount == actualParamCount &&
+                   !string.IsNullOrWhiteSpace(expectedRestParameter) == !string.IsNullOrWhiteSpace(actualRestParameter) &&
+                   expectedIsAsync == actualIsAsync;
         }
+
+        /// <summary>
+        /// The HaveCompatibleMethodShapes
+        /// </summary>
+        private static bool HaveCompatibleMethodShapes(InterfaceMethodDecl expected, InterfaceMethodDecl actual)
+            => HaveCompatibleMethodShapes(
+                expected.Parameters.Count,
+                expected.MinArgs,
+                expected.RestParameter,
+                expected.IsAsync,
+                actual.Parameters.Count,
+                actual.MinArgs,
+                actual.RestParameter,
+                actual.IsAsync);
+
+        /// <summary>
+        /// The HaveCompatibleMethodShapes
+        /// </summary>
+        private static bool HaveCompatibleMethodShapes(InterfaceMethodDecl expected, FuncDeclStmt actual)
+            => HaveCompatibleMethodShapes(
+                expected.Parameters.Count,
+                expected.MinArgs,
+                expected.RestParameter,
+                expected.IsAsync,
+                actual.Parameters.Count,
+                actual.MinArgs,
+                actual.RestParameter,
+                actual.IsAsync);
 
         /// <summary>
         /// The InheritedMemberKindLabel
@@ -622,39 +832,39 @@ namespace CFGS_VM.VMCore
         {
             if (cls.Fields.ContainsKey(name))
             {
-                member = new InheritedMemberInfo(InheritedMemberKind.InstanceField, cls.Name);
+                member = new InheritedMemberInfo(InheritedMemberKind.InstanceField, cls);
                 return true;
             }
 
             FuncDeclStmt? instMethod = cls.Methods.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.Ordinal));
             if (instMethod != null)
             {
-                member = new InheritedMemberInfo(InheritedMemberKind.InstanceMethod, cls.Name, instMethod);
+                member = new InheritedMemberInfo(InheritedMemberKind.InstanceMethod, cls, instMethod);
                 return true;
             }
 
             if (cls.StaticFields.ContainsKey(name))
             {
-                member = new InheritedMemberInfo(InheritedMemberKind.StaticField, cls.Name);
+                member = new InheritedMemberInfo(InheritedMemberKind.StaticField, cls);
                 return true;
             }
 
             FuncDeclStmt? staticMethod = cls.StaticMethods.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.Ordinal));
             if (staticMethod != null)
             {
-                member = new InheritedMemberInfo(InheritedMemberKind.StaticMethod, cls.Name, staticMethod);
+                member = new InheritedMemberInfo(InheritedMemberKind.StaticMethod, cls, staticMethod);
                 return true;
             }
 
             if (cls.Enums.Any(e => string.Equals(e.Name, name, StringComparison.Ordinal)))
             {
-                member = new InheritedMemberInfo(InheritedMemberKind.StaticEnum, cls.Name);
+                member = new InheritedMemberInfo(InheritedMemberKind.StaticEnum, cls);
                 return true;
             }
 
             if (cls.NestedClasses.Any(c => string.Equals(c.Name, name, StringComparison.Ordinal)))
             {
-                member = new InheritedMemberInfo(InheritedMemberKind.StaticClass, cls.Name);
+                member = new InheritedMemberInfo(InheritedMemberKind.StaticClass, cls);
                 return true;
             }
 
@@ -670,19 +880,18 @@ namespace CFGS_VM.VMCore
         /// <param name="name">The name<see cref="string"/></param>
         /// <param name="member">The member<see cref="InheritedMemberInfo"/></param>
         /// <returns>The <see cref="bool"/></returns>
-        private static bool TryFindInheritedMember(
-            Dictionary<string, ClassDeclStmt> byName,
+        private bool TryFindInheritedMember(
             ClassDeclStmt cls,
             string name,
             out InheritedMemberInfo member)
         {
-            string? baseName = string.IsNullOrWhiteSpace(cls.BaseName) ? null : cls.BaseName;
-            while (!string.IsNullOrWhiteSpace(baseName) && byName.TryGetValue(baseName, out ClassDeclStmt? baseCls))
+            ClassDeclStmt current = cls;
+            while (TryResolveBaseClassDecl(current, out ClassDeclStmt baseCls))
             {
                 if (TryFindOwnMember(baseCls, name, out member))
                     return true;
 
-                baseName = string.IsNullOrWhiteSpace(baseCls.BaseName) ? null : baseCls.BaseName;
+                current = baseCls;
             }
 
             member = default;
@@ -713,7 +922,7 @@ namespace CFGS_VM.VMCore
                 baseMethod.Parameters.Count != derivedMethod.Parameters.Count)
             {
                 throw new CompilerException(
-                    $"incompatible override for method '{derivedMethod.Name}' in class '{derivedClass.Name}': expected arity {MethodArityShape(baseMethod)} from base class '{baseMember.OwnerClass}', got {MethodArityShape(derivedMethod)}",
+                    $"incompatible override for method '{derivedMethod.Name}' in class '{derivedClass.Name}': expected arity {MethodArityShape(baseMethod)} from base class '{baseMember.OwnerDecl.Name}', got {MethodArityShape(derivedMethod)}",
                     derivedMethod.Line, derivedMethod.Col, derivedMethod.OriginFile);
             }
         }
@@ -769,7 +978,6 @@ namespace CFGS_VM.VMCore
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="file">The file<see cref="string"/></param>
         private static void ValidateMemberVisibilityCompatibility(
-            Dictionary<string, ClassDeclStmt> byName,
             ClassDeclStmt derivedClass,
             string memberName,
             InheritedMemberKind derivedKind,
@@ -778,20 +986,13 @@ namespace CFGS_VM.VMCore
             int col,
             string file)
         {
-            if (!byName.TryGetValue(baseMember.OwnerClass, out ClassDeclStmt? baseDecl))
-            {
-                throw new CompilerException(
-                    $"internal compiler error: missing base class metadata for '{baseMember.OwnerClass}'",
-                    line, col, file);
-            }
-
-            MemberVisibility baseVisibility = GetDeclaredMemberVisibilityByKind(baseDecl, memberName, baseMember.Kind);
+            MemberVisibility baseVisibility = GetDeclaredMemberVisibilityByKind(baseMember.OwnerDecl, memberName, baseMember.Kind);
             MemberVisibility derivedVisibility = GetDeclaredMemberVisibilityByKind(derivedClass, memberName, derivedKind);
 
             if (VisibilityRank(derivedVisibility) < VisibilityRank(baseVisibility))
             {
                 throw new CompilerException(
-                    $"incompatible visibility override for member '{memberName}' in class '{derivedClass.Name}': inherited member in base class '{baseMember.OwnerClass}' is '{VisibilityLabel(baseVisibility)}', override is '{VisibilityLabel(derivedVisibility)}'",
+                    $"incompatible visibility override for member '{memberName}' in class '{derivedClass.Name}': inherited member in base class '{baseMember.OwnerDecl.Name}' is '{VisibilityLabel(baseVisibility)}', override is '{VisibilityLabel(derivedVisibility)}'",
                     line, col, file);
             }
         }
@@ -819,7 +1020,7 @@ namespace CFGS_VM.VMCore
                 return;
 
             throw new CompilerException(
-                $"invalid override for member '{memberName}' in class '{derivedClass.Name}': declared as {DerivedMemberKindLabel(derivedKind)} but inherited member in base class '{baseMember.OwnerClass}' is {InheritedMemberKindLabel(baseMember.Kind)}",
+                $"invalid override for member '{memberName}' in class '{derivedClass.Name}': declared as {DerivedMemberKindLabel(derivedKind)} but inherited member in base class '{baseMember.OwnerDecl.Name}' is {InheritedMemberKindLabel(baseMember.Kind)}",
                 line, col, file);
         }
 
@@ -827,12 +1028,8 @@ namespace CFGS_VM.VMCore
         /// The ValidateInheritanceOverrides
         /// </summary>
         /// <param name="sortedClasses">The sortedClasses<see cref="List{ClassDeclStmt}"/></param>
-        private static void ValidateInheritanceOverrides(List<ClassDeclStmt> sortedClasses)
+        private void ValidateInheritanceOverrides(List<ClassDeclStmt> sortedClasses)
         {
-            Dictionary<string, ClassDeclStmt> byName = new(StringComparer.Ordinal);
-            foreach (ClassDeclStmt cls in sortedClasses)
-                byName[cls.Name] = cls;
-
             foreach (ClassDeclStmt cls in sortedClasses)
             {
                 if (string.IsNullOrWhiteSpace(cls.BaseName))
@@ -840,58 +1037,58 @@ namespace CFGS_VM.VMCore
 
                 foreach (KeyValuePair<string, Expr?> field in cls.Fields)
                 {
-                    if (!TryFindInheritedMember(byName, cls, field.Key, out InheritedMemberInfo inherited))
+                    if (!TryFindInheritedMember(cls, field.Key, out InheritedMemberInfo inherited))
                         continue;
 
                     ValidateMemberKindCompatibility(cls, field.Key, InheritedMemberKind.InstanceField, inherited, cls.Line, cls.Col, cls.OriginFile);
-                    ValidateMemberVisibilityCompatibility(byName, cls, field.Key, InheritedMemberKind.InstanceField, inherited, cls.Line, cls.Col, cls.OriginFile);
+                    ValidateMemberVisibilityCompatibility(cls, field.Key, InheritedMemberKind.InstanceField, inherited, cls.Line, cls.Col, cls.OriginFile);
                 }
 
                 foreach (FuncDeclStmt method in cls.Methods)
                 {
-                    if (!TryFindInheritedMember(byName, cls, method.Name, out InheritedMemberInfo inherited))
+                    if (!TryFindInheritedMember(cls, method.Name, out InheritedMemberInfo inherited))
                         continue;
 
                     ValidateMemberKindCompatibility(cls, method.Name, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
-                    ValidateMemberVisibilityCompatibility(byName, cls, method.Name, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
+                    ValidateMemberVisibilityCompatibility(cls, method.Name, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
                     ValidateMethodOverrideShape(cls, method, inherited);
                 }
 
                 foreach (KeyValuePair<string, Expr?> staticField in cls.StaticFields)
                 {
-                    if (!TryFindInheritedMember(byName, cls, staticField.Key, out InheritedMemberInfo inherited))
+                    if (!TryFindInheritedMember(cls, staticField.Key, out InheritedMemberInfo inherited))
                         continue;
 
                     ValidateMemberKindCompatibility(cls, staticField.Key, InheritedMemberKind.StaticField, inherited, cls.Line, cls.Col, cls.OriginFile);
-                    ValidateMemberVisibilityCompatibility(byName, cls, staticField.Key, InheritedMemberKind.StaticField, inherited, cls.Line, cls.Col, cls.OriginFile);
+                    ValidateMemberVisibilityCompatibility(cls, staticField.Key, InheritedMemberKind.StaticField, inherited, cls.Line, cls.Col, cls.OriginFile);
                 }
 
                 foreach (FuncDeclStmt staticMethod in cls.StaticMethods)
                 {
-                    if (!TryFindInheritedMember(byName, cls, staticMethod.Name, out InheritedMemberInfo inherited))
+                    if (!TryFindInheritedMember(cls, staticMethod.Name, out InheritedMemberInfo inherited))
                         continue;
 
                     ValidateMemberKindCompatibility(cls, staticMethod.Name, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
-                    ValidateMemberVisibilityCompatibility(byName, cls, staticMethod.Name, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
+                    ValidateMemberVisibilityCompatibility(cls, staticMethod.Name, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
                     ValidateMethodOverrideShape(cls, staticMethod, inherited);
                 }
 
                 foreach (EnumDeclStmt en in cls.Enums)
                 {
-                    if (!TryFindInheritedMember(byName, cls, en.Name, out InheritedMemberInfo inherited))
+                    if (!TryFindInheritedMember(cls, en.Name, out InheritedMemberInfo inherited))
                         continue;
 
                     ValidateMemberKindCompatibility(cls, en.Name, InheritedMemberKind.StaticEnum, inherited, en.Line, en.Col, en.OriginFile);
-                    ValidateMemberVisibilityCompatibility(byName, cls, en.Name, InheritedMemberKind.StaticEnum, inherited, en.Line, en.Col, en.OriginFile);
+                    ValidateMemberVisibilityCompatibility(cls, en.Name, InheritedMemberKind.StaticEnum, inherited, en.Line, en.Col, en.OriginFile);
                 }
 
                 foreach (ClassDeclStmt nested in cls.NestedClasses)
                 {
-                    if (!TryFindInheritedMember(byName, cls, nested.Name, out InheritedMemberInfo inherited))
+                    if (!TryFindInheritedMember(cls, nested.Name, out InheritedMemberInfo inherited))
                         continue;
 
                     ValidateMemberKindCompatibility(cls, nested.Name, InheritedMemberKind.StaticClass, inherited, nested.Line, nested.Col, nested.OriginFile);
-                    ValidateMemberVisibilityCompatibility(byName, cls, nested.Name, InheritedMemberKind.StaticClass, inherited, nested.Line, nested.Col, nested.OriginFile);
+                    ValidateMemberVisibilityCompatibility(cls, nested.Name, InheritedMemberKind.StaticClass, inherited, nested.Line, nested.Col, nested.OriginFile);
                 }
             }
         }
@@ -1057,18 +1254,14 @@ namespace CFGS_VM.VMCore
         /// The ValidateBaseConstructorCalls
         /// </summary>
         /// <param name="sortedClasses">The sortedClasses<see cref="List{ClassDeclStmt}"/></param>
-        private static void ValidateBaseConstructorCalls(List<ClassDeclStmt> sortedClasses)
+        private void ValidateBaseConstructorCalls(List<ClassDeclStmt> sortedClasses)
         {
-            Dictionary<string, ClassDeclStmt> byName = new(StringComparer.Ordinal);
-            foreach (ClassDeclStmt cls in sortedClasses)
-                byName[cls.Name] = cls;
-
             foreach (ClassDeclStmt cls in sortedClasses)
             {
                 if (string.IsNullOrWhiteSpace(cls.BaseName))
                     continue;
 
-                if (!byName.TryGetValue(cls.BaseName, out ClassDeclStmt? baseClass))
+                if (!TryResolveBaseClassDecl(cls, out ClassDeclStmt baseClass))
                     continue;
 
                 ConstructorSignature baseCtor = GetConstructorSignature(baseClass);
@@ -1126,21 +1319,323 @@ namespace CFGS_VM.VMCore
             if (string.IsNullOrWhiteSpace(decl.BaseName))
                 return false;
 
-            if (decl.BaseName.Contains('.'))
-                return _qualifiedClassDecls.TryGetValue(decl.BaseName, out baseDecl!);
+            return TryResolveClassDecl(decl, decl.BaseName, out baseDecl);
+        }
 
-            if (_classQualifiedPaths.TryGetValue(decl, out string? currentPath))
+        /// <summary>
+        /// Enumerates containing scope prefixes from inner-most to outer-most.
+        /// </summary>
+        private static IEnumerable<string> EnumerateContainingScopes(string qualifiedPath)
+        {
+            string current = qualifiedPath;
+            while (true)
             {
-                int lastDot = currentPath.LastIndexOf('.');
-                if (lastDot > 0)
+                int lastDot = current.LastIndexOf('.');
+                if (lastDot <= 0)
+                    yield break;
+
+                current = current[..lastDot];
+                yield return current;
+            }
+        }
+
+        /// <summary>
+        /// The TryResolveClassDecl
+        /// </summary>
+        private bool TryResolveClassDecl(ClassDeclStmt context, string className, out ClassDeclStmt decl)
+        {
+            decl = null!;
+            if (string.IsNullOrWhiteSpace(className))
+                return false;
+
+            if (className.Contains('.'))
+                return _qualifiedClassDecls.TryGetValue(className, out decl!);
+
+            if (_classQualifiedPaths.TryGetValue(context, out string? currentPath))
+            {
+                foreach (string scope in EnumerateContainingScopes(currentPath))
                 {
-                    string scopedBasePath = $"{currentPath[..lastDot]}.{decl.BaseName}";
-                    if (_qualifiedClassDecls.TryGetValue(scopedBasePath, out baseDecl!))
+                    string scopedPath = $"{scope}.{className}";
+                    if (_qualifiedClassDecls.TryGetValue(scopedPath, out decl!))
                         return true;
                 }
             }
 
-            return _topLevelClassDecls.TryGetValue(decl.BaseName, out baseDecl!);
+            return _topLevelClassDecls.TryGetValue(className, out decl!);
+        }
+
+        /// <summary>
+        /// The TryResolveBaseInterfaceDecl
+        /// </summary>
+        private bool TryResolveBaseInterfaceDecl(InterfaceDeclStmt context, string interfaceName, out InterfaceDeclStmt decl)
+        {
+            decl = null!;
+            if (string.IsNullOrWhiteSpace(interfaceName))
+                return false;
+
+            if (interfaceName.Contains('.'))
+                return _qualifiedInterfaceDecls.TryGetValue(interfaceName, out decl!);
+
+            if (_interfaceQualifiedPaths.TryGetValue(context, out string? currentPath))
+            {
+                foreach (string scope in EnumerateContainingScopes(currentPath))
+                {
+                    string scopedPath = $"{scope}.{interfaceName}";
+                    if (_qualifiedInterfaceDecls.TryGetValue(scopedPath, out decl!))
+                        return true;
+                }
+            }
+
+            return _topLevelInterfaceDecls.TryGetValue(interfaceName, out decl!);
+        }
+
+        /// <summary>
+        /// The TryResolveInterfaceDecl
+        /// </summary>
+        private bool TryResolveInterfaceDecl(ClassDeclStmt context, string interfaceName, out InterfaceDeclStmt decl)
+        {
+            decl = null!;
+            if (string.IsNullOrWhiteSpace(interfaceName))
+                return false;
+
+            if (interfaceName.Contains('.'))
+                return _qualifiedInterfaceDecls.TryGetValue(interfaceName, out decl!);
+
+            if (_classQualifiedPaths.TryGetValue(context, out string? currentPath))
+            {
+                foreach (string scope in EnumerateContainingScopes(currentPath))
+                {
+                    string scopedPath = $"{scope}.{interfaceName}";
+                    if (_qualifiedInterfaceDecls.TryGetValue(scopedPath, out decl!))
+                        return true;
+                }
+            }
+
+            return _topLevelInterfaceDecls.TryGetValue(interfaceName, out decl!);
+        }
+
+        /// <summary>
+        /// Normalizes class inheritance declarations so interfaces are separated from the single base-class slot.
+        /// </summary>
+        private void NormalizeClassInheritanceDeclarations(IEnumerable<ClassDeclStmt> classDecls)
+        {
+            foreach (ClassDeclStmt cls in classDecls)
+            {
+                List<string> normalizedInterfaces = new();
+                HashSet<string> seenInterfaces = new(StringComparer.Ordinal);
+
+                if (!string.IsNullOrWhiteSpace(cls.BaseName) &&
+                    TryResolveInterfaceDecl(cls, cls.BaseName, out _))
+                {
+                    if (cls.BaseCtorArgs.Count > 0)
+                    {
+                        throw new CompilerException(
+                            $"invalid inheritance list in class '{cls.Name}': interface '{cls.BaseName}' cannot receive constructor arguments",
+                            cls.Line, cls.Col, cls.OriginFile);
+                    }
+
+                    normalizedInterfaces.Add(cls.BaseName);
+                    seenInterfaces.Add(cls.BaseName);
+                    cls.BaseName = null;
+                    cls.BaseCtorArgs = new List<Expr>();
+                }
+
+                foreach (string ifaceName in cls.ImplementedInterfaces)
+                {
+                    if (!seenInterfaces.Add(ifaceName))
+                    {
+                        throw new CompilerException(
+                            $"duplicate interface '{ifaceName}' in class '{cls.Name}'",
+                            cls.Line, cls.Col, cls.OriginFile);
+                    }
+
+                    if (TryResolveClassDecl(cls, ifaceName, out _))
+                    {
+                        throw new CompilerException(
+                            $"invalid inheritance list in class '{cls.Name}': base class '{ifaceName}' must appear before interfaces",
+                            cls.Line, cls.Col, cls.OriginFile);
+                    }
+
+                    normalizedInterfaces.Add(ifaceName);
+                }
+
+                cls.ImplementedInterfaces = normalizedInterfaces;
+            }
+        }
+
+        /// <summary>
+        /// Validates all known interface declarations and warms the transitive contract cache.
+        /// </summary>
+        private void ValidateAllKnownInterfaces()
+        {
+            List<InterfaceDeclStmt> sortedInterfaces = OrderInterfacesByInheritance(_qualifiedInterfaceDecls.Values.Distinct().ToList());
+            foreach (InterfaceDeclStmt iface in sortedInterfaces)
+            {
+                foreach (string baseName in iface.BaseInterfaces)
+                {
+                    if (TryResolveClassDeclFromInterfaceBaseName(iface, baseName, out ClassDeclStmt classDecl))
+                    {
+                        throw new CompilerException(
+                            $"invalid base type '{baseName}' in interface '{iface.Name}': '{classDecl.Name}' is a class",
+                            iface.Line, iface.Col, iface.OriginFile);
+                    }
+                }
+
+                _ = GetOrBuildInterfaceContract(iface);
+            }
+        }
+
+        /// <summary>
+        /// The TryResolveClassDeclFromInterfaceBaseName
+        /// </summary>
+        private bool TryResolveClassDeclFromInterfaceBaseName(InterfaceDeclStmt context, string className, out ClassDeclStmt decl)
+        {
+            decl = null!;
+            if (string.IsNullOrWhiteSpace(className))
+                return false;
+
+            if (className.Contains('.'))
+                return _qualifiedClassDecls.TryGetValue(className, out decl!);
+
+            if (_interfaceQualifiedPaths.TryGetValue(context, out string? currentPath))
+            {
+                foreach (string scope in EnumerateContainingScopes(currentPath))
+                {
+                    string scopedPath = $"{scope}.{className}";
+                    if (_qualifiedClassDecls.TryGetValue(scopedPath, out decl!))
+                        return true;
+                }
+            }
+
+            return _topLevelClassDecls.TryGetValue(className, out decl!);
+        }
+
+        /// <summary>
+        /// The GetOrBuildInterfaceContract
+        /// </summary>
+        private Dictionary<string, InterfaceMethodDecl> GetOrBuildInterfaceContract(InterfaceDeclStmt iface)
+        {
+            if (_interfaceContractCache.TryGetValue(iface, out Dictionary<string, InterfaceMethodDecl>? cached))
+                return cached;
+
+            Dictionary<string, InterfaceMethodDecl> contract = new(StringComparer.Ordinal);
+
+            foreach (string baseName in iface.BaseInterfaces)
+            {
+                if (!TryResolveBaseInterfaceDecl(iface, baseName, out InterfaceDeclStmt baseIface))
+                    continue;
+
+                Dictionary<string, InterfaceMethodDecl> baseContract = GetOrBuildInterfaceContract(baseIface);
+                foreach (KeyValuePair<string, InterfaceMethodDecl> kv in baseContract)
+                {
+                    if (contract.TryGetValue(kv.Key, out InterfaceMethodDecl? existing) &&
+                        !HaveCompatibleMethodShapes(existing, kv.Value))
+                    {
+                        throw new CompilerException(
+                            $"incompatible inherited method '{kv.Key}' in interface '{iface.Name}': expected arity {MethodArityShape(existing)}, got {MethodArityShape(kv.Value)}",
+                            kv.Value.Line, kv.Value.Col, kv.Value.OriginFile);
+                    }
+
+                    contract[kv.Key] = kv.Value;
+                }
+            }
+
+            foreach (InterfaceMethodDecl method in iface.Methods)
+            {
+                if (contract.TryGetValue(method.Name, out InterfaceMethodDecl? inherited) &&
+                    !HaveCompatibleMethodShapes(inherited, method))
+                {
+                    throw new CompilerException(
+                        $"incompatible method '{method.Name}' in interface '{iface.Name}': expected arity {MethodArityShape(inherited)}, got {MethodArityShape(method)}",
+                        method.Line, method.Col, method.OriginFile);
+                }
+
+                contract[method.Name] = method;
+            }
+
+            _interfaceContractCache[iface] = contract;
+            return contract;
+        }
+
+        /// <summary>
+        /// The TryFindInstanceMethodInHierarchy
+        /// </summary>
+        private bool TryFindInstanceMethodInHierarchy(
+            ClassDeclStmt decl,
+            string methodName,
+            out ClassDeclStmt ownerDecl,
+            out FuncDeclStmt methodDecl,
+            out MemberVisibility visibility)
+        {
+            ClassDeclStmt current = decl;
+            while (true)
+            {
+                FuncDeclStmt? method = current.Methods.FirstOrDefault(m => string.Equals(m.Name, methodName, StringComparison.Ordinal));
+                if (method != null)
+                {
+                    ownerDecl = current;
+                    methodDecl = method;
+                    visibility = GetOrDefaultVisibility(current.MethodVisibility, methodName);
+                    return true;
+                }
+
+                if (!TryResolveBaseClassDecl(current, out ClassDeclStmt baseDecl))
+                    break;
+
+                current = baseDecl;
+            }
+
+            ownerDecl = null!;
+            methodDecl = null!;
+            visibility = MemberVisibility.Public;
+            return false;
+        }
+
+        /// <summary>
+        /// The ValidateInterfaceImplementations
+        /// </summary>
+        private void ValidateInterfaceImplementations(IEnumerable<ClassDeclStmt> classDecls)
+        {
+            foreach (ClassDeclStmt cls in classDecls)
+            {
+                foreach (string ifaceName in cls.ImplementedInterfaces)
+                {
+                    if (!TryResolveInterfaceDecl(cls, ifaceName, out InterfaceDeclStmt iface))
+                        continue;
+
+                    Dictionary<string, InterfaceMethodDecl> contract = GetOrBuildInterfaceContract(iface);
+                    foreach (KeyValuePair<string, InterfaceMethodDecl> kv in contract)
+                    {
+                        if (!TryFindInstanceMethodInHierarchy(cls, kv.Key, out ClassDeclStmt ownerDecl, out FuncDeclStmt methodDecl, out MemberVisibility visibility))
+                        {
+                            throw new CompilerException(
+                                $"class '{cls.Name}' does not implement interface method '{kv.Key}' from interface '{iface.Name}'",
+                                cls.Line, cls.Col, cls.OriginFile);
+                        }
+
+                        if (visibility != MemberVisibility.Public)
+                        {
+                            throw new CompilerException(
+                                $"class '{cls.Name}' cannot implement interface method '{kv.Key}' from interface '{iface.Name}' with non-public visibility",
+                                methodDecl.Line, methodDecl.Col, methodDecl.OriginFile);
+                        }
+
+                        if (!HaveCompatibleMethodShapes(kv.Value, methodDecl))
+                        {
+                            throw new CompilerException(
+                                $"class '{cls.Name}' implements interface method '{kv.Key}' from interface '{iface.Name}' with incompatible arity: expected {MethodArityShape(kv.Value)}, got {MethodArityShape(methodDecl)}",
+                                methodDecl.Line, methodDecl.Col, methodDecl.OriginFile);
+                        }
+
+                        if (!ReferenceEquals(ownerDecl, cls) && visibility != MemberVisibility.Public)
+                        {
+                            throw new CompilerException(
+                                $"class '{cls.Name}' inherits interface method '{kv.Key}' from class '{ownerDecl.Name}' with non-public visibility",
+                                methodDecl.Line, methodDecl.Col, methodDecl.OriginFile);
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -1932,6 +2427,26 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// Emits instructions that load a runtime value by qualified symbol path.
+        /// </summary>
+        private void EmitLoadQualifiedRuntimeValue(string qualifiedPath, Node node)
+        {
+            if (string.IsNullOrWhiteSpace(qualifiedPath))
+                throw new CompilerException("internal compiler error: empty qualified runtime path", node.Line, node.Col, node.OriginFile);
+
+            string[] parts = qualifiedPath.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                throw new CompilerException("internal compiler error: invalid qualified runtime path", node.Line, node.Col, node.OriginFile);
+
+            _insns.Add(new Instruction(OpCode.LOAD_VAR, parts[0], node.Line, node.Col, node.OriginFile));
+            for (int i = 1; i < parts.Length; i++)
+            {
+                _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_GET, null, node.Line, node.Col, node.OriginFile));
+            }
+        }
+
+        /// <summary>
         /// The CompileStmt
         /// </summary>
         /// <param name="s">The s<see cref="Stmt"/></param>
@@ -2332,7 +2847,17 @@ namespace CFGS_VM.VMCore
                         {
                             _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, cds.BaseName, cds.Line, cds.Col, s.OriginFile));
+                            EmitLoadQualifiedRuntimeValue(cds.BaseName, cds);
+                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
+                        }
+
+                        if (cds.ImplementedInterfaces.Count > 0)
+                        {
+                            _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__interfaces", cds.Line, cds.Col, s.OriginFile));
+                            foreach (string ifaceName in cds.ImplementedInterfaces)
+                                EmitLoadQualifiedRuntimeValue(ifaceName, cds);
+                            _insns.Add(new Instruction(OpCode.NEW_ARRAY, cds.ImplementedInterfaces.Count, cds.Line, cds.Col, s.OriginFile));
                             _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
                         }
 
@@ -2409,6 +2934,29 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case InterfaceDeclStmt ids:
+                    {
+                        _insns.Add(new Instruction(OpCode.NEW_STATIC, ids.Name, ids.Line, ids.Col, ids.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.DUP, null, ids.Line, ids.Col, ids.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__is_interface", ids.Line, ids.Col, ids.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_INT, 1, ids.Line, ids.Col, ids.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
+
+                        if (ids.BaseInterfaces.Count > 0)
+                        {
+                            _insns.Add(new Instruction(OpCode.DUP, null, ids.Line, ids.Col, ids.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__interfaces", ids.Line, ids.Col, ids.OriginFile));
+                            foreach (string baseName in ids.BaseInterfaces)
+                                EmitLoadQualifiedRuntimeValue(baseName, ids);
+                            _insns.Add(new Instruction(OpCode.NEW_ARRAY, ids.BaseInterfaces.Count, ids.Line, ids.Col, ids.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
+                        }
+
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, ids.Name, ids.Line, ids.Col, ids.OriginFile));
+                        break;
+                    }
+
                 case EnumDeclStmt eds:
                     {
 
@@ -2438,6 +2986,14 @@ namespace CFGS_VM.VMCore
                         {
                             if (TryGetNamespaceScopePath(b, out _))
                             {
+                                List<InterfaceDeclStmt> namespaceInterfaces = b.Statements
+                                    .OfType<InterfaceDeclStmt>()
+                                    .ToList();
+
+                                List<InterfaceDeclStmt> sortedNamespaceInterfaces = OrderInterfacesByInheritance(namespaceInterfaces);
+                                foreach (InterfaceDeclStmt nsInterface in sortedNamespaceInterfaces)
+                                    CompileStmt(nsInterface, insideFunction: false);
+
                                 List<ClassDeclStmt> namespaceClasses = b.Statements
                                     .OfType<ClassDeclStmt>()
                                     .ToList();
@@ -2445,13 +3001,14 @@ namespace CFGS_VM.VMCore
                                 List<ClassDeclStmt> sortedNamespaceClasses = OrderClassesByInheritance(namespaceClasses);
                                 ValidateInheritanceOverrides(sortedNamespaceClasses);
                                 ValidateBaseConstructorCalls(sortedNamespaceClasses);
+                                ValidateInterfaceImplementations(sortedNamespaceClasses);
 
                                 foreach (ClassDeclStmt nsClass in sortedNamespaceClasses)
                                     CompileStmt(nsClass, insideFunction: false);
 
                                 foreach (Stmt sub in b.Statements)
                                 {
-                                    if (sub is ClassDeclStmt)
+                                    if (sub is ClassDeclStmt || sub is InterfaceDeclStmt)
                                         continue;
 
                                     CompileStmt(sub, insideFunction);
@@ -2898,6 +3455,69 @@ namespace CFGS_VM.VMCore
                             endTryPopIdx,
                             ts.Line, ts.Col, ts.OriginFile
                         );
+
+                        break;
+                    }
+
+                case UsingStmt us:
+                    {
+                        EmitPushScope(us);
+                        try
+                        {
+                            string resourceTemp = $"__using_resource_{_anonCounter++}";
+
+                            CompileExpr(us.Resource);
+                            _insns.Add(new Instruction(OpCode.VAR_DECL, resourceTemp, us.Line, us.Col, us.OriginFile));
+                            if (_localVarsStack.Count > 0)
+                                CurrentLocals.Add(resourceTemp);
+
+                            if (us.BindingName != null)
+                            {
+                                _insns.Add(new Instruction(OpCode.LOAD_VAR, resourceTemp, us.Line, us.Col, us.OriginFile));
+                                _insns.Add(new Instruction(
+                                    us.BindingIsConst ? OpCode.CONST_DECL : OpCode.VAR_DECL,
+                                    us.BindingName,
+                                    us.Line,
+                                    us.Col,
+                                    us.OriginFile));
+
+                                if (_localVarsStack.Count > 0)
+                                    CurrentLocals.Add(us.BindingName);
+                            }
+
+                            int tryPushIdx = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.TRY_PUSH, null, us.Line, us.Col, us.OriginFile));
+
+                            CompileStmt(us.Body, insideFunction);
+
+                            _insns.Add(new Instruction(OpCode.TRY_POP, null, us.Line, us.Col, us.OriginFile));
+
+                            int jmpAfterBodyToEndIdx = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.JMP, null, us.Line, us.Col, us.OriginFile));
+
+                            int finallyStart = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, resourceTemp, us.Line, us.Col, us.OriginFile));
+                            _insns.Add(new Instruction(OpCode.DESTROY, null, us.Line, us.Col, us.OriginFile));
+
+                            int endTryPopIdx = _insns.Count;
+                            _insns.Add(new Instruction(OpCode.TRY_POP, null, us.Line, us.Col, us.OriginFile));
+
+                            _insns[tryPushIdx] = new Instruction(
+                                OpCode.TRY_PUSH,
+                                new object[] { -1, finallyStart },
+                                us.Line, us.Col, us.OriginFile
+                            );
+
+                            _insns[jmpAfterBodyToEndIdx] = new Instruction(
+                                OpCode.JMP,
+                                endTryPopIdx,
+                                us.Line, us.Col, us.OriginFile
+                            );
+                        }
+                        finally
+                        {
+                            EmitPopScope(us);
+                        }
 
                         break;
                     }

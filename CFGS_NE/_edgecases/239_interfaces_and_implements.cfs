@@ -1,0 +1,104 @@
+import "edge_assert.cfs";
+
+edge_begin("239_interfaces_and_implements");
+
+interface IAnimal {
+    func speak();
+}
+
+interface IWalker {
+    func steps();
+}
+
+interface IPet : IAnimal {
+    func pet_name();
+}
+
+interface IWorkingPet : IPet, IWalker {
+}
+
+interface IAsyncNamed {
+    async func fetch_name();
+}
+
+namespace Zoo.Contracts {
+    interface ITagged {
+        func tag();
+    }
+
+    class KennelDog(seedName) : Creature(seedName), IWorkingPet, ITagged {
+        func speak() {
+            return "bark";
+        }
+
+        func steps() {
+            return 4;
+        }
+
+        func tag() {
+            return "kennel:" + this.pet_name();
+        }
+    }
+}
+
+class Creature(seedName) {
+    var name = "";
+
+    func init(seedName) {
+        this.name = seedName;
+    }
+
+    func pet_name() {
+        return this.name;
+    }
+}
+
+class Dog(seedName) : Creature(seedName), IWorkingPet {
+    func speak() {
+        return "woof";
+    }
+
+    func steps() {
+        return 4;
+    }
+}
+
+class RobotDog(seedName) : Dog(seedName), IAsyncNamed {
+    async func fetch_name() {
+        yield;
+        return this.pet_name();
+    }
+}
+
+var dog = new Dog("Milo");
+var robot = new RobotDog("Rex");
+var kennel = new Zoo.Contracts.KennelDog("Mika");
+
+edge_eq("iface_typeof_simple", typeof(IWorkingPet), "IWorkingPet");
+edge_eq("iface_typeof_namespace", typeof(Zoo.Contracts.ITagged), "ITagged");
+
+edge_true("dog_is_class", dog is Dog);
+edge_true("dog_is_base_class", dog is Creature);
+edge_true("dog_is_working_pet", dog is IWorkingPet);
+edge_true("dog_is_pet", dog is IPet);
+edge_true("dog_is_animal", dog is IAnimal);
+edge_true("dog_is_walker", dog is IWalker);
+edge_eq("scalar_is_interface_false", 42 is IAnimal, false);
+
+edge_eq("dog_name_via_inherited_impl", dog.pet_name(), "Milo");
+edge_eq("dog_speak", dog.speak(), "woof");
+edge_eq("dog_steps", dog.steps(), 4);
+
+edge_true("robot_is_working_pet_via_base", robot is IWorkingPet);
+edge_true("robot_is_animal_via_interface_chain", robot is IAnimal);
+edge_true("robot_is_async_named", robot is IAsyncNamed);
+
+edge_true("kennel_is_tagged", kennel is Zoo.Contracts.ITagged);
+edge_true("kennel_is_working_pet", kennel is IWorkingPet);
+edge_eq("kennel_tag", kennel.tag(), "kennel:Mika");
+
+var fetchTask = robot.fetch_name();
+edge_eq("robot_fetch_task_type", typeof(fetchTask), "Task<Object>");
+edge_eq("robot_fetch_name", await fetchTask, "Rex");
+
+edge_finish("239_interfaces_and_implements");

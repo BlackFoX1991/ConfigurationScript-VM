@@ -988,6 +988,11 @@ namespace CFGS_VM.Analytic.Tree
         public List<Expr> BaseCtorArgs = new();
 
         /// <summary>
+        /// Defines the ImplementedInterfaces
+        /// </summary>
+        public List<string> ImplementedInterfaces;
+
+        /// <summary>
         /// Defines the Parameters
         /// </summary>
         public List<string> Parameters;
@@ -1017,6 +1022,7 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="fname">The fname<see cref="string"/></param>
         /// <param name="baseName">The baseName<see cref="string?"/></param>
         /// <param name="baseArgs">The baseArgs<see cref="List{Expr}?"/></param>
+        /// <param name="implementedInterfaces">The implementedInterfaces<see cref="List{string}?"/></param>
         /// <param name="nestedClasses">The nestedClasses<see cref="List{ClassDeclStmt}?"/></param>
         /// <param name="isNested">The isNested<see cref="bool"/></param>
         public ClassDeclStmt(
@@ -1032,6 +1038,7 @@ namespace CFGS_VM.Analytic.Tree
             string fname,
             string? baseName = null,
             List<Expr>? baseArgs = null,
+            List<string>? implementedInterfaces = null,
             List<ClassDeclStmt>? nestedClasses = null,
             bool isNested = false,
             Dictionary<string, MemberVisibility>? fieldVisibility = null,
@@ -1053,6 +1060,7 @@ namespace CFGS_VM.Analytic.Tree
             StaticMethods = staticMethods;
             BaseName = baseName;
             if (baseArgs != null) BaseCtorArgs = baseArgs;
+            ImplementedInterfaces = implementedInterfaces ?? new List<string>();
             NestedClasses = nestedClasses ?? new List<ClassDeclStmt>();
             IsNested = isNested;
             FieldVisibility = fieldVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
@@ -1063,6 +1071,96 @@ namespace CFGS_VM.Analytic.Tree
             NestedClassVisibility = nestedClassVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
             ConstFields = constFields ?? new HashSet<string>(StringComparer.Ordinal);
             StaticConstFields = staticConstFields ?? new HashSet<string>(StringComparer.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="InterfaceMethodDecl" />
+    /// </summary>
+    public sealed class InterfaceMethodDecl : Node
+    {
+        /// <summary>
+        /// Gets the Name.
+        /// </summary>
+        public string Name { get; }
+
+        /// <summary>
+        /// Gets the Parameters.
+        /// </summary>
+        public List<string> Parameters { get; }
+
+        /// <summary>
+        /// Gets the MinArgs.
+        /// </summary>
+        public int MinArgs { get; }
+
+        /// <summary>
+        /// Gets the RestParameter.
+        /// </summary>
+        public string? RestParameter { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the signature is async.
+        /// </summary>
+        public bool IsAsync { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="InterfaceMethodDecl"/> class.
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="parameters">The parameters<see cref="List{string}"/></param>
+        /// <param name="minArgs">The minArgs<see cref="int"/></param>
+        /// <param name="restParameter">The restParameter<see cref="string?"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        /// <param name="isAsync">The isAsync<see cref="bool"/></param>
+        public InterfaceMethodDecl(string name, List<string> parameters, int minArgs, string? restParameter, int line, int col, string file, bool isAsync = false)
+            : base(line, col, file)
+        {
+            Name = name;
+            Parameters = parameters;
+            MinArgs = minArgs;
+            RestParameter = restParameter;
+            IsAsync = isAsync;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="InterfaceDeclStmt" />
+    /// </summary>
+    public sealed class InterfaceDeclStmt : Stmt
+    {
+        /// <summary>
+        /// Gets the Name.
+        /// </summary>
+        public string Name { get; }
+
+        /// <summary>
+        /// Gets the Methods.
+        /// </summary>
+        public List<InterfaceMethodDecl> Methods { get; }
+
+        /// <summary>
+        /// Gets the BaseInterfaces.
+        /// </summary>
+        public List<string> BaseInterfaces { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="InterfaceDeclStmt"/> class.
+        /// </summary>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="methods">The methods<see cref="List{InterfaceMethodDecl}"/></param>
+        /// <param name="baseInterfaces">The baseInterfaces<see cref="List{string}?"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public InterfaceDeclStmt(string name, List<InterfaceMethodDecl> methods, List<string>? baseInterfaces, int line, int col, string file)
+            : base(line, col, file)
+        {
+            Name = name;
+            Methods = methods;
+            BaseInterfaces = baseInterfaces ?? new List<string>();
         }
     }
 
@@ -1809,6 +1907,51 @@ namespace CFGS_VM.Analytic.Tree
             CatchIdent = catchIdent;
             CatchBlock = catchBlock;
             FinallyBlock = finallyBlock;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="UsingStmt" />
+    /// </summary>
+    public sealed class UsingStmt : Stmt
+    {
+        /// <summary>
+        /// Gets the BindingName.
+        /// </summary>
+        public string? BindingName { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the binding is const.
+        /// </summary>
+        public bool BindingIsConst { get; }
+
+        /// <summary>
+        /// Gets the Resource.
+        /// </summary>
+        public Expr Resource { get; }
+
+        /// <summary>
+        /// Gets the Body.
+        /// </summary>
+        public BlockStmt Body { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="UsingStmt"/> class.
+        /// </summary>
+        /// <param name="bindingName">The bindingName<see cref="string?"/></param>
+        /// <param name="bindingIsConst">The bindingIsConst<see cref="bool"/></param>
+        /// <param name="resource">The resource<see cref="Expr"/></param>
+        /// <param name="body">The body<see cref="BlockStmt"/></param>
+        /// <param name="line">The line<see cref="int"/></param>
+        /// <param name="col">The col<see cref="int"/></param>
+        /// <param name="file">The file<see cref="string"/></param>
+        public UsingStmt(string? bindingName, bool bindingIsConst, Expr resource, BlockStmt body, int line, int col, string file)
+            : base(line, col, file)
+        {
+            BindingName = bindingName;
+            BindingIsConst = bindingIsConst;
+            Resource = resource;
+            Body = body;
         }
     }
 

@@ -65,6 +65,18 @@ namespace CFGS_VM.VMCore
         /// Invokes a CFGS closure synchronously from within an intrinsic/builtin.
         /// </summary>
         public object? InvokeClosureSync(Closure closure, List<object> args, Instruction instr)
+            => InvokeClosureSync(closure, args, instr, receiver: null, accessType: null);
+
+        /// <summary>
+        /// Invokes a CFGS closure synchronously with an optional implicit receiver.
+        /// </summary>
+        /// <param name="closure">The closure.</param>
+        /// <param name="args">The explicit call arguments.</param>
+        /// <param name="instr">The source instruction for diagnostics.</param>
+        /// <param name="receiver">The implicit receiver for instance/static methods.</param>
+        /// <param name="accessType">The access type for runtime visibility checks.</param>
+        /// <returns>The call result.</returns>
+        public object? InvokeClosureSync(Closure closure, List<object> args, Instruction instr, object? receiver, StaticInstance? accessType)
         {
             if (_program is null || _program.Count == 0)
                 throw new VMException("Cannot invoke closure: no program loaded.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -72,7 +84,7 @@ namespace CFGS_VM.VMCore
             Env callEnv = BuildCallEnv(closure, args, instr);
             int callerDepth = _scopes.Count;
             _scopes.Add(callEnv);
-            _callStack.Push(new CallFrame(_program.Count, callerDepth, null, null, false));
+            _callStack.Push(new CallFrame(_program.Count, callerDepth, receiver, accessType, false));
 
             RunStopReason reason = RunUntilAwaitOrHalt(false, closure.Address);
 
@@ -80,6 +92,204 @@ namespace CFGS_VM.VMCore
                 throw new VMException("Runtime error: callback function must not use await.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             return _stack.Count > 0 ? _stack.Pop() : null;
+        }
+
+        /// <summary>
+        /// Explicitly destroys a runtime value.
+        /// </summary>
+        /// <param name="value">The value to destroy.</param>
+        /// <param name="instr">The source instruction for diagnostics.</param>
+        /// <param name="recursive">Whether nested values should be destroyed recursively.</param>
+        /// <returns>True when destruction work was performed; otherwise false.</returns>
+        public bool DestroyValue(object? value, Instruction instr, bool recursive = false)
+        {
+            HashSet<object> visited = new(ReferenceEqualityComparer.Instance);
+            return DestroyValueCore(value, instr, recursive, visited);
+        }
+
+        /// <summary>
+        /// The DestroyValueCore.
+        /// </summary>
+        /// <param name="value">The value<see cref="object?"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <param name="recursive">The recursive<see cref="bool"/></param>
+        /// <param name="visited">The visited<see cref="HashSet{object}"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool DestroyValueCore(object? value, Instruction instr, bool recursive, HashSet<object> visited)
+        {
+            if (value is null)
+                return false;
+
+            Type valueType = value.GetType();
+            if (!valueType.IsValueType && !visited.Add(value))
+                return false;
+
+            switch (value)
+            {
+                case ClassInstance obj:
+                    return DestroyClassInstance(obj, instr, recursive, visited);
+
+                case List<object> list:
+                    {
+                        bool any = false;
+                        if (recursive)
+                        {
+                            foreach (object item in list.ToArray())
+                                any |= DestroyValueCore(item, instr, recursive: true, visited);
+                        }
+
+                        return any;
+                    }
+
+                case Dictionary<string, object> dict:
+                    {
+                        bool any = false;
+                        if (recursive)
+                        {
+                            foreach (object item in dict.Values.ToArray())
+                                any |= DestroyValueCore(item, instr, recursive: true, visited);
+                        }
+
+                        return any;
+                    }
+
+                case IDisposable disposable:
+                    disposable.Dispose();
+                    return true;
+            }
+
+            if (TryInvokeLifecycleIntrinsic(value, "close", instr))
+                return true;
+
+            if (TryInvokeLifecycleIntrinsic(value, "dispose", instr))
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// The DestroyClassInstance.
+        /// </summary>
+        /// <param name="obj">The obj<see cref="ClassInstance"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <param name="recursive">The recursive<see cref="bool"/></param>
+        /// <param name="visited">The visited<see cref="HashSet{object}"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool DestroyClassInstance(ClassInstance obj, Instruction instr, bool recursive, HashSet<object> visited)
+        {
+            if (IsInstanceDestroyed(obj) || IsInstanceDestroying(obj))
+                return false;
+
+            SetRuntimeFlag(obj, "__destroying", true);
+            try
+            {
+                if (TryResolveInstanceMemberInHierarchy(obj, "destroy", out ClassInstance ownerInst, out StaticInstance? ownerType, out object? member) &&
+                    member is Closure clos &&
+                    clos.Parameters.Count > 0 &&
+                    clos.Parameters[0] == "this")
+                {
+                    if (clos.IsAsync)
+                    {
+                        throw new VMException(
+                            "Runtime error: destroy method must not use await.",
+                            instr.Line,
+                            instr.Col,
+                            instr.OriginFile,
+                            IsDebugging,
+                            DebugStream!);
+                    }
+
+                    InvokeClosureSync(clos, [], instr, ownerInst, ownerType);
+                }
+
+                if (recursive)
+                {
+                    foreach (KeyValuePair<string, object> kv in obj.Fields.ToArray())
+                    {
+                        if (kv.Key.StartsWith("__", StringComparison.Ordinal))
+                            continue;
+
+                        DestroyValueCore(kv.Value, instr, recursive: true, visited);
+                    }
+                }
+            }
+            finally
+            {
+                SetRuntimeFlag(obj, "__destroying", false);
+                SetRuntimeFlag(obj, "__destroyed", true);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// The TryInvokeLifecycleIntrinsic.
+        /// </summary>
+        /// <param name="receiver">The receiver<see cref="object"/></param>
+        /// <param name="name">The name<see cref="string"/></param>
+        /// <param name="instr">The instr<see cref="Instruction"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private bool TryInvokeLifecycleIntrinsic(object receiver, string name, Instruction instr)
+        {
+            if (!TryBindIntrinsic(receiver, name, out IntrinsicBound bound, instr))
+                return false;
+
+            if (bound.Method.ArityMin != 0 || bound.Method.ArityMax != 0)
+                return false;
+
+            object? result = InvokeIntrinsicForCall(bound.Method, bound.Receiver, [], instr);
+            if (AwaitableAdapter.TryGetTask(result, out _))
+            {
+                throw new VMException(
+                    $"Runtime error: lifecycle intrinsic '{name}' must not be async.",
+                    instr.Line,
+                    instr.Col,
+                    instr.OriginFile,
+                    IsDebugging,
+                    DebugStream!);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// The IsInstanceDestroyed.
+        /// </summary>
+        /// <param name="obj">The obj<see cref="ClassInstance"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsInstanceDestroyed(ClassInstance obj)
+            => TryGetRuntimeFlag(obj, "__destroyed");
+
+        /// <summary>
+        /// The IsInstanceDestroying.
+        /// </summary>
+        /// <param name="obj">The obj<see cref="ClassInstance"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool IsInstanceDestroying(ClassInstance obj)
+            => TryGetRuntimeFlag(obj, "__destroying");
+
+        /// <summary>
+        /// The TryGetRuntimeFlag.
+        /// </summary>
+        /// <param name="obj">The obj<see cref="ClassInstance"/></param>
+        /// <param name="slotName">The slotName<see cref="string"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool TryGetRuntimeFlag(ClassInstance obj, string slotName)
+        {
+            return obj.Fields.TryGetValue(slotName, out object? raw) &&
+                   raw is bool flag &&
+                   flag;
+        }
+
+        /// <summary>
+        /// The SetRuntimeFlag.
+        /// </summary>
+        /// <param name="obj">The obj<see cref="ClassInstance"/></param>
+        /// <param name="slotName">The slotName<see cref="string"/></param>
+        /// <param name="value">The value<see cref="bool"/></param>
+        private static void SetRuntimeFlag(ClassInstance obj, string slotName, bool value)
+        {
+            obj.Fields[slotName] = value;
         }
 
         /// <summary>
@@ -2396,13 +2606,9 @@ namespace CFGS_VM.VMCore
                         bool found = false;
                         if (TryGetStaticType(ci, out StaticInstance instType))
                         {
-                            StaticInstance? cur = instType;
-                            while (cur != null)
-                            {
-                                if (ReferenceEquals(cur, target))
-                                { found = true; break; }
-                                cur = cur.Fields.TryGetValue("__base", out object? b) && b is StaticInstance bs ? bs : null;
-                            }
+                            found = IsInterfaceType(target)
+                                ? ImplementsInterface(instType, target)
+                                : IsSameOrDerivedStaticType(instType, target);
                         }
                         _stack.Push(found);
                         break;
@@ -2576,6 +2782,14 @@ namespace CFGS_VM.VMCore
                     {
                         RequireStack(1, instr, "POP");
                         _stack.Pop();
+                        break;
+                    }
+
+                case OpCode.DESTROY:
+                    {
+                        RequireStack(1, instr, "DESTROY");
+                        object? value = _stack.Pop();
+                        DestroyValue(value, instr, recursive: false);
                         break;
                     }
 
@@ -4197,6 +4411,85 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// The IsInterfaceType
+        /// </summary>
+        private static bool IsInterfaceType(StaticInstance type)
+        {
+            if (!type.Fields.TryGetValue("__is_interface", out object? raw) || raw == null)
+                return false;
+
+            return raw switch
+            {
+                bool b => b,
+                int i => i != 0,
+                long l => l != 0,
+                short s => s != 0,
+                byte b => b != 0,
+                BigInteger bi => bi != BigInteger.Zero,
+                _ => true
+            };
+        }
+
+        /// <summary>
+        /// Enumerates direct interfaces attached to a class or interface static descriptor.
+        /// </summary>
+        private static IEnumerable<StaticInstance> EnumerateDirectInterfaces(StaticInstance type)
+        {
+            if (!type.Fields.TryGetValue("__interfaces", out object? raw) || raw is not List<object> entries)
+                yield break;
+
+            foreach (object? entry in entries)
+            {
+                if (entry is StaticInstance iface)
+                    yield return iface;
+            }
+        }
+
+        /// <summary>
+        /// The InterfaceExtendsOrEquals
+        /// </summary>
+        private static bool InterfaceExtendsOrEquals(StaticInstance iface, StaticInstance target, HashSet<StaticInstance> visited)
+        {
+            if (!visited.Add(iface))
+                return false;
+
+            if (ReferenceEquals(iface, target))
+                return true;
+
+            foreach (StaticInstance baseIface in EnumerateDirectInterfaces(iface))
+            {
+                if (InterfaceExtendsOrEquals(baseIface, target, visited))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// The ImplementsInterface
+        /// </summary>
+        private static bool ImplementsInterface(StaticInstance classType, StaticInstance targetInterface)
+        {
+            StaticInstance? current = classType;
+            HashSet<StaticInstance> visitedInterfaces = new();
+
+            while (current != null)
+            {
+                foreach (StaticInstance iface in EnumerateDirectInterfaces(current))
+                {
+                    if (InterfaceExtendsOrEquals(iface, targetInterface, visitedInterfaces))
+                        return true;
+                }
+
+                current = current.Fields.TryGetValue("__base", out object? bObj) && bObj is StaticInstance baseType
+                    ? baseType
+                    : null;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// The NormalizeVisibilityCode
         /// </summary>
         /// <param name="raw">The raw<see cref="object"/></param>
@@ -4561,6 +4854,17 @@ namespace CFGS_VM.VMCore
                     {
                         string key = idxObj?.ToString() ?? "";
 
+                        if (IsInstanceDestroyed(obj))
+                        {
+                            throw new VMException(
+                                $"Runtime error: instance of class '{obj.ClassName}' has been destroyed.",
+                                instr.Line,
+                                instr.Col,
+                                instr.OriginFile,
+                                IsDebugging,
+                                DebugStream!);
+                        }
+
                         if (key == "outer")
                         {
                             if (obj.Fields.TryGetValue("__outer", out object? outerVal))
@@ -4718,6 +5022,17 @@ namespace CFGS_VM.VMCore
                         string key = idxObj?.ToString() ?? "";
                         if (key.Length == 0)
                             throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                        if (IsInstanceDestroyed(obj) && !allowReservedRuntimeSlotWrites)
+                        {
+                            throw new VMException(
+                                $"Runtime error: instance of class '{obj.ClassName}' has been destroyed.",
+                                instr.Line,
+                                instr.Col,
+                                instr.OriginFile,
+                                IsDebugging,
+                                DebugStream!);
+                        }
 
                         if (IsReservedRuntimeSlotName(key) && !allowReservedRuntimeSlotWrites)
                         {

@@ -151,6 +151,100 @@ A `try` block must have at least `catch` or `finally`. An empty `try` without ha
 
 Inside `catch`, the error object is a runtime exception object with intrinsics such as `message()`, `type()`, `file()`, `line()`, `col()`, and `stack()`. The complete list is documented in [Standard Library](09_standard_library.md).
 
+## `using`
+
+`using` is the structured cleanup form for values that should be explicitly destroyed at the end of a scope. It compiles to a `try`/`finally` pattern internally and calls the runtime destruction path even when the body exits via `return` or `throw`.
+
+```cfs
+using (var file = open_resource()) {
+    print(file.name);
+}
+```
+
+You can also use a `const` binding.
+
+```cfs
+using (const conn = connect()) {
+    print(conn.state());
+}
+```
+
+If you do not need a local variable, the anonymous form is valid too.
+
+```cfs
+using (open_resource()) {
+    work();
+}
+```
+
+Single statement bodies are supported in the same way as `if` or `while`.
+
+```cfs
+using (var r = open_resource())
+    print(r.name);
+```
+
+Inside a normal `{ ... }` block you can also use the short declaration form. It keeps the resource alive until the end of the current block.
+
+```cfs
+func work() {
+    using var file = open_resource();
+    print(file.name);
+    print("still inside the same using scope");
+}
+```
+
+Multiple short declarations dispose in reverse order because they nest over the remainder of the block.
+
+```cfs
+{
+    using var a = first();
+    using var b = second();
+    run();
+}
+```
+
+If you need `using` directly under `if`, `while`, or similar without braces, use the parenthesized form or add `{ ... }`.
+
+## `defer`
+
+`defer` schedules cleanup code for the end of the current explicit `{ ... }` block. Internally it behaves like a nested `try`/`finally`, so it still runs when the block exits via `return` or `throw`.
+
+```cfs
+func work() {
+    defer close_handle();
+    run_step();
+    run_step();
+}
+```
+
+You can also defer a whole block.
+
+```cfs
+{
+    defer {
+        print("cleanup");
+        flush();
+    }
+
+    run();
+}
+```
+
+Multiple `defer` statements run in reverse order.
+
+```cfs
+{
+    defer print("outer");
+    defer print("inner");
+    print("body");
+}
+```
+
+Like `finally`, deferred cleanup also runs when control leaves the block via `break`, `continue`, `return`, or `throw`.
+
+`defer` is only valid inside an explicit `{ ... }` block. If you need it under `if`, `while`, or similar, add braces first.
+
 ## `throw`
 
 You can throw almost any value. In practice strings or structured dictionaries are often the easiest form.
@@ -188,6 +282,7 @@ The following forms are not allowed at top level.
 - `foreach (...) { ... }`
 - `match (...) { ... }`
 - `try { ... }`
+- `using (...) { ... }`
 - `throw ...;`
 - `delete ...;`
 - `break;`

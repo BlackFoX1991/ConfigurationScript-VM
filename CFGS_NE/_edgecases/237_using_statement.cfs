@@ -1,0 +1,111 @@
+import "edge_assert.cfs";
+
+class Resource(name) {
+    static var log = [];
+    var name = "";
+
+    func init(name) {
+        this.name = name;
+    }
+
+    private func destroy() {
+        type.log.push(this.name);
+    }
+}
+
+func useBlock() {
+    using (var r = new Resource("block")) {
+        edge_eq("using_block_binding", r.name, "block");
+    }
+}
+
+func useSingle() {
+    using (var r = new Resource("single"))
+        edge_eq("using_single_binding", r.name, "single");
+}
+
+func useConst() {
+    using (const r = new Resource("const")) {
+        edge_eq("using_const_binding", r.name, "const");
+    }
+}
+
+func useReturn() {
+    using (var r = new Resource("return")) {
+        return 7;
+    }
+}
+
+func useThrow() {
+    try {
+        using (var r = new Resource("throw")) {
+            throw "boom";
+        }
+    } catch (e) {
+        edge_true("using_throw_message", str(e).contains("boom"));
+    }
+}
+
+func useAnonymous() {
+    using (new Resource("anon")) {
+        var ok = 1;
+    }
+}
+
+func useShortVar() {
+    using var r = new Resource("short_var");
+    edge_eq("using_short_var_binding", r.name, "short_var");
+}
+
+func useShortConst() {
+    using const r = new Resource("short_const");
+    edge_eq("using_short_const_binding", r.name, "short_const");
+}
+
+func useShortStacked() {
+    using var first = new Resource("short_first");
+    using var second = new Resource("short_second");
+    edge_eq("using_short_stacked_first_binding", first.name, "short_first");
+    edge_eq("using_short_stacked_second_binding", second.name, "short_second");
+}
+
+edge_begin("237_using_statement");
+
+useBlock();
+edge_eq("using_after_block_len", len(Resource.log), 1);
+edge_eq("using_after_block_name", Resource.log[0], "block");
+
+useSingle();
+edge_eq("using_after_single_len", len(Resource.log), 2);
+edge_eq("using_after_single_name", Resource.log[1], "single");
+
+useConst();
+edge_eq("using_after_const_len", len(Resource.log), 3);
+edge_eq("using_after_const_name", Resource.log[2], "const");
+
+edge_eq("using_return_value", useReturn(), 7);
+edge_eq("using_after_return_len", len(Resource.log), 4);
+edge_eq("using_after_return_name", Resource.log[3], "return");
+
+useThrow();
+edge_eq("using_after_throw_len", len(Resource.log), 5);
+edge_eq("using_after_throw_name", Resource.log[4], "throw");
+
+useAnonymous();
+edge_eq("using_after_anonymous_len", len(Resource.log), 6);
+edge_eq("using_after_anonymous_name", Resource.log[5], "anon");
+
+useShortVar();
+edge_eq("using_after_short_var_len", len(Resource.log), 7);
+edge_eq("using_after_short_var_name", Resource.log[6], "short_var");
+
+useShortConst();
+edge_eq("using_after_short_const_len", len(Resource.log), 8);
+edge_eq("using_after_short_const_name", Resource.log[7], "short_const");
+
+useShortStacked();
+edge_eq("using_after_short_stacked_len", len(Resource.log), 10);
+edge_eq("using_after_short_stacked_inner_name", Resource.log[8], "short_second");
+edge_eq("using_after_short_stacked_outer_name", Resource.log[9], "short_first");
+
+edge_finish("237_using_statement");

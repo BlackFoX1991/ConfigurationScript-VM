@@ -58,6 +58,15 @@ function Ensure-StdLib {
     if (Test-Path -LiteralPath $sourcePath) {
         Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
         Write-Host "[INFO] Copied $dllName from '$SourceDir'"
+
+        $depsName = "CFGS.StandardLibrary.deps.json"
+        $sourceDepsPath = Join-Path $SourceDir $depsName
+        $targetDepsPath = Join-Path $TargetDir $depsName
+        if (Test-Path -LiteralPath $sourceDepsPath) {
+            Copy-Item -LiteralPath $sourceDepsPath -Destination $targetDepsPath -Force
+            Write-Host "[INFO] Copied $depsName from '$SourceDir'"
+        }
+
         return
     }
 
@@ -309,6 +318,10 @@ try {
     Run-ExpectContains -Name "233_await_generic_task_valuetask" -ScriptArgs @((Edge-Path "_edgecases\233_await_generic_task_valuetask.cfs")) -Expected "EDGE_OK:233_await_generic_task_valuetask"
     Run-ExpectContains -Name "234_fromjson_vm_shape" -ScriptArgs @((Edge-Path "_edgecases\234_fromjson_vm_shape.cfs")) -Expected "EDGE_OK:234_fromjson_vm_shape"
     Run-ExpectContains -Name "235_sql_connect_failure_contract" -ScriptArgs @((Edge-Path "_edgecases\235_sql_connect_failure_contract.cfs")) -Expected "EDGE_OK:235_sql_connect_failure_contract"
+    Run-ExpectContains -Name "236_destroy_builtin" -ScriptArgs @((Edge-Path "_edgecases\236_destroy_builtin.cfs")) -Expected "EDGE_OK:236_destroy_builtin"
+    Run-ExpectContains -Name "237_using_statement" -ScriptArgs @((Edge-Path "_edgecases\237_using_statement.cfs")) -Expected "EDGE_OK:237_using_statement"
+    Run-ExpectContains -Name "238_defer_statement" -ScriptArgs @((Edge-Path "_edgecases\238_defer_statement.cfs")) -Expected "EDGE_OK:238_defer_statement"
+    Run-ExpectContains -Name "239_interfaces_and_implements" -ScriptArgs @((Edge-Path "_edgecases\239_interfaces_and_implements.cfs")) -Expected "EDGE_OK:239_interfaces_and_implements"
     Run-ExpectContains -Name "301_try_throw_finally" -ScriptArgs @((Edge-Path "_edgecases\301_try_throw_finally.cfs")) -Expected "EDGE_OK:301_try_throw_finally"
     Run-ExpectContains -Name "402_import_named_and_file" -ScriptArgs @((Edge-Path "_edgecases\402_import_named_and_file.cfs")) -Expected "EDGE_OK:402_import_named_and_file"
     if ("495_plugin_multifile_reload" -like $NameFilter) {
@@ -418,6 +431,9 @@ try {
     Run-ExpectContains -Name "493_slice_set_string_immutable_fail" -ScriptArgs @((Edge-Path "_edgecases\493_slice_set_string_immutable_fail.cfs")) -Expected "SLICE_SET on string. Strings are immutable."
     Run-ExpectContains -Name "494_import_invalid_dll_format_fail" -ScriptArgs @((Edge-Path "_edgecases\494_import_invalid_dll_format_fail.cfs")) -Expected "failed to load plugin dll"
     Run-ExpectContains -Name "506_plugin_register_failfast_fail" -ScriptArgs @((Edge-Path "_edgecases\506_plugin_register_failfast_fail.cfs")) -Expected "failed to load plugin dll"
+    Run-ExpectContains -Name "507_defer_outside_block_fail" -ScriptArgs @((Edge-Path "_edgecases\507_defer_outside_block_fail.cfs")) -Expected "defer is only allowed inside '{...}' blocks"
+    Run-ExpectContains -Name "508_interface_visibility_fail" -ScriptArgs @((Edge-Path "_edgecases\508_interface_visibility_fail.cfs")) -Expected "non-public visibility"
+    Run-ExpectContains -Name "509_interface_extends_class_fail" -ScriptArgs @((Edge-Path "_edgecases\509_interface_extends_class_fail.cfs")) -Expected "is a class"
     Run-ExpectContains -Name "497_yield_outside_function_fail" -ScriptArgs @((Edge-Path "_edgecases\497_yield_outside_function_fail.cfs")) -Expected "invalid top-level statement Yield"
     Run-ExpectContains -Name "498_async_without_func_fail" -ScriptArgs @((Edge-Path "_edgecases\498_async_without_func_fail.cfs")) -Expected "expected 'func' after 'async'"
     Run-ExpectContains -Name "499_await_without_async_fail" -ScriptArgs @((Edge-Path "_edgecases\499_await_without_async_fail.cfs")) -Expected "await can only be used in async function statements"

@@ -296,6 +296,11 @@
         POP,
 
         /// <summary>
+        /// Defines the DESTROY
+        /// </summary>
+        DESTROY,
+
+        /// <summary>
         /// Defines the PRINT
         /// </summary>
         PRINT,
