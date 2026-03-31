@@ -1,0 +1,71 @@
+import "edge_assert.cfs";
+
+edge_begin("243_async_shared_collection_aliases");
+
+async func bump_list(shared) {
+    var old = shared[0];
+    yield;
+    shared[0] = old + 1;
+    return shared[0];
+}
+
+async func bump_dict(shared) {
+    var old = shared["n"];
+    yield;
+    shared["n"] = old + 1;
+    return shared["n"];
+}
+
+async func push_list(shared, value) {
+    shared.push(value);
+    yield;
+    return len(shared);
+}
+
+async func run_list(count) {
+    var shared = [0];
+    var tasks = [];
+    var i = 0;
+    while (i < count) {
+        tasks[] = bump_list(shared);
+        i = i + 1;
+    }
+
+    var results = await tasks;
+    edge_eq("list_last_result", results[count - 1], count);
+    return shared[0];
+}
+
+async func run_dict(count) {
+    var shared = { "n": 0 };
+    var tasks = [];
+    var i = 0;
+    while (i < count) {
+        tasks[] = bump_dict(shared);
+        i = i + 1;
+    }
+
+    var results = await tasks;
+    edge_eq("dict_last_result", results[count - 1], count);
+    return shared["n"];
+}
+
+async func run_push(count) {
+    var shared = [];
+    var tasks = [];
+    var i = 0;
+    while (i < count) {
+        tasks[] = push_list(shared, i);
+        i = i + 1;
+    }
+
+    var results = await tasks;
+    edge_eq("push_last_result", results[count - 1], count);
+    return len(shared);
+}
+
+edge_eq("list_final", await run_list(20), 20);
+edge_eq("dict_final", await run_dict(20), 20);
+edge_eq("push_final", await run_push(20), 20);
+
+edge_finish("243_async_shared_collection_aliases");

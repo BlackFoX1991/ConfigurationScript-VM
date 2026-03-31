@@ -11,6 +11,11 @@
         public readonly object SyncRoot = new();
 
         /// <summary>
+        /// Coordinates serialized async execution for closures that share this environment root.
+        /// </summary>
+        public readonly AsyncExecutionCoordinator AsyncCoordinator = new();
+
+        /// <summary>
         /// Defines the Vars
         /// </summary>
         public Dictionary<string, object> Vars = new();
@@ -139,5 +144,16 @@
                 return Vars.Remove(name);
             }
         }
+    }
+
+    /// <summary>
+    /// Serializes async CFGS execution for a shared environment root.
+    /// </summary>
+    public sealed class AsyncExecutionCoordinator
+    {
+        /// <summary>
+        /// Guards entry into serialized async execution.
+        /// </summary>
+        public SemaphoreSlim Gate { get; } = new(1, 1);
     }
 }

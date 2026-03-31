@@ -251,6 +251,7 @@ Important rules.
 - Interface bodies may contain only `func ...;` or `async func ...;` signatures.
 - Interface members are instance methods only. No fields, no static members, no default bodies.
 - Signature compatibility checks include arity, optional/default parameter shape, rest-parameter usage, and `async`.
+- CFGS does not use a separate `implements` keyword. Interface names go directly into the class header after `:`.
 
 Classes implement interfaces in the class header. The base class, if present, comes first, followed by interfaces.
 
@@ -274,6 +275,158 @@ class Dog(name) : Creature(name), IPet {
 }
 ```
 
+### Detailed Example: Multiple Interfaces and Inherited Implementations
+
+This example shows several important points together.
+
+- `IPet` inherits from `IAnimal`.
+- `IWorkingPet` inherits from both `IPet` and `IWalker`.
+- `Dog` satisfies `pet_name()` through its base class.
+- `RobotDog` inherits the `IWorkingPet` contract through `Dog` and adds one more async contract.
+
+```cfs
+interface IAnimal {
+    func speak();
+}
+
+interface IWalker {
+    func steps();
+}
+
+interface IPet : IAnimal {
+    func pet_name();
+}
+
+interface IWorkingPet : IPet, IWalker {
+}
+
+interface IAsyncNamed {
+    async func fetch_name();
+}
+
+class Creature(name) {
+    var name = "";
+
+    func init(name) {
+        this.name = name;
+    }
+
+    func pet_name() {
+        return this.name;
+    }
+}
+
+class Dog(name) : Creature(name), IWorkingPet {
+    func speak() {
+        return "woof";
+    }
+
+    func steps() {
+        return 4;
+    }
+}
+
+class RobotDog(name) : Dog(name), IAsyncNamed {
+    async func fetch_name() {
+        yield;
+        return this.pet_name();
+    }
+}
+```
+
+In that example, `Dog` must provide `speak()` and `steps()`, while `pet_name()` is already inherited from `Creature`. `RobotDog` automatically remains an `IWorkingPet` because it derives from `Dog`, and it additionally satisfies `IAsyncNamed`.
+
+### Detailed Example: Optional Parameters, Rest Parameters, and `async`
+
+Interface checks are not limited to the method name. The compiler also validates the callable shape.
+
+```cfs
+interface ILogger {
+    func write(level, message = "", ...tags);
+}
+
+interface IDataSource {
+    async func fetch(id, includeMeta = false);
+}
+
+class ConsoleLogger() : ILogger {
+    func write(level, message = "", ...tags) {
+        print(level + ": " + message);
+        print(tags);
+    }
+}
+
+class UserApi() : IDataSource {
+    async func fetch(id, includeMeta = false) {
+        yield;
+        if (includeMeta) {
+            return { "id": id, "meta": true };
+        }
+
+        return { "id": id };
+    }
+}
+```
+
+These implementations compile because the signatures match the contracts exactly enough.
+
+- `write` keeps the same required argument count, optional/default parameter shape, and rest parameter.
+- `fetch` stays `async` and keeps the same optional parameter shape.
+
+### Common Invalid Interface Declarations
+
+The following forms are rejected.
+
+```cfs
+# invalid: interface bodies cannot contain fields
+interface IBadFields {
+    var value = 0;
+}
+
+# invalid: interface bodies cannot contain method bodies
+interface IBadBody {
+    func run() {
+        return 1;
+    }
+}
+
+# invalid: interface members are instance methods only
+interface IBadStatic {
+    static func make();
+}
+```
+
+These class headers are also invalid.
+
+```cfs
+interface IClosable {
+    func close();
+}
+
+class HiddenCloser() : IClosable {
+    private func close() {
+    }
+}
+
+class Base() {
+}
+
+interface IWrong : Base {
+    func ping();
+}
+
+class WrongOrder() : IClosable, Base() {
+    func close() {
+    }
+}
+```
+
+Why they fail.
+
+- `HiddenCloser` fails because interface methods must be implemented as public instance methods.
+- `IWrong` fails because interfaces may only inherit from interfaces, never from classes.
+- `WrongOrder` fails because a base class must appear before interfaces in the class header.
+
 ## Interfaces in Namespaces
 
 Interfaces can also live inside namespaces and are accessed through qualified names.
@@ -285,9 +438,51 @@ namespace App.Contracts {
     }
 }
 
-class User(id) : App.Contracts.ITagged {
-    func tag() { return "user:" + str(id); }
+class User(idValue) : App.Contracts.ITagged {
+    var idValue = 0;
+
+    func init(idValue) {
+        this.idValue = idValue;
+    }
+
+    func tag() {
+        return "user:" + str(this.idValue);
+    }
 }
+```
+
+The same qualified form can be used for interface inheritance and for runtime checks.
+
+```cfs
+namespace App.Contracts {
+    interface IEntity {
+        func id();
+    }
+
+    interface ITagged : IEntity {
+        func tag();
+    }
+}
+
+class User(idValue) : App.Contracts.ITagged {
+    var idValue = 0;
+
+    func init(idValue) {
+        this.idValue = idValue;
+    }
+
+    func id() {
+        return this.idValue;
+    }
+
+    func tag() {
+        return "user:" + str(this.id());
+    }
+}
+
+var user = new User(42);
+print(user is App.Contracts.ITagged); // true
+print(user is App.Contracts.IEntity); // true
 ```
 
 ## Visibility
@@ -505,6 +700,46 @@ print(c is Thing);    // true (Car inherits from Thing)
 
 var t = new Truck();
 print(t is IVehicle); // true
+```
+
+The check also works transitively across interface inheritance and class inheritance.
+
+```cfs
+interface IAnimal {
+    func speak();
+}
+
+interface IPet : IAnimal {
+    func pet_name();
+}
+
+class Creature(name) {
+    var name = "";
+
+    func init(name) {
+        this.name = name;
+    }
+
+    func pet_name() {
+        return this.name;
+    }
+}
+
+class Dog(name) : Creature(name), IPet {
+    func speak() {
+        return "woof";
+    }
+}
+
+class ShowDog(name) : Dog(name) {
+}
+
+var d = new ShowDog("Milo");
+print(d is ShowDog); // true
+print(d is Dog);     // true
+print(d is Creature); // true
+print(d is IPet);    // true
+print(d is IAnimal); // true
 ```
 
 If the left side is not a class instance or the right side is not a class or interface type, `is` returns `false` without throwing an error.

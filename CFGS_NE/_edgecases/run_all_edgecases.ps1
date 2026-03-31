@@ -11,7 +11,13 @@ $script:AnyFailed = $false
 $edgeDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $edgeDir
 $repoParent = Split-Path -Parent $repoRoot
+$artifactsRoot = Join-Path $repoParent "artifacts"
 $defaultBuiltDllDir = Join-Path $repoParent "dist\Debug\net10.0"
+$runtimeRoot = Join-Path $artifactsRoot ("edge_runtime_" + [Guid]::NewGuid().ToString("N"))
+$runtimeRepoRoot = Join-Path $runtimeRoot "repo"
+$runtimeEdgeDir = Join-Path $runtimeRepoRoot "_edgecases"
+$edgeAwaitablesBuildDir = Join-Path $runtimeRoot "plugin_build\EdgeAwaitables"
+$edgePartialBuildDir = Join-Path $runtimeRoot "plugin_build\EdgePartial"
 $edgeAwaitablesProject = Join-Path $edgeDir "EdgeAwaitablesPlugin\CFGS.EdgeAwaitables.csproj"
 $edgePartialProject = Join-Path $edgeDir "EdgePartialPlugin\CFGS.EdgePartial.csproj"
 
@@ -20,11 +26,45 @@ if ([string]::IsNullOrWhiteSpace($DllDir)) {
 }
 
 # Keep dotnet first-run/sentinel writes inside writable workspace.
-$dotnetHome = Join-Path $edgeDir "._tmp_dotnet_home"
+$dotnetHome = Join-Path $artifactsRoot "edge_tmp_dotnet_home"
 New-Item -ItemType Directory -Force -Path $dotnetHome | Out-Null
 [Environment]::SetEnvironmentVariable("DOTNET_CLI_HOME", $dotnetHome, "Process")
 [Environment]::SetEnvironmentVariable("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1", "Process")
 [Environment]::SetEnvironmentVariable("DOTNET_NOLOGO", "1", "Process")
+
+function Copy-NamedArtifacts {
+    param(
+        [string]$BaseName,
+        [string]$SourceDir,
+        [string]$TargetDir
+    )
+
+    New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
+
+    foreach ($suffix in @(".dll", ".deps.json", ".runtimeconfig.json", ".pdb")) {
+        $fileName = "$BaseName$suffix"
+        $sourcePath = Join-Path $SourceDir $fileName
+        if (Test-Path -LiteralPath $sourcePath) {
+            Copy-Item -LiteralPath $sourcePath -Destination (Join-Path $TargetDir $fileName) -Force
+        }
+    }
+}
+
+function Initialize-EdgeRuntimeLayout {
+    New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $runtimeEdgeDir | Out-Null
+
+    Get-ChildItem -LiteralPath $edgeDir -File | Where-Object {
+        $_.Extension -in @(".cfs", ".cfb") -or $_.Name -eq "_invalid_plugin.dll"
+    } | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $runtimeEdgeDir $_.Name) -Force
+    }
+
+    $importsDir = Join-Path $edgeDir "_imports"
+    if (Test-Path -LiteralPath $importsDir) {
+        Copy-Item -LiteralPath $importsDir -Destination (Join-Path $runtimeEdgeDir "_imports") -Recurse -Force
+    }
+}
 
 function Write-Result {
     param(
@@ -123,7 +163,9 @@ function Ensure-OptionalPluginDlls {
 function Build-ProjectIfExists {
     param(
         [string]$ProjectPath,
-        [string]$Label
+        [string]$Label,
+        [string]$OutputDir = "",
+        [bool]$UseNoRestore = $true
     )
 
     if (-not (Test-Path -LiteralPath $ProjectPath)) {
@@ -132,7 +174,17 @@ function Build-ProjectIfExists {
     }
 
     Write-Host "[INFO] Building $Label..."
-    & dotnet build $ProjectPath --nologo
+    $buildArgs = @("build", $ProjectPath, "--nologo")
+    if ($UseNoRestore) {
+        $buildArgs += "--no-restore"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($OutputDir)) {
+        $buildArgs += "-p:OutputPath=$OutputDir"
+        $buildArgs += "-p:AppendTargetFrameworkToOutputPath=false"
+        $buildArgs += "-p:AppendRuntimeIdentifierToOutputPath=false"
+    }
+
+    & dotnet @buildArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed for $Label."
     }
@@ -159,13 +211,18 @@ function Invoke-Cfgs {
     try {
         Push-Location $repoRoot
         try {
+            $runtimeHost = Join-Path $DllDir "CFGS_VM.dll"
+            if (-not (Test-Path -LiteralPath $runtimeHost)) {
+                throw "Required runtime host not found at '$runtimeHost'."
+            }
+
             $savedEa = $ErrorActionPreference
             try {
                 $ErrorActionPreference = "Continue"
                 if ([string]::IsNullOrEmpty($StdinText)) {
-                    $lines = & dotnet run --no-build --no-launch-profile --project CFGS_VM.csproj -p:OutputPath=bin\\Debug\\net10.0\\ -- @CfgsArgs 2>&1
+                    $lines = & dotnet $runtimeHost @CfgsArgs 2>&1
                 } else {
-                    $lines = $StdinText | & dotnet run --no-build --no-launch-profile --project CFGS_VM.csproj -p:OutputPath=bin\\Debug\\net10.0\\ -- @CfgsArgs 2>&1
+                    $lines = $StdinText | & dotnet $runtimeHost @CfgsArgs 2>&1
                 }
                 $exitCode = $LASTEXITCODE
             } finally {
@@ -190,7 +247,7 @@ function Invoke-Cfgs {
 
 function Edge-Path {
     param([string]$RelativePath)
-    return (Join-Path $repoRoot $RelativePath)
+    return (Join-Path $runtimeRepoRoot $RelativePath)
 }
 
 function Run-ExpectContains {
@@ -239,12 +296,13 @@ function Run-ExpectNotContains {
 
 try {
     Write-Host "[INFO] Plugin DLL source: '$DllDir'"
+    Initialize-EdgeRuntimeLayout
 
     if (-not $SkipBuild) {
         Write-Host "[INFO] Building CFGS_VM.csproj..."
         Push-Location $repoRoot
         try {
-            & dotnet build CFGS_VM.csproj --nologo -p:OutputPath=bin\\Debug\\net10.0\\
+            & dotnet build CFGS_VM.csproj --nologo
             if ($LASTEXITCODE -ne 0) {
                 throw "Build failed."
             }
@@ -252,29 +310,55 @@ try {
             Pop-Location
         }
 
-        Build-ProjectIfExists -ProjectPath (Join-Path $repoParent "CFGS.StandardLibrary\CFGS.StandardLibrary.csproj") -Label "CFGS.StandardLibrary"
-        Build-ProjectIfExists -ProjectPath (Join-Path $repoParent "CFGS.Web.Http\CFGS.Web.Http.csproj") -Label "CFGS.Web.Http"
-        Build-ProjectIfExists -ProjectPath (Join-Path $repoParent "CFGS.Microsoft.SQL\CFGS.Microsoft.SQL.csproj") -Label "CFGS.Microsoft.SQL"
-        Build-ProjectIfExists -ProjectPath $edgeAwaitablesProject -Label "CFGS.EdgeAwaitables"
-        Build-ProjectIfExists -ProjectPath $edgePartialProject -Label "CFGS.EdgePartial"
+        if (-not (Test-Path -LiteralPath (Join-Path $DllDir "CFGS.StandardLibrary.dll"))) {
+            Build-ProjectIfExists -ProjectPath (Join-Path $repoParent "CFGS.StandardLibrary\CFGS.StandardLibrary.csproj") -Label "CFGS.StandardLibrary"
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $DllDir "CFGS.Web.Http.dll"))) {
+            Build-ProjectIfExists -ProjectPath (Join-Path $repoParent "CFGS.Web.Http\CFGS.Web.Http.csproj") -Label "CFGS.Web.Http"
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $DllDir "CFGS.Microsoft.SQL.dll"))) {
+            Build-ProjectIfExists -ProjectPath (Join-Path $repoParent "CFGS.Microsoft.SQL\CFGS.Microsoft.SQL.csproj") -Label "CFGS.Microsoft.SQL"
+        }
+        Build-ProjectIfExists -ProjectPath $edgeAwaitablesProject -Label "CFGS.EdgeAwaitables" -OutputDir $edgeAwaitablesBuildDir -UseNoRestore $false
+        Build-ProjectIfExists -ProjectPath $edgePartialProject -Label "CFGS.EdgePartial" -OutputDir $edgePartialBuildDir -UseNoRestore $false
     }
 
-    Ensure-StdLib -TargetDir $edgeDir -SourceDir $DllDir
-    Ensure-OptionalPluginDlls -TargetDir $edgeDir -SourceDir $DllDir
+    Ensure-StdLib -TargetDir $runtimeEdgeDir -SourceDir $DllDir
+    Ensure-OptionalPluginDlls -TargetDir $runtimeEdgeDir -SourceDir $DllDir
 
     if ("229_await_non_generic_task_valuetask" -like $NameFilter -or
         "231_plugin_nonblocking_loader" -like $NameFilter -or
         "233_await_generic_task_valuetask" -like $NameFilter) {
-        $edgeAwaitDll = Join-Path $edgeDir "CFGS.EdgeAwaitables.dll"
+        $edgeAwaitDll = Join-Path $runtimeEdgeDir "CFGS.EdgeAwaitables.dll"
         if (-not (Test-Path -LiteralPath $edgeAwaitDll)) {
-            Build-ProjectIfExists -ProjectPath $edgeAwaitablesProject -Label "CFGS.EdgeAwaitables"
+            if (-not (Test-Path -LiteralPath (Join-Path $edgeAwaitablesBuildDir "CFGS.EdgeAwaitables.dll"))) {
+                Build-ProjectIfExists -ProjectPath $edgeAwaitablesProject -Label "CFGS.EdgeAwaitables" -OutputDir $edgeAwaitablesBuildDir -UseNoRestore $false
+            }
+
+            if (Test-Path -LiteralPath (Join-Path $edgeAwaitablesBuildDir "CFGS.EdgeAwaitables.dll")) {
+                Copy-NamedArtifacts -BaseName "CFGS.EdgeAwaitables" -SourceDir $edgeAwaitablesBuildDir -TargetDir $runtimeEdgeDir
+            } elseif (Test-Path -LiteralPath (Join-Path $edgeDir "CFGS.EdgeAwaitables.dll")) {
+                Copy-NamedArtifacts -BaseName "CFGS.EdgeAwaitables" -SourceDir $edgeDir -TargetDir $runtimeEdgeDir
+            } else {
+                throw "Required edge plugin 'CFGS.EdgeAwaitables.dll' not found."
+            }
         }
     }
 
     if ("506_plugin_register_failfast_fail" -like $NameFilter) {
-        $edgePartialDll = Join-Path $edgeDir "CFGS.EdgePartial.dll"
+        $edgePartialDll = Join-Path $runtimeEdgeDir "CFGS.EdgePartial.dll"
         if (-not (Test-Path -LiteralPath $edgePartialDll)) {
-            Build-ProjectIfExists -ProjectPath $edgePartialProject -Label "CFGS.EdgePartial"
+            if (-not (Test-Path -LiteralPath (Join-Path $edgePartialBuildDir "CFGS.EdgePartial.dll"))) {
+                Build-ProjectIfExists -ProjectPath $edgePartialProject -Label "CFGS.EdgePartial" -OutputDir $edgePartialBuildDir -UseNoRestore $false
+            }
+
+            if (Test-Path -LiteralPath (Join-Path $edgePartialBuildDir "CFGS.EdgePartial.dll")) {
+                Copy-NamedArtifacts -BaseName "CFGS.EdgePartial" -SourceDir $edgePartialBuildDir -TargetDir $runtimeEdgeDir
+            } elseif (Test-Path -LiteralPath (Join-Path $edgeDir "CFGS.EdgePartial.dll")) {
+                Copy-NamedArtifacts -BaseName "CFGS.EdgePartial" -SourceDir $edgeDir -TargetDir $runtimeEdgeDir
+            } else {
+                throw "Required edge plugin 'CFGS.EdgePartial.dll' not found."
+            }
         }
     }
 
@@ -322,6 +406,10 @@ try {
     Run-ExpectContains -Name "237_using_statement" -ScriptArgs @((Edge-Path "_edgecases\237_using_statement.cfs")) -Expected "EDGE_OK:237_using_statement"
     Run-ExpectContains -Name "238_defer_statement" -ScriptArgs @((Edge-Path "_edgecases\238_defer_statement.cfs")) -Expected "EDGE_OK:238_defer_statement"
     Run-ExpectContains -Name "239_interfaces_and_implements" -ScriptArgs @((Edge-Path "_edgecases\239_interfaces_and_implements.cfs")) -Expected "EDGE_OK:239_interfaces_and_implements"
+    Run-ExpectContains -Name "240_async_shared_state_serialized" -ScriptArgs @((Edge-Path "_edgecases\240_async_shared_state_serialized.cfs")) -Expected "EDGE_OK:240_async_shared_state_serialized"
+    Run-ExpectContains -Name "241_async_return_flattening" -ScriptArgs @((Edge-Path "_edgecases\241_async_return_flattening.cfs")) -Expected "EDGE_OK:241_async_return_flattening"
+    Run-ExpectContains -Name "242_async_pure_io_parallelism" -ScriptArgs @((Edge-Path "_edgecases\242_async_pure_io_parallelism.cfs")) -Expected "EDGE_OK:242_async_pure_io_parallelism"
+    Run-ExpectContains -Name "243_async_shared_collection_aliases" -ScriptArgs @((Edge-Path "_edgecases\243_async_shared_collection_aliases.cfs")) -Expected "EDGE_OK:243_async_shared_collection_aliases"
     Run-ExpectContains -Name "301_try_throw_finally" -ScriptArgs @((Edge-Path "_edgecases\301_try_throw_finally.cfs")) -Expected "EDGE_OK:301_try_throw_finally"
     Run-ExpectContains -Name "402_import_named_and_file" -ScriptArgs @((Edge-Path "_edgecases\402_import_named_and_file.cfs")) -Expected "EDGE_OK:402_import_named_and_file"
     if ("495_plugin_multifile_reload" -like $NameFilter) {
@@ -498,7 +586,7 @@ try {
     }
 
     # Error tracking checks
-    $trackingLogPath = Join-Path $edgeDir "_tmp_error_tracking.jsonl"
+    $trackingLogPath = Join-Path $runtimeEdgeDir "_tmp_error_tracking.jsonl"
     if (Test-Path -LiteralPath $trackingLogPath) {
         Remove-Item -LiteralPath $trackingLogPath -Force
     }

@@ -13,6 +13,7 @@ internal sealed class CfgsAnalyzer
     [
         "namespace",
         "class",
+        "interface",
         "enum",
         "enumMember",
         "function",
@@ -34,7 +35,7 @@ internal sealed class CfgsAnalyzer
     [
         "var", "const", "if", "else", "delete", "while", "do", "for", "foreach", "in", "is",
         "break", "continue", "func", "return", "match", "case", "default", "try", "catch",
-        "finally", "throw", "class", "enum", "new", "null", "true", "false", "import",
+        "finally", "throw", "class", "interface", "enum", "new", "null", "true", "false", "import",
         "export", "namespace", "from", "as", "static", "public", "private", "protected",
         "async", "await", "yield", "out"
     ];
@@ -306,10 +307,10 @@ internal sealed class CfgsAnalyzer
             return [];
 
         return result.SemanticModel.Symbols
-            .Where(s => string.Equals(s.QualifiedName, typeQualifiedName, StringComparison.Ordinal) && s.Kind is 5 or 10)
+            .Where(s => string.Equals(s.QualifiedName, typeQualifiedName, StringComparison.Ordinal) && s.Kind is 5 or 10 or 11)
             .Take(1)
             .Concat(result.AllSymbols
-                .Where(s => string.Equals(s.QualifiedName, typeQualifiedName, StringComparison.Ordinal) && s.Kind is 5 or 10))
+                .Where(s => string.Equals(s.QualifiedName, typeQualifiedName, StringComparison.Ordinal) && s.Kind is 5 or 10 or 11))
             .GroupBy(s => s.QualifiedName, StringComparer.Ordinal)
             .Select(static g => g.First())
             .ToList();
@@ -321,16 +322,8 @@ internal sealed class CfgsAnalyzer
         if (symbol is null)
             return [];
 
-        if (symbol.Kind == 5)
-        {
-            return result.AllSymbols
-                .Concat(result.SemanticModel.Symbols)
-                .Where(s => s.Kind == 5 && !s.IsSynthetic &&
-                            s.Detail.Contains($": {symbol.Name}", StringComparison.Ordinal))
-                .GroupBy(s => s.QualifiedName, StringComparer.Ordinal)
-                .Select(static g => g.First())
-                .ToList();
-        }
+        if (symbol.Kind is 5 or 11)
+            return FindTypeImplementations(result, symbol);
 
         if (symbol.Kind == 6)
         {
@@ -625,6 +618,7 @@ internal sealed class CfgsAnalyzer
             new CfgsCompletionItem("while", 15, "while loop", "while (${1:condition}) {\n\t$0\n}"),
             new CfgsCompletionItem("func", 15, "function declaration", "func ${1:name}(${2:params}) {\n\t$0\n}"),
             new CfgsCompletionItem("class", 15, "class declaration", "class ${1:Name}(${2:params}) {\n\t$0\n}"),
+            new CfgsCompletionItem("interface", 15, "interface declaration", "interface ${1:IName} {\n\tfunc ${2:name}(${3:params});\n\t$0\n}"),
             new CfgsCompletionItem("try", 15, "try-catch block", "try {\n\t$1\n} catch (${2:err}) {\n\t$0\n}"),
             new CfgsCompletionItem("match", 15, "match expression", "match (${1:expr}) {\n\tcase ${2:pattern} => $0\n}"),
             new CfgsCompletionItem("import", 15, "import statement", "import { ${1:name} } from \"${2:./module.cfs}\""),
@@ -739,6 +733,7 @@ internal sealed class CfgsAnalyzer
         => symbolKind switch
         {
             5 => 7,
+            11 => 8,
             6 => 2,
             10 => 13,
             12 => 3,
@@ -754,13 +749,14 @@ internal sealed class CfgsAnalyzer
         {
             3 => 0,
             5 => 1,
-            10 => 2,
-            22 => 3,
-            12 => 4,
-            6 => 5,
-            13 when IsParameterSymbol(symbol) => 6,
-            13 => 7,
-            14 => 7,
+            11 => 2,
+            10 => 3,
+            22 => 4,
+            12 => 5,
+            6 => 6,
+            13 when IsParameterSymbol(symbol) => 7,
+            13 => 8,
+            14 => 8,
             _ => -1
         };
 
@@ -793,16 +789,51 @@ internal sealed class CfgsAnalyzer
     private static bool IsParameterSymbol(CfgsSymbol symbol)
         => symbol.Detail.Contains("parameter", StringComparison.Ordinal);
 
+    private static IReadOnlyList<CfgsSymbol> FindTypeImplementations(CfgsAnalysisResult result, CfgsSymbol typeSymbol)
+    {
+        HashSet<string> candidates = new(StringComparer.Ordinal)
+        {
+            typeSymbol.Name,
+            typeSymbol.QualifiedName
+        };
+
+        return result.AllSymbols
+            .Concat(result.SemanticModel.Symbols)
+            .Where(candidate => candidate.Kind == 5 &&
+                                !candidate.IsSynthetic &&
+                                DeclaresTypeReference(candidate.Detail, candidates))
+            .GroupBy(candidate => candidate.QualifiedName, StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .ToList();
+    }
+
+    private static bool DeclaresTypeReference(string detail, HashSet<string> candidates)
+        => ExtractDeclaredTypeReferences(detail).Any(candidates.Contains);
+
+    private static IEnumerable<string> ExtractDeclaredTypeReferences(string detail)
+    {
+        int colonIndex = detail.IndexOf(':', StringComparison.Ordinal);
+        if (colonIndex < 0 || colonIndex >= detail.Length - 1)
+            yield break;
+
+        string inheritanceClause = detail[(colonIndex + 1)..];
+        foreach (string typeName in inheritanceClause.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!string.IsNullOrWhiteSpace(typeName))
+                yield return typeName;
+        }
+    }
+
     private static string? FindSymbolValueType(CfgsAnalysisResult result, CfgsSymbol symbol)
     {
-        if (symbol.Kind is 5 or 10)
+        if (symbol.Kind is 5 or 10 or 11)
             return symbol.QualifiedName;
 
         if (symbol.Detail.StartsWith("var ", StringComparison.Ordinal) || symbol.Detail.StartsWith("const ", StringComparison.Ordinal))
         {
             foreach (CfgsSymbol candidate in result.SemanticModel.Symbols)
             {
-                if (candidate.Kind is 5 or 10 &&
+                if (candidate.Kind is 5 or 10 or 11 &&
                     !string.IsNullOrWhiteSpace(candidate.QualifiedName) &&
                     symbol.QualifiedName.StartsWith(candidate.QualifiedName + ".", StringComparison.Ordinal))
                     return candidate.QualifiedName;
@@ -1124,6 +1155,10 @@ internal sealed class CfgsAnalyzer
                     symbol = CreateClassSymbol(@class, containerName);
                     return true;
 
+                case InterfaceDeclStmt @interface:
+                    symbol = CreateInterfaceSymbol(@interface, containerName);
+                    return true;
+
                 case EnumDeclStmt @enum:
                     symbol = CreateEnumSymbol(@enum, containerName);
                     return true;
@@ -1167,9 +1202,7 @@ internal sealed class CfgsAnalyzer
             children.AddRange(classDecl.Enums.Select(@enum => CreateEnumSymbol(@enum, qualifiedName)));
             children.AddRange(classDecl.NestedClasses.Select(nested => CreateClassSymbol(nested, qualifiedName)));
 
-            string header = $"class {classDecl.Name}({string.Join(", ", classDecl.Parameters)})";
-            if (!string.IsNullOrWhiteSpace(classDecl.BaseName))
-                header += $" : {classDecl.BaseName}";
+            string header = BuildClassHeader(classDecl);
 
             return CreateSymbol(
                 classDecl.Name,
@@ -1178,6 +1211,28 @@ internal sealed class CfgsAnalyzer
                 classDecl.Col,
                 classDecl.OriginFile,
                 5,
+                header,
+                header,
+                children);
+        }
+
+        private CfgsSymbol CreateInterfaceSymbol(InterfaceDeclStmt interfaceDecl, string? containerName)
+        {
+            string qualifiedName = Qualify(containerName, interfaceDecl.Name);
+            List<CfgsSymbol> children =
+                interfaceDecl.Methods
+                    .Select(method => CreateInterfaceMethodSymbol(method, qualifiedName))
+                    .ToList();
+
+            string header = BuildInterfaceHeader(interfaceDecl);
+
+            return CreateSymbol(
+                interfaceDecl.Name,
+                qualifiedName,
+                interfaceDecl.Line,
+                interfaceDecl.Col,
+                interfaceDecl.OriginFile,
+                11,
                 header,
                 header,
                 children);
@@ -1201,6 +1256,22 @@ internal sealed class CfgsAnalyzer
                 $"enum {enumDecl.Name}",
                 $"enum {enumDecl.Name}",
                 children);
+        }
+
+        private CfgsSymbol CreateInterfaceMethodSymbol(InterfaceMethodDecl method, string? containerName)
+        {
+            string qualifiedName = Qualify(containerName, method.Name);
+            string signature = BuildInterfaceMethodSignature(method);
+            return CreateSymbol(
+                method.Name,
+                qualifiedName,
+                method.Line,
+                method.Col,
+                method.OriginFile,
+                6,
+                signature,
+                signature,
+                []);
         }
 
         private CfgsSymbol CreateFunctionSymbol(FuncDeclStmt func, string? containerName, bool isMethod)
@@ -1270,6 +1341,38 @@ internal sealed class CfgsAnalyzer
 
         private static string Qualify(string? containerName, string name)
             => string.IsNullOrWhiteSpace(containerName) ? name : $"{containerName}.{name}";
+
+        private static string BuildClassHeader(ClassDeclStmt classDecl)
+        {
+            StringBuilder sb = new();
+            sb.Append($"class {classDecl.Name}({string.Join(", ", classDecl.Parameters)})");
+
+            List<string> inheritedTypes = [];
+            if (!string.IsNullOrWhiteSpace(classDecl.BaseName))
+                inheritedTypes.Add(classDecl.BaseName);
+            inheritedTypes.AddRange(classDecl.ImplementedInterfaces.Where(static iface => !string.IsNullOrWhiteSpace(iface)));
+
+            if (inheritedTypes.Count > 0)
+                sb.Append($" : {string.Join(", ", inheritedTypes)}");
+
+            return sb.ToString();
+        }
+
+        private static string BuildInterfaceHeader(InterfaceDeclStmt interfaceDecl)
+        {
+            StringBuilder sb = new();
+            sb.Append($"interface {interfaceDecl.Name}");
+            if (interfaceDecl.BaseInterfaces.Count > 0)
+                sb.Append($" : {string.Join(", ", interfaceDecl.BaseInterfaces)}");
+
+            return sb.ToString();
+        }
+
+        private static string BuildInterfaceMethodSignature(InterfaceMethodDecl method)
+        {
+            string prefix = method.IsAsync ? "async func" : "func";
+            return $"{prefix} {method.Name}({string.Join(", ", method.Parameters)})";
+        }
 
         private static StringComparison GetPathComparison()
             => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;

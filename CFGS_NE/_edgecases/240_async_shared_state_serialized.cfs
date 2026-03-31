@@ -1,0 +1,43 @@
+import "edge_assert.cfs";
+
+edge_begin("240_async_shared_state_serialized");
+
+class Counter() {
+    var n = 0;
+
+    async func bump() {
+        var old = this.n;
+        yield;
+        this.n = old + 1;
+        return this.n;
+    }
+}
+
+async func call_nested(counter) {
+    return await counter.bump();
+}
+
+async func run_parallel(counter, count) {
+    var tasks = [];
+    var i = 0;
+    while (i < count) {
+        tasks[] = counter.bump();
+        i = i + 1;
+    }
+
+    return await tasks;
+}
+
+var nestedCounter = new Counter();
+edge_eq("nested_same_root_call", await call_nested(nestedCounter), 1);
+edge_eq("nested_same_root_final", nestedCounter.n, 1);
+
+var shared = new Counter();
+var sharedTask = run_parallel(shared, 20);
+edge_eq("shared_parallel_returns_task", typeof(sharedTask), "Task<Object>");
+
+var results = await sharedTask;
+edge_eq("shared_parallel_last_result", results[19], 20);
+edge_eq("shared_parallel_final_state", shared.n, 20);
+
+edge_finish("240_async_shared_state_serialized");

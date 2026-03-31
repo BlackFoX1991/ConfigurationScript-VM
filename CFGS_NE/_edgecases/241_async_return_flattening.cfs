@@ -1,0 +1,26 @@
+import "edge_assert.cfs";
+
+edge_begin("241_async_return_flattening");
+
+async func inner() {
+    yield;
+    return 7;
+}
+
+async func outer_plain() {
+    return inner();
+}
+
+async func outer_awaited() {
+    return await inner();
+}
+
+var plainTask = outer_plain();
+edge_eq("plain_task_type", typeof(plainTask), "Task<Object>");
+edge_eq("plain_task_await_result", await plainTask, 7);
+
+var awaitedTask = outer_awaited();
+edge_eq("awaited_task_type", typeof(awaitedTask), "Task<Object>");
+edge_eq("awaited_task_await_result", await awaitedTask, 7);
+
+edge_finish("241_async_return_flattening");

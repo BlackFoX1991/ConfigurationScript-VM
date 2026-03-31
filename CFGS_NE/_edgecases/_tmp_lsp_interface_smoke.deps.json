@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "_tmp_lsp_interface_smoke/1.0.0": {
+        "runtime": {
+          "_tmp_lsp_interface_smoke.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "_tmp_lsp_interface_smoke/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

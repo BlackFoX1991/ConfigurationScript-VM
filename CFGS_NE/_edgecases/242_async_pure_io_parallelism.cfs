@@ -1,0 +1,30 @@
+import "edge_assert.cfs";
+
+edge_begin("242_async_pure_io_parallelism");
+
+func now_ms() {
+    return UtcNow("yyyy-MM-dd HH:mm:ss.fff").toDateTime("yyyy-MM-dd HH:mm:ss.fff").toUnixMilliseconds();
+}
+
+async func delayed(timer) {
+    var _ = await timer.delay(80, null);
+    return 1;
+}
+
+async func immediate() {
+    return 2;
+}
+
+var timer = task();
+var started = now_ms();
+
+var slow = delayed(timer);
+var fast = immediate();
+
+edge_eq("slow_task_type", typeof(slow), "Task<Object>");
+edge_eq("fast_task_type", typeof(fast), "Task<Object>");
+edge_eq("fast_result", await fast, 2);
+edge_true("fast_task_not_blocked_by_pending_io", now_ms() - started < 60);
+edge_eq("slow_result", await slow, 1);
+
+edge_finish("242_async_pure_io_parallelism");

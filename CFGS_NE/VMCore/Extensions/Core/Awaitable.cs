@@ -71,6 +71,23 @@
         }
 
         /// <summary>
+        /// The TryGetDirectTask
+        /// </summary>
+        /// <param name="value">The value<see cref="object?"/></param>
+        /// <param name="task">The task<see cref="Task{object?}"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        public static bool TryGetDirectTask(object? value, out Task<object?> task)
+        {
+            if (!IsDirectAwaitable(value))
+            {
+                task = null!;
+                return false;
+            }
+
+            return TryGetTask(value, out task);
+        }
+
+        /// <summary>
         /// The ToTask
         /// </summary>
         /// <param name="value">The value<see cref="object?"/></param>
