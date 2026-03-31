@@ -91,6 +91,10 @@ internal sealed class CfgsSemanticModelBuilder
                 DeclareClassSymbol(@class, scope, containerQualifiedName, synthetic: false);
                 break;
 
+            case InterfaceDeclStmt @interface:
+                DeclareInterfaceSymbol(@interface, scope, containerQualifiedName, synthetic: false);
+                break;
+
             case EnumDeclStmt @enum:
                 DeclareEnumSymbol(@enum, scope, containerQualifiedName, synthetic: false);
                 break;
@@ -199,6 +203,10 @@ internal sealed class CfgsSemanticModelBuilder
                 VisitClassDecl(@class, scope, containerQualifiedName);
                 return;
 
+            case InterfaceDeclStmt @interface:
+                VisitInterfaceDecl(@interface, scope, containerQualifiedName);
+                return;
+
             case EnumDeclStmt @enum:
                 VisitEnumDecl(@enum, scope, containerQualifiedName);
                 return;
@@ -300,6 +308,12 @@ internal sealed class CfgsSemanticModelBuilder
         string qualifiedClassName = classSymbol.QualifiedName;
         string? baseQualifiedName = ResolveBaseQualifiedName(classDecl, containerQualifiedName);
 
+        if (!string.IsNullOrWhiteSpace(classDecl.BaseName))
+            RecordTypeReference(classDecl.BaseName, classDecl.Line, classDecl.Col, classDecl.OriginFile, scope);
+
+        foreach (string interfaceName in classDecl.ImplementedInterfaces)
+            RecordTypeReference(interfaceName, classDecl.Line, classDecl.Col, classDecl.OriginFile, scope);
+
         foreach (FuncDeclStmt method in classDecl.Methods)
             DeclareFunctionSymbol(method, scope, qualifiedClassName, isMethod: true, synthetic: false);
 
@@ -334,6 +348,18 @@ internal sealed class CfgsSemanticModelBuilder
 
         foreach (ClassDeclStmt nestedClass in classDecl.NestedClasses)
             VisitClassDecl(nestedClass, scope, qualifiedClassName);
+    }
+
+    private void VisitInterfaceDecl(InterfaceDeclStmt interfaceDecl, SemanticScope scope, string? containerQualifiedName)
+    {
+        CfgsSymbol interfaceSymbol = DeclareInterfaceSymbol(interfaceDecl, scope, containerQualifiedName, synthetic: false);
+        string qualifiedInterfaceName = interfaceSymbol.QualifiedName;
+
+        foreach (string baseInterfaceName in interfaceDecl.BaseInterfaces)
+            RecordTypeReference(baseInterfaceName, interfaceDecl.Line, interfaceDecl.Col, interfaceDecl.OriginFile, scope);
+
+        foreach (InterfaceMethodDecl method in interfaceDecl.Methods)
+            DeclareInterfaceMethodSymbol(method, qualifiedInterfaceName, synthetic: false);
     }
 
     private void VisitMethodBody(FuncDeclStmt method, SemanticScope parentScope, string classQualifiedName, string? baseQualifiedName)
@@ -503,6 +529,8 @@ internal sealed class CfgsSemanticModelBuilder
                 return;
 
             case IndexExpr indexExpr:
+                if (TryRecordQualifiedTypePath(indexExpr, scope))
+                    return;
                 if (indexExpr.Target is not null)
                     VisitExpr(indexExpr.Target, scope);
                 if (indexExpr.Target is not null && indexExpr.Index is StringExpr stringIndex)
@@ -533,7 +561,7 @@ internal sealed class CfgsSemanticModelBuilder
                 return;
 
             case NewExpr newExpr:
-                RecordQualifiedTypeReference(newExpr.ClassName, newExpr.Line, newExpr.Col, newExpr.OriginFile);
+                RecordTypeReference(newExpr.ClassName, newExpr.Line, newExpr.Col, newExpr.OriginFile, scope);
                 foreach (Expr arg in newExpr.Args)
                     VisitExpr(arg, scope);
                 foreach ((string _, Expr Value) init in newExpr.Initializers)
@@ -651,10 +679,10 @@ internal sealed class CfgsSemanticModelBuilder
             AddOccurrence(symbol!, line, column, originFile, name, isDeclaration: false);
     }
 
-    private void RecordQualifiedTypeReference(string className, int line, int column, string originFile)
+    private void RecordTypeReference(string typeName, int line, int column, string originFile, SemanticScope scope)
     {
-        if (TryResolveByExactName(className, out CfgsSymbol? symbol))
-            AddOccurrence(symbol!, line, column, originFile, className, isDeclaration: false);
+        if (TryResolveTypeSymbol(typeName, scope, out CfgsSymbol? symbol))
+            AddOccurrence(symbol!, line, column, originFile, typeName, isDeclaration: false);
     }
 
     private void RecordQualifiedMemberReference(Expr target, string memberName, int line, int column, string originFile, SemanticScope scope)
@@ -675,6 +703,38 @@ internal sealed class CfgsSemanticModelBuilder
             .FirstOrDefault();
 
         return symbol is not null;
+    }
+
+    private bool TryResolveTypeSymbol(string typeName, SemanticScope scope, out CfgsSymbol? symbol)
+    {
+        symbol = null;
+
+        if (TryResolveByExactName(typeName, out CfgsSymbol? exact) && exact!.Kind is 5 or 10 or 11)
+        {
+            symbol = exact;
+            return true;
+        }
+
+        if (scope.TryResolve(typeName, out CfgsSymbol? scoped) && scoped!.Kind is 5 or 10 or 11)
+        {
+            symbol = scoped;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryRecordQualifiedTypePath(Expr expr, SemanticScope scope)
+    {
+        string? typePath = TextLocator.TryExtractQualifiedPath(expr);
+        if (string.IsNullOrWhiteSpace(typePath))
+            return false;
+
+        if (!TryResolveTypeSymbol(typePath, scope, out CfgsSymbol? symbol))
+            return false;
+
+        AddOccurrence(symbol!, expr.Line, expr.Col, expr.OriginFile, typePath, isDeclaration: false);
+        return true;
     }
 
     private bool TryExtractQualifiedAccess(Expr expr, SemanticScope scope, out string? path)
@@ -764,7 +824,7 @@ internal sealed class CfgsSemanticModelBuilder
         if (_memberTypesByQualifiedName.TryGetValue(qualified, out string? memberType))
             return memberType;
 
-        if (TryResolveByExactName(qualified, out CfgsSymbol? symbol) && symbol!.Kind is 5 or 10)
+        if (TryResolveByExactName(qualified, out CfgsSymbol? symbol) && symbol!.Kind is 5 or 10 or 11)
             return symbol.QualifiedName;
 
         return null;
@@ -772,12 +832,15 @@ internal sealed class CfgsSemanticModelBuilder
 
     private string? TryResolveNamedContainer(string name, SemanticScope scope)
     {
+        if (TryResolveTypeSymbol(name, scope, out CfgsSymbol? typeSymbol))
+            return typeSymbol!.QualifiedName;
+
         if (TryResolveByExactName(name, out CfgsSymbol? exact) &&
-            (exact!.Kind is 5 or 10 || string.Equals(exact.QualifiedName, name, StringComparison.Ordinal)))
+            string.Equals(exact!.QualifiedName, name, StringComparison.Ordinal))
             return exact!.QualifiedName;
 
         if (scope.TryResolve(name, out CfgsSymbol? symbol) &&
-            (symbol!.Kind is 5 or 10 || string.Equals(symbol.QualifiedName, name, StringComparison.Ordinal)))
+            string.Equals(symbol!.QualifiedName, name, StringComparison.Ordinal))
             return symbol.QualifiedName;
 
         return null;
@@ -911,11 +974,34 @@ internal sealed class CfgsSemanticModelBuilder
         return symbol;
     }
 
+    private CfgsSymbol DeclareInterfaceMethodSymbol(InterfaceMethodDecl method, string? containerQualifiedName, bool synthetic)
+    {
+        string label = BuildInterfaceMethodLabel(method);
+        CfgsSignature signature = new(
+            label,
+            method.Parameters.ToList(),
+            method.RestParameter,
+            method.MinArgs);
+
+        return CreateSymbol(
+            method,
+            method.Name,
+            Qualify(containerQualifiedName, method.Name),
+            6,
+            method.OriginFile,
+            method.Line,
+            method.Col,
+            label,
+            label,
+            [],
+            synthetic,
+            addOccurrence: !synthetic,
+            signature);
+    }
+
     private CfgsSymbol DeclareClassSymbol(ClassDeclStmt classDecl, SemanticScope scope, string? containerQualifiedName, bool synthetic)
     {
-        string label = $"class {classDecl.Name}({string.Join(", ", classDecl.Parameters)})";
-        if (!string.IsNullOrWhiteSpace(classDecl.BaseName))
-            label += $" : {classDecl.BaseName}";
+        string label = BuildClassLabel(classDecl);
 
         CfgsSignature signature = new(
             $"{classDecl.Name}({string.Join(", ", classDecl.Parameters)})",
@@ -939,6 +1025,28 @@ internal sealed class CfgsSemanticModelBuilder
             signature);
 
         scope.Declare(classDecl.Name, symbol, symbol.QualifiedName);
+        return symbol;
+    }
+
+    private CfgsSymbol DeclareInterfaceSymbol(InterfaceDeclStmt interfaceDecl, SemanticScope scope, string? containerQualifiedName, bool synthetic)
+    {
+        string label = BuildInterfaceLabel(interfaceDecl);
+        CfgsSymbol symbol = CreateSymbol(
+            interfaceDecl,
+            interfaceDecl.Name,
+            Qualify(containerQualifiedName, interfaceDecl.Name),
+            11,
+            interfaceDecl.OriginFile,
+            interfaceDecl.Line,
+            interfaceDecl.Col,
+            label,
+            label,
+            [],
+            synthetic,
+            addOccurrence: !synthetic,
+            signature: null);
+
+        scope.Declare(interfaceDecl.Name, symbol, symbol.QualifiedName);
         return symbol;
     }
 
@@ -1128,6 +1236,38 @@ internal sealed class CfgsSemanticModelBuilder
 
     private static string Qualify(string? containerQualifiedName, string name)
         => string.IsNullOrWhiteSpace(containerQualifiedName) ? name : $"{containerQualifiedName}.{name}";
+
+    private static string BuildClassLabel(ClassDeclStmt classDecl)
+    {
+        StringBuilder sb = new();
+        sb.Append($"class {classDecl.Name}({string.Join(", ", classDecl.Parameters)})");
+
+        List<string> inheritedTypes = [];
+        if (!string.IsNullOrWhiteSpace(classDecl.BaseName))
+            inheritedTypes.Add(classDecl.BaseName);
+        inheritedTypes.AddRange(classDecl.ImplementedInterfaces.Where(static iface => !string.IsNullOrWhiteSpace(iface)));
+
+        if (inheritedTypes.Count > 0)
+            sb.Append($" : {string.Join(", ", inheritedTypes)}");
+
+        return sb.ToString();
+    }
+
+    private static string BuildInterfaceLabel(InterfaceDeclStmt interfaceDecl)
+    {
+        StringBuilder sb = new();
+        sb.Append($"interface {interfaceDecl.Name}");
+        if (interfaceDecl.BaseInterfaces.Count > 0)
+            sb.Append($" : {string.Join(", ", interfaceDecl.BaseInterfaces)}");
+
+        return sb.ToString();
+    }
+
+    private static string BuildInterfaceMethodLabel(InterfaceMethodDecl method)
+    {
+        string prefix = method.IsAsync ? "async func" : "func";
+        return $"{prefix} {method.Name}({string.Join(", ", method.Parameters)})";
+    }
 
     private string? ResolveBaseQualifiedName(ClassDeclStmt classDecl, string? containerQualifiedName)
     {

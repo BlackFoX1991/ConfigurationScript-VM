@@ -9,6 +9,7 @@ using System.Collections;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
+using System.Runtime.CompilerServices;
 
 namespace CFGS_VM.VMCore
 {
@@ -660,6 +661,53 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private readonly Stack<TryHandler> _tryHandlers = new();
 
+        /// <summary>
+        /// Tracks the currently active serialized async execution context on this logical async flow.
+        /// </summary>
+        private static readonly AsyncLocal<AsyncExecutionContext?> CurrentAsyncContext = new();
+
+        /// <summary>
+        /// Associates started CFGS async tasks with the coordinator that serializes them.
+        /// </summary>
+        private static readonly ConditionalWeakTable<Task, AsyncExecutionCoordinator> AsyncTaskCoordinators = new();
+
+        /// <summary>
+        /// Tracks ownership for mutable collection instances that were created within a serialized async execution.
+        /// </summary>
+        private static readonly ConditionalWeakTable<object, MutableCollectionOwnership> MutableCollectionOwnerships = new();
+
+        /// <summary>
+        /// Defines the next unique async execution id.
+        /// </summary>
+        private static long NextAsyncExecutionId;
+
+        private sealed class AsyncExecutionContext
+        {
+            public AsyncExecutionContext(AsyncExecutionCoordinator coordinator, long executionId)
+            {
+                Coordinator = coordinator;
+                ExecutionId = executionId;
+            }
+
+            public AsyncExecutionCoordinator Coordinator { get; }
+
+            public long ExecutionId { get; }
+
+            public bool HasSharedStateHazard { get; set; }
+
+            public bool OwnsGate { get; set; } = true;
+        }
+
+        private sealed class MutableCollectionOwnership
+        {
+            public MutableCollectionOwnership(long executionId)
+            {
+                ExecutionId = executionId;
+            }
+
+            public long ExecutionId { get; }
+        }
+
         private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef, StaticInstance? AccessType, bool IsAsync);
 
         /// <summary>
@@ -669,7 +717,249 @@ namespace CFGS_VM.VMCore
         /// <param name="retVal">The retVal<see cref="object?"/></param>
         /// <returns>The <see cref="object?"/></returns>
         private static object? WrapReturnForFrame(CallFrame frame, object? retVal)
-            => frame.IsAsync ? Task.FromResult(retVal) : retVal;
+        {
+            if (!frame.IsAsync)
+                return retVal;
+
+            if (AwaitableAdapter.TryGetDirectTask(retVal, out Task<object?> flattened))
+                return flattened;
+
+            return Task.FromResult(retVal);
+        }
+
+        /// <summary>
+        /// The GetAsyncCoordinatorRoot
+        /// </summary>
+        /// <param name="env">The env<see cref="Env"/></param>
+        /// <returns>The <see cref="Env"/></returns>
+        private static Env GetAsyncCoordinatorRoot(Env env)
+        {
+            Env current = env;
+            while (current.Parent != null)
+                current = current.Parent;
+
+            return current;
+        }
+
+        /// <summary>
+        /// The StartSerializedAsyncCall
+        /// </summary>
+        /// <param name="coordinator">The coordinator<see cref="AsyncExecutionCoordinator"/></param>
+        /// <param name="work">The work<see cref="Func{Task}"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private static Task<object?> StartSerializedAsyncCall(AsyncExecutionCoordinator coordinator, Func<Task<object?>> work)
+        {
+            Task<object?> started = coordinator.Gate.Wait(0)
+                ? RunSerializedAsyncCallCore(coordinator, work, acquired: true)
+                : RunSerializedAsyncCallCore(coordinator, work, acquired: false);
+
+            AsyncTaskCoordinators.Remove(started);
+            AsyncTaskCoordinators.Add(started, coordinator);
+            return started;
+        }
+
+        /// <summary>
+        /// The RunSerializedAsyncCallCore
+        /// </summary>
+        /// <param name="coordinator">The coordinator<see cref="AsyncExecutionCoordinator"/></param>
+        /// <param name="work">The work<see cref="Func{Task}"/></param>
+        /// <param name="acquired">The acquired<see cref="bool"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private static async Task<object?> RunSerializedAsyncCallCore(
+            AsyncExecutionCoordinator coordinator,
+            Func<Task<object?>> work,
+            bool acquired)
+        {
+            if (!acquired)
+                await coordinator.Gate.WaitAsync().ConfigureAwait(false);
+
+            AsyncExecutionContext? previous = CurrentAsyncContext.Value;
+            AsyncExecutionContext context = new(coordinator, Interlocked.Increment(ref NextAsyncExecutionId));
+            CurrentAsyncContext.Value = context;
+            try
+            {
+                Task<object?> started = work();
+                return await started.ConfigureAwait(false);
+            }
+            finally
+            {
+                CurrentAsyncContext.Value = previous;
+                if (context.OwnsGate)
+                    coordinator.Gate.Release();
+            }
+        }
+
+        /// <summary>
+        /// Marks the current serialized async context as having observed shared mutable state.
+        /// </summary>
+        private static void MarkCurrentAsyncSharedStateHazard()
+        {
+            AsyncExecutionContext? current = CurrentAsyncContext.Value;
+            if (current != null)
+                current.HasSharedStateHazard = true;
+        }
+
+        /// <summary>
+        /// Marks env access as shared-state relevant when it escapes the current local scope.
+        /// </summary>
+        /// <param name="env">The env<see cref="Env"/></param>
+        private void MarkAsyncHazardForEnvAccess(Env env)
+        {
+            if (_scopes.Count == 0)
+                return;
+
+            if (!ReferenceEquals(env, _scopes[^1]))
+                MarkCurrentAsyncSharedStateHazard();
+        }
+
+        /// <summary>
+        /// Captures ownership for mutable collections that are created within the current serialized async execution.
+        /// </summary>
+        /// <typeparam name="TCollection">The collection type.</typeparam>
+        /// <param name="collection">The collection.</param>
+        /// <returns>The same collection instance.</returns>
+        private static TCollection CaptureMutableCollectionOwnership<TCollection>(TCollection collection)
+            where TCollection : class
+        {
+            AsyncExecutionContext? current = CurrentAsyncContext.Value;
+            if (current == null ||
+                collection is not List<object> &&
+                collection is not Dictionary<string, object>)
+            {
+                return collection;
+            }
+
+            MutableCollectionOwnerships.Remove(collection);
+            MutableCollectionOwnerships.Add(collection, new MutableCollectionOwnership(current.ExecutionId));
+            return collection;
+        }
+
+        /// <summary>
+        /// Marks the current async execution as hazardous when accessing a mutable collection that is not owned by it.
+        /// </summary>
+        /// <param name="value">The value.</param>
+        private static void MarkAsyncHazardForMutableCollection(object? value)
+        {
+            AsyncExecutionContext? current = CurrentAsyncContext.Value;
+            if (current == null ||
+                value is not List<object> &&
+                value is not Dictionary<string, object>)
+            {
+                return;
+            }
+
+            if (!MutableCollectionOwnerships.TryGetValue(value, out MutableCollectionOwnership? owner) ||
+                owner.ExecutionId != current.ExecutionId)
+            {
+                current.HasSharedStateHazard = true;
+            }
+        }
+
+        /// <summary>
+        /// Marks async hazards for mutable receivers before intrinsic access.
+        /// </summary>
+        /// <param name="receiver">The receiver.</param>
+        private static void MarkAsyncHazardForMutableReceiver(object? receiver)
+        {
+            switch (receiver)
+            {
+                case List<object>:
+                case Dictionary<string, object>:
+                    MarkAsyncHazardForMutableCollection(receiver);
+                    break;
+
+                case ClassInstance:
+                case StaticInstance:
+                    MarkCurrentAsyncSharedStateHazard();
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// The FinalizeAsyncResult
+        /// </summary>
+        /// <param name="value">The value<see cref="object?"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private static Task<object?> FinalizeAsyncResult(object? value)
+        {
+            if (AwaitableAdapter.TryGetDirectTask(value, out Task<object?> flattened))
+                return AwaitTaskRespectingCoordinatorAsync(flattened);
+
+            return Task.FromResult(value);
+        }
+
+        /// <summary>
+        /// The AwaitTaskRespectingCoordinatorAsync
+        /// </summary>
+        /// <param name="task">The task<see cref="Task{object?}"/></param>
+        /// <returns>The <see cref="Task{object?}"/></returns>
+        private static async Task<object?> AwaitTaskRespectingCoordinatorAsync(Task<object?> task)
+        {
+            AsyncExecutionContext? current = CurrentAsyncContext.Value;
+            if (current == null || task.IsCompleted)
+            {
+                return await task.ConfigureAwait(false);
+            }
+
+            bool awaitingSerializedCfgsTask =
+                AsyncTaskCoordinators.TryGetValue(task, out AsyncExecutionCoordinator? awaitedCoordinator) &&
+                ReferenceEquals(current.Coordinator, awaitedCoordinator);
+
+            if (!awaitingSerializedCfgsTask && current.HasSharedStateHazard)
+                return await task.ConfigureAwait(false);
+
+            if (!current.OwnsGate)
+                return await task.ConfigureAwait(false);
+
+            current.OwnsGate = false;
+            CurrentAsyncContext.Value = null;
+            current.Coordinator.Gate.Release();
+            try
+            {
+                return await task.ConfigureAwait(false);
+            }
+            finally
+            {
+                await current.Coordinator.Gate.WaitAsync().ConfigureAwait(false);
+                current.OwnsGate = true;
+                CurrentAsyncContext.Value = current;
+            }
+        }
+
+        /// <summary>
+        /// The ContainsTaskForCoordinator
+        /// </summary>
+        /// <param name="value">The value<see cref="object?"/></param>
+        /// <param name="coordinator">The coordinator<see cref="AsyncExecutionCoordinator"/></param>
+        /// <returns>The <see cref="bool"/></returns>
+        private static bool ContainsTaskForCoordinator(object? value, AsyncExecutionCoordinator coordinator)
+        {
+            switch (value)
+            {
+                case Task task:
+                    return AsyncTaskCoordinators.TryGetValue(task, out AsyncExecutionCoordinator? taskCoordinator) &&
+                           ReferenceEquals(taskCoordinator, coordinator);
+
+                case List<object> list:
+                    foreach (object item in list)
+                    {
+                        if (ContainsTaskForCoordinator(item, coordinator))
+                            return true;
+                    }
+                    return false;
+
+                case Dictionary<string, object> dict:
+                    foreach (object item in dict.Values)
+                    {
+                        if (ContainsTaskForCoordinator(item, coordinator))
+                            return true;
+                    }
+                    return false;
+
+                default:
+                    return false;
+            }
+        }
 
         /// <summary>
         /// The CreateHotStartChildVm
@@ -733,7 +1023,7 @@ namespace CFGS_VM.VMCore
         {
             RunStopReason reason = RunUntilAwaitOrHalt(false, startIp);
             if (reason == RunStopReason.Halted)
-                return Task.FromResult(ConsumeHotStartResult());
+                return FinalizeAsyncResult(ConsumeHotStartResult());
 
             Task<object?> firstPending = _awaitTask!;
             int resumeIp = _awaitResumeIp;
@@ -762,7 +1052,7 @@ namespace CFGS_VM.VMCore
 
                 try
                 {
-                    object? res = await task.ConfigureAwait(false);
+                    object? res = await AwaitTaskRespectingCoordinatorAsync(task).ConfigureAwait(false);
                     _stack.Push(res!);
                 }
                 catch (Exception ex)
@@ -795,7 +1085,7 @@ namespace CFGS_VM.VMCore
 
                 RunStopReason reason = RunUntilAwaitOrHalt(false, startIp);
                 if (reason == RunStopReason.Halted)
-                    return ConsumeHotStartResult();
+                    return await FinalizeAsyncResult(ConsumeHotStartResult()).ConfigureAwait(false);
 
                 task = _awaitTask!;
                 startIp = _awaitResumeIp;
@@ -830,7 +1120,8 @@ namespace CFGS_VM.VMCore
             Env callEnv = BuildCallEnv(f, args, instr);
             VM child = CreateHotStartChildVm();
             child.PrepareHotStartEntry(callEnv, receiver, accessType);
-            startedTask = child.RunHotStartEntryAsync(f.Address);
+            AsyncExecutionCoordinator coordinator = GetAsyncCoordinatorRoot(f.CapturedEnv).AsyncCoordinator;
+            startedTask = StartSerializedAsyncCall(coordinator, () => child.RunHotStartEntryAsync(f.Address));
             return true;
         }
         /// <summary>
@@ -1072,6 +1363,8 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="object?"/></returns>
         private static object? InvokeIntrinsicForCall(IntrinsicMethod method, object receiver, List<object> args, Instruction instr)
         {
+            MarkAsyncHazardForMutableReceiver(receiver);
+
             if (!method.NonBlocking)
                 return method.Invoke(receiver, args, instr);
 
@@ -1210,7 +1503,7 @@ namespace CFGS_VM.VMCore
                 callEnv.Define(f.Parameters[piStart + i], finalArgs[i]!);
 
             if (restIndex >= 0)
-                callEnv.Define(f.Parameters[piStart + restIndex], restValues);
+                callEnv.Define(f.Parameters[piStart + restIndex], CaptureMutableCollectionOwnership(restValues));
 
             return callEnv;
         }
@@ -1409,7 +1702,7 @@ namespace CFGS_VM.VMCore
                         RequireStack(ecount, instr, "NEW_ARRAY");
                         object[] temp = new object[ecount];
                         for (int i = ecount - 1; i >= 0; i--) temp[i] = _stack.Pop();
-                        List<object> list = new(temp);
+                        List<object> list = CaptureMutableCollectionOwnership(new List<object>(temp));
                         _stack.Push(list);
                         break;
                     }
@@ -1429,6 +1722,7 @@ namespace CFGS_VM.VMCore
                         {
                             Env owner = FindEnvWithLocal(name)
                                 ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            MarkAsyncHazardForEnvAccess(owner);
                             target = GetLocalVar(owner, name)!;
                         }
                         else
@@ -1440,17 +1734,19 @@ namespace CFGS_VM.VMCore
                         {
                             case List<object> arr:
                                 {
+                                    MarkAsyncHazardForMutableCollection(arr);
                                     (int start, int end) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
-                                    _stack.Push(arr.GetRange(start, end - start));
+                                    _stack.Push(CaptureMutableCollectionOwnership(arr.GetRange(start, end - start)));
                                     break;
                                 }
 
                             case Dictionary<string, object> dict:
                                 {
+                                    MarkAsyncHazardForMutableCollection(dict);
                                     List<string> keys = dict.Keys.ToList();
                                     (int start, int end) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
 
-                                    Dictionary<string, object> slice = new();
+                                    Dictionary<string, object> slice = CaptureMutableCollectionOwnership(new Dictionary<string, object>());
                                     for (int i = start; i < end; i++)
                                         slice[keys[i]] = dict[keys[i]];
 
@@ -1489,7 +1785,9 @@ namespace CFGS_VM.VMCore
                         {
                             Env env = FindEnvWithLocal(name)
                                 ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            MarkAsyncHazardForEnvAccess(env);
                             target = GetLocalVar(env, name)!;
+                            MarkAsyncHazardForMutableCollection(target);
 
                             DoSliceSet(ref target, startObj, endObj, value, instr);
                             SetLocalVar(env, name, target);
@@ -1497,6 +1795,7 @@ namespace CFGS_VM.VMCore
                         else
                         {
                             target = _stack.Pop();
+                            MarkAsyncHazardForMutableCollection(target);
                             DoSliceSet(ref target, startObj, endObj, value, instr);
                         }
                         break;
@@ -1570,6 +1869,7 @@ namespace CFGS_VM.VMCore
                         {
                             Env owner = FindEnvWithLocal(nameFromEnv)
                                 ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            MarkAsyncHazardForEnvAccess(owner);
                             target = GetLocalVar(owner, nameFromEnv)!;
                         }
                         else
@@ -1599,6 +1899,7 @@ namespace CFGS_VM.VMCore
                             Env env = FindEnvWithLocal(nameFromEnv)
                                 ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+                            MarkAsyncHazardForEnvAccess(env);
                             target = GetLocalVar(env, nameFromEnv)!;
                             SetIndexedValue(ref target, idxObj, value, instr, allowReservedRuntimeSlotWrites);
                             SetLocalVar(env, nameFromEnv, target);
@@ -1627,7 +1928,7 @@ namespace CFGS_VM.VMCore
                             pairs[i] = (sk, value);
                         }
 
-                        Dictionary<string, object> dict = new(dcount);
+                        Dictionary<string, object> dict = CaptureMutableCollectionOwnership(new Dictionary<string, object>(dcount));
                         for (int i = 0; i < dcount; i++)
                         {
                             string key = NormalizeDictionaryWriteKey(dict, pairs[i].key, instr);
@@ -1755,10 +2056,12 @@ namespace CFGS_VM.VMCore
 
                             if (arrObj is List<object> arr)
                             {
+                                MarkAsyncHazardForMutableCollection(arr);
                                 arr.Add(value);
                             }
                             else if (arrObj is Dictionary<string, object> dict)
                             {
+                                MarkAsyncHazardForMutableCollection(dict);
                                 if (value is Dictionary<string, object> literal && literal.Count == 1)
                                 {
                                     foreach (KeyValuePair<string, object> kv in literal)
@@ -1790,12 +2093,15 @@ namespace CFGS_VM.VMCore
                             Env? env = FindEnvWithLocal(name);
                             if (env == null || !TryGetLocalVar(env, name, out object? obj))
                                 throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            MarkAsyncHazardForEnvAccess(env);
                             if (obj is List<object> arr)
                             {
+                                MarkAsyncHazardForMutableCollection(arr);
                                 arr.Add(value);
                             }
                             else if (obj is Dictionary<string, object> dict)
                             {
+                                MarkAsyncHazardForMutableCollection(dict);
                                 if (value is Dictionary<string, object> literal && literal.Count == 1)
                                 {
                                     foreach (KeyValuePair<string, object> kv in literal)
@@ -1837,7 +2143,9 @@ namespace CFGS_VM.VMCore
                         {
                             Env env = FindEnvWithLocal(name)
                                 ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            MarkAsyncHazardForEnvAccess(env);
                             target = GetLocalVar(env, name)!;
+                            MarkAsyncHazardForMutableCollection(target);
 
                             DeleteSliceOnTarget(ref target, startObj, endObj, instr);
 
@@ -1857,6 +2165,7 @@ namespace CFGS_VM.VMCore
                         object endObj = _stack.Pop();
                         object startObj = _stack.Pop();
                         object target = _stack.Pop();
+                        MarkAsyncHazardForMutableCollection(target);
 
                         if (target is string)
                             throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1897,7 +2206,9 @@ namespace CFGS_VM.VMCore
                             if (owner == null)
                                 throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+                            MarkAsyncHazardForEnvAccess(owner);
                             object target = GetLocalVar(owner, name)!;
+                            MarkAsyncHazardForMutableCollection(target);
 
                             if (target is string)
                                 throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1924,6 +2235,7 @@ namespace CFGS_VM.VMCore
                         else
                         {
                             object target = _stack.Pop();
+                            MarkAsyncHazardForMutableCollection(target);
 
                             if (target is string)
                                 throw new VMException("Runtime error: delete on strings is not allowed", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1944,6 +2256,7 @@ namespace CFGS_VM.VMCore
                             }
                             else if (target is ClassInstance obj)
                             {
+                                MarkCurrentAsyncSharedStateHazard();
                                 string key = idxObj?.ToString() ?? "";
                                 if (key.Length == 0)
                                     throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1953,11 +2266,11 @@ namespace CFGS_VM.VMCore
 
                                 if (field is List<object>)
                                 {
-                                    obj.Fields[key] = new List<object>();
+                                    obj.Fields[key] = CaptureMutableCollectionOwnership(new List<object>());
                                 }
                                 else if (field is Dictionary<string, object>)
                                 {
-                                    obj.Fields[key] = new Dictionary<string, object>();
+                                    obj.Fields[key] = CaptureMutableCollectionOwnership(new Dictionary<string, object>());
                                 }
                                 else
                                 {
@@ -1969,6 +2282,7 @@ namespace CFGS_VM.VMCore
                             }
                             else if (target is StaticInstance st)
                             {
+                                MarkCurrentAsyncSharedStateHazard();
                                 string key = idxObj?.ToString() ?? "";
                                 if (key.Length == 0)
                                     throw new VMException("Runtime error: static member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1981,11 +2295,11 @@ namespace CFGS_VM.VMCore
 
                                 if (field is List<object>)
                                 {
-                                    st.Fields[key] = new List<object>();
+                                    st.Fields[key] = CaptureMutableCollectionOwnership(new List<object>());
                                 }
                                 else if (field is Dictionary<string, object>)
                                 {
-                                    st.Fields[key] = new Dictionary<string, object>();
+                                    st.Fields[key] = CaptureMutableCollectionOwnership(new Dictionary<string, object>());
                                 }
                                 else
                                 {
@@ -2010,13 +2324,15 @@ namespace CFGS_VM.VMCore
                         Env? env = FindEnvWithLocal(name);
                         if (env == null || !TryGetLocalVar(env, name, out object? target))
                             throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        MarkAsyncHazardForEnvAccess(env);
+                        MarkAsyncHazardForMutableCollection(target);
                         if (target is List<object>)
                         {
-                            SetLocalVar(env, name, new List<object>());
+                            SetLocalVar(env, name, CaptureMutableCollectionOwnership(new List<object>()));
                         }
                         else if (target is Dictionary<string, object>)
                         {
-                            SetLocalVar(env, name, new Dictionary<string, object>());
+                            SetLocalVar(env, name, CaptureMutableCollectionOwnership(new Dictionary<string, object>()));
                         }
                         else
                         {
@@ -2030,6 +2346,7 @@ namespace CFGS_VM.VMCore
                         RequireStack(1, instr, "ARRAY_CLEAR");
 
                         object target = _stack.Pop();
+                        MarkAsyncHazardForMutableCollection(target);
 
                         if (target is List<object> list)
                         {
@@ -2166,6 +2483,7 @@ namespace CFGS_VM.VMCore
                         Env? owner = FindEnvWithLocal(name);
                         if (owner != null && TryGetLocalVar(owner, name, out object? val))
                         {
+                            MarkAsyncHazardForEnvAccess(owner);
                             _stack.Push(val!);
                             break;
                         }
@@ -2230,6 +2548,7 @@ namespace CFGS_VM.VMCore
                         if (env == null)
                             throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+                        MarkAsyncHazardForEnvAccess(env);
                         if (env.IsConstLocal(name))
                             throw new VMException($"Runtime error: cannot assign to constant '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
@@ -2859,6 +3178,13 @@ namespace CFGS_VM.VMCore
                         {
                             _stack.Push(awaited);
                             break;
+                        }
+
+                        AsyncExecutionContext? currentContext = CurrentAsyncContext.Value;
+                        if (currentContext != null && ContainsTaskForCoordinator(awaited, currentContext.Coordinator))
+                        {
+                            AsyncTaskCoordinators.Remove(task);
+                            AsyncTaskCoordinators.Add(task, currentContext.Coordinator);
                         }
 
                         if (task.IsCompleted)
@@ -3804,7 +4130,7 @@ namespace CFGS_VM.VMCore
                 Task<object?> task = _awaitTask!;
                 try
                 {
-                    object? res = await task.ConfigureAwait(false);
+                    object? res = await AwaitTaskRespectingCoordinatorAsync(task).ConfigureAwait(false);
                     _stack.Push(res!);
                 }
                 catch (Exception ex)
@@ -4803,6 +5129,7 @@ namespace CFGS_VM.VMCore
 
                 case List<object> arr:
                     {
+                        MarkAsyncHazardForMutableCollection(arr);
                         if (idxObj is string mname && TryBindIntrinsic(arr, mname, out IntrinsicBound? bound, instr))
                             return bound;
 
@@ -4842,6 +5169,7 @@ namespace CFGS_VM.VMCore
 
                 case Dictionary<string, object> dict:
                     {
+                        MarkAsyncHazardForMutableCollection(dict);
                         if (idxObj is string mname && TryBindIntrinsic(dict, mname, out IntrinsicBound? bound, instr))
                             return bound;
                         string key = idxObj?.ToString() ?? "";
@@ -4852,6 +5180,7 @@ namespace CFGS_VM.VMCore
 
                 case ClassInstance obj:
                     {
+                        MarkCurrentAsyncSharedStateHazard();
                         string key = idxObj?.ToString() ?? "";
 
                         if (IsInstanceDestroyed(obj))
@@ -4920,6 +5249,7 @@ namespace CFGS_VM.VMCore
 
                 case StaticInstance st:
                     {
+                        MarkCurrentAsyncSharedStateHazard();
                         string key = idxObj?.ToString() ?? "";
 
                         if (key == "outer")
@@ -4997,6 +5327,7 @@ namespace CFGS_VM.VMCore
             {
                 case List<object> arr:
                     {
+                        MarkAsyncHazardForMutableCollection(arr);
                         if (IsReservedIntrinsicName(arr, idxObj))
                             throw new VMException($"Runtime error: cannot assign to array intrinsic '{idxObj}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
@@ -5012,6 +5343,7 @@ namespace CFGS_VM.VMCore
 
                 case Dictionary<string, object> dict:
                     {
+                        MarkAsyncHazardForMutableCollection(dict);
                         string key = NormalizeDictionaryWriteKey(dict, idxObj, instr);
                         dict[key] = value;
                         break;
@@ -5019,6 +5351,7 @@ namespace CFGS_VM.VMCore
 
                 case ClassInstance obj:
                     {
+                        MarkCurrentAsyncSharedStateHazard();
                         string key = idxObj?.ToString() ?? "";
                         if (key.Length == 0)
                             throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -5072,6 +5405,7 @@ namespace CFGS_VM.VMCore
 
                 case StaticInstance st:
                     {
+                        MarkCurrentAsyncSharedStateHazard();
                         string key = idxObj?.ToString() ?? "";
                         if (key.Length == 0)
                             throw new VMException("Runtime error: static member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);

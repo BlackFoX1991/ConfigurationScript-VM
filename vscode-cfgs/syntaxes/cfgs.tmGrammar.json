@@ -77,7 +77,7 @@
         },
         {
           "name": "keyword.declaration.cfgs",
-          "match": "\\b(?:var|const|func|class|enum|namespace|import|export|from|as|static|public|private|protected|async|new|delete)\\b"
+          "match": "\\b(?:var|const|func|class|interface|enum|namespace|import|export|from|as|static|public|private|protected|async|new|delete)\\b"
         },
         {
           "name": "constant.language.cfgs",
@@ -93,7 +93,7 @@
         },
         {
           "name": "entity.name.type.class.cfgs",
-          "match": "\\b(?:class|enum|namespace)\\s+([A-Za-z_][A-Za-z0-9_\\.]*)"
+          "match": "\\b(?:class|interface|enum|namespace)\\s+([A-Za-z_][A-Za-z0-9_\\.]*)"
         }
       ]
     },
