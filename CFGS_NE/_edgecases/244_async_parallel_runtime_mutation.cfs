@@ -1,0 +1,119 @@
+import "edge_assert.cfs";
+
+edge_begin("244_async_parallel_runtime_mutation");
+
+class SharedBox() {
+    static var seed = 0;
+}
+
+async func list_push_after_yield(shared, value) {
+    yield;
+    shared.push(value);
+    return len(shared);
+}
+
+async func dict_push_after_yield(shared, value) {
+    yield;
+    shared[] = value;
+    return len(shared);
+}
+
+async func instance_field_write_after_yield(shared, key, value) {
+    yield;
+    shared[key] = value;
+    return shared[key];
+}
+
+async func static_field_write_after_yield(key, value) {
+    yield;
+    SharedBox[key] = value;
+    return SharedBox[key];
+}
+
+async func run_parallel_list_push(count) {
+    var shared = [];
+    var tasks = [];
+    var i = 0;
+    while (i < count) {
+        tasks[] = list_push_after_yield(shared, i);
+        i = i + 1;
+    }
+
+    var results = await tasks;
+    edge_eq("parallel_list_results_count", len(results), count);
+    return len(shared);
+}
+
+async func run_parallel_dict_push(count) {
+    var shared = {};
+    var tasks = [];
+    var i = 0;
+    while (i < count) {
+        tasks[] = dict_push_after_yield(shared, i);
+        i = i + 1;
+    }
+
+    var results = await tasks;
+    edge_eq("parallel_dict_results_count", len(results), count);
+    return len(shared);
+}
+
+async func run_parallel_instance_field_writes(count) {
+    var shared = new SharedBox();
+    var tasks = [];
+    var i = 0;
+    while (i < count) {
+        var key = "k" + str(i);
+        tasks[] = instance_field_write_after_yield(shared, key, i);
+        i = i + 1;
+    }
+
+    var results = await tasks;
+    edge_eq("parallel_instance_results_count", len(results), count);
+
+    var ok = true;
+    i = 0;
+    while (i < count) {
+        var key = "k" + str(i);
+        if (shared[key] != i) {
+            ok = false;
+        }
+        i = i + 1;
+    }
+
+    edge_true("parallel_instance_fields_materialized", ok);
+    return len(results);
+}
+
+async func run_parallel_static_field_writes(count) {
+    var tasks = [];
+    var i = 0;
+    while (i < count) {
+        var key = "s" + str(i);
+        tasks[] = static_field_write_after_yield(key, i);
+        i = i + 1;
+    }
+
+    var results = await tasks;
+    edge_eq("parallel_static_results_count", len(results), count);
+
+    var ok = true;
+    i = 0;
+    while (i < count) {
+        var key = "s" + str(i);
+        if (SharedBox[key] != i) {
+            ok = false;
+        }
+        i = i + 1;
+    }
+
+    edge_true("parallel_static_fields_materialized", ok);
+    return len(results);
+}
+
+edge_eq("parallel_list_final_len", await run_parallel_list_push(256), 256);
+edge_eq("parallel_dict_final_len", await run_parallel_dict_push(256), 256);
+edge_eq("parallel_instance_task_count", await run_parallel_instance_field_writes(128), 128);
+edge_eq("parallel_static_task_count", await run_parallel_static_field_writes(128), 128);
+
+edge_finish("244_async_parallel_runtime_mutation");

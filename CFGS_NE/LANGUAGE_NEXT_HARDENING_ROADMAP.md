@@ -179,3 +179,9 @@ Die naechsten offenen Luecken aus der Tiefenanalyse strukturiert schliessen:
 - 2026-03-09: Punkt 7 abgeschlossen (Hot-Start fuer async Calls + Edgecase 230 + Doku/Sample-Erweiterung).
 - 2026-03-09: Punkt 8 abgeschlossen (Plugin NonBlocking Handling + Env-Parallelitaets-Haertung + Edgecase 231 + Suite gruen).
 - 2026-03-09: Punkt 9 abgeschlossen (HTTP/SQL Plugin-Async-Haertung + Edgecase 232 + Suite gruen).
+- 2026-03-31: Async-VM auf C#-naehere Hot-Start-Semantik nachgezogen.
+  - Nested async CFGS calls starten jetzt ebenfalls eager innerhalb laufender async CFGS-Fortsetzungen.
+  - Continuations laufen nicht mehr ueber einen globalen Root-Gate-Serialisierungspfad, sondern koennen wie in C# parallel weiterlaufen.
+  - Arrays, Dictionaries, Instanzfelder und Static-Felder wurden dafuer im VM-Kern auf objektlokale Synchronisation umgestellt, damit parallele Mutationen die Runtime nicht strukturell zerlegen.
+  - Read-modify-write-Logik bleibt bewusst nicht atomar; verlorene Updates auf gemeinsamem State bleiben moeglich wie in normalem C#-Code.
+  - `feature_08_async_await_yield.cfs` sowie die Edgecases `230`, `240`, `243` und `244` decken die neue Semantik ab.

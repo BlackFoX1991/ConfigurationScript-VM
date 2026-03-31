@@ -135,7 +135,7 @@ namespace CFGS_VM.VMCore
                         bool any = false;
                         if (recursive)
                         {
-                            foreach (object item in list.ToArray())
+                            foreach (object item in SnapshotList(list))
                                 any |= DestroyValueCore(item, instr, recursive: true, visited);
                         }
 
@@ -147,7 +147,7 @@ namespace CFGS_VM.VMCore
                         bool any = false;
                         if (recursive)
                         {
-                            foreach (object item in dict.Values.ToArray())
+                            foreach (object item in SnapshotDictionaryEntries(dict).Select(static kv => kv.Value))
                                 any |= DestroyValueCore(item, instr, recursive: true, visited);
                         }
 
@@ -205,7 +205,7 @@ namespace CFGS_VM.VMCore
 
                 if (recursive)
                 {
-                    foreach (KeyValuePair<string, object> kv in obj.Fields.ToArray())
+                    foreach (KeyValuePair<string, object> kv in SnapshotInstanceFields(obj))
                     {
                         if (kv.Key.StartsWith("__", StringComparison.Ordinal))
                             continue;
@@ -277,7 +277,7 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="bool"/></returns>
         private static bool TryGetRuntimeFlag(ClassInstance obj, string slotName)
         {
-            return obj.Fields.TryGetValue(slotName, out object? raw) &&
+            return TryGetInstanceField(obj, slotName, out object? raw) &&
                    raw is bool flag &&
                    flag;
         }
@@ -290,7 +290,7 @@ namespace CFGS_VM.VMCore
         /// <param name="value">The value<see cref="bool"/></param>
         private static void SetRuntimeFlag(ClassInstance obj, string slotName, bool value)
         {
-            obj.Fields[slotName] = value;
+            SetInstanceField(obj, slotName, value);
         }
 
         /// <summary>
@@ -642,6 +642,8 @@ namespace CFGS_VM.VMCore
 
                 case string s: return s.Length != 0;
                 case Array arr: return arr.Length != 0;
+                case List<object> list: return GetListCount(list) != 0;
+                case Dictionary<string, object> dict: return GetDictionaryCount(dict) != 0;
 
                 case ICollection c: return c.Count != 0;
 
@@ -662,50 +664,13 @@ namespace CFGS_VM.VMCore
         private readonly Stack<TryHandler> _tryHandlers = new();
 
         /// <summary>
-        /// Tracks the currently active serialized async execution context on this logical async flow.
+        /// Stores synchronization state for mutable runtime collections.
         /// </summary>
-        private static readonly AsyncLocal<AsyncExecutionContext?> CurrentAsyncContext = new();
+        private static readonly ConditionalWeakTable<object, MutableRuntimeState> MutableRuntimeStates = new();
 
-        /// <summary>
-        /// Associates started CFGS async tasks with the coordinator that serializes them.
-        /// </summary>
-        private static readonly ConditionalWeakTable<Task, AsyncExecutionCoordinator> AsyncTaskCoordinators = new();
-
-        /// <summary>
-        /// Tracks ownership for mutable collection instances that were created within a serialized async execution.
-        /// </summary>
-        private static readonly ConditionalWeakTable<object, MutableCollectionOwnership> MutableCollectionOwnerships = new();
-
-        /// <summary>
-        /// Defines the next unique async execution id.
-        /// </summary>
-        private static long NextAsyncExecutionId;
-
-        private sealed class AsyncExecutionContext
+        private sealed class MutableRuntimeState
         {
-            public AsyncExecutionContext(AsyncExecutionCoordinator coordinator, long executionId)
-            {
-                Coordinator = coordinator;
-                ExecutionId = executionId;
-            }
-
-            public AsyncExecutionCoordinator Coordinator { get; }
-
-            public long ExecutionId { get; }
-
-            public bool HasSharedStateHazard { get; set; }
-
-            public bool OwnsGate { get; set; } = true;
-        }
-
-        private sealed class MutableCollectionOwnership
-        {
-            public MutableCollectionOwnership(long executionId)
-            {
-                ExecutionId = executionId;
-            }
-
-            public long ExecutionId { get; }
+            public object SyncRoot { get; } = new();
         }
 
         private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef, StaticInstance? AccessType, bool IsAsync);
@@ -728,152 +693,253 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The GetAsyncCoordinatorRoot
+        /// Returns the synchronization root for a mutable runtime object.
         /// </summary>
-        /// <param name="env">The env<see cref="Env"/></param>
-        /// <returns>The <see cref="Env"/></returns>
-        private static Env GetAsyncCoordinatorRoot(Env env)
+        /// <param name="value">The mutable runtime object.</param>
+        /// <returns>The lock object.</returns>
+        private static object GetMutableSyncRoot(object value)
         {
-            Env current = env;
-            while (current.Parent != null)
-                current = current.Parent;
-
-            return current;
-        }
-
-        /// <summary>
-        /// The StartSerializedAsyncCall
-        /// </summary>
-        /// <param name="coordinator">The coordinator<see cref="AsyncExecutionCoordinator"/></param>
-        /// <param name="work">The work<see cref="Func{Task}"/></param>
-        /// <returns>The <see cref="Task{object?}"/></returns>
-        private static Task<object?> StartSerializedAsyncCall(AsyncExecutionCoordinator coordinator, Func<Task<object?>> work)
-        {
-            Task<object?> started = coordinator.Gate.Wait(0)
-                ? RunSerializedAsyncCallCore(coordinator, work, acquired: true)
-                : RunSerializedAsyncCallCore(coordinator, work, acquired: false);
-
-            AsyncTaskCoordinators.Remove(started);
-            AsyncTaskCoordinators.Add(started, coordinator);
-            return started;
-        }
-
-        /// <summary>
-        /// The RunSerializedAsyncCallCore
-        /// </summary>
-        /// <param name="coordinator">The coordinator<see cref="AsyncExecutionCoordinator"/></param>
-        /// <param name="work">The work<see cref="Func{Task}"/></param>
-        /// <param name="acquired">The acquired<see cref="bool"/></param>
-        /// <returns>The <see cref="Task{object?}"/></returns>
-        private static async Task<object?> RunSerializedAsyncCallCore(
-            AsyncExecutionCoordinator coordinator,
-            Func<Task<object?>> work,
-            bool acquired)
-        {
-            if (!acquired)
-                await coordinator.Gate.WaitAsync().ConfigureAwait(false);
-
-            AsyncExecutionContext? previous = CurrentAsyncContext.Value;
-            AsyncExecutionContext context = new(coordinator, Interlocked.Increment(ref NextAsyncExecutionId));
-            CurrentAsyncContext.Value = context;
-            try
+            return value switch
             {
-                Task<object?> started = work();
-                return await started.ConfigureAwait(false);
-            }
-            finally
-            {
-                CurrentAsyncContext.Value = previous;
-                if (context.OwnsGate)
-                    coordinator.Gate.Release();
-            }
+                List<object> or Dictionary<string, object> => MutableRuntimeStates.GetValue(value, static _ => new MutableRuntimeState()).SyncRoot,
+                ClassInstance obj => obj.SyncRoot,
+                StaticInstance st => st.SyncRoot,
+                Env env => env.SyncRoot,
+                _ => throw new InvalidOperationException($"No sync root available for '{value.GetType().FullName}'.")
+            };
         }
 
         /// <summary>
-        /// Marks the current serialized async context as having observed shared mutable state.
+        /// Executes the supplied action while holding the mutable object's lock.
         /// </summary>
-        private static void MarkCurrentAsyncSharedStateHazard()
+        private static void WithMutableLock(object value, Action action)
         {
-            AsyncExecutionContext? current = CurrentAsyncContext.Value;
-            if (current != null)
-                current.HasSharedStateHazard = true;
+            lock (GetMutableSyncRoot(value))
+                action();
         }
 
         /// <summary>
-        /// Marks env access as shared-state relevant when it escapes the current local scope.
+        /// Executes the supplied function while holding the mutable object's lock.
         /// </summary>
-        /// <param name="env">The env<see cref="Env"/></param>
-        private void MarkAsyncHazardForEnvAccess(Env env)
+        private static T WithMutableLock<T>(object value, Func<T> func)
         {
-            if (_scopes.Count == 0)
-                return;
-
-            if (!ReferenceEquals(env, _scopes[^1]))
-                MarkCurrentAsyncSharedStateHazard();
+            lock (GetMutableSyncRoot(value))
+                return func();
         }
 
         /// <summary>
-        /// Captures ownership for mutable collections that are created within the current serialized async execution.
+        /// Executes work while holding the synchronization lock for a mutable CFGS runtime object.
         /// </summary>
-        /// <typeparam name="TCollection">The collection type.</typeparam>
-        /// <param name="collection">The collection.</param>
-        /// <returns>The same collection instance.</returns>
+        public static void LockMutableRuntime(object value, Action action)
+            => WithMutableLock(value, action);
+
+        /// <summary>
+        /// Executes work while holding the synchronization lock for a mutable CFGS runtime object.
+        /// </summary>
+        public static T LockMutableRuntime<T>(object value, Func<T> func)
+            => WithMutableLock(value, func);
+
+        /// <summary>
+        /// Registers runtime synchronization state for mutable collections created by the VM.
+        /// </summary>
         private static TCollection CaptureMutableCollectionOwnership<TCollection>(TCollection collection)
             where TCollection : class
         {
-            AsyncExecutionContext? current = CurrentAsyncContext.Value;
-            if (current == null ||
-                collection is not List<object> &&
-                collection is not Dictionary<string, object>)
-            {
-                return collection;
-            }
-
-            MutableCollectionOwnerships.Remove(collection);
-            MutableCollectionOwnerships.Add(collection, new MutableCollectionOwnership(current.ExecutionId));
+            if (collection is List<object> or Dictionary<string, object>)
+                _ = MutableRuntimeStates.GetValue(collection, static _ => new MutableRuntimeState());
             return collection;
         }
 
         /// <summary>
-        /// Marks the current async execution as hazardous when accessing a mutable collection that is not owned by it.
+        /// Preserved as a no-op to keep existing VM call sites stable now that async execution is no longer globally serialized.
         /// </summary>
-        /// <param name="value">The value.</param>
-        private static void MarkAsyncHazardForMutableCollection(object? value)
-        {
-            AsyncExecutionContext? current = CurrentAsyncContext.Value;
-            if (current == null ||
-                value is not List<object> &&
-                value is not Dictionary<string, object>)
-            {
-                return;
-            }
+        private static void MarkCurrentAsyncSharedStateHazard() { }
 
-            if (!MutableCollectionOwnerships.TryGetValue(value, out MutableCollectionOwnership? owner) ||
-                owner.ExecutionId != current.ExecutionId)
-            {
-                current.HasSharedStateHazard = true;
-            }
+        /// <summary>
+        /// Preserved as a no-op to keep existing VM call sites stable now that async execution is no longer globally serialized.
+        /// </summary>
+        private void MarkAsyncHazardForEnvAccess(Env env) { }
+
+        /// <summary>
+        /// Preserved as a no-op to keep existing VM call sites stable now that async execution is no longer globally serialized.
+        /// </summary>
+        private static void MarkAsyncHazardForMutableCollection(object? value) { }
+
+        /// <summary>
+        /// Preserved as a no-op to keep existing VM call sites stable now that async execution is no longer globally serialized.
+        /// </summary>
+        private static void MarkAsyncHazardForMutableReceiver(object? receiver) { }
+
+        /// <summary>
+        /// Returns the current item count of a runtime list.
+        /// </summary>
+        private static int GetListCount(List<object> list)
+            => WithMutableLock(list, () => list.Count);
+
+        /// <summary>
+        /// Returns a snapshot copy of a runtime list.
+        /// </summary>
+        private static List<object> SnapshotList(List<object> list)
+            => WithMutableLock(list, () => list.ToList());
+
+        /// <summary>
+        /// Returns a snapshot copy of a mutable CFGS runtime list.
+        /// </summary>
+        public static List<object> SnapshotMutableList(List<object> list)
+            => SnapshotList(list);
+
+        /// <summary>
+        /// Returns the item at the supplied list index.
+        /// </summary>
+        private static object GetListValue(List<object> list, int index)
+            => WithMutableLock(list, () => list[index]);
+
+        /// <summary>
+        /// Sets the item at the supplied list index.
+        /// </summary>
+        private static void SetListValue(List<object> list, int index, object value)
+            => WithMutableLock(list, () => list[index] = value);
+
+        /// <summary>
+        /// Appends a value to a runtime list.
+        /// </summary>
+        private static void AddListValue(List<object> list, object value)
+            => WithMutableLock(list, () => list.Add(value));
+
+        /// <summary>
+        /// Removes a range from a runtime list.
+        /// </summary>
+        private static void RemoveListRange(List<object> list, int index, int count)
+            => WithMutableLock(list, () => list.RemoveRange(index, count));
+
+        /// <summary>
+        /// Removes the item at the supplied list index.
+        /// </summary>
+        private static void RemoveListAt(List<object> list, int index)
+            => WithMutableLock(list, () => list.RemoveAt(index));
+
+        /// <summary>
+        /// Clears a runtime list.
+        /// </summary>
+        private static void ClearList(List<object> list)
+            => WithMutableLock(list, list.Clear);
+
+        /// <summary>
+        /// Returns a copied slice of a runtime list.
+        /// </summary>
+        private static List<object> GetListRange(List<object> list, int start, int count)
+            => WithMutableLock(list, () => list.GetRange(start, count));
+
+        /// <summary>
+        /// Returns the current item count of a runtime dictionary.
+        /// </summary>
+        private static int GetDictionaryCount(Dictionary<string, object> dict)
+            => WithMutableLock(dict, () => dict.Count);
+
+        /// <summary>
+        /// Returns whether the supplied key exists in the runtime dictionary.
+        /// </summary>
+        private static bool ContainsDictionaryKey(Dictionary<string, object> dict, string key)
+            => WithMutableLock(dict, () => dict.ContainsKey(key));
+
+        /// <summary>
+        /// Tries to read a value from a runtime dictionary.
+        /// </summary>
+        private static bool TryGetDictionaryValue(Dictionary<string, object> dict, string key, out object? value)
+        {
+            object? local = null;
+            bool found = WithMutableLock(dict, () => dict.TryGetValue(key, out local));
+            value = local;
+            return found;
         }
 
         /// <summary>
-        /// Marks async hazards for mutable receivers before intrinsic access.
+        /// Writes a value into a runtime dictionary.
         /// </summary>
-        /// <param name="receiver">The receiver.</param>
-        private static void MarkAsyncHazardForMutableReceiver(object? receiver)
-        {
-            switch (receiver)
-            {
-                case List<object>:
-                case Dictionary<string, object>:
-                    MarkAsyncHazardForMutableCollection(receiver);
-                    break;
+        private static void SetDictionaryValue(Dictionary<string, object> dict, string key, object value)
+            => WithMutableLock(dict, () => dict[key] = value);
 
-                case ClassInstance:
-                case StaticInstance:
-                    MarkCurrentAsyncSharedStateHazard();
-                    break;
-            }
+        /// <summary>
+        /// Removes a value from a runtime dictionary.
+        /// </summary>
+        private static bool RemoveDictionaryValue(Dictionary<string, object> dict, string key)
+            => WithMutableLock(dict, () => dict.Remove(key));
+
+        /// <summary>
+        /// Clears a runtime dictionary.
+        /// </summary>
+        private static void ClearDictionary(Dictionary<string, object> dict)
+            => WithMutableLock(dict, dict.Clear);
+
+        /// <summary>
+        /// Returns a snapshot copy of runtime dictionary keys.
+        /// </summary>
+        private static List<string> SnapshotDictionaryKeys(Dictionary<string, object> dict)
+            => WithMutableLock(dict, () => dict.Keys.ToList());
+
+        /// <summary>
+        /// Returns a snapshot copy of a mutable CFGS runtime dictionary's keys.
+        /// </summary>
+        public static List<string> SnapshotMutableDictionaryKeys(Dictionary<string, object> dict)
+            => SnapshotDictionaryKeys(dict);
+
+        /// <summary>
+        /// Returns a snapshot copy of runtime dictionary entries.
+        /// </summary>
+        private static List<KeyValuePair<string, object>> SnapshotDictionaryEntries(Dictionary<string, object> dict)
+            => WithMutableLock(dict, () => dict.ToList());
+
+        /// <summary>
+        /// Returns a snapshot copy of a mutable CFGS runtime dictionary's entries.
+        /// </summary>
+        public static List<KeyValuePair<string, object>> SnapshotMutableDictionaryEntries(Dictionary<string, object> dict)
+            => SnapshotDictionaryEntries(dict);
+
+        /// <summary>
+        /// Returns an ordered snapshot copy of runtime dictionary entries.
+        /// </summary>
+        private static List<KeyValuePair<string, object>> SnapshotOrderedDictionaryEntries(Dictionary<string, object> dict)
+            => WithMutableLock(dict, () => dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList());
+
+        /// <summary>
+        /// Tries to read an instance field.
+        /// </summary>
+        private static bool TryGetInstanceField(ClassInstance obj, string name, out object? value)
+        {
+            object? local = null;
+            bool found = WithMutableLock(obj, () => obj.Fields.TryGetValue(name, out local));
+            value = local;
+            return found;
         }
+
+        /// <summary>
+        /// Writes an instance field.
+        /// </summary>
+        private static void SetInstanceField(ClassInstance obj, string name, object value)
+            => WithMutableLock(obj, () => obj.Fields[name] = value);
+
+        /// <summary>
+        /// Returns a snapshot copy of instance fields.
+        /// </summary>
+        private static List<KeyValuePair<string, object>> SnapshotInstanceFields(ClassInstance obj)
+            => WithMutableLock(obj, () => obj.Fields.ToList());
+
+        /// <summary>
+        /// Tries to read a static field.
+        /// </summary>
+        private static bool TryGetStaticField(StaticInstance st, string name, out object? value)
+        {
+            object? local = null;
+            bool found = WithMutableLock(st, () => st.Fields.TryGetValue(name, out local));
+            value = local;
+            return found;
+        }
+
+        /// <summary>
+        /// Writes a static field.
+        /// </summary>
+        private static void SetStaticField(StaticInstance st, string name, object value)
+            => WithMutableLock(st, () => st.Fields[name] = value);
 
         /// <summary>
         /// The FinalizeAsyncResult
@@ -883,83 +949,18 @@ namespace CFGS_VM.VMCore
         private static Task<object?> FinalizeAsyncResult(object? value)
         {
             if (AwaitableAdapter.TryGetDirectTask(value, out Task<object?> flattened))
-                return AwaitTaskRespectingCoordinatorAsync(flattened);
+                return flattened;
 
             return Task.FromResult(value);
         }
 
         /// <summary>
-        /// The AwaitTaskRespectingCoordinatorAsync
+        /// The AwaitTaskAsync
         /// </summary>
         /// <param name="task">The task<see cref="Task{object?}"/></param>
         /// <returns>The <see cref="Task{object?}"/></returns>
-        private static async Task<object?> AwaitTaskRespectingCoordinatorAsync(Task<object?> task)
-        {
-            AsyncExecutionContext? current = CurrentAsyncContext.Value;
-            if (current == null || task.IsCompleted)
-            {
-                return await task.ConfigureAwait(false);
-            }
-
-            bool awaitingSerializedCfgsTask =
-                AsyncTaskCoordinators.TryGetValue(task, out AsyncExecutionCoordinator? awaitedCoordinator) &&
-                ReferenceEquals(current.Coordinator, awaitedCoordinator);
-
-            if (!awaitingSerializedCfgsTask && current.HasSharedStateHazard)
-                return await task.ConfigureAwait(false);
-
-            if (!current.OwnsGate)
-                return await task.ConfigureAwait(false);
-
-            current.OwnsGate = false;
-            CurrentAsyncContext.Value = null;
-            current.Coordinator.Gate.Release();
-            try
-            {
-                return await task.ConfigureAwait(false);
-            }
-            finally
-            {
-                await current.Coordinator.Gate.WaitAsync().ConfigureAwait(false);
-                current.OwnsGate = true;
-                CurrentAsyncContext.Value = current;
-            }
-        }
-
-        /// <summary>
-        /// The ContainsTaskForCoordinator
-        /// </summary>
-        /// <param name="value">The value<see cref="object?"/></param>
-        /// <param name="coordinator">The coordinator<see cref="AsyncExecutionCoordinator"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        private static bool ContainsTaskForCoordinator(object? value, AsyncExecutionCoordinator coordinator)
-        {
-            switch (value)
-            {
-                case Task task:
-                    return AsyncTaskCoordinators.TryGetValue(task, out AsyncExecutionCoordinator? taskCoordinator) &&
-                           ReferenceEquals(taskCoordinator, coordinator);
-
-                case List<object> list:
-                    foreach (object item in list)
-                    {
-                        if (ContainsTaskForCoordinator(item, coordinator))
-                            return true;
-                    }
-                    return false;
-
-                case Dictionary<string, object> dict:
-                    foreach (object item in dict.Values)
-                    {
-                        if (ContainsTaskForCoordinator(item, coordinator))
-                            return true;
-                    }
-                    return false;
-
-                default:
-                    return false;
-            }
-        }
+        private static async Task<object?> AwaitTaskAsync(Task<object?> task)
+            => await task.ConfigureAwait(false);
 
         /// <summary>
         /// The CreateHotStartChildVm
@@ -1019,45 +1020,39 @@ namespace CFGS_VM.VMCore
         /// <param name="startIp">The startIp<see cref="int"/></param>
         /// <param name="ct">The ct<see cref="CancellationToken"/></param>
         /// <returns>The <see cref="Task{object?}"/></returns>
-        private Task<object?> RunHotStartEntryAsync(int startIp, CancellationToken ct = default)
+        private async Task<object?> RunHotStartEntryAsync(
+            int startIp,
+            CancellationToken ct = default)
         {
-            RunStopReason reason = RunUntilAwaitOrHalt(false, startIp);
-            if (reason == RunStopReason.Halted)
-                return FinalizeAsyncResult(ConsumeHotStartResult());
-
-            Task<object?> firstPending = _awaitTask!;
-            int resumeIp = _awaitResumeIp;
-            _awaitTask = null;
-
-            return ContinueHotStartAfterAwaitAsync(firstPending, resumeIp, ct);
-        }
-
-        /// <summary>
-        /// The ContinueHotStartAfterAwaitAsync
-        /// </summary>
-        /// <param name="pendingTask">The pendingTask<see cref="Task{object?}"/></param>
-        /// <param name="resumeIp">The resumeIp<see cref="int"/></param>
-        /// <param name="ct">The ct<see cref="CancellationToken"/></param>
-        /// <returns>The <see cref="Task{object?}"/></returns>
-        private async Task<object?> ContinueHotStartAfterAwaitAsync(Task<object?> pendingTask, int resumeIp, CancellationToken ct)
-        {
-            await Task.Yield();
-
-            Task<object?> task = pendingTask;
-            int startIp = resumeIp;
+            int ip = startIp;
 
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
 
+                RunStopReason reason = RunUntilAwaitOrHalt(false, ip);
+                if (reason == RunStopReason.Halted)
+                {
+                    object? finalValue = ConsumeHotStartResult();
+                    if (AwaitableAdapter.TryGetDirectTask(finalValue, out Task<object?> flattened))
+                        return await flattened.ConfigureAwait(false);
+
+                    return finalValue;
+                }
+
+                Task<object?> task = _awaitTask!;
+                int resumeIp = _awaitResumeIp;
+                _awaitTask = null;
+
                 try
                 {
-                    object? res = await AwaitTaskRespectingCoordinatorAsync(task).ConfigureAwait(false);
+                    object? res = await AwaitTaskAsync(task).ConfigureAwait(false);
                     _stack.Push(res!);
+                    ip = resumeIp;
                 }
                 catch (Exception ex)
                 {
-                    Instruction at = SafeCurrentInstr(_program!, startIp);
+                    Instruction at = SafeCurrentInstr(_program!, resumeIp);
                     ExceptionObject payload = new(
                         type: "AwaitError",
                         message: ex.Message,
@@ -1069,27 +1064,12 @@ namespace CFGS_VM.VMCore
 
                     if (RouteExceptionToTryHandlers(payload, at, out int nip))
                     {
-                        startIp = nip;
-                        RunStopReason routedReason = RunUntilAwaitOrHalt(false, startIp);
-                        if (routedReason == RunStopReason.Halted)
-                            return ConsumeHotStartResult();
-
-                        task = _awaitTask!;
-                        startIp = _awaitResumeIp;
-                        _awaitTask = null;
+                        ip = nip;
                         continue;
                     }
 
                     throw new VMException(payload.ToString()!, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, payload.Stack);
                 }
-
-                RunStopReason reason = RunUntilAwaitOrHalt(false, startIp);
-                if (reason == RunStopReason.Halted)
-                    return await FinalizeAsyncResult(ConsumeHotStartResult()).ConfigureAwait(false);
-
-                task = _awaitTask!;
-                startIp = _awaitResumeIp;
-                _awaitTask = null;
             }
         }
 
@@ -1120,8 +1100,7 @@ namespace CFGS_VM.VMCore
             Env callEnv = BuildCallEnv(f, args, instr);
             VM child = CreateHotStartChildVm();
             child.PrepareHotStartEntry(callEnv, receiver, accessType);
-            AsyncExecutionCoordinator coordinator = GetAsyncCoordinatorRoot(f.CapturedEnv).AsyncCoordinator;
-            startedTask = StartSerializedAsyncCall(coordinator, () => child.RunHotStartEntryAsync(f.Address));
+            startedTask = child.RunHotStartEntryAsync(f.Address);
             return true;
         }
         /// <summary>
@@ -1735,20 +1714,22 @@ namespace CFGS_VM.VMCore
                             case List<object> arr:
                                 {
                                     MarkAsyncHazardForMutableCollection(arr);
-                                    (int start, int end) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
-                                    _stack.Push(CaptureMutableCollectionOwnership(arr.GetRange(start, end - start)));
+                                    int count = GetListCount(arr);
+                                    (int start, int end) = NormalizeSliceBounds(startObj, endObj, count, instr);
+                                    _stack.Push(CaptureMutableCollectionOwnership(GetListRange(arr, start, end - start)));
                                     break;
                                 }
 
                             case Dictionary<string, object> dict:
                                 {
                                     MarkAsyncHazardForMutableCollection(dict);
-                                    List<string> keys = dict.Keys.ToList();
+                                    List<string> keys = SnapshotDictionaryKeys(dict);
                                     (int start, int end) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
 
                                     Dictionary<string, object> slice = CaptureMutableCollectionOwnership(new Dictionary<string, object>());
                                     for (int i = start; i < end; i++)
-                                        slice[keys[i]] = dict[keys[i]];
+                                        if (TryGetDictionaryValue(dict, keys[i], out object? dictValue))
+                                            slice[keys[i]] = dictValue!;
 
                                     _stack.Push(slice);
                                     break;
@@ -1808,14 +1789,16 @@ namespace CFGS_VM.VMCore
                             switch (target)
                             {
                                 case List<object> arr:
-                                {
-                                        (int start, int end) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
+                                    {
+                                        int targetCount = GetListCount(arr);
+                                        (int start, int end) = NormalizeSliceBounds(startObj, endObj, targetCount, instr);
 
                                         if (value is List<object> lst)
                                         {
-                                            int count = Math.Min(end - start, lst.Count);
+                                            List<object> source = SnapshotList(lst);
+                                            int count = Math.Min(end - start, source.Count);
                                             for (int i = 0; i < count; i++)
-                                                arr[start + i] = lst[i];
+                                                SetListValue(arr, start + i, source[i]);
 
                                         }
                                         else
@@ -1828,16 +1811,16 @@ namespace CFGS_VM.VMCore
 
                                 case Dictionary<string, object> dict:
                                     {
-                                        List<string> keys = dict.Keys.ToList();
+                                        List<string> keys = SnapshotDictionaryKeys(dict);
                                         (int start, int end) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
 
                                         if (value is Dictionary<string, object> valDict)
                                         {
+                                            List<KeyValuePair<string, object>> source = SnapshotDictionaryEntries(valDict);
                                             int i = 0;
-                                            for (int k = start; k < end && i < valDict.Count; k++, i++)
+                                            for (int k = start; k < end && i < source.Count; k++, i++)
                                             {
-                                                KeyValuePair<String, object> kv = valDict.ElementAt(i);
-                                                dict[keys[k]] = kv.Value;
+                                                SetDictionaryValue(dict, keys[k], source[i].Value);
                                             }
                                         }
                                         else
@@ -2019,10 +2002,10 @@ namespace CFGS_VM.VMCore
                         switch (v)
                         {
                             case List<object> arr:
-                                _stack.Push(arr.Count);
+                                _stack.Push(GetListCount(arr));
                                 break;
                             case Dictionary<string, object> dict:
-                                _stack.Push(dict.Count);
+                                _stack.Push(GetDictionaryCount(dict));
                                 break;
                             case string str:
                                 _stack.Push(str.Length);
@@ -2042,7 +2025,7 @@ namespace CFGS_VM.VMCore
                             throw new VMException("Runtime error: HAS_KEY target must be dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         string key = keyObj?.ToString() ?? "";
-                        _stack.Push(dict.ContainsKey(key));
+                        _stack.Push(ContainsDictionaryKey(dict, key));
                         break;
                     }
 
@@ -2057,27 +2040,28 @@ namespace CFGS_VM.VMCore
                             if (arrObj is List<object> arr)
                             {
                                 MarkAsyncHazardForMutableCollection(arr);
-                                arr.Add(value);
+                                AddListValue(arr, value);
                             }
                             else if (arrObj is Dictionary<string, object> dict)
                             {
                                 MarkAsyncHazardForMutableCollection(dict);
-                                if (value is Dictionary<string, object> literal && literal.Count == 1)
+                                if (value is Dictionary<string, object> literal && GetDictionaryCount(literal) == 1)
                                 {
-                                    foreach (KeyValuePair<string, object> kv in literal)
+                                    foreach (KeyValuePair<string, object> kv in SnapshotDictionaryEntries(literal))
                                     {
                                         string key = NormalizeDictionaryWriteKey(dict, kv.Key, instr);
-                                        dict[key] = kv.Value;
+                                        SetDictionaryValue(dict, key, kv.Value);
                                     }
                                 }
                                 else
                                 {
-                                    int k = 0;
-                                    while (dict.ContainsKey(k.ToString(CultureInfo.InvariantCulture)))
+                                    WithMutableLock(dict, () =>
                                     {
-                                        k++;
-                                    }
-                                    dict[k.ToString(CultureInfo.InvariantCulture)] = value;
+                                        int k = 0;
+                                        while (dict.ContainsKey(k.ToString(CultureInfo.InvariantCulture)))
+                                            k++;
+                                        dict[k.ToString(CultureInfo.InvariantCulture)] = value;
+                                    });
                                 }
                             }
                             else
@@ -2097,27 +2081,28 @@ namespace CFGS_VM.VMCore
                             if (obj is List<object> arr)
                             {
                                 MarkAsyncHazardForMutableCollection(arr);
-                                arr.Add(value);
+                                AddListValue(arr, value);
                             }
                             else if (obj is Dictionary<string, object> dict)
                             {
                                 MarkAsyncHazardForMutableCollection(dict);
-                                if (value is Dictionary<string, object> literal && literal.Count == 1)
+                                if (value is Dictionary<string, object> literal && GetDictionaryCount(literal) == 1)
                                 {
-                                    foreach (KeyValuePair<string, object> kv in literal)
+                                    foreach (KeyValuePair<string, object> kv in SnapshotDictionaryEntries(literal))
                                     {
                                         string key = NormalizeDictionaryWriteKey(dict, kv.Key, instr);
-                                        dict[key] = kv.Value;
+                                        SetDictionaryValue(dict, key, kv.Value);
                                     }
                                 }
                                 else
                                 {
-                                    int k = 0;
-                                    while (dict.ContainsKey(k.ToString(CultureInfo.InvariantCulture)))
+                                    WithMutableLock(dict, () =>
                                     {
-                                        k++;
-                                    }
-                                    dict[k.ToString(CultureInfo.InvariantCulture)] = value;
+                                        int k = 0;
+                                        while (dict.ContainsKey(k.ToString(CultureInfo.InvariantCulture)))
+                                            k++;
+                                        dict[k.ToString(CultureInfo.InvariantCulture)] = value;
+                                    });
                                 }
                             }
                             else
@@ -2172,16 +2157,17 @@ namespace CFGS_VM.VMCore
 
                         if (target is List<object> arr)
                         {
-                            (int start, int endEx) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
+                            int count = GetListCount(arr);
+                            (int start, int endEx) = NormalizeSliceBounds(startObj, endObj, count, instr);
                             int sdcount = endEx - start;
-                            if (sdcount > 0) arr.RemoveRange(start, sdcount);
+                            if (sdcount > 0) RemoveListRange(arr, start, sdcount);
                         }
                         else if (target is Dictionary<string, object> dict)
                         {
-                            List<string> keys = dict.Keys.ToList();
+                            List<string> keys = SnapshotDictionaryKeys(dict);
                             (int start, int endEx) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
                             for (int i = start; i < endEx; i++)
-                                dict.Remove(keys[i]);
+                                RemoveDictionaryValue(dict, keys[i]);
                         }
                         else
                         {
@@ -2216,15 +2202,16 @@ namespace CFGS_VM.VMCore
                             if (target is List<object> arr)
                             {
                                 int index = RequireIntIndex(idxObj, instr);
-                                if (index >= 0 && index < arr.Count)
-                                    arr.RemoveAt(index);
+                                int count = GetListCount(arr);
+                                if (index >= 0 && index < count)
+                                    RemoveListAt(arr, index);
                                 else
                                     throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                             }
                             else if (target is Dictionary<string, object> dict)
                             {
                                 string key = Convert.ToString(idxObj, CultureInfo.InvariantCulture) ?? "";
-                                if (!dict.Remove(key))
+                                if (!RemoveDictionaryValue(dict, key))
                                     throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                             }
                             else
@@ -2243,15 +2230,16 @@ namespace CFGS_VM.VMCore
                             if (target is List<object> arr)
                             {
                                 int index = RequireIntIndex(idxObj, instr);
-                                if (index >= 0 && index < arr.Count)
-                                    arr.RemoveAt(index);
+                                int count = GetListCount(arr);
+                                if (index >= 0 && index < count)
+                                    RemoveListAt(arr, index);
                                 else
                                     throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                             }
                             else if (target is Dictionary<string, object> dict)
                             {
                                 string key = Convert.ToString(idxObj, CultureInfo.InvariantCulture) ?? "";
-                                if (!dict.Remove(key))
+                                if (!RemoveDictionaryValue(dict, key))
                                     throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                             }
                             else if (target is ClassInstance obj)
@@ -2261,16 +2249,16 @@ namespace CFGS_VM.VMCore
                                 if (key.Length == 0)
                                     throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                                if (!obj.Fields.TryGetValue(key, out object? field))
+                                if (!TryGetInstanceField(obj, key, out object? field))
                                     throw new VMException($"Runtime error: invalid instance member '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                                 if (field is List<object>)
                                 {
-                                    obj.Fields[key] = CaptureMutableCollectionOwnership(new List<object>());
+                                    SetInstanceField(obj, key, CaptureMutableCollectionOwnership(new List<object>()));
                                 }
                                 else if (field is Dictionary<string, object>)
                                 {
-                                    obj.Fields[key] = CaptureMutableCollectionOwnership(new Dictionary<string, object>());
+                                    SetInstanceField(obj, key, CaptureMutableCollectionOwnership(new Dictionary<string, object>()));
                                 }
                                 else
                                 {
@@ -2287,7 +2275,7 @@ namespace CFGS_VM.VMCore
                                 if (key.Length == 0)
                                     throw new VMException("Runtime error: static member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                                if (!st.Fields.TryGetValue(key, out object? field))
+                                if (!TryGetStaticField(st, key, out object? field))
                                     throw new VMException(
                                         $"Runtime error: invalid static member '{key}' in class '{st.ClassName}'",
                                         instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
@@ -2295,11 +2283,11 @@ namespace CFGS_VM.VMCore
 
                                 if (field is List<object>)
                                 {
-                                    st.Fields[key] = CaptureMutableCollectionOwnership(new List<object>());
+                                    SetStaticField(st, key, CaptureMutableCollectionOwnership(new List<object>()));
                                 }
                                 else if (field is Dictionary<string, object>)
                                 {
-                                    st.Fields[key] = CaptureMutableCollectionOwnership(new Dictionary<string, object>());
+                                    SetStaticField(st, key, CaptureMutableCollectionOwnership(new Dictionary<string, object>()));
                                 }
                                 else
                                 {
@@ -2350,11 +2338,11 @@ namespace CFGS_VM.VMCore
 
                         if (target is List<object> list)
                         {
-                            list.Clear();
+                            ClearList(list);
                         }
                         else if (target is Dictionary<string, object> dict)
                         {
-                            dict.Clear();
+                            ClearDictionary(dict);
                         }
                         else
                         {
@@ -2378,17 +2366,18 @@ namespace CFGS_VM.VMCore
                         if (target is List<object> arr)
                         {
                             int index = RequireIntIndex(idxObj, instr);
-                            if (index < 0 || index >= arr.Count)
+                            int count = GetListCount(arr);
+                            if (index < 0 || index >= count)
                                 throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                            arr.RemoveAt(index);
+                            RemoveListAt(arr, index);
                         }
                         else if (target is Dictionary<string, object> dict)
                         {
                             string key = idxObj?.ToString() ?? throw new VMException(
                                 $"Runtime error: dictionary key cannot be null", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                            if (!dict.Remove(key))
+                            if (!RemoveDictionaryValue(dict, key))
                                 throw new VMException($"Runtime error: key '{key}' not found in dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
                         else
@@ -2422,7 +2411,7 @@ namespace CFGS_VM.VMCore
                             }
                             if (recv is ClassInstance inst)
                             {
-                                if (inst.Fields.TryGetValue("__type", out object? tObj) && tObj is StaticInstance st2)
+                                if (TryGetInstanceField(inst, "__type", out object? tObj) && tObj is StaticInstance st2)
                                 {
                                     _stack.Push(st2);
                                     break;
@@ -2438,7 +2427,7 @@ namespace CFGS_VM.VMCore
 
                             if (recv is ClassInstance inst)
                             {
-                                if (inst.Fields.TryGetValue("__base", out object? bObj) && bObj is ClassInstance baseInst)
+                                if (TryGetInstanceField(inst, "__base", out object? bObj) && bObj is ClassInstance baseInst)
                                 {
                                     _stack.Push(baseInst);
                                     break;
@@ -2448,7 +2437,7 @@ namespace CFGS_VM.VMCore
 
                             if (recv is StaticInstance st)
                             {
-                                if (st.Fields.TryGetValue("__base", out object? sbObj) && sbObj is StaticInstance baseType)
+                                if (TryGetStaticField(st, "__base", out object? sbObj) && sbObj is StaticInstance baseType)
                                 {
                                     _stack.Push(baseType);
                                     break;
@@ -2464,7 +2453,7 @@ namespace CFGS_VM.VMCore
 
                             if (recv is ClassInstance inst)
                             {
-                                if (inst.Fields.TryGetValue("__outer", out object? oObj) && oObj is ClassInstance outerInst)
+                                if (TryGetInstanceField(inst, "__outer", out object? oObj) && oObj is ClassInstance outerInst)
                                 {
                                     _stack.Push(outerInst);
                                     break;
@@ -3178,13 +3167,6 @@ namespace CFGS_VM.VMCore
                         {
                             _stack.Push(awaited);
                             break;
-                        }
-
-                        AsyncExecutionContext? currentContext = CurrentAsyncContext.Value;
-                        if (currentContext != null && ContainsTaskForCoordinator(awaited, currentContext.Coordinator))
-                        {
-                            AsyncTaskCoordinators.Remove(task);
-                            AsyncTaskCoordinators.Add(task, currentContext.Coordinator);
                         }
 
                         if (task.IsCompleted)
@@ -4130,7 +4112,7 @@ namespace CFGS_VM.VMCore
                 Task<object?> task = _awaitTask!;
                 try
                 {
-                    object? res = await AwaitTaskRespectingCoordinatorAsync(task).ConfigureAwait(false);
+                    object? res = await AwaitTaskAsync(task).ConfigureAwait(false);
                     _stack.Push(res!);
                 }
                 catch (Exception ex)
@@ -4396,9 +4378,9 @@ namespace CFGS_VM.VMCore
                 case string s:
                     return $"\"{s}\"";
                 case List<object> list:
-                    return $"[{list.Count} elems]";
+                    return $"[{GetListCount(list)} elems]";
                 case Dictionary<string, object> dict:
-                    return $"{{{dict.Count} pairs}}";
+                    return $"{{{GetDictionaryCount(dict)} pairs}}";
                 case ClassInstance ci:
                     return $"Object({ci.ClassName})";
                 case Closure clos:
@@ -4484,11 +4466,12 @@ namespace CFGS_VM.VMCore
                     {
                         if (seen.Contains(v)) { w.Write("[]"); return; }
                         seen.Add(v);
+                        List<object> items = SnapshotList(list);
                         w.Write('[');
-                        for (int i = 0; i < list.Count; i++)
+                        for (int i = 0; i < items.Count; i++)
                         {
-                            WriteJsonValue(list[i], w, seen, mode);
-                            if (i + 1 < list.Count) w.Write(',');
+                            WriteJsonValue(items[i], w, seen, mode);
+                            if (i + 1 < items.Count) w.Write(',');
                         }
                         w.Write(']');
                         seen.Remove(v);
@@ -4500,7 +4483,7 @@ namespace CFGS_VM.VMCore
                         if (seen.Contains(v)) { w.Write("{}"); return; }
                         seen.Add(v);
 
-                        List<KeyValuePair<string, object>> entries = dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList();
+                        List<KeyValuePair<string, object>> entries = SnapshotOrderedDictionaryEntries(dict);
                         if (mode == 2)
                         {
                             entries = [.. entries
@@ -4574,11 +4557,12 @@ namespace CFGS_VM.VMCore
             {
                 if (seen.Contains(v)) { w.Write("[...]"); return; }
                 seen.Add(v);
+                List<object> items = SnapshotList(list);
                 w.Write("[");
-                for (int i = 0; i < list.Count; i++)
+                for (int i = 0; i < items.Count; i++)
                 {
-                    PrintValue(list[i], w, mode, seen, escapeNewlines);
-                    if (i + 1 < list.Count) w.Write(", ");
+                    PrintValue(items[i], w, mode, seen, escapeNewlines);
+                    if (i + 1 < items.Count) w.Write(", ");
                 }
                 w.Write("]");
                 seen.Remove(v);
@@ -4590,7 +4574,7 @@ namespace CFGS_VM.VMCore
                 if (seen.Contains(v)) { w.Write("{...}"); return; }
                 seen.Add(v);
 
-                List<KeyValuePair<string, object>> entries = dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList();
+                List<KeyValuePair<string, object>> entries = SnapshotOrderedDictionaryEntries(dict);
                 if (mode == 2)
                 {
                     entries = [.. entries
@@ -4726,7 +4710,7 @@ namespace CFGS_VM.VMCore
         /// <returns>The <see cref="bool"/></returns>
         private static bool TryGetStaticType(ClassInstance inst, out StaticInstance type)
         {
-            if (inst.Fields.TryGetValue("__type", out object? tObj) && tObj is StaticInstance st)
+            if (TryGetInstanceField(inst, "__type", out object? tObj) && tObj is StaticInstance st)
             {
                 type = st;
                 return true;
@@ -4741,7 +4725,7 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private static bool IsInterfaceType(StaticInstance type)
         {
-            if (!type.Fields.TryGetValue("__is_interface", out object? raw) || raw == null)
+            if (!TryGetStaticField(type, "__is_interface", out object? raw) || raw == null)
                 return false;
 
             return raw switch
@@ -4761,10 +4745,10 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private static IEnumerable<StaticInstance> EnumerateDirectInterfaces(StaticInstance type)
         {
-            if (!type.Fields.TryGetValue("__interfaces", out object? raw) || raw is not List<object> entries)
+            if (!TryGetStaticField(type, "__interfaces", out object? raw) || raw is not List<object> entries)
                 yield break;
 
-            foreach (object? entry in entries)
+            foreach (object? entry in SnapshotList(entries))
             {
                 if (entry is StaticInstance iface)
                     yield return iface;
@@ -4807,7 +4791,7 @@ namespace CFGS_VM.VMCore
                         return true;
                 }
 
-                current = current.Fields.TryGetValue("__base", out object? bObj) && bObj is StaticInstance baseType
+                current = TryGetStaticField(current, "__base", out object? bObj) && bObj is StaticInstance baseType
                     ? baseType
                     : null;
             }
@@ -4871,10 +4855,10 @@ namespace CFGS_VM.VMCore
         {
             code = VisibilityPublic;
             string mapName = expectInstance ? "__vis_inst" : "__vis_static";
-            if (!ownerType.Fields.TryGetValue(mapName, out object? mapObj) || mapObj is not Dictionary<string, object> map)
+            if (!TryGetStaticField(ownerType, mapName, out object? mapObj) || mapObj is not Dictionary<string, object> map)
                 return false;
 
-            if (!map.TryGetValue(memberName, out object? rawCode))
+            if (!TryGetDictionaryValue(map, memberName, out object? rawCode))
                 return false;
 
             code = NormalizeVisibilityCode(rawCode);
@@ -4906,7 +4890,7 @@ namespace CFGS_VM.VMCore
                     return true;
                 }
 
-                if (!current.Fields.TryGetValue("__base", out object? bObj) || bObj is not StaticInstance baseType)
+                if (!TryGetStaticField(current, "__base", out object? bObj) || bObj is not StaticInstance baseType)
                     break;
 
                 current = baseType;
@@ -4926,12 +4910,12 @@ namespace CFGS_VM.VMCore
             StaticInstance current = startType;
             while (true)
             {
-                if (current.Fields.TryGetValue(mapName, out object? mapObj) &&
+                if (TryGetStaticField(current, mapName, out object? mapObj) &&
                     mapObj is Dictionary<string, object> map &&
-                    map.ContainsKey(fieldName))
+                    ContainsDictionaryKey(map, fieldName))
                     return true;
 
-                if (!current.Fields.TryGetValue("__base", out object? bObj) || bObj is not StaticInstance baseType)
+                if (!TryGetStaticField(current, "__base", out object? bObj) || bObj is not StaticInstance baseType)
                     break;
 
                 current = baseType;
@@ -4958,14 +4942,14 @@ namespace CFGS_VM.VMCore
             ClassInstance current = start;
             while (true)
             {
-                if (current.Fields.TryGetValue(memberName, out value))
+                if (TryGetInstanceField(current, memberName, out value))
                 {
                     ownerInst = current;
                     ownerType = TryGetStaticType(current, out StaticInstance st) ? st : null;
                     return true;
                 }
 
-                if (!current.Fields.TryGetValue("__base", out object? bObj) || bObj is not ClassInstance baseInst)
+                if (!TryGetInstanceField(current, "__base", out object? bObj) || bObj is not ClassInstance baseInst)
                     break;
 
                 current = baseInst;
@@ -4994,13 +4978,13 @@ namespace CFGS_VM.VMCore
             StaticInstance current = start;
             while (true)
             {
-                if (current.Fields.TryGetValue(memberName, out value))
+                if (TryGetStaticField(current, memberName, out value))
                 {
                     ownerType = current;
                     return true;
                 }
 
-                if (!current.Fields.TryGetValue("__base", out object? bObj) || bObj is not StaticInstance baseType)
+                if (!TryGetStaticField(current, "__base", out object? bObj) || bObj is not StaticInstance baseType)
                     break;
 
                 current = baseType;
@@ -5047,7 +5031,7 @@ namespace CFGS_VM.VMCore
                 if (ReferenceEquals(current, baseType))
                     return true;
 
-                if (!current.Fields.TryGetValue("__base", out object? bObj) || bObj is not StaticInstance parent)
+                if (!TryGetStaticField(current, "__base", out object? bObj) || bObj is not StaticInstance parent)
                     break;
 
                 current = parent;
@@ -5134,9 +5118,10 @@ namespace CFGS_VM.VMCore
                             return bound;
 
                         int index = RequireIntIndex(idxObj, instr);
-                        if (index < 0 || index >= arr.Count)
+                        int count = GetListCount(arr);
+                        if (index < 0 || index >= count)
                             throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        return arr[index];
+                        return GetListValue(arr, index);
                     }
 
                 case FileHandle fh:
@@ -5173,8 +5158,8 @@ namespace CFGS_VM.VMCore
                         if (idxObj is string mname && TryBindIntrinsic(dict, mname, out IntrinsicBound? bound, instr))
                             return bound;
                         string key = idxObj?.ToString() ?? "";
-                        if (dict.TryGetValue(key, out object? val))
-                            return val;
+                        if (TryGetDictionaryValue(dict, key, out object? val))
+                            return val!;
                         return null!;
                     }
 
@@ -5196,8 +5181,8 @@ namespace CFGS_VM.VMCore
 
                         if (key == "outer")
                         {
-                            if (obj.Fields.TryGetValue("__outer", out object? outerVal))
-                                return outerVal;
+                            if (TryGetInstanceField(obj, "__outer", out object? outerVal))
+                                return outerVal!;
 
                             throw new VMException(
                                 "Runtime error: missing '__outer' on instance for 'outer'.",
@@ -5332,9 +5317,10 @@ namespace CFGS_VM.VMCore
                             throw new VMException($"Runtime error: cannot assign to array intrinsic '{idxObj}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         int index = RequireIntIndex(idxObj, instr);
-                        if (index < 0 || index >= arr.Count)
-                            throw new VMException($"Runtime error: index {index} out of range (0..{arr.Count - 1})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        arr[index] = value;
+                        int count = GetListCount(arr);
+                        if (index < 0 || index >= count)
+                            throw new VMException($"Runtime error: index {index} out of range (0..{count - 1})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        SetListValue(arr, index, value);
                         break;
                     }
 
@@ -5345,7 +5331,7 @@ namespace CFGS_VM.VMCore
                     {
                         MarkAsyncHazardForMutableCollection(dict);
                         string key = NormalizeDictionaryWriteKey(dict, idxObj, instr);
-                        dict[key] = value;
+                        SetDictionaryValue(dict, key, value);
                         break;
                     }
 
@@ -5399,7 +5385,7 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 
-                        obj.Fields[key] = value;
+                        SetInstanceField(obj, key, value);
                         break;
                     }
 
@@ -5440,7 +5426,7 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 
-                        st.Fields[key] = value;
+                        SetStaticField(st, key, value);
                         break;
                     }
 
@@ -5479,20 +5465,21 @@ namespace CFGS_VM.VMCore
             {
                 case List<object> arr:
                     {
-                        (int start, int end) = NormalizeSliceBounds(startObj, endObj, arr.Count, instr);
+                        int count = GetListCount(arr);
+                        (int start, int end) = NormalizeSliceBounds(startObj, endObj, count, instr);
 
                         if (start < end)
-                            arr.RemoveRange(start, end - start);
+                            RemoveListRange(arr, start, end - start);
                         return;
                     }
 
                 case Dictionary<string, object> dict:
                     {
-                        List<string> keys = dict.Keys.ToList();
+                        List<string> keys = SnapshotDictionaryKeys(dict);
                         (int start, int end) = NormalizeSliceBounds(startObj, endObj, keys.Count, instr);
 
                         for (int i = end - 1; i >= start; i--)
-                            dict.Remove(keys[i]);
+                            RemoveDictionaryValue(dict, keys[i]);
 
                         return;
                     }

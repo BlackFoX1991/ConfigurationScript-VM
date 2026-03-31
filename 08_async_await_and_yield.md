@@ -80,6 +80,8 @@ In practice, `yield` is a cooperative suspension point. The function starts runn
 
 CFGS starts async functions immediately. This matters. A call already executes code before you later `await` it.
 
+This also applies when one async CFGS function starts another async CFGS function from inside its own running continuation.
+
 ```cfs
 var trace = "";
 
@@ -97,6 +99,12 @@ print(await t);
 ```
 
 Before the await, `trace` is already `SC`. The start is hot, not fully lazy.
+
+CFGS also does not serialize shared mutable state for you. If multiple hot-started tasks read the same mutable value before they later `await` or `yield`, their later writes can overwrite each other, just like ordinary C# async code.
+
+The runtime now allows those continuations to resume in parallel as well. Core mutable CFGS runtime objects such as arrays, dictionaries, instance fields, and static fields are protected against structural corruption, but compound read-modify-write logic is still not atomic. `x = x + 1` can still lose updates unless you coordinate it yourself.
+
+If you need strict ordering, serialize it explicitly in your CFGS code.
 
 ## Common Pitfall: `delay` Takes a Value, Not a Callback
 

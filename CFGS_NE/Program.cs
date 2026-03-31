@@ -87,7 +87,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v4.4.3";
+    public const string Version = "v4.4.7";
 
     /// <summary>
     /// Defines the AnsiMode

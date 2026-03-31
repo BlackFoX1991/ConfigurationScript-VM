@@ -1,4 +1,4 @@
-﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+﻿import "plugins/CFGS.StandardLibrary.dll";
 class BloomFilter
 {
     var bits = [];
