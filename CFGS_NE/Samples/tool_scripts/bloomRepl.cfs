@@ -1,5 +1,4 @@
-﻿import "CFGS.StandardLibrary.dll";
-import "bloom.cfs";
+﻿import "bloom.cfs";
 
 # ====== BloomFilter-REPL ======
 # Erwartet, dass die Klasse BloomFilter (aus deinem Snippet) im selben File

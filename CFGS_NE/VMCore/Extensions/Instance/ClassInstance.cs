@@ -6,6 +6,11 @@
     public sealed class ClassInstance
     {
         /// <summary>
+        /// Synchronizes field access for this runtime instance.
+        /// </summary>
+        public object SyncRoot { get; } = new();
+
+        /// <summary>
         /// Gets the ClassName
         /// </summary>
         public string ClassName { get; }

@@ -364,6 +364,12 @@ trace = trace + "C";   # trace is "SC" here
 await t;               # trace becomes "SCR"
 ```
 
+That eager start also holds for nested async CFGS calls inside already-running async CFGS code.
+
+Shared mutable state is not implicitly serialized. If several hot-started tasks capture the same mutable value before a later `await` or `yield`, later writes can overwrite each other.
+
+The VM now resumes those continuations in parallel as well. Runtime arrays, dictionaries, instance fields, and static fields are protected against structural corruption, but compound read-modify-write expressions are still not atomic. If you need deterministic ordering, enforce it explicitly in CFGS code.
+
 `yield` is a scheduling statement (cooperative step), not a generator value:
 
 ```cfs

@@ -1,6 +1,21 @@
 import "edge_assert.cfs";
 
+# Legacy file name kept for runner compatibility.
+# Shared mutable collections are no longer implicitly serialized across async tasks.
+
 edge_begin("243_async_shared_collection_aliases");
+
+func all_between(values, minValue, maxValue) {
+    var i = 0;
+    while (i < len(values)) {
+        var current = values[i];
+        if (current < minValue || current > maxValue) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
 
 async func bump_list(shared) {
     var old = shared[0];
@@ -32,7 +47,8 @@ async func run_list(count) {
     }
 
     var results = await tasks;
-    edge_eq("list_last_result", results[count - 1], count);
+    edge_eq("list_result_count", len(results), count);
+    edge_true("list_results_in_range", all_between(results, 1, count));
     return shared[0];
 }
 
@@ -46,7 +62,8 @@ async func run_dict(count) {
     }
 
     var results = await tasks;
-    edge_eq("dict_last_result", results[count - 1], count);
+    edge_eq("dict_result_count", len(results), count);
+    edge_true("dict_results_in_range", all_between(results, 1, count));
     return shared["n"];
 }
 
@@ -64,8 +81,12 @@ async func run_push(count) {
     return len(shared);
 }
 
-edge_eq("list_final", await run_list(20), 20);
-edge_eq("dict_final", await run_dict(20), 20);
+var listFinal = await run_list(20);
+edge_true("list_final_in_range", listFinal >= 1 && listFinal <= 20);
+
+var dictFinal = await run_dict(20);
+edge_true("dict_final_in_range", dictFinal >= 1 && dictFinal <= 20);
+
 edge_eq("push_final", await run_push(20), 20);
 
 edge_finish("243_async_shared_collection_aliases");

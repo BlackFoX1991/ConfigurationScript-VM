@@ -300,8 +300,8 @@ namespace CFGS.StandardLibrary
             {
                 object a0 = args[0];
                 if (a0 is string s) return s.Length;
-                if (a0 is List<object> list) return list.Count;
-                if (a0 is Dictionary<string, object> dct) return dct.Count;
+                if (a0 is List<object> list) return LockMutableRuntime(list, () => list.Count);
+                if (a0 is Dictionary<string, object> dct) return LockMutableRuntime(dct, () => dct.Count);
                 return -1;
             }));
 
@@ -461,7 +461,7 @@ namespace CFGS.StandardLibrary
             {
                 if (args[0] is null) return null!;
                 if (args[0] is List<object> list)
-                    return new List<object>(list);
+                    return SnapshotMutableList(list);
                 return new List<object> { args[0]! };
             }));
 
@@ -469,7 +469,7 @@ namespace CFGS.StandardLibrary
             {
                 if (args[0] is null) return null!;
                 if (args[0] is Dictionary<string, object> d)
-                    return new Dictionary<string, object>(d);
+                    return SnapshotMutableDictionaryEntries(d).ToDictionary(kv => kv.Key, kv => kv.Value);
                 return new Dictionary<string, object>();
             }));
 
@@ -693,7 +693,7 @@ namespace CFGS.StandardLibrary
             builtins.Register(new BuiltinDescriptor("getfields", 1, 1, (args, instr) =>
             {
                 if (args[0] is not Dictionary<string, object> d) return new List<object>();
-                return d.Keys.ToList<object>();
+                return SnapshotMutableDictionaryKeys(d).Cast<object>().ToList();
             }));
 
             builtins.Register(new BuiltinDescriptor("fromjson", 1, 1, (args, instr) =>
@@ -980,49 +980,66 @@ namespace CFGS.StandardLibrary
         {
             Type T = typeof(List<object>);
 
-            intrinsics.Register(T, new IntrinsicDescriptor("len", 0, 0, (recv, a, i) => ((List<object>)recv).Count));
+            intrinsics.Register(T, new IntrinsicDescriptor("len", 0, 0, (recv, a, i) =>
+                LockMutableRuntime((List<object>)recv, () => ((List<object>)recv).Count)));
             intrinsics.Register(T, new IntrinsicDescriptor("push", 1, 1, (recv, a, i) =>
             {
                 List<object> arr = (List<object>)recv;
-                arr.Add(a[0]);
-                return arr.Count;
+                return LockMutableRuntime(arr, () =>
+                {
+                    arr.Add(a[0]);
+                    return arr.Count;
+                });
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("pop", 0, 0, (recv, a, i) =>
             {
                 List<object> arr = (List<object>)recv;
-                if (arr.Count == 0) return null!;
-                object last = arr[^1];
-                arr.RemoveAt(arr.Count - 1);
-                return last;
+                return LockMutableRuntime(arr, () =>
+                {
+                    if (arr.Count == 0) return null!;
+                    object last = arr[^1];
+                    arr.RemoveAt(arr.Count - 1);
+                    return last;
+                });
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("insert_at", 2, 2, (recv, a, i) =>
             {
                 List<object> arr = (List<object>)recv;
-                int idx = ClampIndex(Convert.ToInt32(a[0]), arr.Count);
-                arr.Insert(idx, a[1]);
+                LockMutableRuntime(arr, () =>
+                {
+                    int idx = ClampIndex(Convert.ToInt32(a[0]), arr.Count);
+                    arr.Insert(idx, a[1]);
+                });
                 return arr;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("remove_range", 2, 2, (recv, a, i) =>
             {
                 List<object> arr = (List<object>)recv;
-                (int st, int ex) = NormalizeSliceBounds(a[0], a[1], arr.Count);
-                arr.RemoveRange(st, ex - st);
+                LockMutableRuntime(arr, () =>
+                {
+                    (int st, int ex) = NormalizeSliceBounds(a[0], a[1], arr.Count);
+                    arr.RemoveRange(st, ex - st);
+                });
                 return arr;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("replace_range", 3, 3, (recv, a, i) =>
             {
                 List<object> arr = (List<object>)recv;
-                (int st, int ex) = NormalizeSliceBounds(a[0], a[1], arr.Count);
-                if (a[2] is List<object> replList)
+                List<object>? replacement = a[2] is List<object> replList ? SnapshotMutableList(replList) : null;
+                LockMutableRuntime(arr, () =>
                 {
-                    arr.RemoveRange(st, ex - st);
-                    arr.InsertRange(st, replList);
-                }
-                else
-                {
-                    arr.RemoveRange(st, ex - st);
-                    arr.Insert(st, a[2]);
-                }
+                    (int st, int ex) = NormalizeSliceBounds(a[0], a[1], arr.Count);
+                    if (replacement != null)
+                    {
+                        arr.RemoveRange(st, ex - st);
+                        arr.InsertRange(st, replacement);
+                    }
+                    else
+                    {
+                        arr.RemoveRange(st, ex - st);
+                        arr.Insert(st, a[2]);
+                    }
+                });
                 return arr;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("slice", 0, 2, (recv, a, instr) =>
@@ -1030,34 +1047,37 @@ namespace CFGS.StandardLibrary
                 List<object> arr = (List<object>)recv;
                 object? startObj = a.Count > 0 ? a[0] : null;
                 object? endObj = a.Count > 1 ? a[1] : null;
-                (int st, int ex) = NormalizeSliceBounds(startObj, endObj, arr.Count);
-                return arr.GetRange(st, ex - st);
+                return LockMutableRuntime(arr, () =>
+                {
+                    (int st, int ex) = NormalizeSliceBounds(startObj, endObj, arr.Count);
+                    return (object)arr.GetRange(st, ex - st);
+                });
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("sort", 0, 0, (recv, a, i) =>
             {
                 List<object> arr = (List<object>)recv;
-                arr.Sort((x, y) =>
+                LockMutableRuntime(arr, () => arr.Sort((x, y) =>
                 {
                     if (x is null && y is null) return 0;
                     if (x is null) return -1;
                     if (y is null) return 1;
                     if (x is IComparable cx) return cx.CompareTo(y);
                     return string.Compare(x.ToString(), y.ToString(), StringComparison.Ordinal);
-                });
+                }));
                 return arr;
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("reverse", 0, 0, (recv, a, i) =>
             {
                 List<object> arr = (List<object>)recv;
-                arr.Reverse();
+                LockMutableRuntime(arr, arr.Reverse);
                 return arr;
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("indexOf", 1, 1, (recv, a, i) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 object target = a[0];
                 for (int idx = 0; idx < arr.Count; idx++)
                 {
@@ -1068,7 +1088,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("includes", 1, 1, (recv, a, i) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 object target = a[0];
                 foreach (object item in arr)
                 {
@@ -1079,21 +1099,21 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("join", 1, 1, (recv, a, i) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 string sep = a[0]?.ToString() ?? "";
                 return string.Join(sep, arr.Select(x => x?.ToString() ?? ""));
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("flat", 0, 1, (recv, a, instr) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 int depth = a.Count > 0 ? Convert.ToInt32(a[0]) : 1;
                 return FlattenList(arr, depth);
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("map", 1, 1, (recv, a, instr) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 Closure fn = (Closure)a[0];
                 VM vm = VM.CurrentVm!;
                 List<object> result = new(arr.Count);
@@ -1109,7 +1129,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("filter", 1, 1, (recv, a, instr) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 Closure fn = (Closure)a[0];
                 VM vm = VM.CurrentVm!;
                 List<object> result = new();
@@ -1126,7 +1146,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("reduce", 2, 2, (recv, a, instr) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 Closure fn = (Closure)a[0];
                 object accumulator = a[1];
                 VM vm = VM.CurrentVm!;
@@ -1139,7 +1159,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("find", 1, 1, (recv, a, instr) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 Closure fn = (Closure)a[0];
                 VM vm = VM.CurrentVm!;
                 for (int idx = 0; idx < arr.Count; idx++)
@@ -1155,7 +1175,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("findIndex", 1, 1, (recv, a, instr) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 Closure fn = (Closure)a[0];
                 VM vm = VM.CurrentVm!;
                 for (int idx = 0; idx < arr.Count; idx++)
@@ -1171,7 +1191,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("every", 1, 1, (recv, a, instr) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 Closure fn = (Closure)a[0];
                 VM vm = VM.CurrentVm!;
                 foreach (object item in arr)
@@ -1184,7 +1204,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("some", 1, 1, (recv, a, instr) =>
             {
-                List<object> arr = (List<object>)recv;
+                List<object> arr = SnapshotMutableList((List<object>)recv);
                 Closure fn = (Closure)a[0];
                 VM vm = VM.CurrentVm!;
                 foreach (object item in arr)
@@ -1203,39 +1223,41 @@ namespace CFGS.StandardLibrary
         private static void RegisterDict(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(Dictionary<string, object>);
-            intrinsics.Register(T, new IntrinsicDescriptor("len", 0, 0, (r, a, i) => ((Dictionary<string, object>)r).Count));
+            intrinsics.Register(T, new IntrinsicDescriptor("len", 0, 0, (r, a, i) =>
+                LockMutableRuntime((Dictionary<string, object>)r, () => ((Dictionary<string, object>)r).Count)));
             intrinsics.Register(T, new IntrinsicDescriptor("contains", 1, 1, (r, a, i) =>
             {
                 Dictionary<string, object> d = (Dictionary<string, object>)r;
                 string key = a[0]?.ToString() ?? "";
-                return d.ContainsKey(key);
+                return LockMutableRuntime(d, () => d.ContainsKey(key));
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("remove", 1, 1, (r, a, i) =>
             {
                 Dictionary<string, object> d = (Dictionary<string, object>)r;
                 string key = a[0]?.ToString() ?? "";
-                return d.Remove(key);
+                return LockMutableRuntime(d, () => d.Remove(key));
             }));
-            intrinsics.Register(T, new IntrinsicDescriptor("keys", 0, 0, (r, a, i) => ((Dictionary<string, object>)r).Keys.ToList<object>()));
-            intrinsics.Register(T, new IntrinsicDescriptor("values", 0, 0, (r, a, i) => ((Dictionary<string, object>)r).Values.ToList()));
+            intrinsics.Register(T, new IntrinsicDescriptor("keys", 0, 0, (r, a, i) =>
+                SnapshotMutableDictionaryKeys((Dictionary<string, object>)r).Cast<object>().ToList()));
+            intrinsics.Register(T, new IntrinsicDescriptor("values", 0, 0, (r, a, i) =>
+                SnapshotMutableDictionaryEntries((Dictionary<string, object>)r).Select(kv => kv.Value).ToList()));
             intrinsics.Register(T, new IntrinsicDescriptor("set", 2, 2, (r, a, i) =>
             {
                 Dictionary<string, object> d = (Dictionary<string, object>)r;
                 string key = a[0]?.ToString() ?? "";
-                d[key] = a[1];
+                LockMutableRuntime(d, () => d[key] = a[1]);
                 return d;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("get_or", 2, 2, (r, a, i) =>
             {
                 Dictionary<string, object> d = (Dictionary<string, object>)r;
                 string key = a[0]?.ToString() ?? "";
-                return d.TryGetValue(key, out object? v) ? v : a[1];
+                return LockMutableRuntime(d, () => d.TryGetValue(key, out object? v) ? v : a[1]);
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("entries", 0, 0, (r, a, i) =>
             {
-                Dictionary<string, object> d = (Dictionary<string, object>)r;
-                return d.Select(kv =>
+                return SnapshotMutableDictionaryEntries((Dictionary<string, object>)r).Select(kv =>
                 {
                     List<object> pair = new() { kv.Key, kv.Value };
                     return (object)pair;
@@ -1247,8 +1269,12 @@ namespace CFGS.StandardLibrary
                 Dictionary<string, object> d = (Dictionary<string, object>)r;
                 if (a[0] is Dictionary<string, object> other)
                 {
-                    foreach (KeyValuePair<string, object> kv in other)
-                        d[kv.Key] = kv.Value;
+                    List<KeyValuePair<string, object>> otherEntries = SnapshotMutableDictionaryEntries(other);
+                    LockMutableRuntime(d, () =>
+                    {
+                        foreach (KeyValuePair<string, object> kv in otherEntries)
+                            d[kv.Key] = kv.Value;
+                    });
                 }
                 return d;
             }));
@@ -1256,7 +1282,7 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("clone", 0, 0, (r, a, i) =>
             {
                 Dictionary<string, object> d = (Dictionary<string, object>)r;
-                return new Dictionary<string, object>(d);
+                return SnapshotMutableDictionaryEntries(d).ToDictionary(kv => kv.Key, kv => kv.Value);
             }));
         }
 
@@ -1802,22 +1828,20 @@ namespace CFGS.StandardLibrary
             if (value is ClassInstance inst)
             {
                 Dictionary<string, object>? visMap = null;
-                if (inst.Fields.TryGetValue("__type", out object? tObj)
-                    && tObj is StaticInstance st
-                    && st.Fields.TryGetValue("__vis_inst", out object? visObj)
-                    && visObj is Dictionary<string, object> vm)
+                if (LockMutableRuntime(inst, () => inst.Fields.TryGetValue("__type", out object? innerType) ? innerType : null) is StaticInstance st
+                    && LockMutableRuntime(st, () => st.Fields.TryGetValue("__vis_inst", out object? innerVis) ? innerVis : null) is Dictionary<string, object> vm)
                 {
                     visMap = vm;
                 }
 
                 var result = new Dictionary<string, object>();
-                foreach (var kvp in inst.Fields)
+                foreach (var kvp in LockMutableRuntime(inst, () => inst.Fields.ToList()))
                 {
                     if (kvp.Key.StartsWith("__")) continue;
                     if (kvp.Value is Closure) continue;
                     if (kvp.Value is StaticInstance) continue;
 
-                    if (visMap != null && visMap.TryGetValue(kvp.Key, out object? rawVis))
+                    if (visMap != null && LockMutableRuntime(visMap, () => visMap.TryGetValue(kvp.Key, out object? rawVis) ? rawVis : null) is object rawVis)
                     {
                         int vis = rawVis is int i ? i : 0;
                         if (vis != 0) continue;
@@ -1830,16 +1854,18 @@ namespace CFGS.StandardLibrary
 
             if (value is List<object> list)
             {
-                var result = new List<object>(list.Count);
-                foreach (var item in list)
+                List<object> snapshot = SnapshotMutableList(list);
+                var result = new List<object>(snapshot.Count);
+                foreach (var item in snapshot)
                     result.Add(NormalizeForJson(item)!);
                 return result;
             }
 
             if (value is Dictionary<string, object> dict)
             {
-                var result = new Dictionary<string, object>(dict.Count);
-                foreach (var kvp in dict)
+                List<KeyValuePair<string, object>> snapshot = SnapshotMutableDictionaryEntries(dict);
+                var result = new Dictionary<string, object>(snapshot.Count);
+                foreach (var kvp in snapshot)
                     result[kvp.Key] = NormalizeForJson(kvp.Value)!;
                 return result;
             }
@@ -1864,9 +1890,9 @@ namespace CFGS.StandardLibrary
             {
                 if (x is null) return null;
                 if (x is string or bool or int or long or double or float or decimal or char) return x;
-                if (x is List<object> list) return list.Select(Normalize).ToList();
+                if (x is List<object> list) return SnapshotMutableList(list).Select(Normalize).ToList();
                 if (x is Dictionary<string, object> dict)
-                    return dict.ToDictionary(k => k.Key, k => Normalize(k.Value)!);
+                    return SnapshotMutableDictionaryEntries(dict).ToDictionary(k => k.Key, k => Normalize(k.Value)!);
                 return x.ToString();
             }
 
@@ -1882,7 +1908,7 @@ namespace CFGS.StandardLibrary
         private static List<object> FlattenList(List<object> list, int depth)
         {
             List<object> result = new();
-            foreach (object item in list)
+            foreach (object item in SnapshotMutableList(list))
             {
                 if (depth > 0 && item is List<object> subList)
                     result.AddRange(FlattenList(subList, depth - 1));

@@ -1,5 +1,5 @@
-import "../../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
-import "../../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
+import "plugins/CFGS.StandardLibrary.dll";
+import "plugins/CFGS.Web.Http.dll";
 import { Util } from "common.cfs";
 import { Cookies } from "cookies.cfs";
 

@@ -1,6 +1,21 @@
 import "edge_assert.cfs";
 
+# Legacy file name kept for runner compatibility.
+# The VM now follows C#-like hot-start semantics instead of implicitly serializing shared state.
+
 edge_begin("240_async_shared_state_serialized");
+
+func all_between(values, minValue, maxValue) {
+    var i = 0;
+    while (i < len(values)) {
+        var current = values[i];
+        if (current < minValue || current > maxValue) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
 
 class Counter() {
     var n = 0;
@@ -37,7 +52,8 @@ var sharedTask = run_parallel(shared, 20);
 edge_eq("shared_parallel_returns_task", typeof(sharedTask), "Task<Object>");
 
 var results = await sharedTask;
-edge_eq("shared_parallel_last_result", results[19], 20);
-edge_eq("shared_parallel_final_state", shared.n, 20);
+edge_eq("shared_parallel_result_count", len(results), 20);
+edge_true("shared_parallel_results_in_range", all_between(results, 1, 20));
+edge_true("shared_parallel_final_state_in_range", shared.n >= 1 && shared.n <= 20);
 
 edge_finish("240_async_shared_state_serialized");
