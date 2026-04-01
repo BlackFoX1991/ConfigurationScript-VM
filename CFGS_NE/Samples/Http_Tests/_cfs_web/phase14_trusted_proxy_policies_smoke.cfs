@@ -1,0 +1,139 @@
+import { Middleware } from "middleware.cfs";
+import { ServerApp } from "server.cfs";
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, remote, body = "", headers = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8107"} : headers,
+        "body": body,
+        "remote": remote
+    };
+}
+
+async func main() {
+    var app = new ServerApp(8107);
+    app.set_trusted_proxies(["127.0.0.1", "::1"]);
+    app.use_before(Middleware.host_policy(["app.example.com"]));
+    app.use_before(Middleware.origin_policy(null, {"allow_missing":false}));
+
+    app.get("/meta", func(ctx) {
+        return ctx.response.json({
+            "remote": ctx.request.remote(""),
+            "client_ip": ctx.request.client_ip(""),
+            "host": ctx.request.host(""),
+            "scheme": ctx.request.scheme(""),
+            "origin": ctx.request.origin(""),
+            "secure": ctx.request.is_secure(),
+            "trusted_proxy": ctx.request.trusted_proxy()
+        });
+    });
+
+    app.get("/back", func(ctx) {
+        return ctx.response.back("/fallback");
+    });
+
+    app.post("/submit", func(ctx) {
+        return ctx.response.text("ok");
+    }, {"csrf":false});
+
+    var forwarded_headers = {
+        "Host":"internal.local",
+        "X-Forwarded-Host":"app.example.com",
+        "X-Forwarded-Proto":"https",
+        "X-Forwarded-For":"203.0.113.10"
+    };
+
+    var meta = await app.handle(request("GET", "/meta", "127.0.0.1:41000", "", forwarded_headers));
+    expect("meta_status", meta["status"], 200);
+    var meta_body = fromjson(meta["body"]);
+    expect("meta_remote", meta_body["remote"], "127.0.0.1:41000");
+    expect("meta_client_ip", meta_body["client_ip"], "203.0.113.10");
+    expect("meta_host", meta_body["host"], "app.example.com");
+    expect("meta_scheme", meta_body["scheme"], "https");
+    expect("meta_origin", meta_body["origin"], "https://app.example.com");
+    expect("meta_secure", meta_body["secure"], true);
+    expect("meta_trusted_proxy", meta_body["trusted_proxy"], true);
+
+    var back = await app.handle(request("GET", "/back", "127.0.0.1:41001", "", {
+        "Host":"internal.local",
+        "X-Forwarded-Host":"app.example.com",
+        "X-Forwarded-Proto":"https",
+        "Referer":"https://app.example.com/from"
+    }));
+    expect("back_status", back["status"], 302);
+    expect("back_location", back["headers"]["Location"], "/from");
+
+    var untrusted = await app.handle(request("GET", "/meta", "198.51.100.20:41000", "", forwarded_headers));
+    expect("untrusted_status", untrusted["status"], 400);
+    expect("untrusted_body", untrusted["body"], "Invalid Host");
+
+    var submit_ok = await app.handle(request("POST", "/submit", "127.0.0.1:41002", "", {
+        "Host":"internal.local",
+        "X-Forwarded-Host":"app.example.com",
+        "X-Forwarded-Proto":"https",
+        "Origin":"https://app.example.com"
+    }));
+    expect("submit_ok_status", submit_ok["status"], 200);
+
+    var submit_referer_ok = await app.handle(request("POST", "/submit", "127.0.0.1:41003", "", {
+        "Host":"internal.local",
+        "X-Forwarded-Host":"app.example.com",
+        "X-Forwarded-Proto":"https",
+        "Referer":"https://app.example.com/form"
+    }));
+    expect("submit_referer_ok_status", submit_referer_ok["status"], 200);
+
+    var submit_bad_origin = await app.handle(request("POST", "/submit", "127.0.0.1:41004", "", {
+        "Host":"internal.local",
+        "X-Forwarded-Host":"app.example.com",
+        "X-Forwarded-Proto":"https",
+        "Origin":"https://evil.example.com"
+    }));
+    expect("submit_bad_origin_status", submit_bad_origin["status"], 403);
+    expect("submit_bad_origin_body", submit_bad_origin["body"], "Forbidden");
+
+    var submit_missing_origin = await app.handle(request("POST", "/submit", "127.0.0.1:41005", "", {
+        "Host":"internal.local",
+        "X-Forwarded-Host":"app.example.com",
+        "X-Forwarded-Proto":"https"
+    }));
+    expect("submit_missing_origin_status", submit_missing_origin["status"], 403);
+    expect("submit_missing_origin_body", submit_missing_origin["body"], "Forbidden");
+
+    var wildcard = new ServerApp(8108);
+    wildcard.set_trusted_proxies(["127.0.0.1"]);
+    wildcard.use_before(Middleware.host_policy(["*.example.com"]));
+    wildcard.get("/wild", func(ctx) {
+        return ctx.response.text("wild");
+    });
+
+    var wildcard_ok = await wildcard.handle(request("GET", "/wild", "127.0.0.1:42000", "", {
+        "Host":"internal.local",
+        "X-Forwarded-Host":"api.example.com"
+    }));
+    expect("wildcard_ok_status", wildcard_ok["status"], 200);
+
+    var wildcard_root = await wildcard.handle(request("GET", "/wild", "127.0.0.1:42001", "", {
+        "Host":"internal.local",
+        "X-Forwarded-Host":"example.com"
+    }));
+    expect("wildcard_root_status", wildcard_root["status"], 400);
+
+    print("PHASE14_TRUSTED_PROXY_POLICIES_OK");
+}
+
+var _ = await main();

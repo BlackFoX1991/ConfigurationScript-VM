@@ -2,6 +2,53 @@ import { Dom, Ui } from "dom.cfs";
 
 export class Forms
 {
+    static func _field_attrs(error_text = null) {
+        var attrs = {};
+        if (error_text != null) {
+            attrs["class"] = "invalid";
+            attrs["aria-invalid"] = "true";
+        }
+        return attrs;
+    }
+
+    static func _field_error(error_text) {
+        return error_text == null ? null : Dom.h("div", {"class":"form-error"}, error_text);
+    }
+
+    static func _field_wrap(label_text, actual_id, control, error_text = null) {
+        return Dom.h("div", {"class":"field"}, [
+            Ui.label(label_text, actual_id),
+            control,
+            Forms._field_error(error_text)
+        ]);
+    }
+
+    static func csrf_field(ctx) {
+        if (ctx == null) { return null; }
+
+        return Dom.h("input", {
+            "type":"hidden",
+            "name": ctx.request.csrf_field_name(),
+            "value": ctx.request.csrf_token()
+        }, "");
+    }
+
+    static func _hidden_fields_with_csrf(ctx, extra_fields = null) {
+        var fields = {};
+
+        if (extra_fields != null) {
+            foreach (var k, v in extra_fields) {
+                fields[k] = v;
+            }
+        }
+
+        if (ctx != null) {
+            fields[ctx.request.csrf_field_name()] = ctx.request.csrf_token();
+        }
+
+        return fields;
+    }
+
     static func text_field(label_text, field_name, value = "", placeholder = null, id = null, error_text = null) {
         var actual_id = id == null ? field_name : id;
         var props = {
@@ -12,28 +59,357 @@ export class Forms
         };
 
         if (placeholder != null) { props["placeholder"] = placeholder; }
-        if (error_text != null) {
-            props["class"] = "invalid";
-            props["aria-invalid"] = "true";
+        foreach (var k, v in Forms._field_attrs(error_text)) {
+            props[k] = v;
+        }
+
+        return Forms._field_wrap(label_text, actual_id, Dom.h("input", props, ""), error_text);
+    }
+
+    static func textarea_field(label_text, field_name, value = "", placeholder = null, id = null, error_text = null, rows = 5) {
+        var actual_id = id == null ? field_name : id;
+        var props = {
+            "name": field_name,
+            "id": actual_id,
+            "rows": rows
+        };
+
+        if (placeholder != null) { props["placeholder"] = placeholder; }
+        foreach (var k, v in Forms._field_attrs(error_text)) {
+            props[k] = v;
+        }
+
+        return Forms._field_wrap(label_text, actual_id, Dom.h("textarea", props, value == null ? "" : value), error_text);
+    }
+
+    static func checkbox_field(label_text, field_name, checked = false, value = "1", id = null, error_text = null) {
+        var actual_id = id == null ? field_name : id;
+        var props = {
+            "type":"checkbox",
+            "name": field_name,
+            "id": actual_id,
+            "value": value
+        };
+
+        if (checked) { props["checked"] = true; }
+        foreach (var k, v in Forms._field_attrs(error_text)) {
+            props[k] = v;
         }
 
         return Dom.h("div", {"class":"field"}, [
-            Ui.label(label_text, actual_id),
-            Dom.h("input", props, ""),
-            error_text == null ? null : Dom.h("div", {"class":"form-error"}, error_text)
+            Dom.h("label", {"for": actual_id, "class":"check-field"}, [
+                Dom.h("input", props, ""),
+                Dom.h("span", null, label_text)
+            ]),
+            Forms._field_error(error_text)
         ]);
     }
 
-    static func event_button(action, label, btn_class = "btn", extra_fields = null) {
-        return Ui.button_form(action, label, btn_class, extra_fields);
+    static func radio_field(label_text, field_name, value, checked = false, id = null, error_text = null) {
+        var actual_id = id == null ? (field_name + "_" + str(value)) : id;
+        var props = {
+            "type":"radio",
+            "name": field_name,
+            "id": actual_id,
+            "value": value
+        };
+
+        if (checked) { props["checked"] = true; }
+        foreach (var k, v in Forms._field_attrs(error_text)) {
+            props[k] = v;
+        }
+
+        return Dom.h("div", {"class":"field"}, [
+            Dom.h("label", {"for": actual_id, "class":"check-field"}, [
+                Dom.h("input", props, ""),
+                Dom.h("span", null, label_text)
+            ]),
+            Forms._field_error(error_text)
+        ]);
+    }
+
+    static func _matches_value(actual, expected) {
+        if (actual == null || expected == null) { return false; }
+        if (typeof(actual) == "Array") {
+            var i = 0;
+            while (i < len(actual)) {
+                if (str(actual[i]) == str(expected)) {
+                    return true;
+                }
+                i = i + 1;
+            }
+            return false;
+        }
+        return str(actual) == str(expected);
+    }
+
+    static func radio_group(label_text, field_name, options, selected = null, id_prefix = null, error_text = null) {
+        var actual_prefix = id_prefix == null ? field_name : id_prefix;
+        var nodes = [];
+
+        if (options != null && typeof(options) == "Array") {
+            var i = 0;
+            while (i < len(options)) {
+                var item = options[i];
+                var value = null;
+                var label = null;
+
+                if (typeof(item) == "Dictionary") {
+                    value = item["value"];
+                    label = item["label"];
+                } else {
+                    value = item;
+                    label = item;
+                }
+
+                var radio_id = actual_prefix + "_" + str(i);
+                var props = {
+                    "type":"radio",
+                    "name": field_name,
+                    "id": radio_id,
+                    "value": value
+                };
+
+                if (Forms._matches_value(selected, value)) {
+                    props["checked"] = true;
+                }
+                foreach (var k, v in Forms._field_attrs(error_text)) {
+                    props[k] = v;
+                }
+
+                nodes[] = Dom.h("label", {"for": radio_id, "class":"check-field"}, [
+                    Dom.h("input", props, ""),
+                    Dom.h("span", null, label)
+                ]);
+                i = i + 1;
+            }
+        }
+
+        return Dom.h("div", {"class":"field"}, [
+            Ui.label(label_text),
+            Dom.h("div", {"class":"stack choice-group"}, nodes),
+            Forms._field_error(error_text)
+        ]);
+    }
+
+    static func _select_option_nodes(options, selected = null, placeholder = null) {
+        var nodes = [];
+
+        if (placeholder != null) {
+            nodes[] = Dom.h("option", {"value":""}, placeholder);
+        }
+
+        if (options == null) { return nodes; }
+
+        if (typeof(options) == "Dictionary") {
+            foreach (var k, v in options) {
+                var props = {"value": k};
+                if (str(k) == str(selected)) {
+                    props["selected"] = true;
+                }
+                nodes[] = Dom.h("option", props, v);
+            }
+            return nodes;
+        }
+
+        if (typeof(options) == "Array") {
+            var i = 0;
+            while (i < len(options)) {
+                var item = options[i];
+                var value = null;
+                var label = null;
+
+                if (typeof(item) == "Dictionary") {
+                    value = item["value"];
+                    label = item["label"];
+                } else {
+                    value = item;
+                    label = item;
+                }
+
+                var props2 = {"value": value};
+                if (str(value) == str(selected)) {
+                    props2["selected"] = true;
+                }
+                nodes[] = Dom.h("option", props2, label);
+                i = i + 1;
+            }
+        }
+
+        return nodes;
+    }
+
+    static func select_field(label_text, field_name, options, selected = null, id = null, error_text = null, placeholder = null) {
+        var actual_id = id == null ? field_name : id;
+        var props = {
+            "name": field_name,
+            "id": actual_id
+        };
+
+        foreach (var k, v in Forms._field_attrs(error_text)) {
+            props[k] = v;
+        }
+
+        return Forms._field_wrap(
+            label_text,
+            actual_id,
+            Dom.h("select", props, Forms._select_option_nodes(options, selected, placeholder)),
+            error_text
+        );
+    }
+
+    static func file_field(label_text, field_name, id = null, error_text = null, accept = null, multiple = false) {
+        var actual_id = id == null ? field_name : id;
+        var props = {
+            "type":"file",
+            "name": field_name,
+            "id": actual_id
+        };
+
+        if (accept != null) { props["accept"] = accept; }
+        if (multiple) { props["multiple"] = true; }
+        foreach (var k, v in Forms._field_attrs(error_text)) {
+            props[k] = v;
+        }
+
+        return Forms._field_wrap(label_text, actual_id, Dom.h("input", props, ""), error_text);
+    }
+
+    static func error_summary(messages, title = "Please fix the following fields.") {
+        if (messages == null) { return null; }
+
+        var items = [];
+        if (typeof(messages) == "Dictionary") {
+            foreach (var k, v in messages) {
+                if (v != null && v != "") {
+                    items[] = Dom.h("li", null, v);
+                }
+            }
+        } else if (typeof(messages) == "Array") {
+            var i = 0;
+            while (i < len(messages)) {
+                if (messages[i] != null && messages[i] != "") {
+                    items[] = Dom.h("li", null, messages[i]);
+                }
+                i = i + 1;
+            }
+        }
+
+        if (len(items) == 0) { return null; }
+
+        return Dom.h("div", {"class":"error-summary"}, [
+            Dom.h("strong", null, title),
+            Dom.h("ul", null, items)
+        ]);
+    }
+
+    static func flash_message(ctx, name, class_name = "flash") {
+        if (ctx == null) { return null; }
+
+        var value = ctx.request.flash(name);
+        if (value == null || value == "") {
+            return null;
+        }
+
+        return Dom.h("div", {"class":class_name}, value);
+    }
+
+    static func session_message(ctx, name, class_name = "flash session-message") {
+        if (ctx == null) { return null; }
+
+        var value = ctx.request.session_message(name);
+        if (value == null || value == "") {
+            return null;
+        }
+
+        return Dom.h("div", {"class":class_name}, value);
+    }
+
+    static func old_value(ctx, field_name, fallback = "") {
+        if (ctx == null) { return fallback; }
+        return ctx.request.old(field_name, fallback);
+    }
+
+    static func old_error(ctx, field_name, fallback = null) {
+        if (ctx == null) { return fallback; }
+        return ctx.request.old_error(field_name, fallback);
+    }
+
+    static func old_checked(ctx, field_name, checked_value = "1", fallback = false) {
+        if (ctx == null) { return fallback; }
+        var value = ctx.request.old(field_name, null);
+        if (value == null) { return fallback; }
+        return Forms._matches_value(value, checked_value);
+    }
+
+    static func text_field_from_ctx(ctx, label_text, field_name, fallback = "", placeholder = null, id = null) {
+        return Forms.text_field(
+            label_text,
+            field_name,
+            Forms.old_value(ctx, field_name, fallback),
+            placeholder,
+            id,
+            Forms.old_error(ctx, field_name)
+        );
+    }
+
+    static func textarea_field_from_ctx(ctx, label_text, field_name, fallback = "", placeholder = null, id = null, rows = 5) {
+        return Forms.textarea_field(
+            label_text,
+            field_name,
+            Forms.old_value(ctx, field_name, fallback),
+            placeholder,
+            id,
+            Forms.old_error(ctx, field_name),
+            rows
+        );
+    }
+
+    static func checkbox_field_from_ctx(ctx, label_text, field_name, value = "1", fallback = false, id = null) {
+        return Forms.checkbox_field(
+            label_text,
+            field_name,
+            Forms.old_checked(ctx, field_name, value, fallback),
+            value,
+            id,
+            Forms.old_error(ctx, field_name)
+        );
+    }
+
+    static func radio_group_from_ctx(ctx, label_text, field_name, options, fallback = null, id_prefix = null) {
+        return Forms.radio_group(
+            label_text,
+            field_name,
+            options,
+            Forms.old_value(ctx, field_name, fallback),
+            id_prefix,
+            Forms.old_error(ctx, field_name)
+        );
+    }
+
+    static func select_field_from_ctx(ctx, label_text, field_name, options, fallback = null, id = null, placeholder = null) {
+        return Forms.select_field(
+            label_text,
+            field_name,
+            options,
+            Forms.old_value(ctx, field_name, fallback),
+            id,
+            Forms.old_error(ctx, field_name),
+            placeholder
+        );
+    }
+
+    static func event_button(action, label, btn_class = "btn", extra_fields = null, ctx = null) {
+        return Ui.button_form(action, label, btn_class, Forms._hidden_fields_with_csrf(ctx, extra_fields));
     }
 
     static func button_row(children) {
         return Dom.h("div", {"class":"row"}, children);
     }
 
-    static func text_post(action, label_text, field_name, value = "", placeholder = null, submit_label = "Save", id = null, error_text = null) {
+    static func text_post(action, label_text, field_name, value = "", placeholder = null, submit_label = "Save", id = null, error_text = null, ctx = null) {
         return Ui.form(action, "POST", [
+            Forms.csrf_field(ctx),
             Forms.text_field(label_text, field_name, value, placeholder, id, error_text),
             Dom.h("div", {"class":"row"}, [
                 Ui.submit(submit_label)

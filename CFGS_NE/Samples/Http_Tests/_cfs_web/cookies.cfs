@@ -2,6 +2,20 @@ import { Util } from "common.cfs";
 
 export class Cookies
 {
+    static func _signed_payload(name, payload) {
+        return Util.sanitize_header_value(name, "") + "|" + Util.sanitize_header_value(payload, "");
+    }
+
+    static func _copy_attrs(attrs) {
+        var actual = {};
+        if (attrs != null) {
+            foreach (var k, v in attrs) {
+                actual[k] = v;
+            }
+        }
+        return actual;
+    }
+
     static func all(ctx) {
         return Util.parse_cookies(Util.header(ctx.req.headers, "Cookie"));
     }
@@ -13,20 +27,84 @@ export class Cookies
         return value;
     }
 
+    static func sign_value(name, value, secret) {
+        if (secret == null || secret == "") {
+            return Util.sanitize_header_value(value, "");
+        }
+
+        var payload = urlencode(str(value == null ? "" : value));
+        var mac = crypto_hmac(secret, Cookies._signed_payload(name, payload), "sha256", "utf8", "hex");
+        return "s:" + payload + "." + mac;
+    }
+
+    static func unsign_value(name, value, secret, fallback = null) {
+        if (value == null || value == "") { return fallback; }
+        if (secret == null || secret == "") { return value; }
+
+        var raw = str(value);
+        if (!Util.starts_with(raw, "s:")) {
+            return fallback;
+        }
+
+        var signed = raw.substr(2, len(raw) - 2);
+        var dot = signed.lastIndexOf(".");
+        if (dot <= 0 || dot >= (len(signed) - 1)) {
+            return fallback;
+        }
+
+        var payload = signed.substr(0, dot);
+        var actual_mac = signed.substr(dot + 1, len(signed) - (dot + 1));
+        var expected_mac = crypto_hmac(secret, Cookies._signed_payload(name, payload), "sha256", "utf8", "hex");
+
+        if (!Util.safe_compare(actual_mac, expected_mac)) {
+            return fallback;
+        }
+
+        try {
+            return urldecode(payload);
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    static func read_signed(ctx, name, secret, fallback = null) {
+        return Cookies.unsign_value(name, Cookies.read(ctx, name, null), secret, fallback);
+    }
+
     static func serialize(name, value, attrs = null) {
-        var parts = [str(name) + "=" + str(value)];
-        var actual = attrs == null ? {} : attrs;
+        var parts = [
+            Util.sanitize_header_value(name, "") + "=" + Util.sanitize_header_value(value, "")
+        ];
+        var actual = Cookies._copy_attrs(attrs);
 
         foreach (var k, v in actual) {
             if (v == null || v == false) { continue; }
             if (v == true) {
-                parts[] = str(k);
+                parts[] = Util.sanitize_header_value(k, "");
             } else {
-                parts[] = str(k) + "=" + str(v);
+                parts[] = Util.sanitize_header_value(k, "") + "=" + Util.sanitize_header_value(v, "");
             }
         }
 
         return Util.join(parts, "; ");
+    }
+
+    static func session_attrs(path = "/", max_age = null, secure = false, same_site = "Lax") {
+        var attrs = {
+            "Path": path == null ? "/" : path,
+            "HttpOnly": true,
+            "SameSite": same_site == null ? "Lax" : same_site
+        };
+
+        if (secure) {
+            attrs["Secure"] = true;
+        }
+
+        if (max_age != null && max_age > 0) {
+            attrs["Max-Age"] = max_age;
+        }
+
+        return attrs;
     }
 
     static func with_cookie(res, name, value, attrs = null) {
@@ -36,7 +114,7 @@ export class Cookies
             res["headers"] = headers;
         }
 
-        var actual = attrs == null ? {} : attrs;
+        var actual = Cookies._copy_attrs(attrs);
         if (!actual.contains("Path")) {
             actual["Path"] = "/";
         }
@@ -51,8 +129,12 @@ export class Cookies
         return res;
     }
 
+    static func with_signed_cookie(res, name, value, secret, attrs = null) {
+        return Cookies.with_cookie(res, name, Cookies.sign_value(name, value, secret), attrs);
+    }
+
     static func expire_cookie(res, name, attrs = null) {
-        var actual = attrs == null ? {} : attrs;
+        var actual = Cookies._copy_attrs(attrs);
         actual["Path"] = actual["Path"] == null ? "/" : actual["Path"];
         actual["Max-Age"] = 0;
         return Cookies.with_cookie(res, name, "", actual);

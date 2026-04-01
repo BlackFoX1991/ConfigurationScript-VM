@@ -1,0 +1,442 @@
+import "plugins/CFGS.StandardLibrary.dll";
+import { Dom, Ui } from "dom.cfs";
+import { Layout } from "layout.cfs";
+import { Components } from "components.cfs";
+import { Forms } from "forms.cfs";
+import { Middleware } from "middleware.cfs";
+import { ViewModels, Templates } from "views.cfs";
+import { Guards } from "guards.cfs";
+import { Validation } from "validation.cfs";
+import { ServerApp } from "server.cfs";
+import { Util } from "common.cfs";
+
+func _workspace_cookie_secret() {
+    return "example-workspace-cookie-secret";
+}
+
+func _session_cookie_secret() {
+    return "example-session-cookie-secret";
+}
+
+func _ensure_example_defaults(session) {
+    if (session == null) { return session; }
+    if (!session.contains("ideas") || typeof(session["ideas"]) != "Array") { session["ideas"] = []; }
+    if (!session.contains("user_name")) { session["user_name"] = null; }
+    if (!session.contains("user_id")) { session["user_id"] = null; }
+    if (!session.contains("role")) { session["role"] = null; }
+    return session;
+}
+
+func _ideas(session) {
+    _ensure_example_defaults(session);
+    return session["ideas"];
+}
+
+func _authenticated(ctx) {
+    return ctx.request.session("user_id", null) != null;
+}
+
+func _current_user(ctx) {
+    return ctx.request.session("user_name", "Guest");
+}
+
+func _pick_errors(errors, names) {
+    var picked = {};
+    if (errors == null || typeof(errors) != "Dictionary") {
+        return picked;
+    }
+
+    var i = 0;
+    while (i < len(names)) {
+        var name = names[i];
+        if (errors[name] != null) {
+            picked[name] = errors[name];
+        }
+        i = i + 1;
+    }
+    return picked;
+}
+
+func _login_panel(ctx) {
+    return Layout.panel([
+        Dom.h("h2", {"class":"title", "style":"font-size:28px"}, "Sign in"),
+        Forms.error_summary(_pick_errors(ctx.request.old_errors(), ["login_name", "login_role"])),
+        Ui.form(ctx.request.url("auth.login"), "POST", [
+            Forms.csrf_field(ctx),
+            Forms.text_field_from_ctx(ctx, "Display name", "login_name", "", "Ada Lovelace", "loginName"),
+            Forms.select_field_from_ctx(ctx, "Role", "login_role", {
+                "viewer":"Viewer",
+                "editor":"Editor",
+                "admin":"Admin"
+            }, "viewer", "loginRole", "Choose a role"),
+            Forms.checkbox_field_from_ctx(ctx, "Remember this browser", "remember_me", "1", false, "rememberMe"),
+            Dom.h("div", {"class":"row"}, [
+                Ui.submit("Sign in")
+            ])
+        ], {
+            "class":"stack"
+        })
+    ]);
+}
+
+func _idea_form(ctx) {
+    return Layout.panel([
+        Dom.h("h2", {"class":"title", "style":"font-size:28px"}, "New idea"),
+        Forms.error_summary(_pick_errors(ctx.request.old_errors(), ["title", "details", "category", "visibility"])),
+        Ui.form(ctx.request.url("ideas.create"), "POST", [
+            Forms.csrf_field(ctx),
+            Forms.text_field_from_ctx(ctx, "Title", "title", "", "Release checklist", "ideaTitle"),
+            Forms.textarea_field_from_ctx(ctx, "Details", "details", "", "What should the team ship or review?", "ideaDetails", 5),
+            Forms.select_field_from_ctx(ctx, "Category", "category", {
+                "product":"Product",
+                "ops":"Ops",
+                "growth":"Growth"
+            }, "product", "ideaCategory", "Choose a category"),
+            Forms.radio_group_from_ctx(ctx, "Visibility", "visibility", [
+                {"value":"team", "label":"Team"},
+                {"value":"private", "label":"Private"}
+            ], "team", "ideaVisibility"),
+            Forms.checkbox_field_from_ctx(ctx, "Pin on dashboard", "pinned", "1", false, "ideaPinned"),
+            Forms.file_field("Attachment", "attachment", "ideaAttachment", null, ".txt,.md"),
+            Dom.h("div", {"class":"row"}, [
+                Ui.submit("Save idea")
+            ])
+        ], {
+            "class":"stack",
+            "enctype":"multipart/form-data"
+        })
+    ]);
+}
+
+func _idea_nodes(ctx) {
+    var ideas = _ideas(ctx.session);
+    if (len(ideas) == 0) {
+        return [
+            Components.log_box("No ideas yet", "Sign in and submit the first idea.")
+        ];
+    }
+
+    var nodes = [];
+    var i = len(ideas) - 1;
+    while (i >= 0) {
+        var idea = ideas[i];
+        var meta = [
+            Dom.h("div", null, "Category: " + str(idea["category"])),
+            Dom.h("div", null, "Visibility: " + str(idea["visibility"])),
+            Dom.h("div", null, "Pinned: " + str(idea["pinned"])),
+            Dom.h("div", null, "Author: " + str(idea["author"]))
+        ];
+
+        if (idea["attachment_name"] != null && idea["attachment_name"] != "") {
+            meta[] = Dom.h("div", null, "Attachment: " + str(idea["attachment_name"]) + " (" + str(idea["attachment_size"]) + " bytes)");
+        }
+
+        nodes[] = Layout.panel([
+            Dom.h("h3", {"class":"title", "style":"font-size:24px"}, str(idea["title"])),
+            Dom.h("p", null, str(idea["details"])),
+            Components.log_box("Metadata", meta)
+        ]);
+        i = i - 1;
+    }
+
+    return nodes;
+}
+
+func _home_model(ctx) {
+    _ensure_example_defaults(ctx.session);
+
+    var vm = ViewModels.dashboard(
+        "Workshop Board",
+        "Full example app",
+        "This sample wires together sessions, guards, uploads, flash flows, signed cookies, security middleware, and trusted-proxy request metadata."
+    );
+
+    ViewModels.push_slot(vm, "top", Layout.panel([
+        Dom.h("div", {"class":"row"}, [
+            Dom.h("a", {"href": ctx.request.url("home")}, "Home"),
+            Dom.h("a", {"href": ctx.request.url("admin.home")}, "Admin"),
+            Dom.h("a", {"href": ctx.request.url("api.meta")}, "API meta"),
+            Dom.h("a", {"href": ctx.request.url("docs.download")}, "Download notes"),
+            Dom.h("a", {"href": ctx.request.asset("/assets/example.css")}, "Example asset"),
+            Dom.h("a", {"href": ctx.request.url("boom")}, "Boom")
+        ])
+    ]));
+
+    ViewModels.push_slot(vm, "footer", Layout.panel([
+        Components.session_line("Current route: " + ctx.request.path()),
+        Components.session_line("Request #" + str(ctx.request.local("request_number", 0)) + " in this process-wide counter."),
+        Components.session_line("The example uses signed session cookies plus a signed workspace cookie.")
+    ]));
+
+    var main = [
+        Forms.flash_message(ctx, "notice"),
+        Forms.session_message(ctx, "banner"),
+        Forms.session_message(ctx, "upload"),
+        Layout.row([
+            Components.metric("Ideas", str(len(_ideas(ctx.session)))),
+            Components.metric("Session visits", str(ctx.request.session("visits", 0))),
+            Components.metric("Total requests", str(ctx.request.shared("example_request_count", 0)))
+        ])
+    ];
+
+    if (_authenticated(ctx)) {
+        main[] = Layout.panel([
+            Dom.h("h2", {"class":"title", "style":"font-size:28px"}, "Session"),
+            Dom.h("p", null, "Active user: " + _current_user(ctx) + " (" + str(ctx.request.session("role", "viewer")) + ")."),
+            Forms.button_row([
+                Forms.event_button(ctx.request.url("auth.logout"), "Sign out", "btn secondary", null, ctx),
+                Forms.event_button(ctx.request.url("auth.banner.clear"), "Clear banner", "btn ghost", null, ctx)
+            ])
+        ]);
+        main[] = _idea_form(ctx);
+
+        var idea_nodes = _idea_nodes(ctx);
+        var j = 0;
+        while (j < len(idea_nodes)) {
+            main[] = idea_nodes[j];
+            j = j + 1;
+        }
+    } else {
+        main[] = _login_panel(ctx);
+        main[] = Layout.panel([
+            Dom.h("h2", {"class":"title", "style":"font-size:28px"}, "Guest mode"),
+            Dom.h("p", null, "Sign in to submit ideas, trigger remember-me cookies, and access the guarded admin route.")
+        ]);
+    }
+
+    vm["main"] = main;
+    vm["aside"] = [
+        Components.log_box("Request metadata", [
+            Dom.h("div", null, "client_ip = " + str(ctx.request.client_ip("n/a"))),
+            Dom.h("div", null, "host = " + str(ctx.request.host("n/a"))),
+            Dom.h("div", null, "scheme = " + str(ctx.request.scheme("http"))),
+            Dom.h("div", null, "origin = " + str(ctx.request.origin("n/a"))),
+            Dom.h("div", null, "trusted_proxy = " + str(ctx.request.trusted_proxy()))
+        ]),
+        Components.log_box("Cookies", [
+            Dom.h("div", null, "workspace = " + str(ctx.request.signed_cookie("workspace", _workspace_cookie_secret(), "none"))),
+            Dom.h("div", null, "asset helper = " + ctx.request.asset("/assets/example.css"))
+        ]),
+        Components.log_box("Security middleware", [
+            Dom.h("div", null, "Request bodies are capped at 64 KB."),
+            Dom.h("div", null, "Default response headers and rate-limit headers are applied globally."),
+            Dom.h("div", null, "Trusted proxies are resolved only from explicit addresses.")
+        ])
+    ];
+
+    return vm;
+}
+
+func home(ctx) {
+    return ctx.response.html(Templates.dashboard(_home_model(ctx)));
+}
+
+func admin_home(ctx) {
+    var vm = ViewModels.page(
+        "Admin console",
+        "Guarded route",
+        "Only the admin role can reach this page."
+    );
+
+    return ctx.response.html(Templates.sections(vm, [
+        Templates.section("Current user", [
+            Dom.h("div", null, "user = " + _current_user(ctx)),
+            Dom.h("div", null, "role = " + str(ctx.request.session("role", "viewer"))),
+            Dom.h("div", null, "workspace cookie = " + str(ctx.request.signed_cookie("workspace", _workspace_cookie_secret(), "none")))
+        ]),
+        Templates.section("Navigation", [
+            Dom.h("p", null, [Dom.h("a", {"href": ctx.request.url("home")}, "Back to home")])
+        ])
+    ]));
+}
+
+func login(ctx) {
+    _ensure_example_defaults(ctx.session);
+
+    var form = Validation.from_request(ctx);
+    form.text("login_name", "");
+    form.text("login_role", "viewer");
+    form.bool("remember_me", false);
+    form.require("login_name", "Please enter a display name.");
+    form.min_len("login_name", 2, "Display name must be at least 2 characters.");
+    form.one_of("login_role", ["viewer", "editor", "admin"], "Please choose a valid role.");
+
+    if (!form.is_valid()) {
+        return ctx.response.redirect_to_with_input("home", {
+            "login_name": form.value("login_name", ""),
+            "login_role": form.value("login_role", "viewer"),
+            "remember_me": form.raw("remember_me", null)
+        }, form.field_errors_map());
+    }
+
+    ctx.session["user_id"] = Util.secure_token(8, "usr_");
+    ctx.session["user_name"] = form.value("login_name", "Guest");
+    ctx.session["role"] = form.value("login_role", "viewer");
+
+    if (form.value("remember_me", false)) {
+        ctx.response.remember_session(604800);
+    } else {
+        ctx.response.forget_session();
+    }
+
+    ctx.response.flash("notice", "Welcome back, " + ctx.session["user_name"] + ".");
+    ctx.response.session_message("banner", "Signed in as " + ctx.session["user_name"] + " (" + ctx.session["role"] + ").");
+
+    var res = ctx.response.redirect_to("home");
+    return ctx.response.with_signed_cookie(res, "workspace", "planning-lab", _workspace_cookie_secret(), {
+        "Path":"/",
+        "SameSite":"Lax"
+    });
+}
+
+func logout(ctx) {
+    ctx.response.logout_session();
+    ctx.response.flash("notice", "Signed out.");
+
+    var res = ctx.response.redirect_to("home");
+    return ctx.response.expire_cookie(res, "workspace", {
+        "Path":"/",
+        "SameSite":"Lax"
+    });
+}
+
+func clear_banner(ctx) {
+    ctx.response.clear_session_message("banner");
+    ctx.response.clear_session_message("upload");
+    return ctx.response.redirect_to_with_flash("home", "notice", "Banner cleared.");
+}
+
+func create_idea(ctx) {
+    _ensure_example_defaults(ctx.session);
+
+    var form = Validation.from_request(ctx);
+    form.text("title", "");
+    form.text("details", "");
+    form.text("category", "product");
+    form.text("visibility", "team");
+    form.bool("pinned", false);
+    form.require("title", "Please enter a title.");
+    form.min_len("title", 3, "Title must be at least 3 characters.");
+    form.require("details", "Please enter details.");
+    form.max_len("details", 200, "Details must be at most 200 characters.");
+    form.one_of("category", ["product", "ops", "growth"], "Please choose a valid category.");
+    form.one_of("visibility", ["team", "private"], "Please choose a valid visibility.");
+
+    if (!form.is_valid()) {
+        return ctx.response.redirect_to_with_input("home", {
+            "title": form.value("title", ""),
+            "details": form.value("details", ""),
+            "category": form.value("category", "product"),
+            "visibility": form.value("visibility", "team"),
+            "pinned": form.raw("pinned", null)
+        }, form.field_errors_map());
+    }
+
+    var upload = ctx.request.upload("attachment", null);
+    var ideas = _ideas(ctx.session);
+    ideas[] = {
+        "title": form.value("title", ""),
+        "details": form.value("details", ""),
+        "category": form.value("category", "product"),
+        "visibility": form.value("visibility", "team"),
+        "pinned": form.value("pinned", false),
+        "author": _current_user(ctx),
+        "attachment_name": upload == null ? null : upload["filename"],
+        "attachment_size": upload == null ? 0 : upload["size"]
+    };
+
+    if (upload != null && upload["filename"] != null && upload["filename"] != "") {
+        ctx.response.session_message("upload", "Last upload: " + str(upload["filename"]) + ".");
+    } else {
+        ctx.response.clear_session_message("upload");
+    }
+
+    ctx.response.flash("notice", "Idea saved.");
+    return ctx.response.redirect_to("home");
+}
+
+func api_meta(ctx) {
+    _ensure_example_defaults(ctx.session);
+
+    return ctx.response.json({
+        "user_name": ctx.request.session("user_name", null),
+        "role": ctx.request.session("role", null),
+        "idea_count": len(_ideas(ctx.session)),
+        "client_ip": ctx.request.client_ip(null),
+        "host": ctx.request.host(null),
+        "scheme": ctx.request.scheme("http"),
+        "origin": ctx.request.origin(null),
+        "workspace": ctx.request.signed_cookie("workspace", _workspace_cookie_secret(), null),
+        "asset_url": ctx.request.asset("/assets/example.css"),
+        "csrf_field": ctx.request.csrf_field_name(),
+        "csrf_token": ctx.request.csrf_token()
+    });
+}
+
+async func docs_download(ctx) {
+    return await ctx.response.download("USAGE_NOTES.md", "workshop-notes.txt");
+}
+
+func boom(ctx) {
+    throw "Intentional example error";
+}
+
+func render_error(ctx, err) {
+    if (ctx.app.debug_errors) {
+        return ctx.response.debug_page(
+            err,
+            500,
+            "Example error",
+            "The example error handler delegates to the framework debug page helper."
+        );
+    }
+
+    return ctx.response.error_page(
+        500,
+        "Example error",
+        "The example error handler rendered a friendly HTML error page.",
+        "Enable app.set_debug_errors(true) on the example app if you want exception details in development."
+    );
+}
+
+export func build_example_app(port = 8094) {
+    var app = new ServerApp(port);
+    var auth = app.group("/auth", "auth");
+    var ideas = app.group("/ideas", "ideas");
+    var api = app.group("/api", "api");
+    var docs = app.group("/docs", "docs");
+
+    app.set_asset_version("example-2026-04-01");
+    app.set_max_body_bytes(65536);
+    app.set_session_cookie_signing_secret(_session_cookie_secret());
+    app.set_trusted_proxies(["127.0.0.1", "::1"]);
+
+    app.use_before(Middleware.counter("example_request_count", "request_number"));
+    app.use_before(Middleware.rate_limit(120, 60));
+    app.use_after(Middleware.rate_limit_headers());
+    app.use_after(Middleware.security_headers());
+    app.use_after(Middleware.header("X-CFS-Example", "workshop-board"));
+    app.use_error(render_error);
+
+    app.serve_static_map("/assets/", {
+        "example.css": {
+            "data":"body{background:linear-gradient(180deg,#f7f0e3 0,#efe4d2 100%)}.log{background:#f5e8cb}",
+            "content_type":"text/css; charset=utf-8"
+        }
+    }, 900);
+
+    app.get_named("home", "/", home);
+    app.get_named("admin.home", "/admin", Guards.require_role("admin", admin_home, "/"));
+    app.get_named("boom", "/boom", boom);
+
+    auth.post_named("login", "/login", Guards.require_guest(login, "/", "user_id"));
+    auth.post_named("logout", "/logout", Guards.require_authenticated(logout, "/", "user_id"));
+    auth.post_named("banner.clear", "/banner/clear", Guards.require_authenticated(clear_banner, "/", "user_id"));
+
+    ideas.post_named("create", "/create", Guards.require_authenticated(create_idea, "/", "user_id"));
+
+    api.get_named("meta", "/meta", api_meta);
+    docs.get_named("download", "/download", docs_download);
+
+    return app;
+}

@@ -1,0 +1,261 @@
+import { Util } from "common.cfs";
+import { ServerApp } from "server.cfs";
+
+export class CopyingSessionStore(seed)
+{
+    var session_entries = {};
+    var counts = {
+        "load": 0,
+        "save": 0,
+        "forget": 0,
+        "prune": 0
+    };
+
+    func init(seed = null) {
+        if (seed != null && typeof(seed) == "Dictionary") {
+            foreach (var k, v in seed) {
+                this.session_entries[k] = this._clone(v);
+            }
+        }
+    }
+
+    func _clone(value) {
+        if (value == null) { return null; }
+        return fromjson(tojson(value));
+    }
+
+    func _is_expired(entry, now, idle_seconds = null, absolute_seconds = null) {
+        if (entry == null) { return true; }
+
+        var last_seen = entry["last_seen_at"];
+        var created_at = entry["created_at"];
+
+        if (idle_seconds != null && idle_seconds > 0 && last_seen != null) {
+            if ((now - last_seen) > idle_seconds) {
+                return true;
+            }
+        }
+
+        if (absolute_seconds != null && absolute_seconds > 0 && created_at != null) {
+            if ((now - created_at) > absolute_seconds) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    func load(sid) {
+        this.counts["load"] = this.counts["load"] + 1;
+        if (sid == null || sid == "") { return null; }
+        return this._clone(this.session_entries[sid]);
+    }
+
+    func save(sid, entry) {
+        this.counts["save"] = this.counts["save"] + 1;
+        if (sid == null || sid == "") { return this._clone(entry); }
+        this.session_entries[sid] = this._clone(entry);
+        return this._clone(this.session_entries[sid]);
+    }
+
+    func forget(sid) {
+        this.counts["forget"] = this.counts["forget"] + 1;
+        if (sid == null || sid == "") { return 0; }
+        this.session_entries[sid] = null;
+        return 1;
+    }
+
+    func prune(now, idle_seconds = null, absolute_seconds = null) {
+        this.counts["prune"] = this.counts["prune"] + 1;
+
+        var kept = {};
+        foreach (var sid, entry in this.session_entries) {
+            if (entry != null && !this._is_expired(entry, now, idle_seconds, absolute_seconds)) {
+                kept[sid] = entry;
+            }
+        }
+
+        this.session_entries = kept;
+        return this.snapshot();
+    }
+
+    func snapshot() {
+        return this._clone(this.session_entries);
+    }
+}
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, body = "", headers = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8099"} : headers,
+        "body": body
+    };
+}
+
+func set_cookie_value(set_cookie_header) {
+    var first = str(set_cookie_header).split("\n")[0];
+    var semi = first.indexOf(";");
+    if (semi >= 0) {
+        return first.substr(0, semi);
+    }
+    return first;
+}
+
+async func main() {
+    var store = new CopyingSessionStore(null);
+    var app = new ServerApp(8099);
+    app.set_session_timeouts(60, 600);
+    app.set_session_store(store);
+
+    app.get_named("touch", "/touch", func(ctx) {
+        if (ctx.session["role"] == null) {
+            ctx.session["role"] = "member";
+        }
+
+        return ctx.response.json({
+            "sid": ctx.sid,
+            "visits": ctx.session["visits"],
+            "role": ctx.session["role"]
+        });
+    });
+
+    app.get_named("flash.set", "/flash-set", func(ctx) {
+        return ctx.response.redirect_with_flash("/flash-view", "notice", "custom-store-ok");
+    });
+
+    app.get_named("flash.view", "/flash-view", func(ctx) {
+        return ctx.response.json({
+            "notice": ctx.request.flash("notice", null)
+        });
+    });
+
+    app.post_named("input.submit", "/input-submit", func(ctx) {
+        return ctx.response.redirect_with_input("/input-view", ctx.form, {
+            "terms":"Accept required."
+        });
+    }, {"csrf":false});
+
+    app.get_named("input.view", "/input-view", func(ctx) {
+        return ctx.response.json({
+            "old_name": ctx.request.old("name", null),
+            "terms_error": ctx.request.old_error("terms", null)
+        });
+    });
+
+    app.get_named("rotate", "/rotate", func(ctx) {
+        var before = ctx.sid;
+        var after = ctx.response.rotate_session();
+        return ctx.response.json({
+            "before": before,
+            "after": after
+        });
+    });
+
+    var touch1 = await app.handle(request("GET", "/touch"));
+    expect("touch1_status", touch1["status"], 200);
+    var touch1_body = fromjson(touch1["body"]);
+    expect("touch1_visits", touch1_body["visits"], 1);
+    expect("touch1_role", touch1_body["role"], "member");
+    var cookie1 = set_cookie_value(touch1["headers"]["Set-Cookie"]);
+    var sid1 = touch1_body["sid"];
+
+    var touch2 = await app.handle(request("GET", "/touch", "", {
+        "Host":"localhost:8099",
+        "Cookie": cookie1
+    }));
+    var touch2_body = fromjson(touch2["body"]);
+    expect("touch2_status", touch2["status"], 200);
+    expect("touch2_sid_same", touch2_body["sid"], sid1);
+    expect("touch2_visits", touch2_body["visits"], 2);
+    expect("touch2_role_persisted", touch2_body["role"], "member");
+
+    var flash_set = await app.handle(request("GET", "/flash-set", "", {
+        "Host":"localhost:8099",
+        "Cookie": cookie1
+    }));
+    expect("flash_set_status", flash_set["status"], 303);
+    expect("flash_set_location", flash_set["headers"]["Location"], "/flash-view");
+
+    var flash_view = await app.handle(request("GET", "/flash-view", "", {
+        "Host":"localhost:8099",
+        "Cookie": cookie1
+    }));
+    expect("flash_view_status", flash_view["status"], 200);
+    expect("flash_view_notice", fromjson(flash_view["body"])["notice"], "custom-store-ok");
+
+    var flash_view_again = await app.handle(request("GET", "/flash-view", "", {
+        "Host":"localhost:8099",
+        "Cookie": cookie1
+    }));
+    expect("flash_view_again_status", flash_view_again["status"], 200);
+    expect("flash_view_notice_consumed", fromjson(flash_view_again["body"])["notice"], null);
+
+    var invalid_input = await app.handle(request("POST", "/input-submit", "name=Ada", {
+        "Host":"localhost:8099",
+        "Cookie": cookie1,
+        "Content-Type":"application/x-www-form-urlencoded"
+    }));
+    expect("invalid_input_status", invalid_input["status"], 303);
+    expect("invalid_input_location", invalid_input["headers"]["Location"], "/input-view");
+
+    var input_view = await app.handle(request("GET", "/input-view", "", {
+        "Host":"localhost:8099",
+        "Cookie": cookie1
+    }));
+    var input_view_body = fromjson(input_view["body"]);
+    expect("input_view_status", input_view["status"], 200);
+    expect("input_view_old_name", input_view_body["old_name"], "Ada");
+    expect("input_view_terms_error", input_view_body["terms_error"], "Accept required.");
+
+    var input_view_again = await app.handle(request("GET", "/input-view", "", {
+        "Host":"localhost:8099",
+        "Cookie": cookie1
+    }));
+    var input_view_again_body = fromjson(input_view_again["body"]);
+    expect("input_view_again_old_consumed", input_view_again_body["old_name"], null);
+    expect("input_view_again_error_consumed", input_view_again_body["terms_error"], null);
+
+    var rotate = await app.handle(request("GET", "/rotate", "", {
+        "Host":"localhost:8099",
+        "Cookie": cookie1
+    }));
+    expect("rotate_status", rotate["status"], 200);
+    var rotate_body = fromjson(rotate["body"]);
+    expect_true("rotate_sid_changed", rotate_body["before"] != rotate_body["after"]);
+
+    var cookie2 = set_cookie_value(rotate["headers"]["Set-Cookie"]);
+    var snapshot_after_rotate = store.snapshot();
+    expect("old_sid_removed", snapshot_after_rotate[rotate_body["before"]], null);
+    expect_true("new_sid_saved", snapshot_after_rotate[rotate_body["after"]] != null);
+
+    store.session_entries[rotate_body["after"]]["last_seen_at"] = Util.now_utc_unix_seconds() - 61;
+    var expired = await app.handle(request("GET", "/touch", "", {
+        "Host":"localhost:8099",
+        "Cookie": cookie2
+    }));
+    var expired_body = fromjson(expired["body"]);
+    expect_true("expired_reissues_sid", expired_body["sid"] != rotate_body["after"]);
+
+    expect_true("store_load_used", store.counts["load"] > 0);
+    expect_true("store_save_used", store.counts["save"] > 0);
+    expect_true("store_forget_used", store.counts["forget"] > 0);
+    expect_true("store_prune_used", store.counts["prune"] > 0);
+
+    print("PHASE8_SESSION_STORE_OK");
+}
+
+var _ = await main();

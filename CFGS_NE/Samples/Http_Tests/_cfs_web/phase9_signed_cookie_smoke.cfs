@@ -1,0 +1,134 @@
+import { ServerApp } from "server.cfs";
+import { Util } from "common.cfs";
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, body = "", headers = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8100"} : headers,
+        "body": body
+    };
+}
+
+func find_cookie_pair(set_cookie_header, name) {
+    var lines = str(set_cookie_header).split("\n");
+    var i = 0;
+    while (i < len(lines)) {
+        var line = lines[i];
+        if (Util.starts_with(line, name + "=")) {
+            var semi = line.indexOf(";");
+            if (semi >= 0) {
+                return line.substr(0, semi);
+            }
+            return line;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+func cookie_value(cookie_pair) {
+    var eq = str(cookie_pair).indexOf("=");
+    if (eq < 0) { return ""; }
+    return str(cookie_pair).substr(eq + 1, len(str(cookie_pair)) - (eq + 1));
+}
+
+func tamper_cookie_pair(cookie_pair) {
+    var pair = str(cookie_pair);
+    var eq = pair.indexOf("=");
+    if (eq < 0) { return pair; }
+
+    var name = pair.substr(0, eq);
+    var value = pair.substr(eq + 1, len(pair) - (eq + 1));
+    if (value == "") { return pair; }
+
+    var last = value.substr(len(value) - 1, 1);
+    var replacement = last == "a" ? "b" : "a";
+    return name + "=" + value.substr(0, len(value) - 1) + replacement;
+}
+
+async func main() {
+    var app = new ServerApp(8100);
+    app.set_session_cookie_signing_secret("session-signing-secret");
+
+    app.get_named("token", "/token", func(ctx) {
+        return ctx.response.json({
+            "sid": ctx.sid
+        });
+    });
+
+    app.get_named("signed.set", "/signed-set", func(ctx) {
+        var res = ctx.response.text("ok");
+        return ctx.response.with_signed_cookie(res, "remember", "alice@example.com", "remember-cookie-secret", {
+            "Path":"/",
+            "SameSite":"Strict"
+        });
+    });
+
+    app.get_named("signed.read", "/signed-read", func(ctx) {
+        return ctx.response.json({
+            "remember": ctx.request.signed_cookie("remember", "remember-cookie-secret", null)
+        });
+    });
+
+    var token1 = await app.handle(request("GET", "/token"));
+    expect("token1_status", token1["status"], 200);
+    var token1_body = fromjson(token1["body"]);
+    var sid1 = token1_body["sid"];
+
+    var session_cookie = find_cookie_pair(token1["headers"]["Set-Cookie"], "cfs_sid");
+    expect_true("session_cookie_present", session_cookie != null);
+    expect_true("session_cookie_signed_prefix", Util.starts_with(cookie_value(session_cookie), "s:"));
+
+    var token2 = await app.handle(request("GET", "/token", "", {
+        "Host":"localhost:8100",
+        "Cookie": session_cookie
+    }));
+    expect("token2_status", token2["status"], 200);
+    expect("token2_same_sid", fromjson(token2["body"])["sid"], sid1);
+
+    var tampered_session = tamper_cookie_pair(session_cookie);
+    var token3 = await app.handle(request("GET", "/token", "", {
+        "Host":"localhost:8100",
+        "Cookie": tampered_session
+    }));
+    expect("token3_status", token3["status"], 200);
+    expect_true("tampered_session_rejected", fromjson(token3["body"])["sid"] != sid1);
+
+    var signed_set = await app.handle(request("GET", "/signed-set"));
+    expect("signed_set_status", signed_set["status"], 200);
+    var remember_cookie = find_cookie_pair(signed_set["headers"]["Set-Cookie"], "remember");
+    expect_true("remember_cookie_present", remember_cookie != null);
+    expect_true("remember_cookie_signed_prefix", Util.starts_with(cookie_value(remember_cookie), "s:"));
+
+    var signed_read = await app.handle(request("GET", "/signed-read", "", {
+        "Host":"localhost:8100",
+        "Cookie": remember_cookie
+    }));
+    expect("signed_read_status", signed_read["status"], 200);
+    expect("signed_read_value", fromjson(signed_read["body"])["remember"], "alice@example.com");
+
+    var tampered_read = await app.handle(request("GET", "/signed-read", "", {
+        "Host":"localhost:8100",
+        "Cookie": tamper_cookie_pair(remember_cookie)
+    }));
+    expect("tampered_read_status", tampered_read["status"], 200);
+    expect("tampered_read_value_null", fromjson(tampered_read["body"])["remember"], null);
+
+    print("PHASE9_SIGNED_COOKIE_OK");
+}
+
+var _ = await main();

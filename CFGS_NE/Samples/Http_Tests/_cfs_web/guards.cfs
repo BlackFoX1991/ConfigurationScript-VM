@@ -2,6 +2,92 @@ import { ServerApp } from "server.cfs";
 
 export class Guards
 {
+    static func _redirect_fail(redirect_to = "/", status = 302) {
+        return func(ctx) {
+            return ServerApp.redirect(redirect_to, status);
+        };
+    }
+
+    static func _session_present(ctx, key, allow_blank = false) {
+        if (ctx == null || ctx.session == null || key == null || key == "") {
+            return false;
+        }
+
+        var value = ctx.session[key];
+        if (value == null) { return false; }
+
+        if (allow_blank) {
+            return true;
+        }
+
+        if (typeof(value) == "String") {
+            return str(value).trim() != "";
+        }
+
+        if (typeof(value) == "Array") {
+            return len(value) > 0;
+        }
+
+        return true;
+    }
+
+    static func _session_matches_any(ctx, key, allowed_values) {
+        if (ctx == null || ctx.session == null || key == null || key == "") {
+            return false;
+        }
+
+        var actual = ctx.session[key];
+        if (actual == null || allowed_values == null) {
+            return false;
+        }
+
+        if (typeof(allowed_values) != "Array") {
+            return actual == allowed_values;
+        }
+
+        var i = 0;
+        while (i < len(allowed_values)) {
+            if (actual == allowed_values[i]) {
+                return true;
+            }
+            i = i + 1;
+        }
+
+        return false;
+    }
+
+    static func _session_flags_all_match(ctx, keys, expected = true) {
+        if (keys == null || typeof(keys) != "Array") {
+            return false;
+        }
+
+        var i = 0;
+        while (i < len(keys)) {
+            if (ctx.session[keys[i]] != expected) {
+                return false;
+            }
+            i = i + 1;
+        }
+
+        return len(keys) > 0;
+    }
+
+    static func _session_flags_any_match(ctx, keys, expected = true) {
+        if (keys == null || typeof(keys) != "Array") {
+            return false;
+        }
+
+        var i = 0;
+        while (i < len(keys)) {
+            if (ctx.session[keys[i]] == expected) {
+                return true;
+            }
+            i = i + 1;
+        }
+
+        return false;
+    }
+
     static func protect(handler, predicate, on_fail = null) {
         return func(ctx) {
             if (predicate(ctx)) {
@@ -20,7 +106,51 @@ export class Guards
         return Guards.protect(
             handler,
             func(ctx) { return ctx.session[key] == expected; },
-            func(ctx) { return ServerApp.redirect(redirect_to, 302); }
+            Guards._redirect_fail(redirect_to, 302)
+        );
+    }
+
+    static func require_session_key(key, handler, redirect_to = "/", allow_blank = false, status = 302) {
+        return Guards.protect(
+            handler,
+            func(ctx) { return Guards._session_present(ctx, key, allow_blank); },
+            Guards._redirect_fail(redirect_to, status)
+        );
+    }
+
+    static func require_authenticated(handler, redirect_to = "/login", session_key = "user_id", allow_blank = false, status = 302) {
+        return Guards.require_session_key(session_key, handler, redirect_to, allow_blank, status);
+    }
+
+    static func require_guest(handler, redirect_to = "/", session_key = "user_id", allow_blank = false, status = 302) {
+        return Guards.protect(
+            handler,
+            func(ctx) { return !Guards._session_present(ctx, session_key, allow_blank); },
+            Guards._redirect_fail(redirect_to, status)
+        );
+    }
+
+    static func require_role(role_or_roles, handler, redirect_to = "/", session_key = "role", status = 302) {
+        return Guards.protect(
+            handler,
+            func(ctx) { return Guards._session_matches_any(ctx, session_key, role_or_roles); },
+            Guards._redirect_fail(redirect_to, status)
+        );
+    }
+
+    static func require_session_flags_all(keys, handler, redirect_to = "/", expected = true, status = 302) {
+        return Guards.protect(
+            handler,
+            func(ctx) { return Guards._session_flags_all_match(ctx, keys, expected); },
+            Guards._redirect_fail(redirect_to, status)
+        );
+    }
+
+    static func require_session_flags_any(keys, handler, redirect_to = "/", expected = true, status = 302) {
+        return Guards.protect(
+            handler,
+            func(ctx) { return Guards._session_flags_any_match(ctx, keys, expected); },
+            Guards._redirect_fail(redirect_to, status)
         );
     }
 }

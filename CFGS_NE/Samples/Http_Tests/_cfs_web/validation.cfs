@@ -26,9 +26,44 @@ export class BoundForm(source)
         return value;
     }
 
+    func raw(name, fallback = null) {
+        var value = this.source[name];
+        if (value == null) {
+            value = fallback;
+        }
+
+        this.field_values[name] = value;
+        return value;
+    }
+
+    func bool(name, fallback = false) {
+        var value = this.source[name];
+        if (value == null) {
+            this.field_values[name] = fallback;
+            return fallback;
+        }
+
+        var result = false;
+        if (typeof(value) == "Bool") {
+            result = value;
+        } else if (typeof(value) == "Array") {
+            result = len(value) > 0;
+        } else {
+            var lowered = str(value).trim().lower();
+            result = lowered == "1" || lowered == "true" || lowered == "on" || lowered == "yes";
+        }
+
+        this.field_values[name] = result;
+        return result;
+    }
+
     func value(name, fallback = null) {
         var value = this.field_values[name];
         return value == null ? fallback : value;
+    }
+
+    func field_values_map() {
+        return this.field_values;
     }
 
     func add_error(name, message) {
@@ -88,6 +123,10 @@ export class BoundForm(source)
     func error(name, fallback = null) {
         var value = this.field_errors[name];
         return value == null ? fallback : value;
+    }
+
+    func field_errors_map() {
+        return this.field_errors;
     }
 
     func is_valid() {

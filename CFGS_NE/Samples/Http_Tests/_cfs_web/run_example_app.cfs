@@ -1,0 +1,8 @@
+import { build_example_app } from "example_app.cfs";
+
+async func main() {
+    var app = build_example_app(5000);
+    return await app.run();
+}
+
+var _ = await main();

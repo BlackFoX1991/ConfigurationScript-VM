@@ -1,4 +1,5 @@
 import "plugins/CFGS.StandardLibrary.dll";
+import "plugins/CFGS.Security.Crypto.dll";
 
 export class Util
 {
@@ -35,6 +36,244 @@ export class Util
             }
         }
         return null;
+    }
+
+    static func parse_int(value, fallback = null) {
+        if (value == null) { return fallback; }
+
+        try {
+            return int(value);
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    static func utf8_size(value) {
+        if (value == null) { return 0; }
+        return str(value).to_blob().len();
+    }
+
+    static func remote_host(remote, fallback = null) {
+        if (remote == null) { return fallback; }
+
+        var text = str(remote).trim();
+        if (text == "") { return fallback; }
+
+        if (Util.starts_with(text, "[")) {
+            var end = text.indexOf("]");
+            if (end > 1) {
+                return text.substr(1, end - 1);
+            }
+        }
+
+        var last_colon = text.lastIndexOf(":");
+        if (last_colon > 0 && text.indexOf(":") == last_colon) {
+            return text.substr(0, last_colon);
+        }
+
+        return text;
+    }
+
+    static func csv_values(value) {
+        var values = [];
+        if (value == null) { return values; }
+
+        var parts = str(value).split(",");
+        var i = 0;
+        while (i < len(parts)) {
+            var part = Util.sanitize_header_value(parts[i], "").trim();
+            if (part != "") {
+                values[] = part;
+            }
+            i = i + 1;
+        }
+
+        return values;
+    }
+
+    static func first_csv_value(value, fallback = null) {
+        var values = Util.csv_values(value);
+        return len(values) == 0 ? fallback : values[0];
+    }
+
+    static func normalize_authority(value, fallback = null) {
+        if (value == null) { return fallback; }
+
+        var text = Util.sanitize_header_value(value, "").trim().lower();
+        if (text == "") { return fallback; }
+
+        var scheme_sep = text.indexOf("://");
+        if (scheme_sep >= 0) {
+            text = text.substr(scheme_sep + 3, len(text) - (scheme_sep + 3));
+        }
+
+        var slash = text.indexOf("/");
+        if (slash >= 0) {
+            text = text.substr(0, slash);
+        }
+
+        return text == "" ? fallback : text;
+    }
+
+    static func authority_host(authority, fallback = null) {
+        var text = Util.normalize_authority(authority, null);
+        if (text == null) { return fallback; }
+
+        if (Util.starts_with(text, "[")) {
+            var end = text.indexOf("]");
+            if (end > 1) {
+                return text.substr(1, end - 1);
+            }
+            return fallback;
+        }
+
+        var last_colon = text.lastIndexOf(":");
+        if (last_colon > 0 && text.indexOf(":") == last_colon) {
+            return text.substr(0, last_colon);
+        }
+
+        return text;
+    }
+
+    static func parse_origin(value) {
+        var text = Util.sanitize_header_value(value, "").trim().lower();
+        if (text == "") { return null; }
+
+        var scheme_sep = text.indexOf("://");
+        if (scheme_sep < 0) {
+            return null;
+        }
+
+        var scheme = text.substr(0, scheme_sep);
+        if (scheme != "http" && scheme != "https") {
+            return null;
+        }
+
+        var authority = Util.normalize_authority(text, null);
+        if (authority == null) {
+            return null;
+        }
+
+        return {
+            "scheme": scheme,
+            "authority": authority,
+            "host": Util.authority_host(authority, authority)
+        };
+    }
+
+    static func build_origin(scheme, authority) {
+        var actual_scheme = scheme == null ? "" : str(scheme).trim().lower();
+        var actual_authority = Util.normalize_authority(authority, null);
+
+        if (actual_scheme == "" || actual_authority == null || actual_authority == "") {
+            return null;
+        }
+
+        return actual_scheme + "://" + actual_authority;
+    }
+
+    static func host_matches(pattern, authority) {
+        if (pattern == null) { return false; }
+
+        var actual_authority = Util.normalize_authority(authority, null);
+        if (actual_authority == null) { return false; }
+
+        var actual_host = Util.authority_host(actual_authority, actual_authority);
+        var text = str(pattern).trim().lower();
+        if (text == "") { return false; }
+        if (text == "*") { return true; }
+
+        var parsed_origin = Util.parse_origin(text);
+        if (parsed_origin != null) {
+            text = parsed_origin["authority"];
+        }
+
+        if (Util.starts_with(text, "*.")) {
+            var suffix = text.substr(1, len(text) - 1);
+            var root = text.substr(2, len(text) - 2);
+            return actual_host != root && Util.ends_with(actual_host, suffix);
+        }
+
+        if (Util.ends_with(text, ":*")) {
+            var wanted_host = text.substr(0, len(text) - 2);
+            return actual_host == Util.authority_host(wanted_host, wanted_host);
+        }
+
+        if (text.contains(":") || Util.starts_with(text, "[")) {
+            return actual_authority == text;
+        }
+
+        return actual_host == text;
+    }
+
+    static func host_allowed(allowed, authority) {
+        if (allowed == null) { return false; }
+
+        if (typeof(allowed) == "Array") {
+            var i = 0;
+            while (i < len(allowed)) {
+                if (Util.host_matches(allowed[i], authority)) {
+                    return true;
+                }
+                i = i + 1;
+            }
+            return false;
+        }
+
+        if (typeof(allowed) == "Dictionary") {
+            foreach (var k, v in allowed) {
+                if (v != null && v != false && Util.host_matches(k, authority)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        return Util.host_matches(allowed, authority);
+    }
+
+    static func origin_matches(pattern, origin) {
+        if (pattern == null || origin == null) { return false; }
+
+        var actual = Util.parse_origin(origin);
+        if (actual == null) { return false; }
+
+        var text = str(pattern).trim().lower();
+        if (text == "") { return false; }
+        if (text == "*") { return true; }
+
+        var wanted = Util.parse_origin(text);
+        if (wanted != null) {
+            return actual["scheme"] == wanted["scheme"] && actual["authority"] == wanted["authority"];
+        }
+
+        return Util.host_matches(text, actual["authority"]);
+    }
+
+    static func origin_allowed(allowed, origin) {
+        if (allowed == null) { return false; }
+
+        if (typeof(allowed) == "Array") {
+            var i = 0;
+            while (i < len(allowed)) {
+                if (Util.origin_matches(allowed[i], origin)) {
+                    return true;
+                }
+                i = i + 1;
+            }
+            return false;
+        }
+
+        if (typeof(allowed) == "Dictionary") {
+            foreach (var k, v in allowed) {
+                if (v != null && v != false && Util.origin_matches(k, origin)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        return Util.origin_matches(allowed, origin);
     }
 
     static func starts_with(s, prefix) {
@@ -104,6 +343,145 @@ export class Util
         return result;
     }
 
+    static func header_param(header_value, name) {
+        if (header_value == null || name == null) { return null; }
+
+        var parts = str(header_value).split(";");
+        var wanted = str(name).trim().lower();
+        var i = 1;
+        while (i < len(parts)) {
+            var part = parts[i].trim();
+            if (part != "") {
+                var eq = part.indexOf("=");
+                if (eq >= 0) {
+                    var key = part.substr(0, eq).trim().lower();
+                    var value = part.substr(eq + 1, len(part) - (eq + 1)).trim();
+
+                    if (len(value) >= 2 && value.substr(0, 1) == "\"" && value.substr(len(value) - 1, 1) == "\"") {
+                        value = value.substr(1, len(value) - 2);
+                    }
+
+                    if (key == wanted) {
+                        return value;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+
+        return null;
+    }
+
+    static func _push_value(values, key, value) {
+        var current = values[key];
+        if (current == null) {
+            values[key] = value;
+            return values[key];
+        }
+
+        if (typeof(current) == "Array") {
+            current[] = value;
+            values[key] = current;
+            return current;
+        }
+
+        values[key] = [current, value];
+        return values[key];
+    }
+
+    static func parse_multipart(text, boundary) {
+        var result = {
+            "fields": {},
+            "files": {}
+        };
+        if (text == null || text == "") { return result; }
+        if (boundary == null || boundary == "") { return result; }
+
+        var marker = "--" + str(boundary);
+        var parts = str(text).split(marker);
+        var i = 0;
+        while (i < len(parts)) {
+            var segment = parts[i];
+
+            if (segment == null || segment == "" || segment == "--" || segment == "--\r\n") {
+                i = i + 1;
+                continue;
+            }
+
+            if (Util.starts_with(segment, "\r\n")) {
+                segment = segment.substr(2, len(segment) - 2);
+            }
+
+            if (Util.ends_with(segment, "\r\n")) {
+                segment = segment.substr(0, len(segment) - 2);
+            }
+
+            if (Util.ends_with(segment, "--")) {
+                segment = segment.substr(0, len(segment) - 2);
+            }
+
+            var split_at = segment.indexOf("\r\n\r\n");
+            if (split_at < 0) {
+                i = i + 1;
+                continue;
+            }
+
+            var header_block = segment.substr(0, split_at);
+            var value = segment.substr(split_at + 4, len(segment) - (split_at + 4));
+            if (Util.ends_with(value, "\r\n")) {
+                value = value.substr(0, len(value) - 2);
+            }
+
+            var headers = {};
+            var lines = header_block.split("\r\n");
+            var j = 0;
+            while (j < len(lines)) {
+                var line = lines[j].trim();
+                if (line != "") {
+                    var colon = line.indexOf(":");
+                    if (colon >= 0) {
+                        var key = line.substr(0, colon).trim().lower();
+                        headers[key] = line.substr(colon + 1, len(line) - (colon + 1)).trim();
+                    }
+                }
+                j = j + 1;
+            }
+
+            var disposition = headers["content-disposition"];
+            var name = Util.header_param(disposition, "name");
+            if (name == null || name == "") {
+                i = i + 1;
+                continue;
+            }
+
+            var filename = Util.header_param(disposition, "filename");
+            if (filename != null && filename != "") {
+                var safe_filename = Util.sanitize_download_name(filename, "upload.txt");
+                var file = {
+                    "name": name,
+                    "field_name": name,
+                    "filename": safe_filename,
+                    "original_filename": filename,
+                    "content_type": headers["content-type"] == null ? "application/octet-stream" : headers["content-type"],
+                    "body": value,
+                    "size": len(value),
+                    "headers": headers
+                };
+                Util._push_value(result["files"], name, file);
+            } else {
+                Util._push_value(result["fields"], name, value);
+            }
+
+            i = i + 1;
+        }
+
+        return result;
+    }
+
+    static func parse_multipart_form(text, boundary) {
+        return Util.parse_multipart(text, boundary)["fields"];
+    }
+
     static func parse_cookies(raw) {
         var result = {};
         if (raw == null || raw == "") { return result; }
@@ -136,6 +514,136 @@ export class Util
         return Util.join(parts, "&");
     }
 
+    static func now_utc_unix_seconds() {
+        return UtcNow("yyyy-MM-dd HH:mm:ss.fff").toDateTime("yyyy-MM-dd HH:mm:ss.fff").toUnixSeconds();
+    }
+
+    static func now_utc_unix_milliseconds() {
+        return UtcNow("yyyy-MM-dd HH:mm:ss.fff").toDateTime("yyyy-MM-dd HH:mm:ss.fff").toUnixMilliseconds();
+    }
+
+    static func secure_token(byte_count = 32, prefix = null) {
+        var token = crypto_random_bytes(byte_count, "hex");
+        if (prefix == null || prefix == "") {
+            return token;
+        }
+        return str(prefix) + token;
+    }
+
+    static func safe_compare(left, right) {
+        if (left == null || right == null) { return false; }
+        return crypto_fixed_time_equals(str(left), str(right));
+    }
+
+    static func sanitize_header_value(value, fallback = "") {
+        var s = value == null ? "" : str(value);
+        s = s.replace("\r", "");
+        s = s.replace("\n", "");
+        if (s == "") { return fallback; }
+        return s;
+    }
+
+    static func sanitize_download_name(value, fallback = "download.txt") {
+        var s = Util.sanitize_header_value(value, fallback);
+        s = s.replace("\"", "");
+        s = s.replace(";", "");
+        s = s.replace("\\", "_");
+        s = s.replace("/", "_");
+        if (s == "" || s == "." || s == "..") {
+            return fallback;
+        }
+        return s;
+    }
+
+    static func safe_redirect_target(target, host = null, fallback = null) {
+        var fallback_value = fallback == null ? null : str(fallback);
+        var s = Util.sanitize_header_value(target, "");
+        if (s == "") { return fallback_value; }
+
+        if (Util.starts_with(s, "/") && !Util.starts_with(s, "//")) {
+            return s;
+        }
+
+        var lower = s.lower();
+        if (!Util.starts_with(lower, "http://") && !Util.starts_with(lower, "https://")) {
+            return fallback_value;
+        }
+
+        var scheme_sep = s.indexOf("://");
+        if (scheme_sep < 0) {
+            return fallback_value;
+        }
+
+        var rest = s.substr(scheme_sep + 3, len(s) - (scheme_sep + 3));
+        var slash = rest.indexOf("/");
+        var authority = slash < 0 ? rest : rest.substr(0, slash);
+        var expected_host = host == null ? "" : str(host).trim();
+
+        if (expected_host == "" || authority.lower() != expected_host.lower()) {
+            return fallback_value;
+        }
+
+        if (slash < 0) {
+            return "/";
+        }
+
+        var path = rest.substr(slash, len(rest) - slash);
+        if (Util.starts_with(path, "/") && !Util.starts_with(path, "//")) {
+            return path;
+        }
+
+        return fallback_value;
+    }
+
+    static func normalize_static_rel_path(path) {
+        if (path == null) { return null; }
+
+        var raw = str(path).replace("\\", "/");
+        if (raw == "" || raw == "/") { return null; }
+        if (Util.starts_with(raw, "/")) { return null; }
+
+        var parts = raw.split("/");
+        var clean = [];
+
+        var i = 0;
+        while (i < len(parts)) {
+            var seg = parts[i].trim();
+            if (seg == "" || seg == ".") {
+                i = i + 1;
+                continue;
+            }
+
+            if (seg == "..") {
+                return null;
+            }
+
+            if (seg.contains(":")) {
+                return null;
+            }
+
+            clean[] = seg;
+            i = i + 1;
+        }
+
+        return len(clean) == 0 ? null : Util.join(clean, "/");
+    }
+
+    static func split_path_and_query(path) {
+        var actual = path == null ? "" : str(path);
+        var qmark = actual.indexOf("?");
+        if (qmark < 0) {
+            return {
+                "path": actual,
+                "query": {}
+            };
+        }
+
+        return {
+            "path": actual.substr(0, qmark),
+            "query": Util.parse_query(actual.substr(qmark + 1, len(actual) - (qmark + 1)))
+        };
+    }
+
     static func content_type_from_path(path) {
         var p = path == null ? "" : str(path).lower();
 
@@ -143,6 +651,7 @@ export class Util
         if (Util.ends_with(p, ".js")) { return "application/javascript; charset=utf-8"; }
         if (Util.ends_with(p, ".json")) { return "application/json; charset=utf-8"; }
         if (Util.ends_with(p, ".html")) { return "text/html; charset=utf-8"; }
+        if (Util.ends_with(p, ".md")) { return "text/markdown; charset=utf-8"; }
         if (Util.ends_with(p, ".svg")) { return "image/svg+xml"; }
         if (Util.ends_with(p, ".txt")) { return "text/plain; charset=utf-8"; }
         if (Util.ends_with(p, ".png")) { return "image/png"; }
@@ -150,5 +659,117 @@ export class Util
         if (Util.ends_with(p, ".gif")) { return "image/gif"; }
 
         return "application/octet-stream";
+    }
+
+    static func is_textual_content_type(content_type) {
+        var ct = content_type == null ? "" : str(content_type).lower();
+        if (ct == "") { return false; }
+        if (Util.starts_with(ct, "text/")) { return true; }
+        if (ct.contains("javascript")) { return true; }
+        if (ct.contains("json")) { return true; }
+        if (ct.contains("svg+xml")) { return true; }
+        if (ct.contains("xml")) { return true; }
+        return false;
+    }
+
+    static func _hex_val(c) {
+        var m = {
+            "0":0,"1":1,"2":2,"3":3,"4":4,"5":5,"6":6,"7":7,"8":8,"9":9,
+            "a":10,"b":11,"c":12,"d":13,"e":14,"f":15,
+            "A":10,"B":11,"C":12,"D":13,"E":14,"F":15
+        };
+        var v = m[c];
+        return v == null ? 0 : v;
+    }
+
+    static func hash32(s) {
+        if (s == null) { return 0; }
+
+        var enc = urlencode(str(s));
+        var i = 0;
+        var h = 5381;
+
+        while (i < len(enc)) {
+            var ch = enc.substr(i, 1);
+            var b = 0;
+
+            if (ch == "%") {
+                if (i + 2 < len(enc)) {
+                    var h1 = Util._hex_val(enc.substr(i + 1, 1));
+                    var h2 = Util._hex_val(enc.substr(i + 2, 1));
+                    b = h1 * 16 + h2;
+                    i = i + 3;
+                } else {
+                    i = i + 1;
+                    continue;
+                }
+            } else {
+                b = ch[0] & 0xFF;
+                i = i + 1;
+            }
+
+            h = ((h << 5) + h) + b;
+            h = h & 0xFFFFFFFF;
+        }
+
+        return h;
+    }
+
+    static func etag_for(s) {
+        var h = Util.hash32(s);
+        var digits = "0123456789abcdef";
+        var hex = "";
+        var i = 0;
+
+        while (i < 8) {
+            var nibble = (h >> ((7 - i) * 4)) & 0xF;
+            hex = hex + digits.substr(nibble, 1);
+            i = i + 1;
+        }
+
+        return "\"" + str(len(str(s))) + "-" + hex + "\"";
+    }
+
+    static func etag_matches(header_value, etag) {
+        if (header_value == null || etag == null) { return false; }
+
+        var raw = str(header_value).trim();
+        if (raw == "" || raw == "\"\"") { return false; }
+        if (raw == "*") { return true; }
+
+        var parts = raw.split(",");
+        var i = 0;
+        while (i < len(parts)) {
+            var part = parts[i].trim();
+            if (part == etag || part == ("W/" + etag)) {
+                return true;
+            }
+            i = i + 1;
+        }
+
+        return false;
+    }
+
+    static func http_date(value) {
+        if (value == null) { return null; }
+
+        try {
+            if (typeof(value) == "String") {
+                return str(value).toDateTime("r").withKind("utc").toString("r");
+            }
+            return value.toUniversalTime().toString("r");
+        } catch (e) {
+            return Util.sanitize_header_value(value, "");
+        }
+    }
+
+    static func parse_http_date(value) {
+        if (value == null || value == "") { return null; }
+
+        try {
+            return str(value).toDateTime("r").withKind("utc").toUnixSeconds();
+        } catch (e) {
+            return null;
+        }
     }
 }

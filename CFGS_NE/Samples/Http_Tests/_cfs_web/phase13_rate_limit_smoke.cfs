@@ -1,0 +1,105 @@
+import { Middleware } from "middleware.cfs";
+import { ServerApp } from "server.cfs";
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, remote, body = "", headers = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8105"} : headers,
+        "body": body,
+        "remote": remote
+    };
+}
+
+async func main() {
+    var clock = {"now": 1000};
+    var now = func() {
+        return clock["now"];
+    };
+
+    var app = new ServerApp(8105);
+    app.use_before(Middleware.rate_limit(2, 60, null, {"now_func":now}));
+    app.use_after(Middleware.rate_limit_headers());
+
+    app.get("/limited", func(ctx) {
+        return ctx.response.json({
+            "ok": true,
+            "remote": ctx.req["remote"]
+        });
+    });
+
+    var first = await app.handle(request("GET", "/limited", "127.0.0.1:50100"));
+    expect("first_status", first["status"], 200);
+    expect("first_limit", first["headers"]["X-RateLimit-Limit"], "2");
+    expect("first_remaining", first["headers"]["X-RateLimit-Remaining"], "1");
+    expect("first_reset", first["headers"]["X-RateLimit-Reset"], "1060");
+
+    var second = await app.handle(request("GET", "/limited", "127.0.0.1:50101"));
+    expect("second_status", second["status"], 200);
+    expect("second_remaining", second["headers"]["X-RateLimit-Remaining"], "0");
+
+    var third = await app.handle(request("GET", "/limited", "127.0.0.1:50102"));
+    expect("third_status", third["status"], 429);
+    expect("third_body", third["body"], "Too Many Requests");
+    expect("third_remaining", third["headers"]["X-RateLimit-Remaining"], "0");
+    expect("third_retry_after", third["headers"]["Retry-After"], "60");
+    expect("third_cache_control", third["headers"]["Cache-Control"], "no-store");
+
+    var other_remote = await app.handle(request("GET", "/limited", "127.0.0.2:60100"));
+    expect("other_remote_status", other_remote["status"], 200);
+    expect("other_remote_remaining", other_remote["headers"]["X-RateLimit-Remaining"], "1");
+
+    clock["now"] = 1061;
+    var reset_ok = await app.handle(request("GET", "/limited", "127.0.0.1:50103"));
+    expect("reset_ok_status", reset_ok["status"], 200);
+    expect("reset_ok_remaining", reset_ok["headers"]["X-RateLimit-Remaining"], "1");
+    expect("reset_ok_reset", reset_ok["headers"]["X-RateLimit-Reset"], "1121");
+
+    var named_clock = {"now": 2000};
+    var now2 = func() {
+        return named_clock["now"];
+    };
+
+    var custom = new ServerApp(8106);
+    custom.use_before(Middleware.rate_limit(1, 30, func(ctx) {
+        return ctx.req.path;
+    }, {
+        "now_func":now2,
+        "local_key":"route_limit",
+        "shared_key":"route_rate_limits",
+        "message":"Slow down"
+    }));
+    custom.use_after(Middleware.rate_limit_headers("route_limit"));
+
+    custom.get("/a", func(ctx) { return ctx.response.text("a"); });
+    custom.get("/b", func(ctx) { return ctx.response.text("b"); });
+
+    var custom_a1 = await custom.handle(request("GET", "/a", "10.0.0.1:41000", "", {"Host":"localhost:8106"}));
+    expect("custom_a1_status", custom_a1["status"], 200);
+    expect("custom_a1_remaining", custom_a1["headers"]["X-RateLimit-Remaining"], "0");
+
+    var custom_b1 = await custom.handle(request("GET", "/b", "10.0.0.1:41001", "", {"Host":"localhost:8106"}));
+    expect("custom_b1_status", custom_b1["status"], 200);
+
+    var custom_a2 = await custom.handle(request("GET", "/a", "10.0.0.1:41002", "", {"Host":"localhost:8106"}));
+    expect("custom_a2_status", custom_a2["status"], 429);
+    expect("custom_a2_body", custom_a2["body"], "Slow down");
+    expect("custom_a2_retry_after", custom_a2["headers"]["Retry-After"], "30");
+
+    print("PHASE13_RATE_LIMIT_OK");
+}
+
+var _ = await main();

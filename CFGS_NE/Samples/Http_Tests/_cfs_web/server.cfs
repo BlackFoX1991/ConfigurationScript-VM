@@ -2,6 +2,7 @@ import "plugins/CFGS.StandardLibrary.dll";
 import "plugins/CFGS.Web.Http.dll";
 import { Util } from "common.cfs";
 import { Cookies } from "cookies.cfs";
+import { MemorySessionStore } from "session_store.cfs";
 
 export class RequestView(ctx)
 {
@@ -19,6 +20,39 @@ export class RequestView(ctx)
         return this.ctx.req.path;
     }
 
+    func remote(fallback = null) {
+        var value = this.ctx.remote;
+        return value == null ? fallback : value;
+    }
+
+    func client_ip(fallback = null) {
+        var value = this.ctx.client_ip;
+        return value == null ? fallback : value;
+    }
+
+    func host(fallback = null) {
+        var value = this.ctx.host;
+        return value == null ? fallback : value;
+    }
+
+    func scheme(fallback = "http") {
+        var value = this.ctx.scheme;
+        return value == null ? fallback : value;
+    }
+
+    func origin(fallback = null) {
+        var value = this.ctx.origin;
+        return value == null ? fallback : value;
+    }
+
+    func is_secure() {
+        return this.scheme("http") == "https";
+    }
+
+    func trusted_proxy() {
+        return this.ctx.trusted_proxy == true;
+    }
+
     func param(name, fallback = null) {
         var value = this.ctx.params[name];
         return value == null ? fallback : value;
@@ -30,20 +64,105 @@ export class RequestView(ctx)
     }
 
     func form(name, fallback = null) {
+        if (this.ctx.form == null || typeof(this.ctx.form) != "Dictionary") {
+            return fallback;
+        }
         var value = this.ctx.form[name];
         return value == null ? fallback : value;
+    }
+
+    func uploads(name = null, fallback = null) {
+        var values = this.ctx.uploads;
+        if (name == null) {
+            if (values != null) { return values; }
+            return fallback == null ? {} : fallback;
+        }
+
+        var value = values == null ? null : values[name];
+        return value == null ? fallback : value;
+    }
+
+    func upload(name, fallback = null) {
+        var value = this.uploads(name, null);
+        if (value == null) { return fallback; }
+        if (typeof(value) == "Array") {
+            return len(value) == 0 ? fallback : value[0];
+        }
+        return value;
     }
 
     func cookie(name, fallback = null) {
         return Cookies.read(this.ctx, name, fallback);
     }
 
+    func signed_cookie(name, secret, fallback = null) {
+        return Cookies.read_signed(this.ctx, name, secret, fallback);
+    }
+
     func url(name, params = null, query = null) {
         return this.ctx.app.url(name, params, query);
     }
 
+    func asset(path, version = null, query = null) {
+        return this.ctx.app.asset_url(path, version, query);
+    }
+
+    func csrf_field_name() {
+        return this.ctx.app.csrf_field_name;
+    }
+
+    func csrf_token() {
+        return this.ctx.app._ensure_csrf_token(this.ctx.session);
+    }
+
     func local(name, fallback = null) {
         var value = this.ctx.locals[name];
+        return value == null ? fallback : value;
+    }
+
+    func flash(name = null, fallback = null) {
+        var values = this.ctx.flash;
+        if (name == null) { return values; }
+
+        var value = values == null ? null : values[name];
+        return value == null ? fallback : value;
+    }
+
+    func session_messages(name = null, fallback = null) {
+        var values = this.ctx.messages;
+        if (name == null) {
+            if (values != null) { return values; }
+            return fallback == null ? {} : fallback;
+        }
+
+        var value = values == null ? null : values[name];
+        return value == null ? fallback : value;
+    }
+
+    func session_message(name, fallback = null) {
+        return this.session_messages(name, fallback);
+    }
+
+    func old(name = null, fallback = null) {
+        var values = this.ctx.old;
+        if (name == null) {
+            if (values != null) { return values; }
+            return fallback == null ? {} : fallback;
+        }
+
+        var value = values == null ? null : values[name];
+        return value == null ? fallback : value;
+    }
+
+    func old_errors(fallback = null) {
+        var values = this.ctx.old_errors;
+        if (values != null) { return values; }
+        return fallback == null ? {} : fallback;
+    }
+
+    func old_error(name, fallback = null) {
+        var values = this.ctx.old_errors;
+        var value = values == null ? null : values[name];
         return value == null ? fallback : value;
     }
 
@@ -63,6 +182,26 @@ export class RequestView(ctx)
 
     func is_post() {
         return this.ctx.req.method == "POST";
+    }
+
+    func is_put() {
+        return this.ctx.req.method == "PUT";
+    }
+
+    func is_patch() {
+        return this.ctx.req.method == "PATCH";
+    }
+
+    func is_delete() {
+        return this.ctx.req.method == "DELETE";
+    }
+
+    func is_head() {
+        return this.ctx.req.method == "HEAD";
+    }
+
+    func is_options() {
+        return this.ctx.req.method == "OPTIONS";
     }
 }
 
@@ -98,15 +237,24 @@ export class ResponseView(ctx)
         return this.response(status, tojson(value), "application/json; charset=utf-8", headers);
     }
 
+    func error_page(status = 500, title = null, lead = null, detail = null, headers = null) {
+        return ServerApp.error_page(status, title, lead, detail, headers);
+    }
+
+    func debug_page(err, status = 500, title = null, lead = null, headers = null) {
+        return ServerApp.debug_page(err, this.ctx, status, title, lead, headers);
+    }
+
     func redirect(location, status = 303) {
+        var safe_location = Util.sanitize_header_value(location, "/");
         return {
             "status": status,
             "headers": {
-                "Location": location,
+                "Location": safe_location,
                 "Content-Type": "text/html; charset=utf-8",
                 "Cache-Control": "no-store"
             },
-            "body": "<!doctype html><meta http-equiv='refresh' content='0;url=" + Util.esc(location) + "'>Redirecting..."
+            "body": "<!doctype html><meta http-equiv='refresh' content='0;url=" + Util.esc(safe_location) + "'>Redirecting..."
         };
     }
 
@@ -118,23 +266,93 @@ export class ResponseView(ctx)
         return Cookies.with_cookie(res, name, value, attrs);
     }
 
+    func with_signed_cookie(res, name, value, secret, attrs = null) {
+        return Cookies.with_signed_cookie(res, name, value, secret, attrs);
+    }
+
     func expire_cookie(res, name, attrs = null) {
         return Cookies.expire_cookie(res, name, attrs);
     }
 
+    func rotate_session() {
+        return this.ctx.app.rotate_session(this.ctx);
+    }
+
     func back(fallback = "/", status = 302) {
-        var target = Util.header(this.ctx.req.headers, "Referer");
-        if (target == null || target == "") {
-            target = fallback;
-        }
+        var target = Util.safe_redirect_target(Util.header(this.ctx.req.headers, "Referer"), this.ctx.host, fallback);
+        if (target == null || target == "") { target = fallback; }
         return this.redirect(target, status);
+    }
+
+    func flash(name, value) {
+        return this.ctx.app.flash(this.ctx, name, value);
+    }
+
+    func session_message(name, value) {
+        return this.ctx.app.session_message(this.ctx, name, value);
+    }
+
+    func clear_session_message(name = null) {
+        return this.ctx.app.clear_session_message(this.ctx, name);
+    }
+
+    func remember_old_input(values = null, errors = null) {
+        return this.ctx.app.remember_old_input(this.ctx, values, errors);
+    }
+
+    func remember_session(seconds = null) {
+        return this.ctx.app.remember_session(this.ctx, seconds);
+    }
+
+    func forget_session() {
+        return this.ctx.app.forget_session(this.ctx);
+    }
+
+    func logout_session(fresh = true) {
+        return this.ctx.app.logout_session(this.ctx, fresh);
+    }
+
+    func redirect_with_flash(location, flash_name, flash_value, status = 303) {
+        this.flash(flash_name, flash_value);
+        return this.redirect(location, status);
+    }
+
+    func redirect_to_with_flash(route_name, flash_name, flash_value, params = null, query = null, status = 303) {
+        this.flash(flash_name, flash_value);
+        return this.redirect(this.ctx.app.url(route_name, params, query), status);
+    }
+
+    func redirect_with_session_message(location, name, value, status = 303) {
+        this.session_message(name, value);
+        return this.redirect(location, status);
+    }
+
+    func redirect_to_with_session_message(route_name, name, value, params = null, query = null, status = 303) {
+        this.session_message(name, value);
+        return this.redirect(this.ctx.app.url(route_name, params, query), status);
+    }
+
+    func redirect_with_input(location, values = null, errors = null, status = 303) {
+        this.remember_old_input(values, errors);
+        return this.redirect(location, status);
+    }
+
+    func redirect_to_with_input(route_name, values = null, errors = null, params = null, query = null, status = 303) {
+        this.remember_old_input(values, errors);
+        return this.redirect(this.ctx.app.url(route_name, params, query), status);
+    }
+
+    async func file(path, content_type = null, headers = null) {
+        return await this.ctx.app.file_response(this.ctx, path, content_type, headers, null);
+    }
+
+    async func download(path, download_name = null, content_type = null, headers = null) {
+        return await this.ctx.app.file_response(this.ctx, path, content_type, headers, download_name);
     }
 }
 
 export class ServerApp(port)
 {
-    static var NextSessionId = 0;
-
     var port = 0;
     var routes = [];
     var named_routes = {};
@@ -143,19 +361,37 @@ export class ServerApp(port)
     var errors = [];
     var static_mounts = [];
     var sessions = {};
+    var session_store = null;
     var shared = {};
     var stop_requested = false;
+    var pending_requests = {};
+    var session_cookie_name = "cfs_sid";
+    var session_cookie_path = "/";
+    var session_cookie_same_site = "Lax";
+    var session_cookie_http_only = true;
+    var session_cookie_secure = false;
+    var session_cookie_persistent = false;
+    var session_cookie_signing_secret = null;
+    var session_idle_seconds = 1800;
+    var session_absolute_seconds = 43200;
+    var csrf_field_name = "__csrf";
+    var enforce_csrf = true;
+    var debug_errors = false;
+    var max_body_bytes = null;
+    var trusted_proxies = {};
 
     func init(port) {
         this.port = port;
+        this.set_session_store(new MemorySessionStore(null));
     }
 
-    func route(method, pattern, handler, name = null) {
+    func route(method, pattern, handler, name = null, options = null) {
         var route = {
             "method": method,
             "pattern": pattern,
             "handler": handler,
-            "name": name
+            "name": name,
+            "options": options == null ? {} : options
         };
         this.routes[] = route;
 
@@ -169,20 +405,60 @@ export class ServerApp(port)
         return this;
     }
 
-    func get(pattern, handler) {
-        return this.route("GET", pattern, handler);
+    func get(pattern, handler, options = null) {
+        return this.route("GET", pattern, handler, null, options);
     }
 
-    func post(pattern, handler) {
-        return this.route("POST", pattern, handler);
+    func post(pattern, handler, options = null) {
+        return this.route("POST", pattern, handler, null, options);
     }
 
-    func get_named(name, pattern, handler) {
-        return this.route("GET", pattern, handler, name);
+    func get_named(name, pattern, handler, options = null) {
+        return this.route("GET", pattern, handler, name, options);
     }
 
-    func post_named(name, pattern, handler) {
-        return this.route("POST", pattern, handler, name);
+    func post_named(name, pattern, handler, options = null) {
+        return this.route("POST", pattern, handler, name, options);
+    }
+
+    func put(pattern, handler, options = null) {
+        return this.route("PUT", pattern, handler, null, options);
+    }
+
+    func patch(pattern, handler, options = null) {
+        return this.route("PATCH", pattern, handler, null, options);
+    }
+
+    func delete_(pattern, handler, options = null) {
+        return this.route("DELETE", pattern, handler, null, options);
+    }
+
+    func head(pattern, handler, options = null) {
+        return this.route("HEAD", pattern, handler, null, options);
+    }
+
+    func options(pattern, handler, options = null) {
+        return this.route("OPTIONS", pattern, handler, null, options);
+    }
+
+    func put_named(name, pattern, handler, options = null) {
+        return this.route("PUT", pattern, handler, name, options);
+    }
+
+    func patch_named(name, pattern, handler, options = null) {
+        return this.route("PATCH", pattern, handler, name, options);
+    }
+
+    func delete_named(name, pattern, handler, options = null) {
+        return this.route("DELETE", pattern, handler, name, options);
+    }
+
+    func head_named(name, pattern, handler, options = null) {
+        return this.route("HEAD", pattern, handler, name, options);
+    }
+
+    func options_named(name, pattern, handler, options = null) {
+        return this.route("OPTIONS", pattern, handler, name, options);
     }
 
     func group(prefix, name_prefix = "") {
@@ -231,9 +507,120 @@ export class ServerApp(port)
         }, max_age);
     }
 
+    func serve_static_dir(prefix, root_dir, max_age = 3600) {
+        var root = root_dir == null ? "" : str(root_dir).replace("\\", "/");
+        while (Util.ends_with(root, "/")) {
+            root = root.substr(0, len(root) - 1);
+        }
+
+        return this.serve_static_with(prefix, async func(rel) {
+            var safe_rel = Util.normalize_static_rel_path(rel);
+            if (safe_rel == null || root == "") {
+                return null;
+            }
+
+            var full_path = root + "/" + safe_rel;
+            if (!fexist(full_path)) {
+                return null;
+            }
+
+            var content_type = Util.content_type_from_path(safe_rel);
+            if (!Util.is_textual_content_type(content_type)) {
+                return {
+                    "status": 415,
+                    "data": "Unsupported static asset type for text-only HTTP transport.",
+                    "content_type": "text/plain; charset=utf-8",
+                    "headers": {
+                        "Cache-Control": "no-store"
+                    }
+                };
+            }
+
+            var data = await readTextAsync(full_path);
+            return {
+                "data": data,
+                "content_type": content_type,
+                "etag": Util.etag_for(data)
+            };
+        }, max_age);
+    }
+
     func request_stop() {
         this.stop_requested = true;
         return 1;
+    }
+
+    func set_debug_errors(enabled = true) {
+        this.debug_errors = enabled;
+        return this;
+    }
+
+    func set_max_body_bytes(limit = null) {
+        this.max_body_bytes = this._positive_int_or_null(limit);
+        return this;
+    }
+
+    func set_trusted_proxies(values = null) {
+        this.trusted_proxies = this._normalize_trusted_proxies(values);
+        return this;
+    }
+
+    func set_csrf_enabled(enabled = true) {
+        this.enforce_csrf = enabled;
+        return this;
+    }
+
+    func set_session_cookie_secure(enabled = true) {
+        this.session_cookie_secure = enabled;
+        return this;
+    }
+
+    func set_session_cookie_persistent(enabled = true) {
+        this.session_cookie_persistent = enabled;
+        return this;
+    }
+
+    func set_session_timeouts(idle_seconds = null, absolute_seconds = null) {
+        if (idle_seconds != null) {
+            this.session_idle_seconds = idle_seconds;
+        }
+        if (absolute_seconds != null) {
+            this.session_absolute_seconds = absolute_seconds;
+        }
+        return this;
+    }
+
+    func set_session_cookie_signing_secret(secret = null) {
+        this.session_cookie_signing_secret = secret == null || secret == "" ? null : str(secret);
+        return this;
+    }
+
+    func _session_store_snapshot() {
+        if (this.session_store == null) { return {}; }
+
+        var snapshot = this.session_store.snapshot();
+        return snapshot == null ? {} : snapshot;
+    }
+
+    func _refresh_session_alias() {
+        this.sessions = this._session_store_snapshot();
+        return this.sessions;
+    }
+
+    func set_session_store(store = null) {
+        this.session_store = store == null ? new MemorySessionStore(null) : store;
+        this._refresh_session_alias();
+        return this;
+    }
+
+    func set_asset_version(version) {
+        this.shared["asset_version"] = version;
+        return this;
+    }
+
+    func set_asset_versions(values) {
+        this.shared["asset_versions"] = values == null ? {} : values;
+        return this;
     }
 
     func _path_for_pattern(pattern, params = null) {
@@ -289,6 +676,44 @@ export class ServerApp(port)
         return path;
     }
 
+    func _asset_version_for(path, fallback = null) {
+        var specific = this.shared["asset_versions"];
+        if (specific != null && specific[path] != null) {
+            return specific[path];
+        }
+
+        var shared_version = this.shared["asset_version"];
+        return shared_version == null ? fallback : shared_version;
+    }
+
+    func asset_url(path, version = null, query = null) {
+        var split = Util.split_path_and_query(path);
+        var actual_path = split["path"];
+        var merged = {};
+
+        var source_query = split["query"];
+        foreach (var k0, v0 in source_query) {
+            merged[k0] = v0;
+        }
+
+        if (query != null) {
+            foreach (var k1, v1 in query) {
+                merged[k1] = v1;
+            }
+        }
+
+        var actual_version = version == null ? this._asset_version_for(actual_path, null) : version;
+        if (actual_version != null && actual_version != "") {
+            merged["v"] = actual_version;
+        }
+
+        var qs = Util.build_query(merged);
+        if (qs == "") {
+            return actual_path;
+        }
+        return actual_path + "?" + qs;
+    }
+
     static func response(status, body, content_type = "text/plain; charset=utf-8", headers = null) {
         var hdr = headers == null ? {} : headers;
         if (content_type != null) {
@@ -313,13 +738,358 @@ export class ServerApp(port)
         return ServerApp.response(status, tojson(value), "application/json; charset=utf-8", headers);
     }
 
+    static func empty(status = 204, headers = null) {
+        return ServerApp.response(status, "", null, headers);
+    }
+
+    static func _error_reason(status, fallback = "Error") {
+        if (status == 400) { return "Bad Request"; }
+        if (status == 401) { return "Unauthorized"; }
+        if (status == 403) { return "Forbidden"; }
+        if (status == 404) { return "Not Found"; }
+        if (status == 405) { return "Method Not Allowed"; }
+        if (status == 413) { return "Payload Too Large"; }
+        if (status == 429) { return "Too Many Requests"; }
+        if (status == 500) { return "Internal Server Error"; }
+        return fallback;
+    }
+
+    static func _error_styles() {
+        return
+            ":root{--bg:#f6efe3;--ink:#1f1a17;--muted:#6d6258;--panel:#fffaf3;--line:#d8cab8;--brand:#9c3a26}" +
+            "*{box-sizing:border-box}" +
+            "body{margin:0;background:linear-gradient(180deg,#f8f1e6 0,#efe2d0 100%);color:var(--ink);font:16px/1.55 Georgia,'Times New Roman',serif}" +
+            ".wrap{max-width:920px;margin:0 auto;padding:32px 20px 56px}" +
+            ".hero{display:grid;gap:12px;margin-bottom:18px}" +
+            ".status{display:inline-flex;align-items:center;justify-content:center;width:max-content;padding:6px 12px;border-radius:999px;background:var(--brand);color:#fff;font:700 12px/1 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase}" +
+            ".title{margin:0;font-size:40px;line-height:1.05}" +
+            ".lead{margin:0;color:var(--muted);max-width:64ch}" +
+            ".stack{display:grid;gap:14px}" +
+            ".panel{background:rgba(255,250,243,.94);border:1px solid var(--line);border-radius:20px;padding:18px 20px;box-shadow:0 16px 46px rgba(62,43,20,.08)}" +
+            ".panel h2{margin:0 0 10px;font-size:24px}" +
+            ".kv{display:grid;grid-template-columns:160px 1fr;gap:10px;padding:6px 0;border-bottom:1px dashed var(--line)}" +
+            ".kv:last-child{border-bottom:0}" +
+            ".k{font:700 13px/1.4 system-ui,sans-serif;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}" +
+            ".v{font-family:Consolas,monospace;word-break:break-word}" +
+            "pre{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.5 Consolas,monospace}" +
+            "a{color:var(--brand)}" +
+            "@media (max-width:720px){.title{font-size:32px}.kv{grid-template-columns:1fr}}";
+    }
+
+    static func _error_panel(title, body_html) {
+        return "<section class='panel'><h2>" + Util.esc(title) + "</h2>" + body_html + "</section>";
+    }
+
+    static func _error_kv(label, value) {
+        return
+            "<div class='kv'>" +
+                "<div class='k'>" + Util.esc(label) + "</div>" +
+                "<div class='v'>" + Util.esc(value == null ? "" : str(value)) + "</div>" +
+            "</div>";
+    }
+
+    static func _debug_dump(value) {
+        if (value == null) { return "null"; }
+        if (typeof(value) == "String") { return str(value); }
+
+        try {
+            return tojson(value);
+        } catch (e) {
+            return str(value);
+        }
+    }
+
+    static func _error_document(status, title, lead = null, panels = null) {
+        var body =
+            "<div class='wrap'>" +
+                "<header class='hero'>" +
+                    "<div class='status'>HTTP " + str(status) + "</div>" +
+                    "<h1 class='title'>" + Util.esc(title) + "</h1>";
+
+        if (lead != null && str(lead) != "") {
+            body = body + "<p class='lead'>" + Util.esc(lead) + "</p>";
+        }
+
+        body = body + "</header><main class='stack'>";
+
+        if (panels != null && typeof(panels) == "Array") {
+            var i = 0;
+            while (i < len(panels)) {
+                body = body + panels[i];
+                i = i + 1;
+            }
+        }
+
+        body = body + "</main></div>";
+
+        return
+            "<!doctype html><html><head>" +
+                "<meta charset='utf-8'>" +
+                "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
+                "<title>" + Util.esc(title) + "</title>" +
+                "<style>" + ServerApp._error_styles() + "</style>" +
+            "</head><body>" + body + "</body></html>";
+    }
+
+    static func error_page(status = 500, title = null, lead = null, detail = null, headers = null) {
+        var actual_title = title == null ? ServerApp._error_reason(status, "Error") : str(title);
+        var panels = [];
+        var dump = ServerApp._debug_dump(detail);
+
+        if (detail != null && dump != "") {
+            panels[] = ServerApp._error_panel("Details", "<pre>" + Util.esc(dump) + "</pre>");
+        }
+
+        return ServerApp.html(
+            ServerApp._error_document(status, actual_title, lead, panels),
+            status,
+            headers
+        );
+    }
+
+    static func debug_page(err, ctx = null, status = 500, title = null, lead = null, headers = null) {
+        var actual_title = title == null ? ServerApp._error_reason(status, "Error") : str(title);
+        var actual_lead = lead;
+
+        if (actual_lead == null) {
+            if (ctx != null && ctx.req != null) {
+                actual_lead = "Unhandled exception while processing " + str(ctx.req.method) + " " + str(ctx.req.path) + ".";
+            } else {
+                actual_lead = "Unhandled exception while processing the request.";
+            }
+        }
+
+        var panels = [
+            ServerApp._error_panel("Exception", "<pre>" + Util.esc(str(err)) + "</pre>")
+        ];
+
+        if (ctx != null) {
+            var route_desc = null;
+            if (ctx.route != null) {
+                var route_name = ctx.route["name"];
+                var route_pattern = ctx.route["pattern"];
+                route_desc = route_name == null || route_name == ""
+                    ? route_pattern
+                    : route_name + " (" + route_pattern + ")";
+            }
+
+            panels[] = ServerApp._error_panel("Request", Util.join([
+                ServerApp._error_kv("Method", ctx.req.method),
+                ServerApp._error_kv("Path", ctx.req.path),
+                ServerApp._error_kv("Host", ctx.host),
+                ServerApp._error_kv("Origin", ctx.origin),
+                ServerApp._error_kv("Client IP", ctx.client_ip),
+                ServerApp._error_kv("Route", route_desc),
+                ServerApp._error_kv("Body Bytes", ctx["request_body_bytes"]),
+                ServerApp._error_kv("Max Body Bytes", ctx["max_body_bytes"])
+            ], ""));
+
+            panels[] = ServerApp._error_panel("Request Data", Util.join([
+                "<pre>" + Util.esc("params = " + ServerApp._debug_dump(ctx.params)) + "</pre>",
+                "<pre>" + Util.esc("query = " + ServerApp._debug_dump(ctx.query)) + "</pre>",
+                "<pre>" + Util.esc("form = " + ServerApp._debug_dump(ctx.form)) + "</pre>",
+                "<pre>" + Util.esc("uploads = " + ServerApp._debug_dump(ctx.uploads)) + "</pre>"
+            ], ""));
+        }
+
+        return ServerApp.html(
+            ServerApp._error_document(status, actual_title, actual_lead, panels),
+            status,
+            headers
+        );
+    }
+
+    async func file_response(ctx, path, content_type = null, headers = null, download_name = null) {
+        var actual_path = path == null ? "" : str(path);
+        if (actual_path == "" || !fexist(actual_path)) {
+            return ServerApp.text("Not Found", 404);
+        }
+
+        var actual_type = content_type == null ? Util.content_type_from_path(actual_path) : content_type;
+        if (!Util.is_textual_content_type(actual_type)) {
+            return ServerApp.text("Unsupported file type for text-only HTTP transport.", 415, {"Cache-Control":"no-store"});
+        }
+
+        var body = await readTextAsync(actual_path);
+        var hdr = headers == null ? {} : headers;
+        hdr["ETag"] = Util.etag_for(body);
+
+        if (download_name != null) {
+            var fallback_name = actual_path.replace("\\", "/");
+            var slash = fallback_name.lastIndexOf("/");
+            if (slash >= 0) {
+                fallback_name = fallback_name.substr(slash + 1, len(fallback_name) - (slash + 1));
+            }
+
+            var safe_name = Util.sanitize_download_name(download_name, fallback_name == "" ? "download.txt" : fallback_name);
+            hdr["Content-Disposition"] = "attachment; filename=\"" + safe_name + "\"";
+        }
+
+        return this._static_response({
+            "data": body,
+            "content_type": actual_type,
+            "headers": hdr
+        }, actual_path, null, ctx.req);
+    }
+
     static func redirect(location, status = 303) {
         return new ResponseView({}).redirect(location, status);
     }
 
     func _new_session_id() {
-        type.NextSessionId = type.NextSessionId + 1;
-        return "sid_" + str(type.NextSessionId);
+        return Util.secure_token(24, "sid_");
+    }
+
+    func _session_store_load(sid) {
+        if (this.session_store == null) { return null; }
+        return this.session_store.load(sid);
+    }
+
+    func _session_store_save(sid, entry) {
+        if (this.session_store == null) { return entry; }
+        var saved = this.session_store.save(sid, entry);
+        this._refresh_session_alias();
+        return saved;
+    }
+
+    func _session_store_remove(sid) {
+        if (this.session_store == null) { return 0; }
+        var removed = this.session_store.forget(sid);
+        this._refresh_session_alias();
+        return removed;
+    }
+
+    func _internal_session_messages_key() {
+        return "__cfs_session_messages";
+    }
+
+    func _internal_remember_key() {
+        return "__cfs_remember_seconds";
+    }
+
+    func _session_messages_store(session) {
+        if (session == null) { return null; }
+
+        var key = this._internal_session_messages_key();
+        var messages = session[key];
+        if (messages == null || typeof(messages) != "Dictionary") {
+            messages = {};
+            session[key] = messages;
+        }
+        return messages;
+    }
+
+    func _session_public_messages(session) {
+        if (session == null) { return {}; }
+
+        var messages = session[this._internal_session_messages_key()];
+        if (messages != null && typeof(messages) == "Dictionary") {
+            return messages;
+        }
+        return {};
+    }
+
+    func _session_remember_seconds(session) {
+        if (session == null) { return null; }
+
+        var seconds = session[this._internal_remember_key()];
+        if (seconds == null) { return null; }
+        return seconds > 0 ? seconds : null;
+    }
+
+    func _session_cookie_attrs(max_age = null) {
+        var attrs = Cookies.session_attrs(
+            this.session_cookie_path,
+            max_age,
+            this.session_cookie_secure,
+            this.session_cookie_same_site
+        );
+
+        if (!this.session_cookie_http_only) {
+            attrs["HttpOnly"] = false;
+        }
+
+        return attrs;
+    }
+
+    func _session_cookie_max_age(session = null) {
+        var remember_seconds = this._session_remember_seconds(session);
+        if (remember_seconds != null && remember_seconds > 0) {
+            return remember_seconds;
+        }
+
+        if (this.session_cookie_persistent && this.session_idle_seconds != null && this.session_idle_seconds > 0) {
+            return this.session_idle_seconds;
+        }
+
+        return null;
+    }
+
+    func _session_cookie_header(sid, session = null) {
+        var max_age = this._session_cookie_max_age(session);
+        var value = sid;
+        if (this.session_cookie_signing_secret != null) {
+            value = Cookies.sign_value(this.session_cookie_name, sid, this.session_cookie_signing_secret);
+        }
+        return Cookies.serialize(this.session_cookie_name, value, this._session_cookie_attrs(max_age));
+    }
+
+    func _expire_session_cookie_header() {
+        var attrs = this._session_cookie_attrs(null);
+        attrs["Max-Age"] = 0;
+        return Cookies.serialize(this.session_cookie_name, "", attrs);
+    }
+
+    func _new_session_entry(now = null) {
+        var at = now == null ? Util.now_utc_unix_seconds() : now;
+        return {
+            "id": this._new_session_id(),
+            "data": {
+                "__csrf_token": Util.secure_token(32)
+            },
+            "created_at": at,
+            "last_seen_at": at
+        };
+    }
+
+    func _ensure_csrf_token(session) {
+        if (session == null) { return null; }
+
+        var token = session["__csrf_token"];
+        if (token == null || token == "") {
+            token = Util.secure_token(32);
+            session["__csrf_token"] = token;
+        }
+        return token;
+    }
+
+    func _is_session_expired(entry, now) {
+        if (entry == null) { return true; }
+
+        var last_seen = entry["last_seen_at"];
+        var created_at = entry["created_at"];
+
+        if (this.session_idle_seconds != null && this.session_idle_seconds > 0 && last_seen != null) {
+            if ((now - last_seen) > this.session_idle_seconds) {
+                return true;
+            }
+        }
+
+        if (this.session_absolute_seconds != null && this.session_absolute_seconds > 0 && created_at != null) {
+            if ((now - created_at) > this.session_absolute_seconds) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    func _prune_sessions(now = null) {
+        var at = now == null ? Util.now_utc_unix_seconds() : now;
+        if (this.session_store != null) {
+            this.session_store.prune(at, this.session_idle_seconds, this.session_absolute_seconds);
+        }
+        return this._refresh_session_alias();
     }
 
     func _ensure_session_defaults(session) {
@@ -328,48 +1098,510 @@ export class ServerApp(port)
         }
     }
 
-    func _session_for(req) {
-        var cookies = Util.parse_cookies(Util.header(req.headers, "Cookie"));
-        var sid = cookies["cfs_sid"];
-        var is_new = false;
+    func rotate_session(ctx) {
+        var now = Util.now_utc_unix_seconds();
+        var data = ctx.session == null ? {} : ctx.session;
+        data["__csrf_token"] = Util.secure_token(32);
 
-        if (sid == null || sid == "" || !this.sessions.contains(sid)) {
-            sid = this._new_session_id();
-            this.sessions[sid] = {};
-            is_new = true;
+        var next_sid = this._new_session_id();
+        var next_entry = {
+            "id": next_sid,
+            "data": data,
+            "created_at": now,
+            "last_seen_at": now
+        };
+        this._session_store_save(next_sid, next_entry);
+
+        if (ctx.sid != null && ctx.sid != "") {
+            this._session_store_remove(ctx.sid);
         }
 
-        var session = this.sessions[sid];
+        ctx["sid"] = next_sid;
+        ctx["session"] = data;
+        ctx["session_entry"] = next_entry;
+        ctx["cookie_header"] = this._session_cookie_header(next_sid, data);
+        return next_sid;
+    }
+
+    func remember_session(ctx, seconds = null) {
+        if (ctx == null || ctx.session == null || ctx.sid == null || ctx.sid == "") {
+            return null;
+        }
+
+        var ttl = seconds == null ? this.session_idle_seconds : seconds;
+        if (ttl == null || ttl <= 0) {
+            ctx.session[this._internal_remember_key()] = null;
+        } else {
+            ctx.session[this._internal_remember_key()] = ttl;
+        }
+
+        ctx["cookie_header"] = this._session_cookie_header(ctx.sid, ctx.session);
+        return this._session_remember_seconds(ctx.session);
+    }
+
+    func forget_session(ctx) {
+        if (ctx == null || ctx.session == null || ctx.sid == null || ctx.sid == "") {
+            return 0;
+        }
+
+        ctx.session[this._internal_remember_key()] = null;
+        ctx["cookie_header"] = this._session_cookie_header(ctx.sid, ctx.session);
+        return 1;
+    }
+
+    func logout_session(ctx, fresh = true) {
+        if (ctx == null) { return null; }
+
+        var old_sid = ctx.sid;
+        if (old_sid != null && old_sid != "") {
+            this._session_store_remove(old_sid);
+        }
+
+        if (!fresh) {
+            ctx["sid"] = null;
+            ctx["session"] = {};
+            ctx["session_entry"] = null;
+            ctx["cookie_header"] = this._expire_session_cookie_header();
+            return null;
+        }
+
+        var now = Util.now_utc_unix_seconds();
+        var entry = this._new_session_entry(now);
+        var sid = entry["id"];
+        this._ensure_session_defaults(entry["data"]);
+        this._ensure_csrf_token(entry["data"]);
+        this._session_store_save(sid, entry);
+
+        ctx["sid"] = sid;
+        ctx["session"] = entry["data"];
+        ctx["session_entry"] = entry;
+        ctx["flash"] = {};
+        ctx["old"] = {};
+        ctx["old_errors"] = {};
+        ctx["messages"] = this._session_public_messages(entry["data"]);
+        ctx["cookie_header"] = this._session_cookie_header(sid, entry["data"]);
+        return sid;
+    }
+
+    func _session_for(req) {
+        var now = Util.now_utc_unix_seconds();
+        this._prune_sessions(now);
+
+        var sid = null;
+        if (this.session_cookie_signing_secret != null) {
+            sid = Cookies.read_signed({"req":req}, this.session_cookie_name, this.session_cookie_signing_secret, null);
+        } else {
+            var cookies = Util.parse_cookies(Util.header(req.headers, "Cookie"));
+            sid = cookies[this.session_cookie_name];
+        }
+        var entry = sid == null || sid == "" ? null : this._session_store_load(sid);
+
+        if (entry == null || this._is_session_expired(entry, now)) {
+            entry = this._new_session_entry(now);
+            sid = entry["id"];
+        } else {
+            entry["last_seen_at"] = now;
+        }
+
+        var session = entry["data"];
+        if (session == null) {
+            session = {};
+            entry["data"] = session;
+        }
+
         this._ensure_session_defaults(session);
+        this._ensure_csrf_token(session);
         session["visits"] = session["visits"] + 1;
+        entry["data"] = session;
+        this._session_store_save(sid, entry);
 
         return {
             "sid": sid,
             "data": session,
-            "cookie_header": is_new ? "cfs_sid=" + sid + "; Path=/; HttpOnly; SameSite=Lax" : null
+            "entry": entry,
+            "cookie_header": this._session_cookie_header(sid, session)
         };
     }
 
-    func _parse_body(req) {
-        var raw = req.body == null ? "" : req.body;
-        if (raw == "") { return {}; }
+    func _persist_session(ctx) {
+        if (ctx == null) { return 0; }
 
-        var ct = Util.header(req.headers, "Content-Type");
-        ct = ct == null ? "" : str(ct).lower();
+        var sid = ctx.sid;
+        var entry = ctx.session_entry;
+        if (sid == null || sid == "" || entry == null) { return 0; }
 
-        if (ct.contains("application/x-www-form-urlencoded")) {
-            return Util.parse_query(raw);
+        entry["id"] = sid;
+        entry["data"] = ctx.session == null ? {} : ctx.session;
+        if (entry["last_seen_at"] == null) {
+            entry["last_seen_at"] = Util.now_utc_unix_seconds();
         }
 
-        if (ct.contains("application/json")) {
-            try {
-                return fromjson(raw);
-            } catch (e) {
-                return {"_raw": raw, "_parse_error": e.message()};
+        ctx["session_entry"] = this._session_store_save(sid, entry);
+        return 1;
+    }
+
+    func _take_flash(session) {
+        if (session == null) { return {}; }
+
+        var flash = session["__flash"];
+        if (flash == null) {
+            session["__flash"] = {};
+            return {};
+        }
+
+        session["__flash"] = {};
+        return flash;
+    }
+
+    func _flash_store(session) {
+        if (session == null) { return null; }
+
+        var flash = session["__flash"];
+        if (flash == null) {
+            flash = {};
+            session["__flash"] = flash;
+        }
+        return flash;
+    }
+
+    func _internal_old_input_key() {
+        return "__cfs_old_input";
+    }
+
+    func _internal_old_errors_key() {
+        return "__cfs_old_errors";
+    }
+
+    func _dict_or_empty(value) {
+        if (value != null && typeof(value) == "Dictionary") {
+            return value;
+        }
+        return {};
+    }
+
+    func _empty_request_data() {
+        return {
+            "form": {},
+            "uploads": {}
+        };
+    }
+
+    func _positive_int_or_null(value) {
+        var parsed = Util.parse_int(value, null);
+        if (parsed == null || parsed <= 0) {
+            return null;
+        }
+        return parsed;
+    }
+
+    func _trusted_proxy_key(value) {
+        if (value == null) { return null; }
+
+        var text = str(value).trim();
+        if (text == "") { return null; }
+        if (text == "*") { return "*"; }
+
+        var remote = Util.remote_host(text, null);
+        if (remote != null && remote != "") {
+            return str(remote).lower();
+        }
+
+        var authority_host = Util.authority_host(text, null);
+        if (authority_host != null && authority_host != "") {
+            return str(authority_host).lower();
+        }
+
+        return null;
+    }
+
+    func _normalize_trusted_proxies(values) {
+        var result = {};
+        if (values == null) { return result; }
+
+        if (typeof(values) == "Array") {
+            var i = 0;
+            while (i < len(values)) {
+                var key = this._trusted_proxy_key(values[i]);
+                if (key != null) {
+                    result[key] = true;
+                }
+                i = i + 1;
+            }
+            return result;
+        }
+
+        if (typeof(values) == "Dictionary") {
+            foreach (var k, v in values) {
+                if (v != null && v != false) {
+                    var key2 = this._trusted_proxy_key(k);
+                    if (key2 != null) {
+                        result[key2] = true;
+                    }
+                }
+            }
+            return result;
+        }
+
+        var single = this._trusted_proxy_key(values);
+        if (single != null) {
+            result[single] = true;
+        }
+        return result;
+    }
+
+    func _is_trusted_proxy(remote_host) {
+        if (this.trusted_proxies == null) { return false; }
+        if (this.trusted_proxies["*"] == true) { return true; }
+
+        var key = this._trusted_proxy_key(remote_host);
+        if (key == null) { return false; }
+        return this.trusted_proxies[key] == true;
+    }
+
+    func _forwarded_chain(req, remote_host = null) {
+        var chain = [];
+        var values = Util.csv_values(Util.header(req.headers, "X-Forwarded-For"));
+
+        var i = 0;
+        while (i < len(values)) {
+            var key = this._trusted_proxy_key(values[i]);
+            if (key == null || key == "") {
+                key = str(values[i]).trim().lower();
+            }
+            if (key != null && key != "") {
+                chain[] = key;
+            }
+            i = i + 1;
+        }
+
+        var actual_remote = this._trusted_proxy_key(remote_host);
+        if (actual_remote != null && actual_remote != "") {
+            chain[] = actual_remote;
+        }
+
+        return chain;
+    }
+
+    func _request_client_ip(req, remote_host = null) {
+        var actual_remote = this._trusted_proxy_key(remote_host);
+        if (!this._is_trusted_proxy(actual_remote)) {
+            return actual_remote;
+        }
+
+        var chain = this._forwarded_chain(req, actual_remote);
+        var i = len(chain) - 1;
+        while (i >= 0) {
+            var current = chain[i];
+            if (!this._is_trusted_proxy(current)) {
+                return current;
+            }
+            i = i - 1;
+        }
+
+        return len(chain) == 0 ? actual_remote : chain[0];
+    }
+
+    func _request_scheme(req, remote_host = null) {
+        if (this._is_trusted_proxy(remote_host)) {
+            var forwarded = Util.first_csv_value(Util.header(req.headers, "X-Forwarded-Proto"), null);
+            if (forwarded != null) {
+                var lower = str(forwarded).trim().lower();
+                if (lower == "http" || lower == "https") {
+                    return lower;
+                }
             }
         }
 
-        return {"_raw": raw};
+        return "http";
+    }
+
+    func _request_host(req, remote_host = null) {
+        if (this._is_trusted_proxy(remote_host)) {
+            var forwarded = Util.first_csv_value(Util.header(req.headers, "X-Forwarded-Host"), null);
+            var forwarded_host = Util.normalize_authority(forwarded, null);
+            if (forwarded_host != null) {
+                return forwarded_host;
+            }
+        }
+
+        return Util.normalize_authority(Util.header(req.headers, "Host"), null);
+    }
+
+    func _request_meta(req) {
+        var remote = req["remote"];
+        var remote_host = this._trusted_proxy_key(remote);
+        var trusted = this._is_trusted_proxy(remote_host);
+        var host = this._request_host(req, remote_host);
+        var scheme = this._request_scheme(req, remote_host);
+
+        return {
+            "remote": remote,
+            "remote_host": remote_host,
+            "trusted_proxy": trusted,
+            "client_ip": this._request_client_ip(req, remote_host),
+            "host": host,
+            "scheme": scheme,
+            "origin": Util.build_origin(scheme, host)
+        };
+    }
+
+    func _route_max_body_bytes(route) {
+        if (route == null) {
+            return this.max_body_bytes;
+        }
+
+        var options = route["options"];
+        if (options != null && options.contains("max_body_bytes")) {
+            return this._positive_int_or_null(options["max_body_bytes"]);
+        }
+
+        return this.max_body_bytes;
+    }
+
+    func _request_body_bytes(req) {
+        var raw = req == null || req.body == null ? "" : req.body;
+        var actual = Util.utf8_size(raw);
+        var declared = Util.parse_int(Util.header(req.headers, "Content-Length"), null);
+
+        if (declared != null && declared > actual) {
+            return declared;
+        }
+
+        return actual;
+    }
+
+    func _flash_public_values(flash) {
+        var values = {};
+        if (flash == null) { return values; }
+
+        foreach (var k, v in flash) {
+            if (k == this._internal_old_input_key() || k == this._internal_old_errors_key()) {
+                continue;
+            }
+            values[k] = v;
+        }
+
+        return values;
+    }
+
+    func _flash_old_values(flash) {
+        if (flash == null) { return {}; }
+        return this._dict_or_empty(flash[this._internal_old_input_key()]);
+    }
+
+    func _flash_old_errors(flash) {
+        if (flash == null) { return {}; }
+        return this._dict_or_empty(flash[this._internal_old_errors_key()]);
+    }
+
+    func flash(ctx, name, value) {
+        if (ctx == null || name == null || name == "") { return value; }
+
+        var session = ctx.session;
+        if (session == null) { return value; }
+
+        var flash = this._flash_store(session);
+        flash[name] = value;
+        return value;
+    }
+
+    func session_message(ctx, name, value) {
+        if (ctx == null || name == null || name == "") { return value; }
+
+        var session = ctx.session;
+        if (session == null) { return value; }
+
+        var messages = this._session_messages_store(session);
+        messages[name] = value;
+        ctx["messages"] = messages;
+        return value;
+    }
+
+    func clear_session_message(ctx, name = null) {
+        if (ctx == null || ctx.session == null) { return 0; }
+
+        if (name == null) {
+            ctx.session[this._internal_session_messages_key()] = {};
+            ctx["messages"] = ctx.session[this._internal_session_messages_key()];
+            return 1;
+        }
+
+        var messages = this._session_messages_store(ctx.session);
+        messages[name] = null;
+        ctx["messages"] = messages;
+        return 1;
+    }
+
+    func remember_old_input(ctx, values = null, errors = null) {
+        if (ctx == null || ctx.session == null) { return values; }
+
+        var flash = this._flash_store(ctx.session);
+        var old_values = values == null ? ctx.form : values;
+        flash[this._internal_old_input_key()] = this._dict_or_empty(old_values);
+        flash[this._internal_old_errors_key()] = this._dict_or_empty(errors);
+        return old_values;
+    }
+
+    func _parse_request_payload(req) {
+        var raw = req.body == null ? "" : req.body;
+        if (raw == "") {
+            return {
+                "form": {},
+                "uploads": {}
+            };
+        }
+
+        var ct = Util.header(req.headers, "Content-Type");
+        ct = ct == null ? "" : str(ct);
+        var ct_lower = ct.lower();
+
+        if (ct_lower.contains("application/x-www-form-urlencoded")) {
+            return {
+                "form": Util.parse_query(raw),
+                "uploads": {}
+            };
+        }
+
+        if (ct_lower.contains("multipart/form-data")) {
+            var boundary = Util.header_param(ct, "boundary");
+            if (boundary != null && boundary != "") {
+                var parsed = Util.parse_multipart(raw, boundary);
+                return {
+                    "form": this._dict_or_empty(parsed["fields"]),
+                    "uploads": this._dict_or_empty(parsed["files"])
+                };
+            }
+            return {
+                "form": {"_raw": raw, "_parse_error":"Missing multipart boundary."},
+                "uploads": {}
+            };
+        }
+
+        if (ct_lower.contains("application/json")) {
+            try {
+                return {
+                    "form": fromjson(raw),
+                    "uploads": {}
+                };
+            } catch (e) {
+                return {
+                    "form": {"_raw": raw, "_parse_error": e.message()},
+                    "uploads": {}
+                };
+            }
+        }
+
+        if (ct_lower.contains("text/plain")) {
+            return {
+                "form": {"_raw": raw, "_text": raw},
+                "uploads": {}
+            };
+        }
+
+        return {
+            "form": {"_raw": raw},
+            "uploads": {}
+        };
     }
 
     func _read_query(req) {
@@ -381,24 +1613,84 @@ export class ServerApp(port)
         return q;
     }
 
-    func _context(req) {
+    func _context(req, request_data = null, request_body_bytes = null) {
         var session_info = this._session_for(req);
+        var body_data = request_data == null ? this._parse_request_payload(req) : request_data;
+        var body_bytes = request_body_bytes == null ? this._request_body_bytes(req) : request_body_bytes;
+        var request_meta = this._request_meta(req);
+        var flash = this._take_flash(session_info["data"]);
         var ctx = {
             "app": this,
             "req": req,
+            "remote": request_meta["remote"],
+            "client_ip": request_meta["client_ip"],
+            "host": request_meta["host"],
+            "scheme": request_meta["scheme"],
+            "origin": request_meta["origin"],
+            "trusted_proxy": request_meta["trusted_proxy"],
             "sid": session_info["sid"],
             "session": session_info["data"],
+            "session_entry": session_info["entry"],
             "shared": this.shared,
+            "flash": this._flash_public_values(flash),
+            "messages": this._session_public_messages(session_info["data"]),
+            "old": this._flash_old_values(flash),
+            "old_errors": this._flash_old_errors(flash),
             "query": this._read_query(req),
-            "form": this._parse_body(req),
+            "form": body_data["form"],
+            "uploads": body_data["uploads"],
             "params": {},
             "locals": {},
             "route": null,
-            "cookie_header": session_info["cookie_header"]
+            "cookie_header": session_info["cookie_header"],
+            "request_body_bytes": body_bytes,
+            "max_body_bytes": null,
+            "request_too_large": false
         };
         ctx["request"] = new RequestView(ctx);
         ctx["response"] = new ResponseView(ctx);
         return ctx;
+    }
+
+    func _is_unsafe_method(method) {
+        var upper = method == null ? "" : str(method).upper();
+        return upper == "POST" || upper == "PUT" || upper == "PATCH" || upper == "DELETE";
+    }
+
+    func _route_requires_csrf(route) {
+        if (!this.enforce_csrf) { return false; }
+        if (route == null) { return false; }
+
+        var options = route["options"];
+        if (options == null) { return true; }
+
+        var csrf = options["csrf"];
+        return csrf == null ? true : csrf != false;
+    }
+
+    func _request_looks_like_browser_form(ctx) {
+        var ct = Util.header(ctx.req.headers, "Content-Type");
+        ct = ct == null ? "" : str(ct).lower();
+
+        if (ct.contains("application/x-www-form-urlencoded")) { return true; }
+        if (ct.contains("multipart/form-data")) { return true; }
+
+        return ctx.form != null && typeof(ctx.form) == "Dictionary" && ctx.form[this.csrf_field_name] != null;
+    }
+
+    func _csrf_failure(ctx) {
+        return this._default_error_response(ctx, 403, "Forbidden", null, {"Cache-Control":"no-store"});
+    }
+
+    func _validate_csrf(ctx) {
+        var expected = this._ensure_csrf_token(ctx.session);
+        var actual = ctx.form[this.csrf_field_name];
+
+        if (actual == null || !Util.safe_compare(actual, expected)) {
+            return this._csrf_failure(ctx);
+        }
+
+        return null;
     }
 
     func _match_route(pattern, path) {
@@ -441,21 +1733,280 @@ export class ServerApp(port)
         return params;
     }
 
-    func _dispatch(ctx) {
+    func _match_request_route(method, path) {
+        var wanted_method = method == null ? "" : str(method).upper();
+        var head_fallback = null;
+
         var i = 0;
         while (i < len(this.routes)) {
             var route = this.routes[i];
-            if (route["method"] == ctx.req.method) {
-                var params = this._match_route(route["pattern"], ctx.req.path);
+            var route_method = route["method"];
+
+            if (route_method == wanted_method) {
+                var params = this._match_route(route["pattern"], path);
                 if (params != null) {
-                    ctx["params"] = params;
-                    ctx["route"] = route;
-                    return route["handler"](ctx);
+                    return {
+                        "route": route,
+                        "params": params
+                    };
                 }
+            } else if (wanted_method == "HEAD" && route_method == "GET" && head_fallback == null) {
+                var fallback_params = this._match_route(route["pattern"], path);
+                if (fallback_params != null) {
+                    head_fallback = {
+                        "route": route,
+                        "params": fallback_params
+                    };
+                }
+            }
+
+            i = i + 1;
+        }
+
+        return head_fallback;
+    }
+
+    func _record_allowed_method(methods, method) {
+        var upper = method == null ? "" : str(method).upper();
+        if (upper == "") { return methods; }
+
+        methods[upper] = true;
+        if (upper == "GET") {
+            methods["HEAD"] = true;
+        }
+
+        return methods;
+    }
+
+    func _merge_allowed_methods(target, source) {
+        if (source == null) { return target; }
+
+        foreach (var k, v in source) {
+            if (v == true) {
+                target[k] = true;
+            }
+        }
+
+        return target;
+    }
+
+    func _allowed_methods_for_routes(path) {
+        var found = false;
+        var methods = {};
+
+        var i = 0;
+        while (i < len(this.routes)) {
+            var route = this.routes[i];
+            if (this._match_route(route["pattern"], path) != null) {
+                found = true;
+                this._record_allowed_method(methods, route["method"]);
             }
             i = i + 1;
         }
-        return null;
+
+        return found ? methods : null;
+    }
+
+    async func _allowed_methods_for_static_async(path) {
+        var found = false;
+        var methods = {};
+
+        var i = 0;
+        while (i < len(this.static_mounts)) {
+            var mount = this.static_mounts[i];
+            var prefix = mount["prefix"];
+
+            if (Util.starts_with(path, prefix)) {
+                var rel = path.substr(len(prefix), len(path) - len(prefix));
+                var hit = await mount["loader"](rel);
+                if (hit != null) {
+                    found = true;
+                    this._record_allowed_method(methods, "GET");
+                }
+            }
+
+            i = i + 1;
+        }
+
+        return found ? methods : null;
+    }
+
+    func _allow_header_value(methods) {
+        if (methods == null) { return null; }
+
+        var ordered = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+        var parts = [];
+
+        var i = 0;
+        while (i < len(ordered)) {
+            var method = ordered[i];
+            if (methods[method] == true) {
+                parts[] = method;
+            }
+            i = i + 1;
+        }
+
+        return len(parts) == 0 ? null : Util.join(parts, ", ");
+    }
+
+    async func _allow_header_for_path_async(path) {
+        var methods = {};
+        var found = false;
+
+        var route_methods = this._allowed_methods_for_routes(path);
+        if (route_methods != null) {
+            found = true;
+            this._merge_allowed_methods(methods, route_methods);
+        }
+
+        var static_methods = await this._allowed_methods_for_static_async(path);
+        if (static_methods != null) {
+            found = true;
+            this._merge_allowed_methods(methods, static_methods);
+        }
+
+        if (!found) {
+            return null;
+        }
+
+        methods["OPTIONS"] = true;
+        return this._allow_header_value(methods);
+    }
+
+    func _request_accepts_html(req) {
+        if (req == null || req.headers == null) { return false; }
+
+        var accept = Util.header(req.headers, "Accept");
+        if (accept == null) { return false; }
+
+        var lower = str(accept).lower();
+        return lower.contains("text/html") || lower.contains("application/xhtml+xml");
+    }
+
+    func _default_error_lead(status, ctx = null) {
+        var request_desc = ctx == null || ctx.req == null
+            ? "the request"
+            : str(ctx.req.method) + " " + str(ctx.req.path);
+
+        if (status == 403) {
+            return "The request was rejected by the active security policy.";
+        }
+        if (status == 404) {
+            return "No route matched " + request_desc + ".";
+        }
+        if (status == 405) {
+            return "The target exists, but this HTTP method is not allowed for " + request_desc + ".";
+        }
+        if (status == 413) {
+            return "The request body exceeded the configured size limit for " + request_desc + ".";
+        }
+        if (status == 500) {
+            return "The server hit an unexpected error while processing " + request_desc + ".";
+        }
+
+        return "The server returned status " + str(status) + " for " + request_desc + ".";
+    }
+
+    func _default_error_response(ctx, status, title = null, detail = null, headers = null) {
+        var actual_title = title == null ? ServerApp._error_reason(status, "Error") : title;
+        var hdr = headers == null ? {} : headers;
+
+        if ((status == 403 || status == 413 || status == 429 || status == 500) && hdr["Cache-Control"] == null) {
+            hdr["Cache-Control"] = "no-store";
+        }
+
+        if (this._request_accepts_html(ctx == null ? null : ctx.req)) {
+            return ServerApp.error_page(
+                status,
+                actual_title,
+                this._default_error_lead(status, ctx),
+                detail,
+                hdr
+            );
+        }
+
+        return ServerApp.text(actual_title, status, hdr);
+    }
+
+    func _default_exception_response(ctx, err) {
+        if (this.debug_errors) {
+            if (this._request_accepts_html(ctx == null ? null : ctx.req)) {
+                return ServerApp.debug_page(err, ctx, 500, null, null, {"Cache-Control":"no-store"});
+            }
+
+            return ServerApp.text("Internal Server Error\n" + str(err), 500, {"Cache-Control":"no-store"});
+        }
+
+        return this._default_error_response(ctx, 500, "Internal Server Error", null, {"Cache-Control":"no-store"});
+    }
+
+    func _fallback_exception_response(req, err) {
+        if (this.debug_errors && this._request_accepts_html(req)) {
+            return ServerApp.error_page(
+                500,
+                "Internal Server Error",
+                "The server hit an unexpected error before a full error context could be built.",
+                str(err),
+                {"Cache-Control":"no-store"}
+            );
+        }
+
+        if (this._request_accepts_html(req)) {
+            return ServerApp.error_page(
+                500,
+                "Internal Server Error",
+                "The server hit an unexpected error before a full error context could be built.",
+                null,
+                {"Cache-Control":"no-store"}
+            );
+        }
+
+        return this.debug_errors
+            ? ServerApp.text("Internal Server Error\n" + str(err), 500, {"Cache-Control":"no-store"})
+            : ServerApp.text("Internal Server Error", 500, {"Cache-Control":"no-store"});
+    }
+
+    func _method_not_allowed(ctx, allow_header) {
+        var detail = allow_header == null ? null : "Allowed methods: " + allow_header;
+        return this._default_error_response(ctx, 405, "Method Not Allowed", detail, {"Allow": allow_header});
+    }
+
+    func _automatic_options(allow_header) {
+        return ServerApp.empty(204, {"Allow": allow_header});
+    }
+
+    func _payload_too_large_response(ctx) {
+        var detail = null;
+        if (ctx != null && ctx["max_body_bytes"] != null) {
+            detail =
+                "Configured limit: " + str(ctx["max_body_bytes"]) +
+                " bytes. Received: " + str(ctx["request_body_bytes"]) + " bytes.";
+        }
+        return this._default_error_response(ctx, 413, "Payload Too Large", detail, {"Cache-Control":"no-store"});
+    }
+
+    func _not_found_response(ctx) {
+        return this._default_error_response(ctx, 404, "Not Found");
+    }
+
+    func _dispatch(ctx) {
+        var hit = this._match_request_route(ctx.req.method, ctx.req.path);
+        if (hit == null) {
+            return null;
+        }
+
+        var route = hit["route"];
+        ctx["params"] = hit["params"];
+        ctx["route"] = route;
+
+        if (this._route_requires_csrf(route) && this._is_unsafe_method(ctx.req.method) && this._request_looks_like_browser_form(ctx)) {
+            var csrf_res = this._validate_csrf(ctx);
+            if (csrf_res != null) {
+                return csrf_res;
+            }
+        }
+
+        return route["handler"](ctx);
     }
 
     func _run_befores(ctx) {
@@ -495,16 +2046,20 @@ export class ServerApp(port)
         return null;
     }
 
-    func _static_response(hit, rel, max_age) {
+    func _static_response(hit, rel, max_age, req = null) {
         var status = 200;
         var headers = {};
         var body = hit;
         var content_type = Util.content_type_from_path(rel);
+        var etag = null;
+        var last_modified = null;
 
         if (typeof(hit) != "String") {
             status = hit["status"] == null ? 200 : hit["status"];
             headers = hit["headers"] == null ? {} : hit["headers"];
             body = hit["data"] == null ? hit["body"] : hit["data"];
+            etag = hit["etag"];
+            last_modified = hit["last_modified"];
 
             if (hit["content_type"] != null) {
                 content_type = hit["content_type"];
@@ -513,15 +2068,61 @@ export class ServerApp(port)
             }
         }
 
+        if (etag == null && headers["ETag"] != null) {
+            etag = headers["ETag"];
+        }
+
+        if (last_modified == null && headers["Last-Modified"] != null) {
+            last_modified = headers["Last-Modified"];
+        }
+
+        if (etag == null && typeof(body) == "String") {
+            etag = Util.etag_for(body);
+        }
+
+        if (etag != null && headers["ETag"] == null) {
+            headers["ETag"] = etag;
+        }
+
+        if (last_modified != null) {
+            var http_last_modified = Util.http_date(last_modified);
+            if (http_last_modified != null && http_last_modified != "") {
+                headers["Last-Modified"] = http_last_modified;
+                last_modified = http_last_modified;
+            }
+        }
+
         if (max_age != null && headers["Cache-Control"] == null) {
             headers["Cache-Control"] = "public, max-age=" + str(max_age);
+        }
+
+        var if_none_match = req == null ? null : Util.header(req.headers, "If-None-Match");
+        if (status == 200 && etag != null && Util.etag_matches(if_none_match, etag)) {
+            return ServerApp.response(304, "", null, headers);
+        }
+
+        var has_if_none_match = if_none_match != null && str(if_none_match).trim() != "";
+        if (!has_if_none_match && status == 200 && last_modified != null) {
+            var if_modified_since_raw = req == null ? null : Util.header(req.headers, "If-Modified-Since");
+            if (if_modified_since_raw != null && str(if_modified_since_raw).trim() != "") {
+                var if_modified_since = Util.parse_http_date(if_modified_since_raw);
+                var last_modified_unix = Util.parse_http_date(last_modified);
+
+                if (if_modified_since != null && last_modified_unix != null && if_modified_since >= last_modified_unix) {
+                    return ServerApp.response(304, "", null, headers);
+                }
+
+                if (last_modified_unix == null && str(if_modified_since_raw).trim() == str(last_modified).trim()) {
+                    return ServerApp.response(304, "", null, headers);
+                }
+            }
         }
 
         return ServerApp.response(status, body, content_type, headers);
     }
 
     func _try_static(ctx) {
-        if (ctx.req.method != "GET") {
+        if (ctx.req.method != "GET" && ctx.req.method != "HEAD") {
             return null;
         }
 
@@ -534,7 +2135,7 @@ export class ServerApp(port)
                 var rel = ctx.req.path.substr(len(prefix), len(ctx.req.path) - len(prefix));
                 var hit = mount["loader"](rel);
                 if (hit != null) {
-                    return this._static_response(hit, rel, mount["max_age"]);
+                    return this._static_response(hit, rel, mount["max_age"], ctx.req);
                 }
             }
 
@@ -556,50 +2157,297 @@ export class ServerApp(port)
         return hdr;
     }
 
-    func handle(req) {
-        var ctx = this._context(req);
-        try {
-            var res = this._run_befores(ctx);
-            if (res == null) {
-                res = this._try_static(ctx);
+    func _strip_body_headers(headers) {
+        var kept = {};
+        if (headers == null) { return kept; }
+
+        foreach (var k, v in headers) {
+            var lower = str(k).lower();
+            if (lower == "content-type" || lower == "content-length") {
+                continue;
             }
-            if (res == null) {
-                res = this._dispatch(ctx);
+            kept[k] = v;
+        }
+
+        return kept;
+    }
+
+    func _is_bodyless_status(status) {
+        var code = status == null ? 200 : status;
+        if (code >= 100 && code < 200) { return true; }
+        return code == 204 || code == 304;
+    }
+
+    func _finalize_response(ctx, res) {
+        var current = res == null ? {} : res;
+        this._persist_session(ctx);
+        var hdr = this._finalize_headers(ctx, current["headers"]);
+
+        if (ctx.req.method == "HEAD") {
+            current["body"] = "";
+            current["headers"] = hdr;
+            return current;
+        }
+
+        if (this._is_bodyless_status(current["status"])) {
+            current["body"] = "";
+            current["headers"] = this._strip_body_headers(hdr);
+            return current;
+        }
+
+        current["headers"] = hdr;
+        return current;
+    }
+
+    func _request_key(req_id) {
+        return req_id == null ? "" : str(req_id);
+    }
+
+    func _track_pending_request(req_id, task_value = null) {
+        var key = this._request_key(req_id);
+        this.pending_requests[key] = {
+            "started_at": Util.now_utc_unix_milliseconds(),
+            "task": task_value
+        };
+        return this.pending_requests[key];
+    }
+
+    func _clear_pending_request(req_id) {
+        this.pending_requests[this._request_key(req_id)] = null;
+        return 1;
+    }
+
+    func _prune_pending_requests() {
+        var kept = {};
+        foreach (var k, v in this.pending_requests) {
+            if (v != null) {
+                kept[k] = v;
             }
-            if (res == null) {
-                res = ServerApp.text("Not Found", 404);
+        }
+        this.pending_requests = kept;
+        return this.pending_requests;
+    }
+
+    func _pending_request_count() {
+        var count = 0;
+        foreach (var k, v in this.pending_requests) {
+            if (v != null) {
+                count = count + 1;
             }
-            res = this._run_afters(ctx, res);
-            res["headers"] = this._finalize_headers(ctx, res["headers"]);
+        }
+        return count;
+    }
+
+    async func _run_befores_async(ctx) {
+        var i = 0;
+        while (i < len(this.befores)) {
+            var res = await this.befores[i](ctx);
+            if (res != null) {
+                return res;
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    async func _run_afters_async(ctx, res) {
+        var current = res;
+        var i = 0;
+        while (i < len(this.afters)) {
+            var next = await this.afters[i](ctx, current);
+            if (next != null) {
+                current = next;
+            }
+            i = i + 1;
+        }
+        return current;
+    }
+
+    async func _run_errors_async(ctx, err) {
+        var i = 0;
+        while (i < len(this.errors)) {
+            var res = await this.errors[i](ctx, err);
+            if (res != null) {
+                return res;
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    async func _try_static_async(ctx) {
+        if (ctx.req.method != "GET" && ctx.req.method != "HEAD") {
+            return null;
+        }
+
+        var i = 0;
+        while (i < len(this.static_mounts)) {
+            var mount = this.static_mounts[i];
+            var prefix = mount["prefix"];
+
+            if (Util.starts_with(ctx.req.path, prefix)) {
+                var rel = ctx.req.path.substr(len(prefix), len(ctx.req.path) - len(prefix));
+                var hit = await mount["loader"](rel);
+                if (hit != null) {
+                    return this._static_response(hit, rel, mount["max_age"], ctx.req);
+                }
+            }
+
+            i = i + 1;
+        }
+
+        return null;
+    }
+
+    async func _dispatch_async(ctx) {
+        var hit = this._match_request_route(ctx.req.method, ctx.req.path);
+        if (hit == null) {
+            return null;
+        }
+
+        var route = hit["route"];
+        ctx["params"] = hit["params"];
+        ctx["route"] = route;
+
+        if (this._route_requires_csrf(route) && this._is_unsafe_method(ctx.req.method) && this._request_looks_like_browser_form(ctx)) {
+            var csrf_res = this._validate_csrf(ctx);
+            if (csrf_res != null) {
+                return csrf_res;
+            }
+        }
+
+        return await route["handler"](ctx);
+    }
+
+    async func _dispatch_with_http_semantics_async(ctx) {
+        var res = await this._dispatch_async(ctx);
+        if (res != null) {
             return res;
-        } catch (e) {
-            var err_res = this._run_errors(ctx, e);
-            if (err_res == null) {
-                err_res = ServerApp.text("Internal Server Error\n" + str(e), 500);
+        }
+
+        var allow_header = await this._allow_header_for_path_async(ctx.req.path);
+        if (allow_header == null) {
+            return null;
+        }
+
+        if (ctx.req.method == "OPTIONS") {
+            return this._automatic_options(allow_header);
+        }
+
+        return this._method_not_allowed(ctx, allow_header);
+    }
+
+    async func handle(req) {
+        var route_hit = this._match_request_route(req.method, req.path);
+        var request_body_bytes = this._request_body_bytes(req);
+        var max_body_bytes = this._route_max_body_bytes(route_hit == null ? null : route_hit["route"]);
+
+        if (max_body_bytes != null && request_body_bytes > max_body_bytes) {
+            var too_large_ctx = this._context(req, this._empty_request_data(), request_body_bytes);
+            too_large_ctx["max_body_bytes"] = max_body_bytes;
+            too_large_ctx["request_too_large"] = true;
+
+            if (route_hit != null) {
+                too_large_ctx["route"] = route_hit["route"];
+                too_large_ctx["params"] = route_hit["params"];
             }
-            err_res = this._run_afters(ctx, err_res);
-            err_res["headers"] = this._finalize_headers(ctx, err_res["headers"]);
-            return err_res;
+
+            var too_large_res = this._payload_too_large_response(too_large_ctx);
+            too_large_res = await this._run_afters_async(too_large_ctx, too_large_res);
+            return this._finalize_response(too_large_ctx, too_large_res);
+        }
+
+        var ctx = this._context(req, null, request_body_bytes);
+        ctx["max_body_bytes"] = max_body_bytes;
+        try {
+            var res = await this._run_befores_async(ctx);
+            if (res == null) {
+                res = await this._try_static_async(ctx);
+            }
+            if (res == null) {
+                res = await this._dispatch_with_http_semantics_async(ctx);
+            }
+            if (res == null) {
+                res = this._not_found_response(ctx);
+            }
+            res = await this._run_afters_async(ctx, res);
+            return this._finalize_response(ctx, res);
+        } catch (e) {
+            var err_res = await this._run_errors_async(ctx, e);
+            if (err_res == null) {
+                err_res = this._default_exception_response(ctx, e);
+            }
+            err_res = await this._run_afters_async(ctx, err_res);
+            return this._finalize_response(ctx, err_res);
         }
     }
 
-    func run() {
+    async func _serve_request_async(srv, req) {
+        try {
+            var res = await this.handle(req);
+            if (res == null) {
+                res = this._fallback_exception_response(req, "No response returned");
+            }
+            if (req.method == "HEAD") {
+                res["body"] = "";
+            }
+            var _ = await srv.respond_async(req.id, res.status, res.body, res.headers);
+        } catch (e) {
+            try {
+                var fallback = this._fallback_exception_response(req, e);
+                if (req.method == "HEAD") {
+                    fallback["body"] = "";
+                }
+                var _2 = await srv.respond_async(req.id, fallback.status, fallback.body, fallback.headers);
+            } catch (respond_err) {
+                print("[ServerApp] request " + str(req.id) + " failed: " + str(e));
+            }
+        } finally {
+            this._clear_pending_request(req.id);
+        }
+        return 1;
+    }
+
+    async func _drain_pending_requests(waiter = null) {
+        var t = waiter == null ? task() : waiter;
+        while (true) {
+            this._prune_pending_requests();
+            if (this._pending_request_count() == 0) {
+                return 1;
+            }
+            var _ = await t.delay(5);
+        }
+    }
+
+    async func run() {
         this.stop_requested = false;
+        this.pending_requests = {};
         var srv = http_server(this.port).start();
+        var waiter = task();
 
         print("ServerApp running on http://localhost:" + str(this.port) + "/");
 
         while (srv.is_running() && !this.stop_requested) {
-            var req = srv.poll(1000);
-            if (req == null) { continue; }
+            var req = await srv.poll_async(100);
+            if (req == null) {
+                this._prune_pending_requests();
+                var _idle = await waiter.delay(1);
+                continue;
+            }
 
-            var res = this.handle(req);
-            srv.respond(req.id, res.status, res.body, res.headers);
+            this._track_pending_request(req.id, null);
+            var request_task = this._serve_request_async(srv, req);
+            var request_key = this._request_key(req.id);
+            if (this.pending_requests[request_key] != null) {
+                this.pending_requests[request_key]["task"] = request_task;
+            }
         }
 
-        srv.stop();
-        srv.close();
+        var _drain = await this._drain_pending_requests(waiter);
+        var _stop = await srv.stop_async();
+        var _close = await srv.close_async();
         print("ServerApp stopped");
+        return 1;
     }
 }
 
@@ -645,23 +2493,23 @@ export class RouteGroup(app, prefix)
         var before_list = this.befores;
         var after_list = this.afters;
 
-        return func(ctx) {
+        return async func(ctx) {
             var res = null;
 
             var i = 0;
             while (i < len(before_list)) {
-                res = before_list[i](ctx);
+                res = await before_list[i](ctx);
                 if (res != null) { break; }
                 i = i + 1;
             }
 
             if (res == null) {
-                res = handler(ctx);
+                res = await handler(ctx);
             }
 
             var j = 0;
             while (j < len(after_list)) {
-                var next = after_list[j](ctx, res);
+                var next = await after_list[j](ctx, res);
                 if (next != null) {
                     res = next;
                 }
@@ -672,8 +2520,8 @@ export class RouteGroup(app, prefix)
         };
     }
 
-    func route(method, pattern, handler) {
-        this.app.route(method, this._join(pattern), this._wrap(handler));
+    func route(method, pattern, handler, options = null) {
+        this.app.route(method, this._join(pattern), this._wrap(handler), null, options);
         return this;
     }
 
@@ -683,21 +2531,66 @@ export class RouteGroup(app, prefix)
         return this.name_prefix + "." + name;
     }
 
-    func get(pattern, handler) {
-        return this.route("GET", pattern, handler);
+    func get(pattern, handler, options = null) {
+        return this.route("GET", pattern, handler, options);
     }
 
-    func post(pattern, handler) {
-        return this.route("POST", pattern, handler);
+    func post(pattern, handler, options = null) {
+        return this.route("POST", pattern, handler, options);
     }
 
-    func get_named(name, pattern, handler) {
-        this.app.route("GET", this._join(pattern), this._wrap(handler), this._name(name));
+    func put(pattern, handler, options = null) {
+        return this.route("PUT", pattern, handler, options);
+    }
+
+    func patch(pattern, handler, options = null) {
+        return this.route("PATCH", pattern, handler, options);
+    }
+
+    func delete_(pattern, handler, options = null) {
+        return this.route("DELETE", pattern, handler, options);
+    }
+
+    func head(pattern, handler, options = null) {
+        return this.route("HEAD", pattern, handler, options);
+    }
+
+    func options(pattern, handler, options = null) {
+        return this.route("OPTIONS", pattern, handler, options);
+    }
+
+    func get_named(name, pattern, handler, options = null) {
+        this.app.route("GET", this._join(pattern), this._wrap(handler), this._name(name), options);
         return this;
     }
 
-    func post_named(name, pattern, handler) {
-        this.app.route("POST", this._join(pattern), this._wrap(handler), this._name(name));
+    func post_named(name, pattern, handler, options = null) {
+        this.app.route("POST", this._join(pattern), this._wrap(handler), this._name(name), options);
+        return this;
+    }
+
+    func put_named(name, pattern, handler, options = null) {
+        this.app.route("PUT", this._join(pattern), this._wrap(handler), this._name(name), options);
+        return this;
+    }
+
+    func patch_named(name, pattern, handler, options = null) {
+        this.app.route("PATCH", this._join(pattern), this._wrap(handler), this._name(name), options);
+        return this;
+    }
+
+    func delete_named(name, pattern, handler, options = null) {
+        this.app.route("DELETE", this._join(pattern), this._wrap(handler), this._name(name), options);
+        return this;
+    }
+
+    func head_named(name, pattern, handler, options = null) {
+        this.app.route("HEAD", this._join(pattern), this._wrap(handler), this._name(name), options);
+        return this;
+    }
+
+    func options_named(name, pattern, handler, options = null) {
+        this.app.route("OPTIONS", this._join(pattern), this._wrap(handler), this._name(name), options);
         return this;
     }
 
