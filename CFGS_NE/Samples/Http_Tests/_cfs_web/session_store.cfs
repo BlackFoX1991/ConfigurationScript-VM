@@ -1,0 +1,74 @@
+export class MemorySessionStore(seed)
+{
+    var session_entries = {};
+
+    func init(seed = null) {
+        if (seed != null && typeof(seed) == "Dictionary") {
+            foreach (var k, v in seed) {
+                this.session_entries[k] = v;
+            }
+        }
+    }
+
+    func _is_expired(entry, now, idle_seconds = null, absolute_seconds = null) {
+        if (entry == null) { return true; }
+
+        var last_seen = entry["last_seen_at"];
+        var created_at = entry["created_at"];
+
+        if (idle_seconds != null && idle_seconds > 0 && last_seen != null) {
+            if ((now - last_seen) > idle_seconds) {
+                return true;
+            }
+        }
+
+        if (absolute_seconds != null && absolute_seconds > 0 && created_at != null) {
+            if ((now - created_at) > absolute_seconds) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    func load(sid) {
+        if (sid == null || sid == "") { return null; }
+        return this.session_entries[sid];
+    }
+
+    func save(sid, entry) {
+        if (sid == null || sid == "") { return entry; }
+        this.session_entries[sid] = entry;
+        return entry;
+    }
+
+    func forget(sid) {
+        if (sid == null || sid == "") { return 0; }
+        this.session_entries[sid] = null;
+        return 1;
+    }
+
+    func prune(now, idle_seconds = null, absolute_seconds = null) {
+        var kept = {};
+
+        foreach (var sid, entry in this.session_entries) {
+            if (entry != null && !this._is_expired(entry, now, idle_seconds, absolute_seconds)) {
+                kept[sid] = entry;
+            }
+        }
+
+        this.session_entries = kept;
+        return this.session_entries;
+    }
+
+    func snapshot() {
+        return this.session_entries;
+    }
+}
+
+export class SessionStores
+{
+    static func memory(seed = null) {
+        return new MemorySessionStore(seed);
+    }
+}

@@ -1,0 +1,118 @@
+import { Util } from "common.cfs";
+import { ServerApp } from "server.cfs";
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, body = "", headers = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8096"} : headers,
+        "body": body
+    };
+}
+
+func parse_url_query(url) {
+    var qmark = str(url).indexOf("?");
+    if (qmark < 0) { return {}; }
+    return Util.parse_query(str(url).substr(qmark + 1, len(str(url)) - (qmark + 1)));
+}
+
+async func main() {
+    var app = new ServerApp(8096);
+    app.set_asset_version("global-build");
+    app.set_asset_versions({
+        "/static/app.css":"css-42",
+        "/images/logo.svg":"logo-7"
+    });
+
+    app.get_named("file.inline", "/file-inline", async func(ctx) {
+        return await ctx.response.file("_fixtures_static/hello.txt");
+    });
+
+    app.get_named("file.download", "/file-download", async func(ctx) {
+        return await ctx.response.download("_fixtures_static/hello.txt", "report.txt");
+    });
+
+    app.get_named("file.missing", "/file-missing", async func(ctx) {
+        return await ctx.response.file("_fixtures_static/missing.txt");
+    });
+
+    app.get_named("file.binary", "/file-binary", async func(ctx) {
+        return await ctx.response.file("_fixtures_static/fake.png");
+    });
+
+    app.get_named("asset.meta", "/asset-meta", func(ctx) {
+        return ctx.response.json({
+            "plain": ctx.request.asset("/static/app.css"),
+            "with_query": ctx.request.asset("/static/app.css", null, {"lang":"de"}),
+            "from_existing": ctx.request.asset("/static/app.css?theme=ink"),
+            "global": ctx.request.asset("/scripts/app.js"),
+            "override": ctx.request.asset("/images/logo.svg", "manual"),
+            "map_hit": ctx.request.asset("/images/logo.svg")
+        });
+    });
+
+    var inline = await app.handle(request("GET", "/file-inline"));
+    expect("inline_status", inline["status"], 200);
+    expect("inline_body", inline["body"], "Hello from filesystem static.\n");
+    expect("inline_content_type", inline["headers"]["Content-Type"], "text/plain; charset=utf-8");
+    expect_true("inline_etag_present", inline["headers"]["ETag"] != null && inline["headers"]["ETag"] != "");
+
+    var inline_head = await app.handle(request("HEAD", "/file-inline"));
+    expect("inline_head_status", inline_head["status"], 200);
+    expect("inline_head_body_empty", inline_head["body"], "");
+    expect("inline_head_content_type", inline_head["headers"]["Content-Type"], "text/plain; charset=utf-8");
+
+    var download = await app.handle(request("GET", "/file-download"));
+    expect("download_status", download["status"], 200);
+    expect("download_body", download["body"], "Hello from filesystem static.\n");
+    expect("download_disposition", download["headers"]["Content-Disposition"], "attachment; filename=\"report.txt\"");
+    expect_true("download_etag_present", download["headers"]["ETag"] != null && download["headers"]["ETag"] != "");
+
+    var cached_download = await app.handle(request("GET", "/file-download", "", {
+        "Host":"localhost:8096",
+        "If-None-Match": download["headers"]["ETag"]
+    }));
+    expect("cached_download_status", cached_download["status"], 304);
+    expect("cached_download_body_empty", cached_download["body"], "");
+    expect("cached_download_disposition_kept", cached_download["headers"]["Content-Disposition"], "attachment; filename=\"report.txt\"");
+
+    var missing = await app.handle(request("GET", "/file-missing"));
+    expect("missing_status", missing["status"], 404);
+
+    var binary = await app.handle(request("GET", "/file-binary"));
+    expect("binary_status", binary["status"], 415);
+    expect_true("binary_body_contains", str(binary["body"]).contains("Unsupported file type"));
+
+    var asset_meta = fromjson((await app.handle(request("GET", "/asset-meta")))["body"]);
+    expect("asset_plain", asset_meta["plain"], "/static/app.css?v=css-42");
+
+    var with_query = parse_url_query(asset_meta["with_query"]);
+    expect("asset_with_query_path", str(asset_meta["with_query"]).substr(0, str(asset_meta["with_query"]).indexOf("?")), "/static/app.css");
+    expect("asset_with_query_lang", with_query["lang"], "de");
+    expect("asset_with_query_version", with_query["v"], "css-42");
+
+    var from_existing = parse_url_query(asset_meta["from_existing"]);
+    expect("asset_existing_theme", from_existing["theme"], "ink");
+    expect("asset_existing_version", from_existing["v"], "css-42");
+
+    expect("asset_global", asset_meta["global"], "/scripts/app.js?v=global-build");
+    expect("asset_override", asset_meta["override"], "/images/logo.svg?v=manual");
+    expect("asset_map_hit", asset_meta["map_hit"], "/images/logo.svg?v=logo-7");
+
+    print("PHASE5_FILE_HELPERS_OK");
+}
+
+var _ = await main();

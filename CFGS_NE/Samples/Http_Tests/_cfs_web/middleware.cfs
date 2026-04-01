@@ -1,5 +1,35 @@
+import { Util } from "common.cfs";
+
 export class Middleware
 {
+    static func _ensure_response_headers(res) {
+        if (res == null) { return null; }
+
+        var headers = res["headers"];
+        if (headers == null) {
+            headers = {};
+            res["headers"] = headers;
+        }
+
+        return headers;
+    }
+
+    static func _set_headers_if_missing(headers, values) {
+        if (headers == null || values == null) { return headers; }
+
+        foreach (var k, v in values) {
+            if (v == null || v == false) {
+                continue;
+            }
+
+            if (Util.header(headers, k) == null) {
+                headers[k] = v;
+            }
+        }
+
+        return headers;
+    }
+
     static func request_logger(prefix = null) {
         var actual_prefix = prefix == null ? "" : prefix + " ";
 
@@ -27,12 +57,7 @@ export class Middleware
 
     static func header(name, value) {
         return func(ctx, res) {
-            var headers = res["headers"];
-            if (headers == null) {
-                headers = {};
-                res["headers"] = headers;
-            }
-
+            var headers = Middleware._ensure_response_headers(res);
             headers[name] = value;
             return res;
         };
@@ -40,5 +65,264 @@ export class Middleware
 
     static func no_store() {
         return Middleware.header("Cache-Control", "no-store");
+    }
+
+    static func _security_header_defaults() {
+        return {
+            "X-Content-Type-Options":"nosniff",
+            "X-Frame-Options":"DENY",
+            "Referrer-Policy":"strict-origin-when-cross-origin",
+            "Content-Security-Policy":"default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; style-src 'self' 'unsafe-inline'",
+            "Permissions-Policy":"camera=(), microphone=(), geolocation=()"
+        };
+    }
+
+    static func security_headers(overrides = null) {
+        var values = Middleware._security_header_defaults();
+        if (overrides != null) {
+            foreach (var k, v in overrides) {
+                values[k] = v;
+            }
+        }
+
+        return func(ctx, res) {
+            if (res == null) { return res; }
+
+            var headers = Middleware._ensure_response_headers(res);
+            Middleware._set_headers_if_missing(headers, values);
+            return res;
+        };
+    }
+
+    static func _rate_limit_now(now_func = null) {
+        if (now_func == null) {
+            return Util.now_utc_unix_seconds();
+        }
+
+        return Util.parse_int(now_func(), Util.now_utc_unix_seconds());
+    }
+
+    static func _rate_limit_store(ctx, shared_key) {
+        var actual_key = shared_key == null || shared_key == "" ? "__rate_limit_store" : str(shared_key);
+        var store = ctx.shared[actual_key];
+        if (store == null || typeof(store) != "Dictionary") {
+            store = {};
+            ctx.shared[actual_key] = store;
+        }
+        return store;
+    }
+
+    static func _prune_rate_limit_store(store, now) {
+        if (store == null) { return {}; }
+
+        var kept = {};
+        foreach (var k, v in store) {
+            if (v != null && v["reset_at"] != null && v["reset_at"] > now) {
+                kept[k] = v;
+            }
+        }
+        return kept;
+    }
+
+    static func _rate_limit_key(ctx) {
+        var actual = ctx.client_ip;
+        if (actual == null || actual == "") {
+            actual = Util.remote_host(ctx.req["remote"], "global");
+        }
+        return actual == null || actual == "" ? "global" : actual;
+    }
+
+    static func _rate_limit_headers_from_state(state, include_retry_after = false) {
+        if (state == null) { return {}; }
+
+        var headers = {
+            "X-RateLimit-Limit": str(state["limit"]),
+            "X-RateLimit-Remaining": str(state["remaining"]),
+            "X-RateLimit-Reset": str(state["reset_at"])
+        };
+
+        if (include_retry_after && state["retry_after"] != null) {
+            headers["Retry-After"] = str(state["retry_after"]);
+        }
+
+        return headers;
+    }
+
+    static func rate_limit(limit, window_seconds, key_func = null, options = null) {
+        var max_requests = Util.parse_int(limit, null);
+        var window = Util.parse_int(window_seconds, null);
+
+        if (max_requests == null || max_requests <= 0) {
+            throw "Middleware.rate_limit(...) requires limit > 0";
+        }
+        if (window == null || window <= 0) {
+            throw "Middleware.rate_limit(...) requires window_seconds > 0";
+        }
+
+        var opts = options == null ? {} : options;
+        var shared_key = opts["shared_key"];
+        var local_key = opts["local_key"] == null || opts["local_key"] == "" ? "__rate_limit" : str(opts["local_key"]);
+        var status = Util.parse_int(opts["status"], 429);
+        var message = opts["message"] == null ? "Too Many Requests" : str(opts["message"]);
+        var now_func = opts["now_func"];
+
+        return func(ctx) {
+            var now = Middleware._rate_limit_now(now_func);
+            var store = Middleware._rate_limit_store(ctx, shared_key);
+            store = Middleware._prune_rate_limit_store(store, now);
+            if (shared_key == null || shared_key == "") {
+                ctx.shared["__rate_limit_store"] = store;
+            } else {
+                ctx.shared[str(shared_key)] = store;
+            }
+
+            var key = key_func == null ? Middleware._rate_limit_key(ctx) : key_func(ctx);
+            if (key == null || str(key).trim() == "") {
+                key = "global";
+            }
+
+            var entry = store[key];
+            if (entry == null || entry["reset_at"] == null || entry["reset_at"] <= now) {
+                entry = {
+                    "count": 0,
+                    "reset_at": now + window
+                };
+            }
+
+            entry["count"] = entry["count"] + 1;
+            store[key] = entry;
+
+            var blocked = entry["count"] > max_requests;
+            var remaining = max_requests - entry["count"];
+            if (remaining < 0) {
+                remaining = 0;
+            }
+
+            var retry_after = entry["reset_at"] - now;
+            if (retry_after < 0) {
+                retry_after = 0;
+            }
+
+            ctx.locals[local_key] = {
+                "key": key,
+                "limit": max_requests,
+                "count": entry["count"],
+                "remaining": remaining,
+                "reset_at": entry["reset_at"],
+                "retry_after": retry_after,
+                "window_seconds": window,
+                "blocked": blocked
+            };
+
+            if (!blocked) {
+                return null;
+            }
+
+            return {
+                "status": status,
+                "headers": {
+                    "Cache-Control":"no-store"
+                },
+                "body": message
+            };
+        };
+    }
+
+    static func rate_limit_headers(local_key = "__rate_limit") {
+        return func(ctx, res) {
+            if (res == null) { return res; }
+
+            var state = ctx.locals[local_key];
+            if (state == null || typeof(state) != "Dictionary") {
+                return res;
+            }
+
+            var headers = Middleware._ensure_response_headers(res);
+            var values = Middleware._rate_limit_headers_from_state(state, state["blocked"] == true);
+            Middleware._set_headers_if_missing(headers, values);
+            return res;
+        };
+    }
+
+    static func _policy_error(status, message) {
+        return {
+            "status": status,
+            "headers": {
+                "Cache-Control":"no-store"
+            },
+            "body": message
+        };
+    }
+
+    static func host_policy(allowed_hosts, options = null) {
+        var opts = options == null ? {} : options;
+        var status = Util.parse_int(opts["status"], 400);
+        var message = opts["message"] == null ? "Invalid Host" : str(opts["message"]);
+        var allow_missing = opts["allow_missing"] == true;
+
+        return func(ctx) {
+            var host = ctx.host;
+            if (host == null || host == "") {
+                return allow_missing ? null : Middleware._policy_error(status, message);
+            }
+
+            if (Util.host_allowed(allowed_hosts, host)) {
+                return null;
+            }
+
+            return Middleware._policy_error(status, message);
+        };
+    }
+
+    static func _request_origin(ctx, allow_referer = true) {
+        var origin = Util.parse_origin(Util.header(ctx.req.headers, "Origin"));
+        if (origin != null) {
+            return Util.build_origin(origin["scheme"], origin["authority"]);
+        }
+
+        if (!allow_referer) {
+            return null;
+        }
+
+        var referer = Util.parse_origin(Util.header(ctx.req.headers, "Referer"));
+        if (referer != null) {
+            return Util.build_origin(referer["scheme"], referer["authority"]);
+        }
+
+        return null;
+    }
+
+    static func origin_policy(allowed_origins = null, options = null) {
+        var opts = options == null ? {} : options;
+        var status = Util.parse_int(opts["status"], 403);
+        var message = opts["message"] == null ? "Forbidden" : str(opts["message"]);
+        var unsafe_only = opts["unsafe_only"] != false;
+        var allow_missing = opts["allow_missing"] == true;
+        var allow_referer = opts["allow_referer"] != false;
+
+        return func(ctx) {
+            if (unsafe_only) {
+                var method = ctx.req.method == null ? "" : str(ctx.req.method).upper();
+                if (method != "POST" && method != "PUT" && method != "PATCH" && method != "DELETE") {
+                    return null;
+                }
+            }
+
+            var actual_origin = Middleware._request_origin(ctx, allow_referer);
+            if (actual_origin == null || actual_origin == "") {
+                return allow_missing ? null : Middleware._policy_error(status, message);
+            }
+
+            var allowed = allowed_origins;
+            if (allowed == null) {
+                allowed = ctx.origin == null ? [] : [ctx.origin];
+            }
+
+            if (Util.origin_allowed(allowed, actual_origin)) {
+                return null;
+            }
+
+            return Middleware._policy_error(status, message);
+        };
     }
 }

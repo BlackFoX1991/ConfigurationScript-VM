@@ -58,21 +58,21 @@ func home_model(ctx) {
     vm["main"] = [
         Components.metric("Counter", str(ctx.session["count"])),
         Forms.button_row([
-            Forms.event_button(ctx.request.url("counter.increment"), "+1", "btn", null),
-            Forms.event_button(ctx.request.url("counter.decrement"), "-1", "btn secondary", null),
-            Forms.event_button(ctx.request.url("counter.reset"), "Reset", "btn ghost", null)
+            Forms.event_button(ctx.request.url("counter.increment"), "+1", "btn", null, ctx),
+            Forms.event_button(ctx.request.url("counter.decrement"), "-1", "btn secondary", null, ctx),
+            Forms.event_button(ctx.request.url("counter.reset"), "Reset", "btn ghost", null, ctx)
         ]),
-        Forms.text_post(ctx.request.url("profile.rename"), "Display name", "name", ctx.locals["profile_name_value"] == null ? ctx.session["name"] : ctx.locals["profile_name_value"], "Type a name", "Save name", "nameBox", ctx.locals["profile_name_error"]),
+        Forms.text_post(ctx.request.url("profile.rename"), "Display name", "name", ctx.locals["profile_name_value"] == null ? ctx.session["name"] : ctx.locals["profile_name_value"], "Type a name", "Save name", "nameBox", ctx.locals["profile_name_error"], ctx),
         Components.log_box("Component state", [
             Dom.h("div", null, "clicks = " + str(widget["clicks"])),
             Dom.h("div", null, "mode = " + widget["mode"]),
             Dom.h("div", null, "note = " + widget["note"])
         ]),
         Forms.button_row([
-            Forms.event_button(ctx.request.url("widget.pulse"), "Pulse widget", "btn", null),
-            Forms.event_button(ctx.request.url("widget.reset"), "Reset widget", "btn secondary", null)
+            Forms.event_button(ctx.request.url("widget.pulse"), "Pulse widget", "btn", null, ctx),
+            Forms.event_button(ctx.request.url("widget.reset"), "Reset widget", "btn secondary", null, ctx)
         ]),
-        Forms.text_post(ctx.request.url("widget.note"), "Widget note", "note", ctx.locals["widget_note_value"] == null ? widget["note"] : ctx.locals["widget_note_value"], "Update widget note", "Save widget", "widgetNoteBox", ctx.locals["widget_note_error"])
+        Forms.text_post(ctx.request.url("widget.note"), "Widget note", "note", ctx.locals["widget_note_value"] == null ? widget["note"] : ctx.locals["widget_note_value"], "Update widget note", "Save widget", "widgetNoteBox", ctx.locals["widget_note_error"], ctx)
     ];
 
     vm["aside"] = [
@@ -329,7 +329,7 @@ func exit_app(ctx) {
     return ctx.response.text("Server stopping");
 }
 
-func main() {
+async func main() {
     var app = new ServerApp(8092);
     var counter = app.group("/counter", "counter");
     var auth = app.group("/auth", "auth");
@@ -385,7 +385,7 @@ func main() {
     api.use_after(Middleware.header("X-CFS-Group", "api"));
     api.get_named("widget", "/widget/:name", widget_api);
 
-    app.run();
+    return await app.run();
 }
 
-main();
+var _ = await main();

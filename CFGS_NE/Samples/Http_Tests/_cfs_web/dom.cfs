@@ -162,8 +162,16 @@ export class Html
 ".field{display:grid;gap:8px}" +
 ".field label{font-weight:700}" +
 ".field input{width:100%;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:#fffdf8;color:var(--ink);font:15px/1.3 system-ui,sans-serif}" +
+".field textarea,.field select{width:100%;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:#fffdf8;color:var(--ink);font:15px/1.3 system-ui,sans-serif}" +
 ".field input.invalid{border-color:var(--brand);background:#fff1ec}" +
+".field textarea.invalid,.field select.invalid{border-color:var(--brand);background:#fff1ec}" +
+".choice-group{display:grid;gap:8px}" +
+".check-field{display:flex;gap:10px;align-items:center;font-weight:700}" +
+".check-field input{width:auto;margin:0}" +
 ".form-error{color:var(--brand);font:12px/1.4 system-ui,sans-serif}" +
+".error-summary{padding:14px 16px;border-radius:16px;border:1px solid #e4c992;background:#fff2d8;color:#6e301f}" +
+".error-summary ul{margin:8px 0 0;padding-left:20px}" +
+".flash{padding:14px 16px;border-radius:16px;border:1px solid #cda572;background:#fff4df;color:#6e301f}" +
 ".session{font:12px/1.4 system-ui,sans-serif;color:var(--muted)}" +
 ".log{padding:14px 16px;border-radius:16px;background:var(--soft);border:1px solid #e4c992}" +
 ".code{font-family:Consolas,monospace;background:#2b211a;color:#fff7ee;padding:2px 6px;border-radius:8px}" +

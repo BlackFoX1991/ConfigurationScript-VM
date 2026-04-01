@@ -1,0 +1,70 @@
+import { ServerApp } from "server.cfs";
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, body = "", headers = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8095"} : headers,
+        "body": body
+    };
+}
+
+async func main() {
+    var app = new ServerApp(8095);
+    app.serve_static_dir("/fs/", "_fixtures_static", 120);
+
+    var hello = await app.handle(request("GET", "/fs/hello.txt"));
+    expect("hello_status", hello["status"], 200);
+    expect("hello_body", hello["body"], "Hello from filesystem static.\n");
+    expect("hello_content_type", hello["headers"]["Content-Type"], "text/plain; charset=utf-8");
+    expect("hello_cache_control", hello["headers"]["Cache-Control"], "public, max-age=120");
+    expect_true("hello_etag_present", hello["headers"]["ETag"] != null && hello["headers"]["ETag"] != "");
+
+    var hello_tag = hello["headers"]["ETag"];
+    var cached = await app.handle(request("GET", "/fs/hello.txt", "", {
+        "Host":"localhost:8095",
+        "If-None-Match": hello_tag
+    }));
+    expect("cached_status", cached["status"], 304);
+    expect("cached_body_empty", cached["body"], "");
+    expect("cached_content_type_missing", cached["headers"]["Content-Type"], null);
+    expect("cached_etag_kept", cached["headers"]["ETag"], hello_tag);
+
+    var nested = await app.handle(request("GET", "/fs/nested/info.txt"));
+    expect("nested_status", nested["status"], 200);
+    expect("nested_body", nested["body"], "Nested filesystem static.\n");
+
+    var head = await app.handle(request("HEAD", "/fs/hello.txt"));
+    expect("head_status", head["status"], 200);
+    expect("head_body_empty", head["body"], "");
+    expect("head_content_type", head["headers"]["Content-Type"], "text/plain; charset=utf-8");
+    expect("head_etag_kept", head["headers"]["ETag"], hello_tag);
+
+    var traversal = await app.handle(request("GET", "/fs/../_outside_secret.txt"));
+    expect("traversal_status", traversal["status"], 404);
+
+    var post = await app.handle(request("POST", "/fs/hello.txt"));
+    expect("post_status", post["status"], 405);
+    expect("post_allow", post["headers"]["Allow"], "GET, HEAD, OPTIONS");
+
+    var unsupported = await app.handle(request("GET", "/fs/fake.png"));
+    expect("unsupported_status", unsupported["status"], 415);
+    expect_true("unsupported_body_contains", str(unsupported["body"]).contains("Unsupported static asset type"));
+
+    print("PHASE4_STATIC_FS_OK");
+}
+
+var _ = await main();

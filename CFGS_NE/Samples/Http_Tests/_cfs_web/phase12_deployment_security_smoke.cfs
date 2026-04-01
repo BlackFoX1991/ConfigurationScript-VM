@@ -1,0 +1,113 @@
+import { Middleware } from "middleware.cfs";
+import { ServerApp } from "server.cfs";
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, body = "", headers = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8103"} : headers,
+        "body": body
+    };
+}
+
+async func main() {
+    var app = new ServerApp(8103);
+    app.set_max_body_bytes(5);
+    app.use_after(Middleware.security_headers());
+
+    app.post("/limited", func(ctx) {
+        return ctx.response.json({
+            "text": ctx.request.form("_text", ""),
+            "body_bytes": ctx["request_body_bytes"],
+            "max_body_bytes": ctx["max_body_bytes"]
+        });
+    });
+
+    app.post("/route-override", func(ctx) {
+        return ctx.response.json({
+            "text": ctx.request.form("_text", ""),
+            "body_bytes": ctx["request_body_bytes"],
+            "max_body_bytes": ctx["max_body_bytes"]
+        });
+    }, {"max_body_bytes":8});
+
+    app.get("/custom", func(ctx) {
+        return ServerApp.text("ok", 200, {
+            "X-Frame-Options":"SAMEORIGIN",
+            "Content-Security-Policy":"default-src 'none'"
+        });
+    });
+
+    var too_large = await app.handle(request("POST", "/limited", "123456", {
+        "Host":"localhost:8103",
+        "Content-Type":"text/plain; charset=utf-8"
+    }));
+    expect("too_large_status", too_large["status"], 413);
+    expect("too_large_body", too_large["body"], "Payload Too Large");
+    expect("too_large_nosniff", too_large["headers"]["X-Content-Type-Options"], "nosniff");
+    expect("too_large_frame", too_large["headers"]["X-Frame-Options"], "DENY");
+    expect("too_large_referrer", too_large["headers"]["Referrer-Policy"], "strict-origin-when-cross-origin");
+    expect_true("too_large_csp_present", too_large["headers"]["Content-Security-Policy"] != null);
+    expect("too_large_permissions", too_large["headers"]["Permissions-Policy"], "camera=(), microphone=(), geolocation=()");
+
+    var limited_ok = await app.handle(request("POST", "/limited", "ok", {
+        "Host":"localhost:8103",
+        "Content-Type":"text/plain; charset=utf-8"
+    }));
+    expect("limited_ok_status", limited_ok["status"], 200);
+    var limited_ok_body = fromjson(limited_ok["body"]);
+    expect("limited_ok_text", limited_ok_body["text"], "ok");
+    expect("limited_ok_body_bytes", limited_ok_body["body_bytes"], 2);
+    expect("limited_ok_max_body_bytes", limited_ok_body["max_body_bytes"], 5);
+
+    var override_ok = await app.handle(request("POST", "/route-override", "123456", {
+        "Host":"localhost:8103",
+        "Content-Type":"text/plain; charset=utf-8"
+    }));
+    expect("override_ok_status", override_ok["status"], 200);
+    var override_ok_body = fromjson(override_ok["body"]);
+    expect("override_ok_text", override_ok_body["text"], "123456");
+    expect("override_ok_body_bytes", override_ok_body["body_bytes"], 6);
+    expect("override_ok_max_body_bytes", override_ok_body["max_body_bytes"], 8);
+
+    var custom = await app.handle(request("GET", "/custom"));
+    expect("custom_status", custom["status"], 200);
+    expect("custom_frame_preserved", custom["headers"]["X-Frame-Options"], "SAMEORIGIN");
+    expect("custom_csp_preserved", custom["headers"]["Content-Security-Policy"], "default-src 'none'");
+    expect("custom_nosniff_added", custom["headers"]["X-Content-Type-Options"], "nosniff");
+    expect("custom_referrer_added", custom["headers"]["Referrer-Policy"], "strict-origin-when-cross-origin");
+
+    var app_with_overrides = new ServerApp(8104);
+    app_with_overrides.use_after(Middleware.security_headers({
+        "X-Frame-Options":"SAMEORIGIN",
+        "Permissions-Policy":null
+    }));
+    app_with_overrides.get("/override-headers", func(ctx) {
+        return ctx.response.text("override");
+    });
+
+    var override_headers = await app_with_overrides.handle(request("GET", "/override-headers", "", {
+        "Host":"localhost:8104"
+    }));
+    expect("override_headers_status", override_headers["status"], 200);
+    expect("override_headers_frame", override_headers["headers"]["X-Frame-Options"], "SAMEORIGIN");
+    expect("override_headers_permissions_missing", override_headers["headers"]["Permissions-Policy"], null);
+    expect("override_headers_nosniff", override_headers["headers"]["X-Content-Type-Options"], "nosniff");
+
+    print("PHASE12_DEPLOYMENT_SECURITY_OK");
+}
+
+var _ = await main();

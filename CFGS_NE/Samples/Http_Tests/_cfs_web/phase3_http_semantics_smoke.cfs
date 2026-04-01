@@ -1,0 +1,119 @@
+import { ServerApp } from "server.cfs";
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, body = "", headers = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8094"} : headers,
+        "body": body
+    };
+}
+
+async func main() {
+    var app = new ServerApp(8094);
+
+    app.get_named("resource.show", "/resource", func(ctx) {
+        return ctx.response.text("resource-get");
+    });
+
+    app.post_named("resource.update", "/resource", func(ctx) {
+        return ctx.response.text("resource-post");
+    }, {"csrf": false});
+
+    app.head_named("head.only", "/head-only", func(ctx) {
+        return ctx.response.text("head-only");
+    });
+
+    app.options_named("manual.options", "/manual-options", func(ctx) {
+        return ctx.response.text("manual-options");
+    });
+
+    app.get_named("status.empty", "/empty", func(ctx) {
+        return ctx.response.response(204, "should-not-leak", "text/plain; charset=utf-8", {
+            "X-Empty":"1"
+        });
+    });
+
+    app.get_named("status.cached", "/cached", func(ctx) {
+        return ctx.response.response(304, "should-not-leak", "text/plain; charset=utf-8", {
+            "ETag":"\"cache-v1\""
+        });
+    });
+
+    app.serve_static_map("/static/", {
+        "hello.txt": {
+            "data":"hello-static",
+            "content_type":"text/plain; charset=utf-8"
+        }
+    }, 60);
+
+    var head_fallback = await app.handle(request("HEAD", "/resource"));
+    expect("head_fallback_status", head_fallback["status"], 200);
+    expect("head_fallback_body_empty", head_fallback["body"], "");
+    expect("head_fallback_content_type", head_fallback["headers"]["Content-Type"], "text/plain; charset=utf-8");
+
+    var patch_res = await app.handle(request("PATCH", "/resource"));
+    expect("patch_method_not_allowed_status", patch_res["status"], 405);
+    expect("patch_method_not_allowed_allow", patch_res["headers"]["Allow"], "GET, HEAD, POST, OPTIONS");
+    expect("patch_method_not_allowed_body", patch_res["body"], "Method Not Allowed");
+
+    var options_res = await app.handle(request("OPTIONS", "/resource"));
+    expect("options_auto_status", options_res["status"], 204);
+    expect("options_auto_allow", options_res["headers"]["Allow"], "GET, HEAD, POST, OPTIONS");
+    expect("options_auto_body_empty", options_res["body"], "");
+    expect("options_auto_content_type_missing", options_res["headers"]["Content-Type"], null);
+
+    var head_only_get = await app.handle(request("GET", "/head-only"));
+    expect("head_only_get_status", head_only_get["status"], 405);
+    expect("head_only_get_allow", head_only_get["headers"]["Allow"], "HEAD, OPTIONS");
+
+    var head_only_head = await app.handle(request("HEAD", "/head-only"));
+    expect("head_only_head_status", head_only_head["status"], 200);
+    expect("head_only_head_body_empty", head_only_head["body"], "");
+    expect("head_only_head_content_type", head_only_head["headers"]["Content-Type"], "text/plain; charset=utf-8");
+
+    var manual_options = await app.handle(request("OPTIONS", "/manual-options"));
+    expect("manual_options_status", manual_options["status"], 200);
+    expect("manual_options_body", manual_options["body"], "manual-options");
+
+    var static_post = await app.handle(request("POST", "/static/hello.txt"));
+    expect("static_post_status", static_post["status"], 405);
+    expect("static_post_allow", static_post["headers"]["Allow"], "GET, HEAD, OPTIONS");
+
+    var static_options = await app.handle(request("OPTIONS", "/static/hello.txt"));
+    expect("static_options_status", static_options["status"], 204);
+    expect("static_options_allow", static_options["headers"]["Allow"], "GET, HEAD, OPTIONS");
+    expect("static_options_body_empty", static_options["body"], "");
+
+    var empty_res = await app.handle(request("GET", "/empty"));
+    expect("empty_status", empty_res["status"], 204);
+    expect("empty_body_empty", empty_res["body"], "");
+    expect("empty_content_type_missing", empty_res["headers"]["Content-Type"], null);
+    expect("empty_custom_header_kept", empty_res["headers"]["X-Empty"], "1");
+
+    var cached_res = await app.handle(request("GET", "/cached"));
+    expect("cached_status", cached_res["status"], 304);
+    expect("cached_body_empty", cached_res["body"], "");
+    expect("cached_content_type_missing", cached_res["headers"]["Content-Type"], null);
+    expect("cached_etag_kept", cached_res["headers"]["ETag"], "\"cache-v1\"");
+
+    var missing_options = await app.handle(request("OPTIONS", "/missing"));
+    expect("missing_options_status", missing_options["status"], 404);
+
+    print("PHASE3_HTTP_SEMANTICS_OK");
+}
+
+var _ = await main();

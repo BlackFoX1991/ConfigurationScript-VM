@@ -1,0 +1,232 @@
+import { Util } from "common.cfs";
+import { build_example_app } from "example_app.cfs";
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, body = "", headers = null, remote = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8094"} : headers,
+        "body": body,
+        "remote": remote
+    };
+}
+
+func find_cookie_pair(set_cookie_header, name) {
+    if (set_cookie_header == null) { return null; }
+
+    var lines = str(set_cookie_header).split("\n");
+    var i = 0;
+    while (i < len(lines)) {
+        var line = str(lines[i]).trim();
+        if (Util.starts_with(line, name + "=")) {
+            var semi = line.indexOf(";");
+            if (semi >= 0) {
+                return line.substr(0, semi);
+            }
+            return line;
+        }
+        i = i + 1;
+    }
+
+    return null;
+}
+
+func cookie_header(parts) {
+    var values = [];
+    var i = 0;
+    while (i < len(parts)) {
+        if (parts[i] != null && parts[i] != "") {
+            values[] = parts[i];
+        }
+        i = i + 1;
+    }
+    return Util.join(values, "; ");
+}
+
+async func main() {
+    var app = build_example_app(8094);
+
+    var meta0 = await app.handle(request("GET", "/api/meta", "", {
+        "Host":"localhost:8094"
+    }));
+    expect("meta0_status", meta0["status"], 200);
+    var meta0_body = fromjson(meta0["body"]);
+    expect_true("meta0_has_csrf", meta0_body["csrf_token"] != null && meta0_body["csrf_token"] != "");
+    var csrf0 = meta0_body["csrf_token"];
+    var field = meta0_body["csrf_field"];
+    var guest_cookie = find_cookie_pair(meta0["headers"]["Set-Cookie"], "cfs_sid");
+    expect_true("guest_cookie_present", guest_cookie != null);
+
+    var home0 = await app.handle(request("GET", "/", "", {
+        "Host":"localhost:8094",
+        "Cookie": guest_cookie
+    }));
+    expect("home0_status", home0["status"], 200);
+    expect_true("home0_title", str(home0["body"]).contains("Workshop Board"));
+    expect_true("home0_asset_link", str(home0["body"]).contains("/assets/example.css?v=example-2026-04-01"));
+
+    var login = await app.handle(request("POST", "/auth/login",
+        "login_name=Ada&login_role=admin&remember_me=1&" + urlencode(field) + "=" + urlencode(csrf0), {
+            "Host":"localhost:8094",
+            "Cookie": guest_cookie,
+            "Content-Type":"application/x-www-form-urlencoded",
+            "Origin":"http://localhost:8094"
+        }
+    ));
+    expect("login_status", login["status"], 303);
+    expect("login_location", login["headers"]["Location"], "/");
+    var signed_session = find_cookie_pair(login["headers"]["Set-Cookie"], "cfs_sid");
+    var workspace_cookie = find_cookie_pair(login["headers"]["Set-Cookie"], "workspace");
+    expect_true("signed_session_present", signed_session != null);
+    expect_true("workspace_cookie_present", workspace_cookie != null);
+    expect_true("workspace_cookie_signed", str(workspace_cookie).contains("s:"));
+    var auth_cookie_header = cookie_header([signed_session, workspace_cookie]);
+
+    var home1 = await app.handle(request("GET", "/", "", {
+        "Host":"localhost:8094",
+        "Cookie": auth_cookie_header
+    }));
+    expect("home1_status", home1["status"], 200);
+    expect_true("home1_flash", str(home1["body"]).contains("Welcome back, Ada."));
+    expect_true("home1_banner", str(home1["body"]).contains("Signed in as Ada (admin)."));
+    expect_true("home1_workspace", str(home1["body"]).contains("planning-lab"));
+
+    var home2 = await app.handle(request("GET", "/", "", {
+        "Host":"localhost:8094",
+        "Cookie": auth_cookie_header
+    }));
+    expect("home2_status", home2["status"], 200);
+    expect_true("home2_flash_gone", !str(home2["body"]).contains("Welcome back, Ada."));
+    expect_true("home2_banner_stays", str(home2["body"]).contains("Signed in as Ada (admin)."));
+
+    var admin = await app.handle(request("GET", "/admin", "", {
+        "Host":"localhost:8094",
+        "Cookie": auth_cookie_header
+    }));
+    expect("admin_status", admin["status"], 200);
+    expect_true("admin_page", str(admin["body"]).contains("Admin console"));
+
+    var meta1 = await app.handle(request("GET", "/api/meta", "", {
+        "Host":"localhost:8094",
+        "Cookie": auth_cookie_header
+    }));
+    expect("meta1_status", meta1["status"], 200);
+    var meta1_body = fromjson(meta1["body"]);
+    var csrf1 = meta1_body["csrf_token"];
+
+    var invalid_idea = await app.handle(request("POST", "/ideas/create",
+        "title=No&details=&category=ops&visibility=team&" + urlencode(field) + "=" + urlencode(csrf1), {
+            "Host":"localhost:8094",
+            "Cookie": auth_cookie_header,
+            "Content-Type":"application/x-www-form-urlencoded",
+            "Origin":"http://localhost:8094"
+        }
+    ));
+    expect("invalid_idea_status", invalid_idea["status"], 303);
+    expect("invalid_idea_location", invalid_idea["headers"]["Location"], "/");
+
+    var home_invalid = await app.handle(request("GET", "/", "", {
+        "Host":"localhost:8094",
+        "Cookie": auth_cookie_header
+    }));
+    expect("home_invalid_status", home_invalid["status"], 200);
+    expect_true("home_invalid_error", str(home_invalid["body"]).contains("Please enter details."));
+    expect_true("home_invalid_old_title", str(home_invalid["body"]).contains("value=\"No\""));
+
+    var multipart_boundary = "----cfsExamplePhase15";
+    var create_ok = await app.handle(request("POST", "/ideas/create",
+        "--" + multipart_boundary + "\r\n" +
+        "Content-Disposition: form-data; name=\"title\"\r\n\r\n" +
+        "Launch checklist\r\n" +
+        "--" + multipart_boundary + "\r\n" +
+        "Content-Disposition: form-data; name=\"details\"\r\n\r\n" +
+        "Validate the final release steps.\r\n" +
+        "--" + multipart_boundary + "\r\n" +
+        "Content-Disposition: form-data; name=\"category\"\r\n\r\n" +
+        "ops\r\n" +
+        "--" + multipart_boundary + "\r\n" +
+        "Content-Disposition: form-data; name=\"visibility\"\r\n\r\n" +
+        "team\r\n" +
+        "--" + multipart_boundary + "\r\n" +
+        "Content-Disposition: form-data; name=\"pinned\"\r\n\r\n" +
+        "1\r\n" +
+        "--" + multipart_boundary + "\r\n" +
+        "Content-Disposition: form-data; name=\"" + field + "\"\r\n\r\n" +
+        csrf1 + "\r\n" +
+        "--" + multipart_boundary + "\r\n" +
+        "Content-Disposition: form-data; name=\"attachment\"; filename=\"spec.txt\"\r\n" +
+        "Content-Type: text/plain\r\n\r\n" +
+        "release spec\r\n" +
+        "--" + multipart_boundary + "--\r\n", {
+            "Host":"localhost:8094",
+            "Cookie": auth_cookie_header,
+            "Content-Type":"multipart/form-data; boundary=" + multipart_boundary,
+            "Origin":"http://localhost:8094"
+        }
+    ));
+    expect("create_ok_status", create_ok["status"], 303);
+    expect("create_ok_location", create_ok["headers"]["Location"], "/");
+
+    var home3 = await app.handle(request("GET", "/", "", {
+        "Host":"localhost:8094",
+        "Cookie": auth_cookie_header
+    }));
+    expect("home3_status", home3["status"], 200);
+    expect_true("home3_idea_title", str(home3["body"]).contains("Launch checklist"));
+    expect_true("home3_upload_message", str(home3["body"]).contains("Last upload: spec.txt."));
+    expect_true("home3_attachment", str(home3["body"]).contains("Attachment: spec.txt"));
+
+    var proxy_meta = await app.handle(request("GET", "/api/meta", "", {
+        "Host":"internal.local",
+        "Cookie": auth_cookie_header,
+        "X-Forwarded-Host":"app.example.test",
+        "X-Forwarded-Proto":"https",
+        "X-Forwarded-For":"203.0.113.55"
+    }, "127.0.0.1:40100"));
+    expect("proxy_meta_status", proxy_meta["status"], 200);
+    var proxy_body = fromjson(proxy_meta["body"]);
+    expect("proxy_client_ip", proxy_body["client_ip"], "203.0.113.55");
+    expect("proxy_host", proxy_body["host"], "app.example.test");
+    expect("proxy_origin", proxy_body["origin"], "https://app.example.test");
+    expect("proxy_workspace", proxy_body["workspace"], "planning-lab");
+
+    var download = await app.handle(request("GET", "/docs/download", "", {
+        "Host":"localhost:8094",
+        "Cookie": auth_cookie_header
+    }));
+    expect("download_status", download["status"], 200);
+    expect_true("download_disposition", str(download["headers"]["Content-Disposition"]).contains("workshop-notes.txt"));
+    expect_true("download_body", str(download["body"]).contains("Current Limits"));
+
+    var clear_banner = await app.handle(request("POST", "/auth/banner/clear",
+        urlencode(field) + "=" + urlencode(csrf1), {
+            "Host":"localhost:8094",
+            "Cookie": auth_cookie_header,
+            "Content-Type":"application/x-www-form-urlencoded",
+            "Origin":"http://localhost:8094"
+        }
+    ));
+    expect("clear_banner_status", clear_banner["status"], 303);
+    var home4 = await app.handle(request("GET", "/", "", {
+        "Host":"localhost:8094",
+        "Cookie": auth_cookie_header
+    }));
+    expect_true("home4_banner_gone", !str(home4["body"]).contains("Signed in as Ada (admin)."));
+
+    print("PHASE15_EXAMPLE_APP_OK");
+}
+
+var _ = await main();

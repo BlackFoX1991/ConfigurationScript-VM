@@ -1,0 +1,221 @@
+import { Guards } from "guards.cfs";
+import { ServerApp } from "server.cfs";
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, body = "", headers = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8101"} : headers,
+        "body": body
+    };
+}
+
+func set_cookie_value(set_cookie_header) {
+    var first = str(set_cookie_header).split("\n")[0];
+    var semi = first.indexOf(";");
+    if (semi >= 0) {
+        return first.substr(0, semi);
+    }
+    return first;
+}
+
+async func main() {
+    var app = new ServerApp(8101);
+
+    app.get_named("auth.user", "/auth/user", func(ctx) {
+        ctx.session["user_id"] = "user-1";
+        ctx.session["role"] = "member";
+        ctx.session["team_id"] = "";
+        ctx.session["is_admin"] = false;
+        ctx.session["can_manage"] = false;
+        ctx.session["can_support"] = true;
+        return ctx.response.text("user");
+    });
+
+    app.get_named("auth.admin", "/auth/admin", func(ctx) {
+        ctx.session["user_id"] = "admin-1";
+        ctx.session["role"] = "admin";
+        ctx.session["team_id"] = "team-7";
+        ctx.session["is_admin"] = true;
+        ctx.session["can_manage"] = true;
+        ctx.session["can_support"] = false;
+        return ctx.response.text("admin");
+    });
+
+    app.get_named("auth.clear", "/auth/clear", func(ctx) {
+        ctx.session["user_id"] = null;
+        ctx.session["role"] = null;
+        ctx.session["team_id"] = null;
+        ctx.session["is_admin"] = false;
+        ctx.session["can_manage"] = false;
+        ctx.session["can_support"] = false;
+        return ctx.response.text("clear");
+    });
+
+    app.get_named("guest.only", "/guest-only", Guards.require_guest(
+        func(ctx) { return ctx.response.text("guest"); },
+        "/home"
+    ));
+
+    app.get_named("account", "/account", Guards.require_authenticated(
+        func(ctx) { return ctx.response.text("account"); },
+        "/login"
+    ));
+
+    app.get_named("team", "/team", Guards.require_session_key(
+        "team_id",
+        func(ctx) { return ctx.response.text("team"); },
+        "/no-team"
+    ));
+
+    app.get_named("admin.panel", "/admin-panel", Guards.require_role(
+        ["admin", "owner"],
+        func(ctx) { return ctx.response.text("admin-panel"); },
+        "/forbidden"
+    ));
+
+    app.get_named("flags.all", "/flags-all", Guards.require_session_flags_all(
+        ["is_admin", "can_manage"],
+        func(ctx) { return ctx.response.text("flags-all"); },
+        "/forbidden"
+    ));
+
+    app.get_named("flags.any", "/flags-any", Guards.require_session_flags_any(
+        ["is_admin", "can_support"],
+        func(ctx) { return ctx.response.text("flags-any"); },
+        "/forbidden"
+    ));
+
+    app.get_named("legacy.admin", "/legacy-admin", Guards.require_session_flag(
+        "is_admin",
+        func(ctx) { return ctx.response.text("legacy-admin"); },
+        "/forbidden"
+    ));
+
+    var guest = await app.handle(request("GET", "/guest-only"));
+    expect("guest_status", guest["status"], 200);
+    expect("guest_body", guest["body"], "guest");
+
+    var anon_account = await app.handle(request("GET", "/account"));
+    expect("anon_account_status", anon_account["status"], 302);
+    expect("anon_account_location", anon_account["headers"]["Location"], "/login");
+
+    var user_login = await app.handle(request("GET", "/auth/user"));
+    expect("user_login_status", user_login["status"], 200);
+    var user_cookie = set_cookie_value(user_login["headers"]["Set-Cookie"]);
+
+    var guest_blocked = await app.handle(request("GET", "/guest-only", "", {
+        "Host":"localhost:8101",
+        "Cookie": user_cookie
+    }));
+    expect("guest_blocked_status", guest_blocked["status"], 302);
+    expect("guest_blocked_location", guest_blocked["headers"]["Location"], "/home");
+
+    var account = await app.handle(request("GET", "/account", "", {
+        "Host":"localhost:8101",
+        "Cookie": user_cookie
+    }));
+    expect("account_status", account["status"], 200);
+    expect("account_body", account["body"], "account");
+
+    var user_team = await app.handle(request("GET", "/team", "", {
+        "Host":"localhost:8101",
+        "Cookie": user_cookie
+    }));
+    expect("user_team_status", user_team["status"], 302);
+    expect("user_team_location", user_team["headers"]["Location"], "/no-team");
+
+    var user_admin = await app.handle(request("GET", "/admin-panel", "", {
+        "Host":"localhost:8101",
+        "Cookie": user_cookie
+    }));
+    expect("user_admin_status", user_admin["status"], 302);
+    expect("user_admin_location", user_admin["headers"]["Location"], "/forbidden");
+
+    var user_flags_any = await app.handle(request("GET", "/flags-any", "", {
+        "Host":"localhost:8101",
+        "Cookie": user_cookie
+    }));
+    expect("user_flags_any_status", user_flags_any["status"], 200);
+    expect("user_flags_any_body", user_flags_any["body"], "flags-any");
+
+    var user_flags_all = await app.handle(request("GET", "/flags-all", "", {
+        "Host":"localhost:8101",
+        "Cookie": user_cookie
+    }));
+    expect("user_flags_all_status", user_flags_all["status"], 302);
+    expect("user_flags_all_location", user_flags_all["headers"]["Location"], "/forbidden");
+
+    var admin_login = await app.handle(request("GET", "/auth/admin", "", {
+        "Host":"localhost:8101",
+        "Cookie": user_cookie
+    }));
+    expect("admin_login_status", admin_login["status"], 200);
+    var admin_cookie = set_cookie_value(admin_login["headers"]["Set-Cookie"]);
+
+    var admin_panel = await app.handle(request("GET", "/admin-panel", "", {
+        "Host":"localhost:8101",
+        "Cookie": admin_cookie
+    }));
+    expect("admin_panel_status", admin_panel["status"], 200);
+    expect("admin_panel_body", admin_panel["body"], "admin-panel");
+
+    var admin_team = await app.handle(request("GET", "/team", "", {
+        "Host":"localhost:8101",
+        "Cookie": admin_cookie
+    }));
+    expect("admin_team_status", admin_team["status"], 200);
+    expect("admin_team_body", admin_team["body"], "team");
+
+    var admin_flags_all = await app.handle(request("GET", "/flags-all", "", {
+        "Host":"localhost:8101",
+        "Cookie": admin_cookie
+    }));
+    expect("admin_flags_all_status", admin_flags_all["status"], 200);
+    expect("admin_flags_all_body", admin_flags_all["body"], "flags-all");
+
+    var admin_flags_any = await app.handle(request("GET", "/flags-any", "", {
+        "Host":"localhost:8101",
+        "Cookie": admin_cookie
+    }));
+    expect("admin_flags_any_status", admin_flags_any["status"], 200);
+    expect("admin_flags_any_body", admin_flags_any["body"], "flags-any");
+
+    var legacy_admin = await app.handle(request("GET", "/legacy-admin", "", {
+        "Host":"localhost:8101",
+        "Cookie": admin_cookie
+    }));
+    expect("legacy_admin_status", legacy_admin["status"], 200);
+    expect("legacy_admin_body", legacy_admin["body"], "legacy-admin");
+
+    var clear = await app.handle(request("GET", "/auth/clear", "", {
+        "Host":"localhost:8101",
+        "Cookie": admin_cookie
+    }));
+    expect("clear_status", clear["status"], 200);
+    var clear_cookie = set_cookie_value(clear["headers"]["Set-Cookie"]);
+
+    var guest_again = await app.handle(request("GET", "/guest-only", "", {
+        "Host":"localhost:8101",
+        "Cookie": clear_cookie
+    }));
+    expect("guest_again_status", guest_again["status"], 200);
+    expect("guest_again_body", guest_again["body"], "guest");
+
+    print("PHASE10_AUTH_GUARDS_OK");
+}
+
+var _ = await main();

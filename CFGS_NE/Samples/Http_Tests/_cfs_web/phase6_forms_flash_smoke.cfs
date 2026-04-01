@@ -1,0 +1,99 @@
+import { Dom } from "dom.cfs";
+import { Forms } from "forms.cfs";
+import { ServerApp } from "server.cfs";
+
+func expect(label, actual, expected) {
+    if (actual != expected) {
+        throw label + " expected=" + str(expected) + " actual=" + str(actual);
+    }
+}
+
+func expect_true(label, value) {
+    if (!value) {
+        throw label + " expected true";
+    }
+}
+
+func request(method, path, body = "", headers = null) {
+    return {
+        "method": method,
+        "path": path,
+        "query": "",
+        "headers": headers == null ? {"Host":"localhost:8097"} : headers,
+        "body": body
+    };
+}
+
+func set_cookie_value(set_cookie_header) {
+    var first = str(set_cookie_header).split("\n")[0];
+    var semi = first.indexOf(";");
+    if (semi >= 0) {
+        return first.substr(0, semi);
+    }
+    return first;
+}
+
+async func main() {
+    var app = new ServerApp(8097);
+
+    app.get_named("flash.set", "/flash-set", func(ctx) {
+        return ctx.response.redirect_with_flash("/flash-view", "notice", "Saved profile");
+    });
+
+    app.get_named("flash.view", "/flash-view", func(ctx) {
+        return ctx.response.html(Dom.render(Dom.h("div", null, [
+            Forms.flash_message(ctx, "notice"),
+            Dom.h("div", {"class":"session"}, ctx.request.flash("notice", ""))
+        ])));
+    });
+
+    app.get_named("forms.preview", "/forms-preview", func(ctx) {
+        return ctx.response.html(Dom.render(Dom.h("div", {"class":"stack"}, [
+            Forms.error_summary({
+                "name":"Name is required.",
+                "role":"Role must be selected."
+            }),
+            Forms.textarea_field("Note", "note", "hello world", "Type note", "noteBox", "Note is invalid.", 4),
+            Forms.checkbox_field("Accept terms", "terms", true, "yes", "termsBox", "Please accept."),
+            Forms.select_field("Role", "role", [
+                {"value":"user","label":"User"},
+                {"value":"admin","label":"Admin"}
+            ], "admin", "roleBox", "Pick a role.", "Choose role")
+        ])));
+    });
+
+    var flash_set = await app.handle(request("GET", "/flash-set"));
+    expect("flash_set_status", flash_set["status"], 303);
+    expect("flash_set_location", flash_set["headers"]["Location"], "/flash-view");
+
+    var cookie = set_cookie_value(flash_set["headers"]["Set-Cookie"]);
+    var flash_view = await app.handle(request("GET", "/flash-view", "", {
+        "Host":"localhost:8097",
+        "Cookie": cookie
+    }));
+    expect("flash_view_status", flash_view["status"], 200);
+    expect_true("flash_view_contains_message", str(flash_view["body"]).contains("Saved profile"));
+    expect_true("flash_view_contains_flash_class", str(flash_view["body"]).contains("class=\"flash\""));
+
+    var flash_view_again = await app.handle(request("GET", "/flash-view", "", {
+        "Host":"localhost:8097",
+        "Cookie": cookie
+    }));
+    expect("flash_view_again_status", flash_view_again["status"], 200);
+    expect_true("flash_consumed", !str(flash_view_again["body"]).contains("Saved profile"));
+
+    var preview = await app.handle(request("GET", "/forms-preview"));
+    expect("preview_status", preview["status"], 200);
+    expect_true("preview_error_summary", str(preview["body"]).contains("error-summary"));
+    expect_true("preview_textarea", str(preview["body"]).contains("<textarea"));
+    expect_true("preview_textarea_rows", str(preview["body"]).contains("rows=\"4\""));
+    expect_true("preview_checkbox", str(preview["body"]).contains("type=\"checkbox\""));
+    expect_true("preview_checkbox_checked", str(preview["body"]).contains("checked"));
+    expect_true("preview_select", str(preview["body"]).contains("<select"));
+    expect_true("preview_option_selected", str(preview["body"]).contains("value=\"admin\" selected"));
+    expect_true("preview_form_error", str(preview["body"]).contains("Pick a role."));
+
+    print("PHASE6_FORMS_FLASH_OK");
+}
+
+var _ = await main();

@@ -1,4 +1,4 @@
-﻿using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Plugin;
 using System.Collections.Concurrent;
 using System.Globalization;
@@ -634,6 +634,16 @@ namespace CFGS.Web.Http
 
                         if (k.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
                             resp.ContentType = v;
+                        else if (k.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string[] cookieLines = v.Replace("\r", string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                            foreach (string cookieLine in cookieLines)
+                            {
+                                string actualCookie = cookieLine.Trim();
+                                if (actualCookie.Length > 0)
+                                    resp.AppendHeader("Set-Cookie", actualCookie);
+                            }
+                        }
                         else
                             resp.Headers[k] = v;
                     }
@@ -739,10 +749,36 @@ namespace CFGS.Web.Http
                     }
                     else
                     {
-                        using StreamReader sr = new(req.InputStream, req.ContentEncoding ?? Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 8192, leaveOpen: true);
-                        char[] buffer = new char[maxBodySize];
-                        int read = sr.ReadBlock(buffer, 0, maxBodySize);
-                        body = new string(buffer, 0, read);
+                        Encoding encoding = req.ContentEncoding ?? Encoding.UTF8;
+                        using MemoryStream ms = new();
+                        byte[] buffer = new byte[8192];
+                        long remaining = req.ContentLength64;
+
+                        while (remaining != 0)
+                        {
+                            int wanted = buffer.Length;
+                            if (remaining > 0 && remaining < wanted)
+                                wanted = (int)remaining;
+
+                            int read = req.InputStream.Read(buffer, 0, wanted);
+                            if (read <= 0)
+                                break;
+
+                            ms.Write(buffer, 0, read);
+
+                            if (remaining > 0)
+                                remaining -= read;
+
+                            if (ms.Length > maxBodySize)
+                            {
+                                body = $"[body too large: {ms.Length} bytes, limit {maxBodySize}]";
+                                ms.SetLength(0);
+                                break;
+                            }
+                        }
+
+                        if (body.Length == 0)
+                            body = encoding.GetString(ms.ToArray());
                     }
                 }
                 catch { }
