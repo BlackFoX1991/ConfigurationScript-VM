@@ -28,6 +28,17 @@ This repository now contains a basic CFGS language server and a matching Visual 
 - Keyword and symbol completion
 - Basic syntax highlighting and editor language configuration
 
+## Current Analysis Path
+
+The LSP does not keep a second parser or semantic fork. The productive analysis path is:
+
+1. `LspServer` manages open documents and overlay content.
+2. `CfgsAnalyzer` builds analysis input for the requested file and its imports.
+3. `Lexer`, `Parser`, `SyntaxLowerer`, and `Compiler` run in the same order as normal CFGS execution.
+4. Diagnostics, navigation, hover, rename, semantic tokens, and quick fixes are derived from that shared result.
+
+For the broader codebase split behind this path, see [Internal Architecture](14_internal_architecture.md).
+
 ## Build the Server
 
 From the repository root:

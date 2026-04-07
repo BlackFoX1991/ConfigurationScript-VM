@@ -1075,6 +1075,99 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
+    /// Defines a raw namespace declaration before lowering into synthetic scope statements.
+    /// </summary>
+    public sealed class NamespaceDeclStmt : Stmt
+    {
+        /// <summary>
+        /// Gets the namespace parts.
+        /// </summary>
+        public List<string> Parts { get; }
+
+        /// <summary>
+        /// Gets the raw namespace body statements.
+        /// </summary>
+        public List<Stmt> BodyStatements { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="NamespaceDeclStmt"/> class.
+        /// </summary>
+        /// <param name="parts">The namespace parts.</param>
+        /// <param name="bodyStatements">The raw body statements.</param>
+        /// <param name="line">The line.</param>
+        /// <param name="col">The column.</param>
+        /// <param name="file">The source file.</param>
+        public NamespaceDeclStmt(List<string> parts, List<Stmt> bodyStatements, int line, int col, string file)
+            : base(line, col, file)
+        {
+            Parts = parts;
+            BodyStatements = bodyStatements;
+        }
+    }
+
+    /// <summary>
+    /// Defines a raw namespace import alias before lowering.
+    /// </summary>
+    public sealed class NamespaceImportAliasStmt : Stmt
+    {
+        /// <summary>
+        /// Gets the alias name.
+        /// </summary>
+        public string Alias { get; }
+
+        /// <summary>
+        /// Gets the imported names exposed under the alias.
+        /// </summary>
+        public List<string> ImportedNames { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="NamespaceImportAliasStmt"/> class.
+        /// </summary>
+        /// <param name="alias">The alias name.</param>
+        /// <param name="importedNames">The imported names.</param>
+        /// <param name="line">The line.</param>
+        /// <param name="col">The column.</param>
+        /// <param name="file">The source file.</param>
+        public NamespaceImportAliasStmt(string alias, List<string> importedNames, int line, int col, string file)
+            : base(line, col, file)
+        {
+            Alias = alias;
+            ImportedNames = importedNames;
+        }
+    }
+
+    /// <summary>
+    /// Defines a raw named-import alias before lowering.
+    /// </summary>
+    public sealed class ImportAliasDeclStmt : Stmt
+    {
+        /// <summary>
+        /// Gets the local alias name.
+        /// </summary>
+        public string LocalName { get; }
+
+        /// <summary>
+        /// Gets the imported source name.
+        /// </summary>
+        public string ImportName { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ImportAliasDeclStmt"/> class.
+        /// </summary>
+        /// <param name="localName">The local alias name.</param>
+        /// <param name="importName">The imported source name.</param>
+        /// <param name="line">The line.</param>
+        /// <param name="col">The column.</param>
+        /// <param name="file">The source file.</param>
+        public ImportAliasDeclStmt(string localName, string importName, int line, int col, string file)
+            : base(line, col, file)
+        {
+            LocalName = localName;
+            ImportName = importName;
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="InterfaceMethodDecl" />
     /// </summary>
     public sealed class InterfaceMethodDecl : Node
@@ -1997,6 +2090,75 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
+    /// Describes the raw parameter form of a function before lowering.
+    /// </summary>
+    public sealed class FunctionParameterSpec
+    {
+        /// <summary>
+        /// Gets the lowered parameter name.
+        /// </summary>
+        public string Name { get; }
+
+        /// <summary>
+        /// Gets the optional destructuring pattern.
+        /// </summary>
+        public MatchPattern? DestructurePattern { get; }
+
+        /// <summary>
+        /// Gets the optional default value expression.
+        /// </summary>
+        public Expr? DefaultValue { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether this parameter is the rest parameter.
+        /// </summary>
+        public bool IsRest { get; }
+
+        /// <summary>
+        /// Gets the line.
+        /// </summary>
+        public int Line { get; }
+
+        /// <summary>
+        /// Gets the column.
+        /// </summary>
+        public int Col { get; }
+
+        /// <summary>
+        /// Gets the source file.
+        /// </summary>
+        public string File { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="FunctionParameterSpec"/> class.
+        /// </summary>
+        /// <param name="name">The lowered parameter name.</param>
+        /// <param name="destructurePattern">The optional destructuring pattern.</param>
+        /// <param name="defaultValue">The optional default value.</param>
+        /// <param name="isRest">Whether this is the rest parameter.</param>
+        /// <param name="line">The line.</param>
+        /// <param name="col">The column.</param>
+        /// <param name="file">The source file.</param>
+        public FunctionParameterSpec(
+            string name,
+            MatchPattern? destructurePattern,
+            Expr? defaultValue,
+            bool isRest,
+            int line,
+            int col,
+            string file)
+        {
+            Name = name;
+            DestructurePattern = destructurePattern;
+            DefaultValue = defaultValue;
+            IsRest = isRest;
+            Line = line;
+            Col = col;
+            File = file;
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="CaseClause" />
     /// </summary>
     public class CaseClause : Node
@@ -2069,6 +2231,11 @@ namespace CFGS_VM.Analytic.Tree
         public BlockStmt Body;
 
         /// <summary>
+        /// Gets or sets the raw parameter specifications used for lowering.
+        /// </summary>
+        public List<FunctionParameterSpec> ParameterSpecs { get; set; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="FuncDeclStmt"/> class.
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>
@@ -2080,7 +2247,17 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
         /// <param name="isAsync">The isAsync<see cref="bool"/></param>
-        public FuncDeclStmt(string name, List<string> parameters, BlockStmt body, int minArgs, string? restParameter, int line, int col, string fname, bool isAsync = false) : base(line, col, fname)
+        public FuncDeclStmt(
+            string name,
+            List<string> parameters,
+            BlockStmt body,
+            int minArgs,
+            string? restParameter,
+            int line,
+            int col,
+            string fname,
+            bool isAsync = false,
+            List<FunctionParameterSpec>? parameterSpecs = null) : base(line, col, fname)
         {
             Name = name;
             Parameters = parameters;
@@ -2088,6 +2265,7 @@ namespace CFGS_VM.Analytic.Tree
             MinArgs = minArgs;
             RestParameter = restParameter;
             IsAsync = isAsync;
+            ParameterSpecs = parameterSpecs ?? new List<FunctionParameterSpec>();
         }
     }
 
@@ -2122,6 +2300,11 @@ namespace CFGS_VM.Analytic.Tree
         public BlockStmt Body { get; }
 
         /// <summary>
+        /// Gets or sets the raw parameter specifications used for lowering.
+        /// </summary>
+        public List<FunctionParameterSpec> ParameterSpecs { get; set; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="FuncExpr"/> class.
         /// </summary>
         /// <param name="parameters">The parameters<see cref="List{string}"/></param>
@@ -2132,7 +2315,16 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
         /// <param name="isAsync">The isAsync<see cref="bool"/></param>
-        public FuncExpr(List<string> parameters, BlockStmt body, int minArgs, string? restParameter, int line, int col, string fname, bool isAsync = false)
+        public FuncExpr(
+            List<string> parameters,
+            BlockStmt body,
+            int minArgs,
+            string? restParameter,
+            int line,
+            int col,
+            string fname,
+            bool isAsync = false,
+            List<FunctionParameterSpec>? parameterSpecs = null)
             : base(line, col, fname)
         {
             Parameters = parameters;
@@ -2140,6 +2332,7 @@ namespace CFGS_VM.Analytic.Tree
             MinArgs = minArgs;
             RestParameter = restParameter;
             IsAsync = isAsync;
+            ParameterSpecs = parameterSpecs ?? new List<FunctionParameterSpec>();
         }
     }
 

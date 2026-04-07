@@ -1,5 +1,6 @@
 ﻿using CFGS_VM.Analytic.Core;
 using CFGS_VM.Analytic.Tree;
+using CFGS_VM.Analytic.Lowering;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
@@ -87,7 +88,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v4.4.7";
+    public const string Version = "v4.5.8";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -444,6 +445,7 @@ public class Program
         lexer = new(name, source);
         parser = new(lexer, vm.LoadPlugin);
         ast = parser.Parse();
+        ast = new SyntaxLowerer().Lower(ast);
 
         compiler = new(name);
         bytecode = compiler.Compile(ast);

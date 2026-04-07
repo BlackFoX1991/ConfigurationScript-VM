@@ -6,6 +6,8 @@ ConfigurationScript, or CFGS, is implemented in this repository as a bytecode VM
 
 In practice this means two things. First, the language is clearly formalized. Second, the documentation should be aligned with the current implementation instead of historical material. That is exactly what this folder does.
 
+If you want the codebase-level structure behind that implementation, continue with [Internal Architecture](14_internal_architecture.md).
+
 ## Important Project Folders
 
 - `CFGS_NE` contains the language frontend, compiler, runtime, and CLI.
@@ -15,6 +17,7 @@ In practice this means two things. First, the language is clearly formalized. Se
 - `Documentation` contains the German documentation.
 - `documentation_en` contains the English documentation.
 - `CFGS_NE/Samples` and `CFGS_NE/_edgecases` are strong references for real language usage.
+- `14_internal_architecture.md` documents the productive parser, compiler, VM, and LSP architecture.
 
 ## Building the Project
 

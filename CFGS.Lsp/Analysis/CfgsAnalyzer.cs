@@ -1,6 +1,7 @@
 using System.Text;
 using CFGS_VM.Analytic.Core;
 using CFGS_VM.Analytic.Ex;
+using CFGS_VM.Analytic.Lowering;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
@@ -53,6 +54,7 @@ internal sealed class CfgsAnalyzer
             Lexer lexer = new(origin, sourceText);
             Parser parser = new(lexer, _ => { }, loadImportSource: sources.GetOverlaySourceText);
             List<Stmt> ast = parser.Parse();
+            ast = new SyntaxLowerer().Lower(ast);
 
             Compiler compiler = new(origin);
             compiler.Compile(ast);
