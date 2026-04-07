@@ -1,0 +1,2 @@
+import { add } from "./new_module.cfs";
+var value = 1;

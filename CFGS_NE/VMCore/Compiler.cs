@@ -1,6 +1,8 @@
-﻿using CFGS_VM.Analytic.Tokens;
+using CFGS_VM.Analytic.Tokens;
+using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore.Command;
+using CFGS_VM.VMCore.Codegen;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
 using System.Numerics;
@@ -10,27 +12,31 @@ namespace CFGS_VM.VMCore
     /// <summary>
     /// Defines the <see cref="Compiler" />
     /// </summary>
-    public class Compiler(string fname)
+    public partial class Compiler(string fname)
     {
         /// <summary>
-        /// Defines the _anonCounter
+        /// Defines the emission context
         /// </summary>
-        private int _anonCounter = 0;
+        private readonly BytecodeEmissionContext _emission = new();
+
+        /// <summary>
+        /// Defines the compilation context
+        /// </summary>
+        private readonly CompilationContext _context = new(fname);
 
         /// <summary>
         /// Gets or sets the FileName
         /// </summary>
-        public string FileName { get; set; } = fname;
+        public string FileName
+        {
+            get => _context.FileName;
+            set => _context.FileName = value;
+        }
 
         /// <summary>
         /// Defines the _insns
         /// </summary>
-        private readonly List<Instruction> _insns = [];
-
-        /// <summary>
-        /// Defines the LoopLeavePatch
-        /// </summary>
-        private readonly record struct LoopLeavePatch(int Index, int ScopeDepth);
+        private List<Instruction> _insns => _context.Instructions;
 
         /// <summary>
         /// Defines the ImplicitMemberResolutionKind
@@ -41,16 +47,6 @@ namespace CFGS_VM.VMCore
             Instance,
             Static,
             Ambiguous
-        }
-
-        /// <summary>
-        /// Defines the ReceiverContextKind
-        /// </summary>
-        private enum ReceiverContextKind
-        {
-            None,
-            InstanceMethod,
-            StaticMethod
         }
 
         /// <summary>
@@ -92,97 +88,130 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Defines the _breakLists
         /// </summary>
-        private readonly Stack<List<LoopLeavePatch>> _breakLists = new();
+        private Stack<List<LoopLeavePatch>> _breakLists => _emission.BreakLists;
 
         /// <summary>
         /// Defines the _continueLists
         /// </summary>
-        private readonly Stack<List<LoopLeavePatch>> _continueLists = new();
+        private Stack<List<LoopLeavePatch>> _continueLists => _emission.ContinueLists;
 
         /// <summary>
         /// Gets the Functions
         /// </summary>
-        public Dictionary<string, FunctionInfo> Functions { get; } = [];
+        public Dictionary<string, FunctionInfo> Functions => _context.Functions;
 
         /// <summary>
         /// Defines the _classInfos
         /// </summary>
-        private readonly Dictionary<ClassDeclStmt, ClassInfo> _classInfos = new();
+        private Dictionary<ClassDeclStmt, ClassInfo> _classInfos => _context.ClassInfos;
 
         /// <summary>
         /// Defines the _topLevelClassDecls
         /// </summary>
-        private readonly Dictionary<string, ClassDeclStmt> _topLevelClassDecls = new(StringComparer.Ordinal);
+        private Dictionary<string, ClassDeclStmt> _topLevelClassDecls => _context.TopLevelClassDecls;
 
         /// <summary>
         /// Defines the _topLevelInterfaceDecls
         /// </summary>
-        private readonly Dictionary<string, InterfaceDeclStmt> _topLevelInterfaceDecls = new(StringComparer.Ordinal);
+        private Dictionary<string, InterfaceDeclStmt> _topLevelInterfaceDecls => _context.TopLevelInterfaceDecls;
 
         /// <summary>
         /// Defines all known class declarations indexed by qualified path.
         /// </summary>
-        private readonly Dictionary<string, ClassDeclStmt> _qualifiedClassDecls = new(StringComparer.Ordinal);
+        private Dictionary<string, ClassDeclStmt> _qualifiedClassDecls => _context.QualifiedClassDecls;
 
         /// <summary>
         /// Defines all known interface declarations indexed by qualified path.
         /// </summary>
-        private readonly Dictionary<string, InterfaceDeclStmt> _qualifiedInterfaceDecls = new(StringComparer.Ordinal);
+        private Dictionary<string, InterfaceDeclStmt> _qualifiedInterfaceDecls => _context.QualifiedInterfaceDecls;
 
         /// <summary>
         /// Defines the qualified path for each known class declaration.
         /// </summary>
-        private readonly Dictionary<ClassDeclStmt, string> _classQualifiedPaths = new();
+        private Dictionary<ClassDeclStmt, string> _classQualifiedPaths => _context.ClassQualifiedPaths;
 
         /// <summary>
         /// Defines the qualified path for each known interface declaration.
         /// </summary>
-        private readonly Dictionary<InterfaceDeclStmt, string> _interfaceQualifiedPaths = new();
+        private Dictionary<InterfaceDeclStmt, string> _interfaceQualifiedPaths => _context.InterfaceQualifiedPaths;
 
         /// <summary>
         /// Defines the _interfaceContractCache
         /// </summary>
-        private readonly Dictionary<InterfaceDeclStmt, Dictionary<string, InterfaceMethodDecl>> _interfaceContractCache = new();
+        private Dictionary<InterfaceDeclStmt, Dictionary<string, InterfaceMethodDecl>> _interfaceContractCache => _context.InterfaceContractCache;
 
         /// <summary>
         /// Defines the _classMemberSetCache
         /// </summary>
-        private readonly Dictionary<ClassDeclStmt, (HashSet<string> InstanceMembers, HashSet<string> StaticMembers)> _classMemberSetCache = new();
+        private Dictionary<ClassDeclStmt, (HashSet<string> InstanceMembers, HashSet<string> StaticMembers)> _classMemberSetCache => _context.ClassMemberSetCache;
 
         /// <summary>
         /// Defines the _currentClass
         /// </summary>
-        private ClassInfo? _currentClass;
+        private ClassInfo? _currentClass
+        {
+            get => _emission.CurrentClass;
+            set => _emission.CurrentClass = value;
+        }
 
         /// <summary>
         /// Defines the current class declaration being compiled.
         /// </summary>
-        private ClassDeclStmt? _currentClassDecl;
+        private ClassDeclStmt? _currentClassDecl
+        {
+            get => _emission.CurrentClassDecl;
+            set => _emission.CurrentClassDecl = value;
+        }
 
         /// <summary>
         /// Defines the _currentMethodIsStatic
         /// </summary>
-        private bool _currentMethodIsStatic;
+        private bool _currentMethodIsStatic
+        {
+            get => _emission.CurrentMethodIsStatic;
+            set => _emission.CurrentMethodIsStatic = value;
+        }
 
         /// <summary>
         /// Defines the _receiverContext
         /// </summary>
-        private ReceiverContextKind _receiverContext;
+        private ReceiverContextKind _receiverContext
+        {
+            get => _emission.ReceiverContext;
+            set => _emission.ReceiverContext = value;
+        }
 
         /// <summary>
         /// Defines the _localVarsStack
         /// </summary>
-        private readonly Stack<HashSet<string>> _localVarsStack = new();
+        private Stack<HashSet<string>> _localVarsStack => _emission.LocalVarsStack;
 
         /// <summary>
         /// Defines the _scopeDepth
         /// </summary>
-        private int _scopeDepth;
+        private int _scopeDepth
+        {
+            get => _emission.ScopeDepth;
+            set => _emission.ScopeDepth = value;
+        }
 
         /// <summary>
         /// Defines the _asyncFunctionDepth
         /// </summary>
-        private int _asyncFunctionDepth;
+        private int _asyncFunctionDepth
+        {
+            get => _emission.AsyncFunctionDepth;
+            set => _emission.AsyncFunctionDepth = value;
+        }
+
+        /// <summary>
+        /// Defines the _anonCounter
+        /// </summary>
+        private int _anonCounter
+        {
+            get => _emission.AnonymousCounter;
+            set => _emission.AnonymousCounter = value;
+        }
 
         /// <summary>
         /// Defines the EmptyLocals
@@ -203,189 +232,7 @@ namespace CFGS_VM.VMCore
         {
             try
             {
-                _insns.Clear();
-                Functions.Clear();
-
-                _classInfos.Clear();
-                _topLevelClassDecls.Clear();
-                _topLevelInterfaceDecls.Clear();
-                _qualifiedClassDecls.Clear();
-                _qualifiedInterfaceDecls.Clear();
-                _classQualifiedPaths.Clear();
-                _interfaceQualifiedPaths.Clear();
-                _interfaceContractCache.Clear();
-                _classMemberSetCache.Clear();
-                _currentClass = null;
-                _currentClassDecl = null;
-                _currentMethodIsStatic = false;
-                _receiverContext = ReceiverContextKind.None;
-                _localVarsStack.Clear();
-                _scopeDepth = 0;
-                _asyncFunctionDepth = 0;
-
-                List<FuncDeclStmt> funcDecls = new();
-                List<InterfaceDeclStmt> interfaceDecls = new();
-                List<ClassDeclStmt> classDecls = new();
-
-                foreach (Stmt raw in program)
-                {
-                    Stmt s = raw is ExportStmt ex ? ex.Inner : raw;
-
-                    if (s is FuncDeclStmt f)
-                    {
-                        if (Functions.ContainsKey(f.Name))
-                            throw new CompilerException(
-                                $"duplicate function '{f.Name}'",
-                                f.Line, f.Col, f.OriginFile);
-
-                        Functions[f.Name] = new FunctionInfo(f.Parameters, -1, f.MinArgs, f.RestParameter, f.IsAsync);
-                        funcDecls.Add(f);
-                    }
-                    else if (s is ClassDeclStmt c)
-                    {
-                        classDecls.Add(c);
-                        _topLevelClassDecls[c.Name] = c;
-                        RegisterQualifiedClassDecl(c, c.Name);
-                    }
-                    else if (s is InterfaceDeclStmt i)
-                    {
-                        interfaceDecls.Add(i);
-                        _topLevelInterfaceDecls[i.Name] = i;
-                        RegisterQualifiedInterfaceDecl(i, i.Name);
-                    }
-                    else if (s is BlockStmt b && TryGetNamespaceScopePath(b, out string nsPath))
-                    {
-                        RegisterNamespaceScopeClasses(b, nsPath);
-                        RegisterNamespaceScopeInterfaces(b, nsPath);
-                    }
-                }
-
-                ValidateReservedInterfaceDeclarations(_qualifiedInterfaceDecls.Values.Distinct());
-                ValidateReservedClassDeclarations(_qualifiedClassDecls.Values.Distinct());
-                NormalizeClassInheritanceDeclarations(_qualifiedClassDecls.Values.Distinct());
-                ValidateAllKnownInterfaces();
-
-                int jmpOverAllFuncsIdx = _insns.Count;
-                _insns.Add(new Instruction(OpCode.JMP, null, 0, 0));
-
-                List<(FuncDeclStmt fd, int funcStart)> orderedFuncs = new();
-
-                foreach (FuncDeclStmt fd in funcDecls)
-                {
-                    try
-                    {
-                        int funcStart = _insns.Count;
-                        Functions[fd.Name] = new FunctionInfo(fd.Parameters, funcStart, fd.MinArgs, fd.RestParameter, fd.IsAsync);
-
-                        if (fd.Body is BlockStmt b)
-                            b.IsFunctionBody = true;
-                        else
-                            throw new CompilerException(
-                                $"function '{fd.Name}' must have a block body",
-                                fd.Line, fd.Col, fd.OriginFile);
-
-                        ReceiverContextKind prevReceiverContext = _receiverContext;
-                        _receiverContext = ReceiverContextKind.None;
-                        EnterFunctionLocals(fd.Parameters);
-                        if (fd.IsAsync) _asyncFunctionDepth++;
-                        try
-                        {
-                            CompileStmt(fd.Body, insideFunction: true);
-                        }
-                        finally
-                        {
-                            if (fd.IsAsync) _asyncFunctionDepth--;
-                            LeaveFunctionLocals();
-                            _receiverContext = prevReceiverContext;
-                        }
-
-                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fd.Line, fd.Col, fd.OriginFile));
-                        _insns.Add(new Instruction(OpCode.RET, null, fd.Line, fd.Col, fd.OriginFile));
-
-                        orderedFuncs.Add((fd, funcStart));
-                    }
-
-                    catch (CompilerException)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new CompilerException(
-                            $"internal compiler error while compiling function '{fd.Name}': {ex.Message}",
-                            fd.Line, fd.Col, fd.OriginFile);
-                    }
-                }
-
-                _insns[jmpOverAllFuncsIdx] = new Instruction(OpCode.JMP, _insns.Count, 0, 0);
-
-                foreach ((FuncDeclStmt fd, int funcStart) in orderedFuncs)
-                {
-                    _insns.Add(new Instruction(
-                        OpCode.PUSH_CLOSURE,
-                        new object[] { funcStart, fd.Name },
-                        fd.Line, fd.Col, fd.OriginFile));
-
-                    _insns.Add(new Instruction(
-                        OpCode.VAR_DECL,
-                        fd.Name,
-                        fd.Line, fd.Col, fd.OriginFile));
-                }
-
-                List<InterfaceDeclStmt> sortedInterfaces = OrderInterfacesByInheritance(interfaceDecls);
-                foreach (InterfaceDeclStmt ids in sortedInterfaces)
-                    CompileStmt(ids, insideFunction: false);
-
-                List<ClassDeclStmt> sortedClasses = OrderClassesByInheritance(classDecls);
-                ValidateInheritanceOverrides(sortedClasses);
-                ValidateBaseConstructorCalls(sortedClasses);
-                ValidateInterfaceImplementations(sortedClasses);
-
-                BuildClassInfos(sortedClasses);
-
-                foreach (ClassDeclStmt cds in sortedClasses)
-                {
-                    try
-                    {
-                        CompileStmt(cds, insideFunction: false);
-                    }
-                    catch (CompilerException)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new CompilerException(
-                            $"internal compiler error while compiling class '{cds.Name}': {ex.Message}",
-                            cds.Line, cds.Col, cds.OriginFile);
-                    }
-                }
-
-                foreach (Stmt s in program)
-                {
-                    Stmt unwrapped = s is ExportStmt exportStmt ? exportStmt.Inner : s;
-                    if (unwrapped is FuncDeclStmt) continue;
-                    if (unwrapped is InterfaceDeclStmt) continue;
-                    if (unwrapped is ClassDeclStmt) continue;
-
-                    try
-                    {
-                        CompileStmt(s, insideFunction: false);
-                    }
-                    catch (CompilerException)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new CompilerException(
-                            $"internal compiler error at top-level: {ex.Message}",
-                            s.Line, s.Col, s.OriginFile);
-                    }
-                }
-
-                _insns.Add(new Instruction(OpCode.HALT, null, 0, 0));
-                return _insns;
+                return new CompilationPipeline().Compile(this, program);
             }
             catch (CompilerException)
             {
@@ -400,81 +247,12 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The RegisterQualifiedClassDecl
-        /// </summary>
-        /// <param name="decl">The decl<see cref="ClassDeclStmt"/></param>
-        /// <param name="qualifiedPath">The qualifiedPath<see cref="string"/></param>
-        private void RegisterQualifiedClassDecl(ClassDeclStmt decl, string qualifiedPath)
-        {
-            if (!_qualifiedClassDecls.TryAdd(qualifiedPath, decl))
-            {
-                throw new CompilerException(
-                    $"duplicate class '{qualifiedPath}'",
-                    decl.Line, decl.Col, decl.OriginFile);
-            }
-
-            _classQualifiedPaths[decl] = qualifiedPath;
-
-            foreach (ClassDeclStmt nested in decl.NestedClasses)
-                RegisterQualifiedClassDecl(nested, $"{qualifiedPath}.{nested.Name}");
-        }
-
-        /// <summary>
-        /// The RegisterQualifiedInterfaceDecl
-        /// </summary>
-        /// <param name="decl">The decl<see cref="InterfaceDeclStmt"/></param>
-        /// <param name="qualifiedPath">The qualifiedPath<see cref="string"/></param>
-        private void RegisterQualifiedInterfaceDecl(InterfaceDeclStmt decl, string qualifiedPath)
-        {
-            if (!_qualifiedInterfaceDecls.TryAdd(qualifiedPath, decl))
-            {
-                throw new CompilerException(
-                    $"duplicate interface '{qualifiedPath}'",
-                    decl.Line, decl.Col, decl.OriginFile);
-            }
-
-            _interfaceQualifiedPaths[decl] = qualifiedPath;
-        }
-
-        /// <summary>
-        /// The RegisterNamespaceScopeClasses
-        /// </summary>
-        /// <param name="namespaceScope">The namespaceScope<see cref="BlockStmt"/></param>
-        /// <param name="namespacePath">The namespacePath<see cref="string"/></param>
-        private void RegisterNamespaceScopeClasses(BlockStmt namespaceScope, string namespacePath)
-        {
-            foreach (Stmt stmt in namespaceScope.Statements)
-            {
-                if (stmt is not ClassDeclStmt c)
-                    continue;
-
-                RegisterQualifiedClassDecl(c, $"{namespacePath}.{c.Name}");
-            }
-        }
-
-        /// <summary>
-        /// The RegisterNamespaceScopeInterfaces
-        /// </summary>
-        /// <param name="namespaceScope">The namespaceScope<see cref="BlockStmt"/></param>
-        /// <param name="namespacePath">The namespacePath<see cref="string"/></param>
-        private void RegisterNamespaceScopeInterfaces(BlockStmt namespaceScope, string namespacePath)
-        {
-            foreach (Stmt stmt in namespaceScope.Statements)
-            {
-                if (stmt is not InterfaceDeclStmt i)
-                    continue;
-
-                RegisterQualifiedInterfaceDecl(i, $"{namespacePath}.{i.Name}");
-            }
-        }
-
-        /// <summary>
         /// The TryGetNamespaceScopePath
         /// </summary>
         /// <param name="block">The block<see cref="BlockStmt"/></param>
         /// <param name="namespacePath">The namespacePath<see cref="string"/></param>
         /// <returns>The <see cref="bool"/></returns>
-        private static bool TryGetNamespaceScopePath(BlockStmt block, out string namespacePath)
+        internal static bool TryGetNamespaceScopePath(BlockStmt block, out string namespacePath)
         {
             namespacePath = string.Empty;
 
@@ -532,106 +310,6 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The ValidateReservedClassDeclarations
-        /// </summary>
-        /// <param name="classDecls">The classDecls<see cref="IEnumerable{ClassDeclStmt}"/></param>
-        private static void ValidateReservedInterfaceDeclarations(IEnumerable<InterfaceDeclStmt> interfaceDecls)
-        {
-            foreach (InterfaceDeclStmt iface in interfaceDecls)
-            {
-                HashSet<string> seenMethods = new(StringComparer.Ordinal);
-                HashSet<string> seenBases = new(StringComparer.Ordinal);
-
-                foreach (string baseName in iface.BaseInterfaces)
-                {
-                    if (!seenBases.Add(baseName))
-                    {
-                        throw new CompilerException(
-                            $"duplicate base interface '{baseName}' in interface '{iface.Name}'",
-                            iface.Line, iface.Col, iface.OriginFile);
-                    }
-                }
-
-                foreach (InterfaceMethodDecl m in iface.Methods)
-                {
-                    if (!seenMethods.Add(m.Name))
-                    {
-                        throw new CompilerException(
-                            $"duplicate method '{m.Name}' in interface '{iface.Name}'",
-                            m.Line, m.Col, m.OriginFile);
-                    }
-
-                    if (IsReservedRuntimeMemberName(m.Name) || IsReservedInternalMemberName(m.Name))
-                    {
-                        throw new CompilerException(
-                            $"invalid member declaration '{m.Name}' in interface '{iface.Name}': reserved member name",
-                            m.Line, m.Col, m.OriginFile);
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// The ValidateReservedClassDeclarations
-        /// </summary>
-        /// <param name="classDecls">The classDecls<see cref="IEnumerable{ClassDeclStmt}"/></param>
-        private static void ValidateReservedClassDeclarations(IEnumerable<ClassDeclStmt> classDecls)
-        {
-            foreach (ClassDeclStmt cls in classDecls)
-            {
-                foreach (string p in cls.Parameters)
-                {
-                    if (IsReservedRuntimeMemberName(p) || IsReservedInternalMemberName(p))
-                    {
-                        throw new CompilerException(
-                            $"invalid constructor parameter '{p}' in class '{cls.Name}': reserved member name",
-                            cls.Line, cls.Col, cls.OriginFile);
-                    }
-                }
-
-                foreach (string n in cls.Fields.Keys)
-                {
-                    if (IsReservedRuntimeMemberName(n) || IsReservedInternalMemberName(n))
-                    {
-                        throw new CompilerException(
-                            $"invalid member declaration '{n}' in class '{cls.Name}': reserved member name",
-                            cls.Line, cls.Col, cls.OriginFile);
-                    }
-                }
-
-                foreach (string n in cls.StaticFields.Keys)
-                {
-                    if (IsReservedRuntimeMemberName(n) || IsReservedInternalMemberName(n))
-                    {
-                        throw new CompilerException(
-                            $"invalid member declaration '{n}' in class '{cls.Name}': reserved member name",
-                            cls.Line, cls.Col, cls.OriginFile);
-                    }
-                }
-
-                foreach (FuncDeclStmt m in cls.Methods)
-                {
-                    if (IsReservedRuntimeMemberName(m.Name) || IsReservedInternalMemberName(m.Name))
-                    {
-                        throw new CompilerException(
-                            $"invalid member declaration '{m.Name}' in class '{cls.Name}': reserved member name",
-                            m.Line, m.Col, m.OriginFile);
-                    }
-                }
-
-                foreach (FuncDeclStmt m in cls.StaticMethods)
-                {
-                    if (IsReservedRuntimeMemberName(m.Name) || IsReservedInternalMemberName(m.Name))
-                    {
-                        throw new CompilerException(
-                            $"invalid member declaration '{m.Name}' in class '{cls.Name}': reserved member name",
-                            m.Line, m.Col, m.OriginFile);
-                    }
-                }
-            }
-        }
-
-        /// <summary>
         /// The MethodArityShape
         /// </summary>
         /// <param name="parameterCount">The parameterCount<see cref="int"/></param>
@@ -649,41 +327,7 @@ namespace CFGS_VM.VMCore
         /// <param name="classDecls">The classDecls<see cref="List{ClassDeclStmt}"/></param>
         /// <returns>The <see cref="List{ClassDeclStmt}"/></returns>
         private List<ClassDeclStmt> OrderClassesByInheritance(List<ClassDeclStmt> classDecls)
-        {
-            HashSet<ClassDeclStmt> knownClasses = new(classDecls);
-            List<ClassDeclStmt> result = new();
-            HashSet<ClassDeclStmt> permMark = new();
-            HashSet<ClassDeclStmt> tempMark = new();
-
-            void Visit(ClassDeclStmt cls)
-            {
-                if (permMark.Contains(cls))
-                    return;
-
-                if (tempMark.Contains(cls))
-                {
-                    throw new CompilerException(
-                        $"cyclic inheritance involving class '{cls.Name}'",
-                        cls.Line, cls.Col, cls.OriginFile);
-                }
-
-                tempMark.Add(cls);
-
-                if (TryResolveBaseClassDecl(cls, out ClassDeclStmt baseDecl) && knownClasses.Contains(baseDecl))
-                {
-                    Visit(baseDecl);
-                }
-
-                tempMark.Remove(cls);
-                permMark.Add(cls);
-                result.Add(cls);
-            }
-
-            foreach (ClassDeclStmt cls in classDecls)
-                Visit(cls);
-
-            return result;
-        }
+            => new ClassCatalog().OrderByInheritance(this, classDecls);
 
         /// <summary>
         /// The OrderInterfacesByInheritance
@@ -691,45 +335,7 @@ namespace CFGS_VM.VMCore
         /// <param name="interfaceDecls">The interfaceDecls<see cref="List{InterfaceDeclStmt}"/></param>
         /// <returns>The <see cref="List{InterfaceDeclStmt}"/></returns>
         private List<InterfaceDeclStmt> OrderInterfacesByInheritance(List<InterfaceDeclStmt> interfaceDecls)
-        {
-            HashSet<InterfaceDeclStmt> knownInterfaces = new(interfaceDecls);
-            List<InterfaceDeclStmt> result = new();
-            HashSet<InterfaceDeclStmt> permMark = new();
-            HashSet<InterfaceDeclStmt> tempMark = new();
-
-            void Visit(InterfaceDeclStmt iface)
-            {
-                if (permMark.Contains(iface))
-                    return;
-
-                if (tempMark.Contains(iface))
-                {
-                    throw new CompilerException(
-                        $"cyclic inheritance involving interface '{iface.Name}'",
-                        iface.Line, iface.Col, iface.OriginFile);
-                }
-
-                tempMark.Add(iface);
-
-                foreach (string baseName in iface.BaseInterfaces)
-                {
-                    if (TryResolveBaseInterfaceDecl(iface, baseName, out InterfaceDeclStmt baseIface) &&
-                        knownInterfaces.Contains(baseIface))
-                    {
-                        Visit(baseIface);
-                    }
-                }
-
-                tempMark.Remove(iface);
-                permMark.Add(iface);
-                result.Add(iface);
-            }
-
-            foreach (InterfaceDeclStmt iface in interfaceDecls)
-                Visit(iface);
-
-            return result;
-        }
+            => new InterfaceCatalog().OrderByInheritance(this, interfaceDecls);
 
         /// <summary>
         /// The MethodArityShape
@@ -1029,69 +635,7 @@ namespace CFGS_VM.VMCore
         /// </summary>
         /// <param name="sortedClasses">The sortedClasses<see cref="List{ClassDeclStmt}"/></param>
         private void ValidateInheritanceOverrides(List<ClassDeclStmt> sortedClasses)
-        {
-            foreach (ClassDeclStmt cls in sortedClasses)
-            {
-                if (string.IsNullOrWhiteSpace(cls.BaseName))
-                    continue;
-
-                foreach (KeyValuePair<string, Expr?> field in cls.Fields)
-                {
-                    if (!TryFindInheritedMember(cls, field.Key, out InheritedMemberInfo inherited))
-                        continue;
-
-                    ValidateMemberKindCompatibility(cls, field.Key, InheritedMemberKind.InstanceField, inherited, cls.Line, cls.Col, cls.OriginFile);
-                    ValidateMemberVisibilityCompatibility(cls, field.Key, InheritedMemberKind.InstanceField, inherited, cls.Line, cls.Col, cls.OriginFile);
-                }
-
-                foreach (FuncDeclStmt method in cls.Methods)
-                {
-                    if (!TryFindInheritedMember(cls, method.Name, out InheritedMemberInfo inherited))
-                        continue;
-
-                    ValidateMemberKindCompatibility(cls, method.Name, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
-                    ValidateMemberVisibilityCompatibility(cls, method.Name, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
-                    ValidateMethodOverrideShape(cls, method, inherited);
-                }
-
-                foreach (KeyValuePair<string, Expr?> staticField in cls.StaticFields)
-                {
-                    if (!TryFindInheritedMember(cls, staticField.Key, out InheritedMemberInfo inherited))
-                        continue;
-
-                    ValidateMemberKindCompatibility(cls, staticField.Key, InheritedMemberKind.StaticField, inherited, cls.Line, cls.Col, cls.OriginFile);
-                    ValidateMemberVisibilityCompatibility(cls, staticField.Key, InheritedMemberKind.StaticField, inherited, cls.Line, cls.Col, cls.OriginFile);
-                }
-
-                foreach (FuncDeclStmt staticMethod in cls.StaticMethods)
-                {
-                    if (!TryFindInheritedMember(cls, staticMethod.Name, out InheritedMemberInfo inherited))
-                        continue;
-
-                    ValidateMemberKindCompatibility(cls, staticMethod.Name, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
-                    ValidateMemberVisibilityCompatibility(cls, staticMethod.Name, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
-                    ValidateMethodOverrideShape(cls, staticMethod, inherited);
-                }
-
-                foreach (EnumDeclStmt en in cls.Enums)
-                {
-                    if (!TryFindInheritedMember(cls, en.Name, out InheritedMemberInfo inherited))
-                        continue;
-
-                    ValidateMemberKindCompatibility(cls, en.Name, InheritedMemberKind.StaticEnum, inherited, en.Line, en.Col, en.OriginFile);
-                    ValidateMemberVisibilityCompatibility(cls, en.Name, InheritedMemberKind.StaticEnum, inherited, en.Line, en.Col, en.OriginFile);
-                }
-
-                foreach (ClassDeclStmt nested in cls.NestedClasses)
-                {
-                    if (!TryFindInheritedMember(cls, nested.Name, out InheritedMemberInfo inherited))
-                        continue;
-
-                    ValidateMemberKindCompatibility(cls, nested.Name, InheritedMemberKind.StaticClass, inherited, nested.Line, nested.Col, nested.OriginFile);
-                    ValidateMemberVisibilityCompatibility(cls, nested.Name, InheritedMemberKind.StaticClass, inherited, nested.Line, nested.Col, nested.OriginFile);
-                }
-            }
-        }
+            => new ClassSemanticValidator().ValidateInheritanceOverrides(this, sortedClasses);
 
         /// <summary>
         /// The GetConstructorSignature
@@ -1255,47 +799,14 @@ namespace CFGS_VM.VMCore
         /// </summary>
         /// <param name="sortedClasses">The sortedClasses<see cref="List{ClassDeclStmt}"/></param>
         private void ValidateBaseConstructorCalls(List<ClassDeclStmt> sortedClasses)
-        {
-            foreach (ClassDeclStmt cls in sortedClasses)
-            {
-                if (string.IsNullOrWhiteSpace(cls.BaseName))
-                    continue;
-
-                if (!TryResolveBaseClassDecl(cls, out ClassDeclStmt baseClass))
-                    continue;
-
-                ConstructorSignature baseCtor = GetConstructorSignature(baseClass);
-
-                int implicitOuterArgs = 0;
-                if (baseClass.IsNested)
-                {
-                    if (!cls.IsNested)
-                    {
-                        throw new CompilerException(
-                            $"invalid base constructor call in class '{cls.Name}': base class '{baseClass.Name}' is nested and requires an outer instance argument '__outer'",
-                            cls.Line, cls.Col, cls.OriginFile);
-                    }
-
-                    implicitOuterArgs = 1;
-                }
-
-                ValidateCallArgumentsAgainstSignature(
-                    cls.BaseCtorArgs,
-                    baseCtor,
-                    implicitOuterArgs,
-                    $"invalid base constructor call in class '{cls.Name}'",
-                    cls.Line,
-                    cls.Col,
-                    cls.OriginFile);
-            }
-        }
+            => new ClassSemanticValidator().ValidateBaseConstructorCalls(this, sortedClasses);
 
         /// <summary>
         /// The IsReservedRuntimeMemberName
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>
         /// <returns>The <see cref="bool"/></returns>
-        private static bool IsReservedRuntimeMemberName(string name)
+        internal static bool IsReservedRuntimeMemberName(string name)
             => ReservedRuntimeMemberNames.Contains(name);
 
         /// <summary>
@@ -1303,7 +814,7 @@ namespace CFGS_VM.VMCore
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>
         /// <returns>The <see cref="bool"/></returns>
-        private static bool IsReservedInternalMemberName(string name)
+        internal static bool IsReservedInternalMemberName(string name)
             => name.StartsWith("__", StringComparison.Ordinal);
 
         /// <summary>
@@ -1312,7 +823,7 @@ namespace CFGS_VM.VMCore
         /// <param name="decl">The decl<see cref="ClassDeclStmt"/></param>
         /// <param name="baseDecl">The baseDecl<see cref="ClassDeclStmt"/></param>
         /// <returns>The <see cref="bool"/></returns>
-        private bool TryResolveBaseClassDecl(ClassDeclStmt decl, out ClassDeclStmt baseDecl)
+        internal bool TryResolveBaseClassDecl(ClassDeclStmt decl, out ClassDeclStmt baseDecl)
         {
             baseDecl = null!;
 
@@ -1342,7 +853,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// The TryResolveClassDecl
         /// </summary>
-        private bool TryResolveClassDecl(ClassDeclStmt context, string className, out ClassDeclStmt decl)
+        internal bool TryResolveClassDecl(ClassDeclStmt context, string className, out ClassDeclStmt decl)
         {
             decl = null!;
             if (string.IsNullOrWhiteSpace(className))
@@ -1367,7 +878,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// The TryResolveBaseInterfaceDecl
         /// </summary>
-        private bool TryResolveBaseInterfaceDecl(InterfaceDeclStmt context, string interfaceName, out InterfaceDeclStmt decl)
+        internal bool TryResolveBaseInterfaceDecl(InterfaceDeclStmt context, string interfaceName, out InterfaceDeclStmt decl)
         {
             decl = null!;
             if (string.IsNullOrWhiteSpace(interfaceName))
@@ -1392,7 +903,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// The TryResolveInterfaceDecl
         /// </summary>
-        private bool TryResolveInterfaceDecl(ClassDeclStmt context, string interfaceName, out InterfaceDeclStmt decl)
+        internal bool TryResolveInterfaceDecl(ClassDeclStmt context, string interfaceName, out InterfaceDeclStmt decl)
         {
             decl = null!;
             if (string.IsNullOrWhiteSpace(interfaceName))
@@ -1418,77 +929,18 @@ namespace CFGS_VM.VMCore
         /// Normalizes class inheritance declarations so interfaces are separated from the single base-class slot.
         /// </summary>
         private void NormalizeClassInheritanceDeclarations(IEnumerable<ClassDeclStmt> classDecls)
-        {
-            foreach (ClassDeclStmt cls in classDecls)
-            {
-                List<string> normalizedInterfaces = new();
-                HashSet<string> seenInterfaces = new(StringComparer.Ordinal);
-
-                if (!string.IsNullOrWhiteSpace(cls.BaseName) &&
-                    TryResolveInterfaceDecl(cls, cls.BaseName, out _))
-                {
-                    if (cls.BaseCtorArgs.Count > 0)
-                    {
-                        throw new CompilerException(
-                            $"invalid inheritance list in class '{cls.Name}': interface '{cls.BaseName}' cannot receive constructor arguments",
-                            cls.Line, cls.Col, cls.OriginFile);
-                    }
-
-                    normalizedInterfaces.Add(cls.BaseName);
-                    seenInterfaces.Add(cls.BaseName);
-                    cls.BaseName = null;
-                    cls.BaseCtorArgs = new List<Expr>();
-                }
-
-                foreach (string ifaceName in cls.ImplementedInterfaces)
-                {
-                    if (!seenInterfaces.Add(ifaceName))
-                    {
-                        throw new CompilerException(
-                            $"duplicate interface '{ifaceName}' in class '{cls.Name}'",
-                            cls.Line, cls.Col, cls.OriginFile);
-                    }
-
-                    if (TryResolveClassDecl(cls, ifaceName, out _))
-                    {
-                        throw new CompilerException(
-                            $"invalid inheritance list in class '{cls.Name}': base class '{ifaceName}' must appear before interfaces",
-                            cls.Line, cls.Col, cls.OriginFile);
-                    }
-
-                    normalizedInterfaces.Add(ifaceName);
-                }
-
-                cls.ImplementedInterfaces = normalizedInterfaces;
-            }
-        }
+            => new ClassCatalog().NormalizeInheritanceDeclarations(this, classDecls);
 
         /// <summary>
         /// Validates all known interface declarations and warms the transitive contract cache.
         /// </summary>
         private void ValidateAllKnownInterfaces()
-        {
-            List<InterfaceDeclStmt> sortedInterfaces = OrderInterfacesByInheritance(_qualifiedInterfaceDecls.Values.Distinct().ToList());
-            foreach (InterfaceDeclStmt iface in sortedInterfaces)
-            {
-                foreach (string baseName in iface.BaseInterfaces)
-                {
-                    if (TryResolveClassDeclFromInterfaceBaseName(iface, baseName, out ClassDeclStmt classDecl))
-                    {
-                        throw new CompilerException(
-                            $"invalid base type '{baseName}' in interface '{iface.Name}': '{classDecl.Name}' is a class",
-                            iface.Line, iface.Col, iface.OriginFile);
-                    }
-                }
-
-                _ = GetOrBuildInterfaceContract(iface);
-            }
-        }
+            => new InterfaceCatalog().ValidateAllKnownInterfaces(this);
 
         /// <summary>
         /// The TryResolveClassDeclFromInterfaceBaseName
         /// </summary>
-        private bool TryResolveClassDeclFromInterfaceBaseName(InterfaceDeclStmt context, string className, out ClassDeclStmt decl)
+        internal bool TryResolveClassDeclFromInterfaceBaseName(InterfaceDeclStmt context, string className, out ClassDeclStmt decl)
         {
             decl = null!;
             if (string.IsNullOrWhiteSpace(className))
@@ -1513,7 +965,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// The GetOrBuildInterfaceContract
         /// </summary>
-        private Dictionary<string, InterfaceMethodDecl> GetOrBuildInterfaceContract(InterfaceDeclStmt iface)
+        internal Dictionary<string, InterfaceMethodDecl> GetOrBuildInterfaceContract(InterfaceDeclStmt iface)
         {
             if (_interfaceContractCache.TryGetValue(iface, out Dictionary<string, InterfaceMethodDecl>? cached))
                 return cached;
@@ -1595,48 +1047,7 @@ namespace CFGS_VM.VMCore
         /// The ValidateInterfaceImplementations
         /// </summary>
         private void ValidateInterfaceImplementations(IEnumerable<ClassDeclStmt> classDecls)
-        {
-            foreach (ClassDeclStmt cls in classDecls)
-            {
-                foreach (string ifaceName in cls.ImplementedInterfaces)
-                {
-                    if (!TryResolveInterfaceDecl(cls, ifaceName, out InterfaceDeclStmt iface))
-                        continue;
-
-                    Dictionary<string, InterfaceMethodDecl> contract = GetOrBuildInterfaceContract(iface);
-                    foreach (KeyValuePair<string, InterfaceMethodDecl> kv in contract)
-                    {
-                        if (!TryFindInstanceMethodInHierarchy(cls, kv.Key, out ClassDeclStmt ownerDecl, out FuncDeclStmt methodDecl, out MemberVisibility visibility))
-                        {
-                            throw new CompilerException(
-                                $"class '{cls.Name}' does not implement interface method '{kv.Key}' from interface '{iface.Name}'",
-                                cls.Line, cls.Col, cls.OriginFile);
-                        }
-
-                        if (visibility != MemberVisibility.Public)
-                        {
-                            throw new CompilerException(
-                                $"class '{cls.Name}' cannot implement interface method '{kv.Key}' from interface '{iface.Name}' with non-public visibility",
-                                methodDecl.Line, methodDecl.Col, methodDecl.OriginFile);
-                        }
-
-                        if (!HaveCompatibleMethodShapes(kv.Value, methodDecl))
-                        {
-                            throw new CompilerException(
-                                $"class '{cls.Name}' implements interface method '{kv.Key}' from interface '{iface.Name}' with incompatible arity: expected {MethodArityShape(kv.Value)}, got {MethodArityShape(methodDecl)}",
-                                methodDecl.Line, methodDecl.Col, methodDecl.OriginFile);
-                        }
-
-                        if (!ReferenceEquals(ownerDecl, cls) && visibility != MemberVisibility.Public)
-                        {
-                            throw new CompilerException(
-                                $"class '{cls.Name}' inherits interface method '{kv.Key}' from class '{ownerDecl.Name}' with non-public visibility",
-                                methodDecl.Line, methodDecl.Col, methodDecl.OriginFile);
-                        }
-                    }
-                }
-            }
-        }
+            => new ClassSemanticValidator().ValidateInterfaceImplementations(this, classDecls);
 
         /// <summary>
         /// The TryResolveKnownClassDeclFromPath
@@ -1645,32 +1056,7 @@ namespace CFGS_VM.VMCore
         /// <param name="decl">The decl<see cref="ClassDeclStmt"/></param>
         /// <returns>The <see cref="bool"/></returns>
         private bool TryResolveKnownClassDeclFromPath(string classPath, out ClassDeclStmt decl)
-        {
-            decl = null!;
-            if (string.IsNullOrWhiteSpace(classPath))
-                return false;
-
-            if (_qualifiedClassDecls.TryGetValue(classPath, out decl!))
-                return true;
-
-            string[] parts = classPath.Split('.', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0)
-                return false;
-
-            if (!_topLevelClassDecls.TryGetValue(parts[0], out ClassDeclStmt? current))
-                return false;
-
-            for (int i = 1; i < parts.Length; i++)
-            {
-                ClassDeclStmt? nested = current.NestedClasses.FirstOrDefault(c => string.Equals(c.Name, parts[i], StringComparison.Ordinal));
-                if (nested == null)
-                    return false;
-                current = nested;
-            }
-
-            decl = current;
-            return true;
-        }
+            => new MemberAccessRules().TryResolveKnownClassDeclFromPath(this, classPath, out decl);
 
         /// <summary>
         /// The TryResolveKnownClassDeclFromExpr
@@ -1679,40 +1065,7 @@ namespace CFGS_VM.VMCore
         /// <param name="decl">The decl<see cref="ClassDeclStmt"/></param>
         /// <returns>The <see cref="bool"/></returns>
         private bool TryResolveKnownClassDeclFromExpr(Expr expr, out ClassDeclStmt decl)
-        {
-            decl = null!;
-
-            if (TryExtractQualifiedPath(expr, out string qPath))
-            {
-                int rootSep = qPath.IndexOf('.');
-                string root = rootSep >= 0 ? qPath[..rootSep] : qPath;
-                if (!CurrentLocals.Contains(root) && _qualifiedClassDecls.TryGetValue(qPath, out decl!))
-                    return true;
-            }
-
-            if (expr is VarExpr ve)
-            {
-                if (CurrentLocals.Contains(ve.Name))
-                    return false;
-                return _topLevelClassDecls.TryGetValue(ve.Name, out decl!);
-            }
-
-            if (expr is not IndexExpr idx || idx.Index is not StringExpr s)
-                return false;
-
-            if (idx.Target == null)
-                return false;
-
-            if (!TryResolveKnownClassDeclFromExpr(idx.Target, out ClassDeclStmt parent))
-                return false;
-
-            ClassDeclStmt? nested = parent.NestedClasses.FirstOrDefault(c => string.Equals(c.Name, s.Value, StringComparison.Ordinal));
-            if (nested == null)
-                return false;
-
-            decl = nested;
-            return true;
-        }
+            => new MemberAccessRules().TryResolveKnownClassDeclFromExpr(this, expr, CurrentLocals, out decl);
 
         /// <summary>
         /// The GetOrBuildClassMemberSets
@@ -1720,50 +1073,7 @@ namespace CFGS_VM.VMCore
         /// <param name="decl">The decl<see cref="ClassDeclStmt"/></param>
         /// <returns>The <see cref="(HashSet{string} InstanceMembers, HashSet{string} StaticMembers)"/></returns>
         private (HashSet<string> InstanceMembers, HashSet<string> StaticMembers) GetOrBuildClassMemberSets(ClassDeclStmt decl)
-        {
-            if (_classMemberSetCache.TryGetValue(decl, out (HashSet<string> InstanceMembers, HashSet<string> StaticMembers) cached))
-                return cached;
-
-            HashSet<string> instance = new(StringComparer.Ordinal);
-            HashSet<string> statik = new(StringComparer.Ordinal);
-            HashSet<ClassDeclStmt> visited = new();
-
-            void Collect(ClassDeclStmt c)
-            {
-                if (!visited.Add(c))
-                    return;
-
-                foreach (string n in c.Fields.Keys)
-                    instance.Add(n);
-                foreach (FuncDeclStmt m in c.Methods)
-                    instance.Add(m.Name);
-
-                ConstructorSignature ctor = GetConstructorSignature(c);
-                foreach (string p in ctor.Parameters)
-                {
-                    if (!string.Equals(p, "__outer", StringComparison.Ordinal))
-                        instance.Add(p);
-                }
-
-                foreach (string n in c.StaticFields.Keys)
-                    statik.Add(n);
-                foreach (FuncDeclStmt m in c.StaticMethods)
-                    statik.Add(m.Name);
-                foreach (EnumDeclStmt en in c.Enums)
-                    statik.Add(en.Name);
-                foreach (ClassDeclStmt nested in c.NestedClasses)
-                    statik.Add(nested.Name);
-
-                if (!string.IsNullOrWhiteSpace(c.BaseName) && TryResolveBaseClassDecl(c, out ClassDeclStmt baseDecl))
-                    Collect(baseDecl);
-            }
-
-            Collect(decl);
-
-            (HashSet<string> InstanceMembers, HashSet<string> StaticMembers) built = (instance, statik);
-            _classMemberSetCache[decl] = built;
-            return built;
-        }
+            => new MemberAccessRules().GetOrBuildClassMemberSets(this, decl);
 
         /// <summary>
         /// The VisibilityLabel
@@ -1941,17 +1251,7 @@ namespace CFGS_VM.VMCore
             string memberName,
             bool expectInstance,
             Node node)
-        {
-            if (!TryFindMemberVisibilityInHierarchy(decl, memberName, expectInstance, out ClassDeclStmt ownerDecl, out MemberVisibility visibility))
-                return;
-
-            if (IsMemberAccessAllowed(ownerDecl, visibility))
-                return;
-
-            throw new CompilerException(
-                $"inaccessible member '{memberName}' in class '{ownerDecl.Name}': '{VisibilityLabel(visibility)}' access",
-                node.Line, node.Col, node.OriginFile);
-        }
+            => new MemberAccessRules().ValidateMemberVisibilityAgainstKnownClass(this, decl, memberName, expectInstance, _currentClassDecl, node);
 
         /// <summary>
         /// The ValidateMemberAccessAgainstCurrentClass
@@ -1960,29 +1260,7 @@ namespace CFGS_VM.VMCore
         /// <param name="expectInstance">The expectInstance<see cref="bool"/></param>
         /// <param name="node">The node<see cref="Node"/></param>
         private void ValidateMemberAccessAgainstCurrentClass(string memberName, bool expectInstance, Node node)
-        {
-            if (_currentClass == null || _currentClassDecl == null)
-                return;
-
-            bool hasInstance = _currentClass.IsInstanceMember(memberName);
-            bool hasStatic = _currentClass.IsStaticMember(memberName);
-
-            if (expectInstance && !hasInstance && hasStatic)
-            {
-                throw new CompilerException(
-                    $"invalid instance member access '{memberName}' in class '{_currentClass.Name}': member is static",
-                    node.Line, node.Col, node.OriginFile);
-            }
-
-            if (!expectInstance && hasInstance && !hasStatic)
-            {
-                throw new CompilerException(
-                    $"invalid static member access '{memberName}' in class '{_currentClass.Name}': member is instance",
-                    node.Line, node.Col, node.OriginFile);
-            }
-
-            ValidateMemberVisibilityAgainstKnownClass(_currentClassDecl, memberName, expectInstance, node);
-        }
+            => new MemberAccessRules().ValidateMemberAccessAgainstCurrentClass(this, _currentClass, _currentClassDecl, memberName, expectInstance, node);
 
         /// <summary>
         /// The ValidateMemberAccessAgainstKnownClass
@@ -1996,27 +1274,7 @@ namespace CFGS_VM.VMCore
             string memberName,
             bool expectInstance,
             Node node)
-        {
-            (HashSet<string> instanceMembers, HashSet<string> staticMembers) = GetOrBuildClassMemberSets(decl);
-            bool hasInstance = instanceMembers.Contains(memberName);
-            bool hasStatic = staticMembers.Contains(memberName);
-
-            if (expectInstance && !hasInstance && hasStatic)
-            {
-                throw new CompilerException(
-                    $"invalid instance member access '{memberName}' in class '{decl.Name}': member is static",
-                    node.Line, node.Col, node.OriginFile);
-            }
-
-            if (!expectInstance && hasInstance && !hasStatic)
-            {
-                throw new CompilerException(
-                    $"invalid static member access '{memberName}' in class '{decl.Name}': member is instance",
-                    node.Line, node.Col, node.OriginFile);
-            }
-
-            ValidateMemberVisibilityAgainstKnownClass(decl, memberName, expectInstance, node);
-        }
+            => new MemberAccessRules().ValidateMemberAccessAgainstKnownClass(this, decl, memberName, expectInstance, _currentClassDecl, node);
 
         /// <summary>
         /// The ValidateExplicitMemberAccess
@@ -2085,346 +1343,7 @@ namespace CFGS_VM.VMCore
         /// </summary>
         /// <param name="ne">The ne<see cref="NewExpr"/></param>
         private void ValidateNewObjectInitializers(NewExpr ne)
-        {
-            bool hasKnownDecl = TryResolveKnownClassDeclFromPath(ne.ClassName, out ClassDeclStmt decl);
-            if (hasKnownDecl)
-                ValidateMemberVisibilityAgainstKnownClass(decl, "new", expectInstance: false, ne);
-
-            if (ne.Initializers == null || ne.Initializers.Count == 0)
-                return;
-
-            foreach ((string name, Expr valueExpr) in ne.Initializers)
-            {
-                if (IsReservedRuntimeMemberName(name))
-                {
-                    throw new CompilerException(
-                        $"invalid initializer member '{name}': reserved member name",
-                        valueExpr.Line, valueExpr.Col, valueExpr.OriginFile);
-                }
-            }
-
-            if (!hasKnownDecl)
-                return;
-
-            (HashSet<string> instanceMembers, HashSet<string> _) = GetOrBuildClassMemberSets(decl);
-            foreach ((string name, Expr valueExpr) in ne.Initializers)
-            {
-                if (!instanceMembers.Contains(name))
-                {
-                    throw new CompilerException(
-                        $"unknown initializer member '{name}' for class '{decl.Name}'",
-                        valueExpr.Line, valueExpr.Col, valueExpr.OriginFile);
-                }
-
-                ValidateMemberVisibilityAgainstKnownClass(decl, name, expectInstance: true, valueExpr);
-            }
-        }
-
-        /// <summary>
-        /// The EmitPushScope
-        /// </summary>
-        /// <param name="node">The node<see cref="Node"/></param>
-        private void EmitPushScope(Node node)
-        {
-            _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, node.Line, node.Col, node.OriginFile));
-            _scopeDepth++;
-        }
-
-        /// <summary>
-        /// The EmitPopScope
-        /// </summary>
-        /// <param name="node">The node<see cref="Node"/></param>
-        private void EmitPopScope(Node node)
-        {
-            if (_scopeDepth <= 0)
-                throw new CompilerException("internal compiler error: scope underflow while emitting POP_SCOPE", node.Line, node.Col, node.OriginFile);
-
-            _insns.Add(new Instruction(OpCode.POP_SCOPE, null, node.Line, node.Col, node.OriginFile));
-            _scopeDepth--;
-        }
-
-        /// <summary>
-        /// The ScopePopsTo
-        /// </summary>
-        /// <param name="fromDepth">The fromDepth<see cref="int"/></param>
-        /// <param name="targetDepth">The targetDepth<see cref="int"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
-        /// <returns>The <see cref="int"/></returns>
-        private static int ScopePopsTo(int fromDepth, int targetDepth, Node node)
-        {
-            int pops = fromDepth - targetDepth;
-            if (pops < 0)
-                throw new CompilerException("internal compiler error: negative scope-pop count for loop leave", node.Line, node.Col, node.OriginFile);
-            return pops;
-        }
-
-        /// <summary>
-        /// The EnterMatchArmLocals
-        /// </summary>
-        /// <returns>The <see cref="bool"/></returns>
-        private bool EnterMatchArmLocals()
-        {
-            if (_localVarsStack.Count == 0)
-                return false;
-
-            _localVarsStack.Push(new HashSet<string>(_localVarsStack.Peek(), StringComparer.Ordinal));
-            return true;
-        }
-
-        /// <summary>
-        /// The LeaveMatchArmLocals
-        /// </summary>
-        /// <param name="entered">The entered<see cref="bool"/></param>
-        private void LeaveMatchArmLocals(bool entered)
-        {
-            if (entered && _localVarsStack.Count > 0)
-                _localVarsStack.Pop();
-        }
-
-        /// <summary>
-        /// The EmitVarDeclTracked
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
-        /// <param name="trackInLocals">The trackInLocals<see cref="bool"/></param>
-        private void EmitVarDeclTracked(string name, Node node, bool trackInLocals)
-        {
-            _insns.Add(new Instruction(OpCode.VAR_DECL, name, node.Line, node.Col, node.OriginFile));
-            if (trackInLocals && _localVarsStack.Count > 0)
-                CurrentLocals.Add(name);
-        }
-
-        /// <summary>
-        /// The EmitPatternFailJump
-        /// </summary>
-        /// <param name="failJumps">The failJumps<see cref="List{int}"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
-        private void EmitPatternFailJump(List<int> failJumps, Node node)
-        {
-            int idx = _insns.Count;
-            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, node.Line, node.Col, node.OriginFile));
-            failJumps.Add(idx);
-        }
-
-        /// <summary>
-        /// The EmitPatternMatch
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <param name="sourceVar">The sourceVar<see cref="string"/></param>
-        /// <param name="failJumps">The failJumps<see cref="List{int}"/></param>
-        private void EmitPatternMatch(MatchPattern pattern, string sourceVar, List<int> failJumps)
-        {
-            switch (pattern)
-            {
-                case WildcardMatchPattern:
-                    return;
-
-                case BindingMatchPattern bind:
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, sourceVar, bind.Line, bind.Col, bind.OriginFile));
-                    EmitVarDeclTracked(bind.Name, bind, trackInLocals: true);
-                    return;
-
-                case ValueMatchPattern val:
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, sourceVar, val.Line, val.Col, val.OriginFile));
-                    CompileExpr(val.Value);
-                    _insns.Add(new Instruction(OpCode.EQ, null, val.Line, val.Col, val.OriginFile));
-                    EmitPatternFailJump(failJumps, val);
-                    return;
-
-                case ArrayMatchPattern arr:
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, sourceVar, arr.Line, arr.Col, arr.OriginFile));
-                    _insns.Add(new Instruction(OpCode.IS_ARRAY, null, arr.Line, arr.Col, arr.OriginFile));
-                    EmitPatternFailJump(failJumps, arr);
-
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, sourceVar, arr.Line, arr.Col, arr.OriginFile));
-                    _insns.Add(new Instruction(OpCode.LEN, null, arr.Line, arr.Col, arr.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_INT, arr.Elements.Count, arr.Line, arr.Col, arr.OriginFile));
-                    _insns.Add(new Instruction(OpCode.EQ, null, arr.Line, arr.Col, arr.OriginFile));
-                    EmitPatternFailJump(failJumps, arr);
-
-                    for (int i = 0; i < arr.Elements.Count; i++)
-                    {
-                        string elemVar = $"__match_elem_{_anonCounter++}";
-                        MatchPattern sub = arr.Elements[i];
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, sourceVar, sub.Line, sub.Col, sub.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, i, sub.Line, sub.Col, sub.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, sub.Line, sub.Col, sub.OriginFile));
-                        EmitVarDeclTracked(elemVar, sub, trackInLocals: false);
-                        EmitPatternMatch(sub, elemVar, failJumps);
-                    }
-                    return;
-
-                case DictMatchPattern dict:
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, sourceVar, dict.Line, dict.Col, dict.OriginFile));
-                    _insns.Add(new Instruction(OpCode.IS_DICT, null, dict.Line, dict.Col, dict.OriginFile));
-                    EmitPatternFailJump(failJumps, dict);
-
-                    foreach ((string key, MatchPattern sub) in dict.Entries)
-                    {
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, sourceVar, sub.Line, sub.Col, sub.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, key, sub.Line, sub.Col, sub.OriginFile));
-                        _insns.Add(new Instruction(OpCode.HAS_KEY, null, sub.Line, sub.Col, sub.OriginFile));
-                        EmitPatternFailJump(failJumps, sub);
-
-                        string valueVar = $"__match_key_{_anonCounter++}";
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, sourceVar, sub.Line, sub.Col, sub.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, key, sub.Line, sub.Col, sub.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, sub.Line, sub.Col, sub.OriginFile));
-                        EmitVarDeclTracked(valueVar, sub, trackInLocals: false);
-                        EmitPatternMatch(sub, valueVar, failJumps);
-                    }
-                    return;
-
-                default:
-                    throw new CompilerException($"unsupported match pattern '{pattern.GetType().Name}'", pattern.Line, pattern.Col, pattern.OriginFile);
-            }
-        }
-
-        /// <summary>
-        /// Defines the DestructureBindMode
-        /// </summary>
-        private enum DestructureBindMode
-        {
-            /// <summary>
-            /// Defines the VarDecl
-            /// </summary>
-            VarDecl,
-
-            /// <summary>
-            /// Defines the ConstDecl
-            /// </summary>
-            ConstDecl,
-
-            /// <summary>
-            /// Defines the Assign
-            /// </summary>
-            Assign
-        }
-
-        /// <summary>
-        /// The EmitDestructure
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <param name="value">The value<see cref="Expr"/></param>
-        /// <param name="mode">The mode<see cref="DestructureBindMode"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
-        private void EmitDestructure(MatchPattern pattern, Expr value, DestructureBindMode mode, Node node)
-        {
-            CompileExpr(value);
-            EmitDestructureBindingFromValue(pattern, mode, node);
-        }
-
-        /// <summary>
-        /// The EmitDestructureBinding
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <param name="sourceVar">The sourceVar<see cref="string"/></param>
-        /// <param name="mode">The mode<see cref="DestructureBindMode"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
-        private void EmitDestructureBinding(MatchPattern pattern, string sourceVar, DestructureBindMode mode, Node node)
-        {
-            _insns.Add(new Instruction(OpCode.LOAD_VAR, sourceVar, pattern.Line, pattern.Col, pattern.OriginFile));
-            EmitDestructureBindingFromValue(pattern, mode, node);
-        }
-
-        /// <summary>
-        /// The EmitDestructureBindingFromValue
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <param name="mode">The mode<see cref="DestructureBindMode"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
-        private void EmitDestructureBindingFromValue(MatchPattern pattern, DestructureBindMode mode, Node node)
-        {
-            switch (pattern)
-            {
-                case WildcardMatchPattern:
-                    _insns.Add(new Instruction(OpCode.POP, null, pattern.Line, pattern.Col, pattern.OriginFile));
-                    return;
-
-                case BindingMatchPattern bind:
-                    switch (mode)
-                    {
-                        case DestructureBindMode.VarDecl:
-                            _insns.Add(new Instruction(OpCode.VAR_DECL, bind.Name, bind.Line, bind.Col, bind.OriginFile));
-                            if (_localVarsStack.Count > 0) CurrentLocals.Add(bind.Name);
-                            break;
-                        case DestructureBindMode.ConstDecl:
-                            _insns.Add(new Instruction(OpCode.CONST_DECL, bind.Name, bind.Line, bind.Col, bind.OriginFile));
-                            if (_localVarsStack.Count > 0) CurrentLocals.Add(bind.Name);
-                            break;
-                        case DestructureBindMode.Assign:
-                            if (!TryEmitImplicitMemberStore(bind.Name, node))
-                                _insns.Add(new Instruction(OpCode.STORE_VAR, bind.Name, bind.Line, bind.Col, bind.OriginFile));
-                            break;
-                    }
-                    return;
-
-                case ArrayMatchPattern arr:
-                    for (int i = 0; i < arr.Elements.Count; i++)
-                    {
-                        MatchPattern sub = arr.Elements[i];
-                        _insns.Add(new Instruction(OpCode.DUP, null, sub.Line, sub.Col, sub.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, i, sub.Line, sub.Col, sub.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, sub.Line, sub.Col, sub.OriginFile));
-                        EmitDestructureBindingFromValue(sub, mode, node);
-                    }
-                    _insns.Add(new Instruction(OpCode.POP, null, pattern.Line, pattern.Col, pattern.OriginFile));
-                    return;
-
-                case DictMatchPattern dict:
-                    foreach ((string key, MatchPattern sub) in dict.Entries)
-                    {
-                        _insns.Add(new Instruction(OpCode.DUP, null, sub.Line, sub.Col, sub.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, key, sub.Line, sub.Col, sub.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, sub.Line, sub.Col, sub.OriginFile));
-                        EmitDestructureBindingFromValue(sub, mode, node);
-                    }
-                    _insns.Add(new Instruction(OpCode.POP, null, pattern.Line, pattern.Col, pattern.OriginFile));
-                    return;
-
-                default:
-                    throw new CompilerException($"unsupported destructuring pattern '{pattern.GetType().Name}'", pattern.Line, pattern.Col, pattern.OriginFile);
-            }
-        }
-
-        /// <summary>
-        /// The CollectDestructureBindingNames
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <returns>The <see cref="List{string}"/></returns>
-        private static List<string> CollectDestructureBindingNames(MatchPattern pattern)
-        {
-            List<string> names = new();
-
-            static void Walk(MatchPattern p, List<string> acc)
-            {
-                switch (p)
-                {
-                    case WildcardMatchPattern:
-                        return;
-
-                    case BindingMatchPattern b:
-                        acc.Add(b.Name);
-                        return;
-
-                    case ArrayMatchPattern a:
-                        foreach (MatchPattern elem in a.Elements)
-                            Walk(elem, acc);
-                        return;
-
-                    case DictMatchPattern d:
-                        foreach ((string _, MatchPattern sub) in d.Entries)
-                            Walk(sub, acc);
-                        return;
-
-                    default:
-                        throw new CompilerException($"unsupported destructuring pattern '{p.GetType().Name}'", p.Line, p.Col, p.OriginFile);
-                }
-            }
-
-            Walk(pattern, names);
-            return names;
-        }
+            => new MemberAccessRules().ValidateNewObjectInitializers(this, ne, _currentClassDecl);
 
         /// <summary>
         /// Emits instructions that load a runtime value by qualified symbol path.
@@ -2446,1724 +1365,7 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The CompileStmt
-        /// </summary>
-        /// <param name="s">The s<see cref="Stmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
-        private void CompileStmt(Stmt s, bool insideFunction)
-        {
-            switch (s)
-            {
-                case ExportStmt ex:
-                    CompileStmt(ex.Inner, insideFunction);
-                    break;
 
-                case VarDecl v:
-                    if (v.Value != null)
-                        CompileExpr(v.Value);
-                    else
-                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, s.Line, s.Col, s.OriginFile));
-
-                    _insns.Add(new Instruction(OpCode.VAR_DECL, v.Name, s.Line, s.Col, s.OriginFile));
-
-                    if (_localVarsStack.Count > 0)
-                        CurrentLocals.Add(v.Name);
-
-                    break;
-
-                case ConstDecl c:
-                    CompileExpr(c.Value);
-                    _insns.Add(new Instruction(OpCode.CONST_DECL, c.Name, s.Line, s.Col, s.OriginFile));
-
-                    if (_localVarsStack.Count > 0)
-                        CurrentLocals.Add(c.Name);
-
-                    break;
-
-                case DestructureDeclStmt dd:
-                    EmitDestructure(dd.Pattern, dd.Value, dd.IsConst ? DestructureBindMode.ConstDecl : DestructureBindMode.VarDecl, dd);
-                    break;
-
-                case AssignStmt a:
-                    {
-                        ValidateReceiverAssignment(a.Name, a);
-                        CompileExpr(a.Value);
-
-                        if (!TryEmitImplicitMemberStore(a.Name, a))
-                        {
-                            _insns.Add(new Instruction(OpCode.STORE_VAR, a.Name, s.Line, s.Col, s.OriginFile));
-                        }
-                        break;
-                    }
-
-                case DestructureAssignStmt da:
-                    EmitDestructure(da.Pattern, da.Value, DestructureBindMode.Assign, da);
-                    break;
-
-                case EmptyStmt etst:
-                    break;
-
-                case AssignIndexExprStmt aies:
-                    {
-                        CompileExpr(aies.Value);
-                        CompileExpr(aies.Target);
-                        _insns.Add(new Instruction(OpCode.ROT, null, aies.Line, aies.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_SET, null, aies.Line, aies.Col, s.OriginFile));
-                        break;
-                    }
-
-                case SliceSetStmt sliceSet:
-                    CompileExpr(sliceSet.Slice.Target);
-
-                    if (sliceSet.Slice.Start is not null)
-                        CompileExpr(sliceSet.Slice.Start);
-                    else
-                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, sliceSet.Line, sliceSet.Col, s.OriginFile));
-
-                    if (sliceSet.Slice.End is not null)
-                        CompileExpr(sliceSet.Slice.End);
-                    else
-                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, sliceSet.Line, sliceSet.Col, s.OriginFile));
-
-                    CompileExpr(sliceSet.Value);
-
-                    _insns.Add(new Instruction(OpCode.SLICE_SET, null, sliceSet.Line, sliceSet.Col, s.OriginFile));
-                    break;
-
-                case AssignExprStmt aes:
-                    {
-                        CompileExpr(aes.Value);
-                        CompileLValueStore(aes.Target);
-                        break;
-                    }
-
-                case PushStmt ps:
-                    {
-                        CompileExpr(ps.Value);
-                        if (ps.Target is VarExpr or IndexExpr)
-                        {
-                            CompileExpr(ps.Target);
-                            _insns.Add(new Instruction(OpCode.ARRAY_PUSH, null, s.Line, s.Col, s.OriginFile));
-                        }
-                        else
-                        {
-                            throw new CompilerException("invalid use of 'push' []", ps.Line, ps.Col, s.OriginFile);
-                        }
-                        break;
-                    }
-
-                case DeleteIndexStmt di:
-                    {
-                        VarExpr targetExpr = new(di.Name, di.Line, di.Col, s.OriginFile);
-                        CompileExpr(targetExpr);
-                        CompileExpr(di.Index);
-                        _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, null, s.Line, s.Col, s.OriginFile));
-                        break;
-                    }
-
-                case DeleteVarStmt dv:
-                    {
-                        VarExpr targetExpr = new(dv.Name, dv.Line, dv.Col, s.OriginFile);
-                        CompileExpr(targetExpr);
-                        _insns.Add(new Instruction(OpCode.ARRAY_CLEAR, null, dv.Line, dv.Col, s.OriginFile));
-                        break;
-                    }
-
-                case DeleteExprStmt des:
-                    {
-                        if (des.Target is SliceExpr se)
-                        {
-                            CompileExpr(se.Target);
-
-                            if (se.Start != null)
-                                CompileExpr(se.Start);
-                            else
-                                _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
-
-                            if (se.End != null)
-                                CompileExpr(se.End);
-                            else
-                                _insns.Add(new Instruction(OpCode.PUSH_NULL, null, des.Line, des.Col, s.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_SLICE, null, des.Line, des.Col, s.OriginFile));
-                            break;
-                        }
-
-                        if (des.Target is IndexExpr ie)
-                        {
-                            CompileExpr(ie.Target);
-                            CompileExpr(ie.Index);
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, null, des.Line, des.Col, s.OriginFile));
-                            break;
-                        }
-
-                        if (des.Target is VarExpr v2 && des.DeleteAll)
-                        {
-                            CompileExpr(v2);
-                            _insns.Add(new Instruction(OpCode.ARRAY_CLEAR, null, des.Line, des.Col, s.OriginFile));
-                            break;
-                        }
-
-                        throw new CompilerException("unsupported delete target", des.Line, des.Col, s.OriginFile);
-                    }
-
-                case DeleteAllStmt das:
-                    {
-                        if (das.Target is VarExpr var)
-                        {
-                            CompileExpr(var);
-
-                            _insns.Add(new Instruction(OpCode.ARRAY_CLEAR, null, das.Line, das.Col, s.OriginFile));
-                        }
-                        else if (das.Target is IndexExpr xie)
-                        {
-                            CompileExpr(xie.Target);
-                            CompileExpr(xie.Index);
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM_ALL, null, das.Line, das.Col, s.OriginFile));
-                        }
-                        else if (das.Target is SliceExpr xse)
-                        {
-                            CompileExpr(xse.Target);
-                            if (xse.Start != null) CompileExpr(xse.Start); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, das.Line, das.Col, s.OriginFile));
-                            if (xse.End != null) CompileExpr(xse.End); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, das.Line, das.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_SLICE, null, das.Line, das.Col, s.OriginFile));
-                        }
-                        else
-                        {
-                            throw new CompilerException("invalid use of 'delete'", das.Line, das.Col, s.OriginFile);
-                        }
-                        break;
-                    }
-
-                case ClassDeclStmt cds:
-                    {
-                        ReceiverContextKind prevReceiverContext = _receiverContext;
-                        _receiverContext = ReceiverContextKind.None;
-                        try
-                        {
-                            int jmpOverCtorIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, cds.Line, cds.Col, s.OriginFile));
-
-                        FuncDeclStmt? initMethod = cds.Methods.FirstOrDefault(m => m.Name == "init");
-                        List<string> ctorParams = initMethod != null
-                            ? new List<string>(initMethod.Parameters)
-                            : new List<string>(cds.Parameters);
-
-                        bool insertedOuterParam = false;
-                        if (cds.IsNested && (ctorParams.Count == 0 || ctorParams[0] != "__outer"))
-                        {
-                            ctorParams.Insert(0, "__outer");
-                            insertedOuterParam = true;
-                        }
-
-                        int ctorMinArgs = initMethod != null ? initMethod.MinArgs : ctorParams.Count;
-                        string? ctorRestParameter = initMethod?.RestParameter;
-                        if (initMethod != null && insertedOuterParam)
-                            ctorMinArgs++;
-
-                        int ctorStart = _insns.Count;
-                        string ctorFuncName = $"__ctor_{cds.Name}_{_anonCounter++}";
-                        Functions[ctorFuncName] = new FunctionInfo(ctorParams, ctorStart, ctorMinArgs, ctorRestParameter);
-
-                        const string SELF = "__obj";
-                        _insns.Add(new Instruction(OpCode.NEW_OBJECT, cds.Name, cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, SELF, cds.Line, cds.Col, s.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__type", cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, cds.Name, cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-
-                        if (!string.IsNullOrEmpty(cds.BaseName))
-                        {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__type", cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "new", cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, s.OriginFile));
-
-                            for (int i = cds.BaseCtorArgs.Count - 1; i >= 0; i--)
-                                CompileExpr(cds.BaseCtorArgs[i]);
-
-                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, cds.BaseCtorArgs.Count, cds.Line, cds.Col, s.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.ROT, null, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-                        }
-
-                        if (cds.IsNested)
-                        {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__outer", cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, "__outer", cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-                        }
-
-                        foreach (KeyValuePair<string, Expr?> kv in cds.Fields)
-                        {
-                            string fieldName = kv.Key;
-                            Expr? initExpr = kv.Value;
-
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, cds.Line, cds.Col, s.OriginFile));
-
-                            if (initExpr != null)
-                                CompileExpr(initExpr);
-                            else
-                                _insns.Add(new Instruction(OpCode.PUSH_NULL, null, cds.Line, cds.Col, s.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-                        }
-
-                        foreach (string p in ctorParams)
-                        {
-                            if (p == "__outer" || IsReservedInternalMemberName(p)) continue;
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, p, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.ROT, null, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-                        }
-
-                        foreach (FuncDeclStmt func in cds.Methods)
-                        {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, func.Line, func.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, func.Name, func.Line, func.Col, s.OriginFile));
-
-                            List<string> methodParams = new(func.Parameters);
-                            methodParams.Insert(0, "this");
-
-                            int methodMinArgs = func.MinArgs + 1;
-                            FuncExpr methodFuncExpr = new(methodParams, func.Body, methodMinArgs, func.RestParameter, func.Line, func.Col, s.OriginFile, func.IsAsync);
-
-                            ClassInfo? prevClass = _currentClass;
-                            ClassDeclStmt? prevClassDecl = _currentClassDecl;
-                            bool prevIsStatic = _currentMethodIsStatic;
-
-                            if (!_classInfos.TryGetValue(cds, out _currentClass))
-                                _currentClass = BuildAdHocClassInfo(cds);
-                            _currentClassDecl = cds;
-                            _currentMethodIsStatic = false;
-
-                            CompileExpr(methodFuncExpr);
-
-                            _currentClass = prevClass;
-                            _currentClassDecl = prevClassDecl;
-                            _currentMethodIsStatic = prevIsStatic;
-
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, func.Line, func.Col, s.OriginFile));
-                        }
-
-                        if (initMethod != null)
-                        {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "init", cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, s.OriginFile));
-
-                            for (int i = ctorParams.Count - 1; i >= 0; i--)
-                            {
-                                string p = ctorParams[i];
-                                if (p == "__outer") continue;
-                                _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, s.OriginFile));
-                                if (string.Equals(initMethod.RestParameter, p, StringComparison.Ordinal))
-                                    _insns.Add(new Instruction(OpCode.MAKE_SPREAD_ARG, null, cds.Line, cds.Col, s.OriginFile));
-                            }
-
-                            int argCountForInit = ctorParams.Count(p => p != "__outer");
-                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, argCountForInit, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.POP, null, cds.Line, cds.Col, s.OriginFile));
-                        }
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.RET, null, cds.Line, cds.Col, s.OriginFile));
-
-                        _insns[jmpOverCtorIdx] = new Instruction(OpCode.JMP, _insns.Count, cds.Line, cds.Col, s.OriginFile);
-
-                        _insns.Add(new Instruction(OpCode.NEW_STATIC, cds.Name, cds.Line, cds.Col, s.OriginFile));
-
-                        List<(string Name, int Code)> instanceVisibilityEntries = EnumerateDeclaredInstanceVisibilityEntries(cds);
-                        _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__vis_inst", cds.Line, cds.Col, s.OriginFile));
-                        foreach ((string memberName, int visCode) in instanceVisibilityEntries)
-                        {
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, memberName, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_INT, visCode, cds.Line, cds.Col, s.OriginFile));
-                        }
-                        _insns.Add(new Instruction(OpCode.NEW_DICT, instanceVisibilityEntries.Count, cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-
-                        List<(string Name, int Code)> staticVisibilityEntries = EnumerateDeclaredStaticVisibilityEntries(cds);
-                        _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__vis_static", cds.Line, cds.Col, s.OriginFile));
-                        foreach ((string memberName, int visCode) in staticVisibilityEntries)
-                        {
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, memberName, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_INT, visCode, cds.Line, cds.Col, s.OriginFile));
-                        }
-                        _insns.Add(new Instruction(OpCode.NEW_DICT, staticVisibilityEntries.Count, cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-
-                        if (cds.ConstFields.Count > 0)
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__const_inst", cds.Line, cds.Col, s.OriginFile));
-                            foreach (string cfName in cds.ConstFields)
-                            {
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, cfName, cds.Line, cds.Col, s.OriginFile));
-                                _insns.Add(new Instruction(OpCode.PUSH_INT, 1, cds.Line, cds.Col, s.OriginFile));
-                            }
-                            _insns.Add(new Instruction(OpCode.NEW_DICT, cds.ConstFields.Count, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-                        }
-
-                        if (cds.StaticConstFields.Count > 0)
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__const_static", cds.Line, cds.Col, s.OriginFile));
-                            foreach (string cfName in cds.StaticConstFields)
-                            {
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, cfName, cds.Line, cds.Col, s.OriginFile));
-                                _insns.Add(new Instruction(OpCode.PUSH_INT, 1, cds.Line, cds.Col, s.OriginFile));
-                            }
-                            _insns.Add(new Instruction(OpCode.NEW_DICT, cds.StaticConstFields.Count, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-                        }
-
-                        _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "new", cds.Line, cds.Col, s.OriginFile));
-                        _insns.Add(new Instruction(
-                            OpCode.PUSH_CLOSURE,
-                            new object[] { ctorStart, ctorFuncName },
-                            cds.Line, cds.Col, s.OriginFile
-                        ));
-                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-
-                        if (!string.IsNullOrEmpty(cds.BaseName))
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, s.OriginFile));
-                            EmitLoadQualifiedRuntimeValue(cds.BaseName, cds);
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-                        }
-
-                        if (cds.ImplementedInterfaces.Count > 0)
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__interfaces", cds.Line, cds.Col, s.OriginFile));
-                            foreach (string ifaceName in cds.ImplementedInterfaces)
-                                EmitLoadQualifiedRuntimeValue(ifaceName, cds);
-                            _insns.Add(new Instruction(OpCode.NEW_ARRAY, cds.ImplementedInterfaces.Count, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-                        }
-
-                        foreach (KeyValuePair<string, Expr?> kv in cds.StaticFields)
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, kv.Key, cds.Line, cds.Col, s.OriginFile));
-                            if (kv.Value != null) CompileExpr(kv.Value);
-                            else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, cds.Line, cds.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, s.OriginFile));
-                        }
-
-                        foreach (FuncDeclStmt func in cds.StaticMethods)
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, func.Line, func.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, func.Name, func.Line, func.Col, s.OriginFile));
-
-                            List<string> methodParams = new(func.Parameters);
-                            methodParams.Insert(0, "type");
-
-                            int methodMinArgs = func.MinArgs + 1;
-                            FuncExpr methodFuncExpr = new(methodParams, func.Body, methodMinArgs, func.RestParameter, func.Line, func.Col, s.OriginFile, func.IsAsync);
-
-                            ClassInfo? prevClass = _currentClass;
-                            ClassDeclStmt? prevClassDecl = _currentClassDecl;
-                            bool prevIsStatic = _currentMethodIsStatic;
-
-                            if (!_classInfos.TryGetValue(cds, out _currentClass))
-                                _currentClass = BuildAdHocClassInfo(cds);
-                            _currentClassDecl = cds;
-                            _currentMethodIsStatic = true;
-
-                            CompileExpr(methodFuncExpr);
-
-                            _currentClass = prevClass;
-                            _currentClassDecl = prevClassDecl;
-                            _currentMethodIsStatic = prevIsStatic;
-
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, func.Line, func.Col, s.OriginFile));
-                        }
-
-                        foreach (EnumDeclStmt en in cds.Enums)
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, en.Line, en.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, en.Name, en.Line, en.Col, s.OriginFile));
-
-                            foreach (EnumMemberNode member in en.Members)
-                            {
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, en.Line, en.Col, s.OriginFile));
-                                _insns.Add(new Instruction(OpCode.PUSH_INT, (int)member.Value, en.Line, en.Col, s.OriginFile));
-                            }
-
-                            _insns.Add(new Instruction(OpCode.PUSH_INT, en.Members.Count, en.Line, en.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.NEW_ENUM, en.Name, en.Line, en.Col, s.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, en.Line, en.Col, s.OriginFile));
-                        }
-
-                        foreach (ClassDeclStmt inner in cds.NestedClasses)
-                        {
-                            CompileStmt(inner, insideFunction: false);
-                            _insns.Add(new Instruction(OpCode.DUP, null, inner.Line, inner.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, inner.Name, inner.Line, inner.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, inner.Name, inner.Line, inner.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, inner.Line, inner.Col, s.OriginFile));
-                        }
-
-                            _insns.Add(new Instruction(OpCode.VAR_DECL, cds.Name, cds.Line, cds.Col, s.OriginFile));
-                        }
-                        finally
-                        {
-                            _receiverContext = prevReceiverContext;
-                        }
-                        break;
-                    }
-
-                case InterfaceDeclStmt ids:
-                    {
-                        _insns.Add(new Instruction(OpCode.NEW_STATIC, ids.Name, ids.Line, ids.Col, ids.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.DUP, null, ids.Line, ids.Col, ids.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__is_interface", ids.Line, ids.Col, ids.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, 1, ids.Line, ids.Col, ids.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
-
-                        if (ids.BaseInterfaces.Count > 0)
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, ids.Line, ids.Col, ids.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__interfaces", ids.Line, ids.Col, ids.OriginFile));
-                            foreach (string baseName in ids.BaseInterfaces)
-                                EmitLoadQualifiedRuntimeValue(baseName, ids);
-                            _insns.Add(new Instruction(OpCode.NEW_ARRAY, ids.BaseInterfaces.Count, ids.Line, ids.Col, ids.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
-                        }
-
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, ids.Name, ids.Line, ids.Col, ids.OriginFile));
-                        break;
-                    }
-
-                case EnumDeclStmt eds:
-                    {
-
-                        foreach (EnumMemberNode member in eds.Members)
-                        {
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, eds.Line, eds.Col, eds.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_INT, (int)member.Value, eds.Line, eds.Col, eds.OriginFile));
-                        }
-
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, eds.Members.Count, eds.Line, eds.Col, eds.OriginFile));
-                        _insns.Add(new Instruction(OpCode.NEW_ENUM, eds.Name, eds.Line, eds.Col, eds.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, eds.Name, eds.Line, eds.Col, eds.OriginFile));
-                        break;
-                    }
-
-                case BlockStmt b:
-                    if (insideFunction && b.IsFunctionBody)
-                    {
-                        foreach (Stmt sub in b.Statements)
-                            CompileStmt(sub, insideFunction: true);
-                    }
-                    else
-                    {
-                        EmitPushScope(s);
-                        try
-                        {
-                            if (TryGetNamespaceScopePath(b, out _))
-                            {
-                                List<InterfaceDeclStmt> namespaceInterfaces = b.Statements
-                                    .OfType<InterfaceDeclStmt>()
-                                    .ToList();
-
-                                List<InterfaceDeclStmt> sortedNamespaceInterfaces = OrderInterfacesByInheritance(namespaceInterfaces);
-                                foreach (InterfaceDeclStmt nsInterface in sortedNamespaceInterfaces)
-                                    CompileStmt(nsInterface, insideFunction: false);
-
-                                List<ClassDeclStmt> namespaceClasses = b.Statements
-                                    .OfType<ClassDeclStmt>()
-                                    .ToList();
-
-                                List<ClassDeclStmt> sortedNamespaceClasses = OrderClassesByInheritance(namespaceClasses);
-                                ValidateInheritanceOverrides(sortedNamespaceClasses);
-                                ValidateBaseConstructorCalls(sortedNamespaceClasses);
-                                ValidateInterfaceImplementations(sortedNamespaceClasses);
-
-                                foreach (ClassDeclStmt nsClass in sortedNamespaceClasses)
-                                    CompileStmt(nsClass, insideFunction: false);
-
-                                foreach (Stmt sub in b.Statements)
-                                {
-                                    if (sub is ClassDeclStmt || sub is InterfaceDeclStmt)
-                                        continue;
-
-                                    CompileStmt(sub, insideFunction);
-                                }
-                            }
-                            else
-                            {
-                                foreach (Stmt sub in b.Statements)
-                                    CompileStmt(sub, insideFunction);
-                            }
-                        }
-                        finally
-                        {
-                            EmitPopScope(s);
-                        }
-                    }
-                    break;
-
-                case IfStmt ifs:
-                    {
-                        CompileExpr(ifs.Condition);
-                        int jmpFalseIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, s.Line, s.Col, s.OriginFile));
-
-                        CompileStmt(ifs.ThenBlock, insideFunction);
-
-                        if (ifs.ElseBranch != null)
-                        {
-                            int jmpEndIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, s.Line, s.Col, s.OriginFile));
-                            _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col, s.OriginFile);
-                            CompileStmt(ifs.ElseBranch, insideFunction);
-                            _insns[jmpEndIdx] = new Instruction(OpCode.JMP, _insns.Count, s.Line, s.Col, s.OriginFile);
-                        }
-                        else
-                        {
-                            _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col, s.OriginFile);
-                        }
-                        break;
-                    }
-
-                case MatchStmt ms:
-                    {
-                        EmitPushScope(ms);
-
-                        string scrutineeVar = $"__match_scrut_{_anonCounter++}";
-                        CompileExpr(ms.Expression);
-                        EmitVarDeclTracked(scrutineeVar, ms, trackInLocals: false);
-
-                        List<int> endJumps = new();
-
-                        foreach (CaseClause c in ms.Cases)
-                        {
-                            bool enteredArmLocals = EnterMatchArmLocals();
-                            EmitPushScope(c);
-
-                            List<int> failJumps = new();
-                            EmitPatternMatch(c.Pattern, scrutineeVar, failJumps);
-
-                            if (c.Guard != null)
-                            {
-                                CompileExpr(c.Guard);
-                                EmitPatternFailJump(failJumps, c);
-                            }
-
-                            CompileStmt(c.Body, insideFunction);
-                            EmitPopScope(c);
-
-                            int jmpEnd = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, c.Line, c.Col, c.OriginFile));
-                            endJumps.Add(jmpEnd);
-
-                            int failTarget = _insns.Count;
-                            foreach (int failIdx in failJumps)
-                                _insns[failIdx] = new Instruction(OpCode.JMP_IF_FALSE, failTarget, c.Line, c.Col, c.OriginFile);
-
-                            _insns.Add(new Instruction(OpCode.POP_SCOPE, null, c.Line, c.Col, c.OriginFile));
-                            LeaveMatchArmLocals(enteredArmLocals);
-                        }
-
-                        if (ms.DefaultCase != null)
-                        {
-                            CompileStmt(ms.DefaultCase, insideFunction);
-                        }
-
-                        int endTarget = _insns.Count;
-                        EmitPopScope(ms);
-                        foreach (int idx in endJumps)
-                            _insns[idx] = new Instruction(OpCode.JMP, endTarget, ms.Line, ms.Col, s.OriginFile);
-
-                        break;
-                    }
-
-                case DoWhileStmt dws:
-                    {
-                        int loopStart = _insns.Count;
-                        int loopScopeDepth = _scopeDepth;
-                        _breakLists.Push(new List<LoopLeavePatch>());
-                        _continueLists.Push(new List<LoopLeavePatch>());
-
-                        CompileStmt(dws.Body, insideFunction);
-
-                        int condStart = _insns.Count;
-
-                        foreach (LoopLeavePatch patch in _continueLists.Peek())
-                            _insns[patch.Index] = new Instruction(
-                                OpCode.LEAVE,
-                                new object[] { condStart, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, s) },
-                                s.Line, s.Col, s.OriginFile);
-
-                        CompileExpr(dws.Condition);
-                        int jmpFalseIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, s.Line, s.Col, s.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
-                        _insns[jmpFalseIdx] = new Instruction(
-                            OpCode.JMP_IF_FALSE,
-                            _insns.Count,
-                            s.Line, s.Col, s.OriginFile);
-
-                        foreach (LoopLeavePatch patch in _breakLists.Peek())
-                            _insns[patch.Index] = new Instruction(
-                                OpCode.LEAVE,
-                                new object[] { _insns.Count, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, s) },
-                                s.Line, s.Col, s.OriginFile);
-
-                        _breakLists.Pop();
-                        _continueLists.Pop();
-                        break;
-                    }
-
-                case WhileStmt ws:
-                    {
-                        int loopStart = _insns.Count;
-                        int loopScopeDepth = _scopeDepth;
-                        _breakLists.Push(new List<LoopLeavePatch>());
-                        _continueLists.Push(new List<LoopLeavePatch>());
-
-                        CompileExpr(ws.Condition);
-                        int jmpFalseIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, s.Line, s.Col, s.OriginFile));
-
-                        CompileStmt(ws.Body, insideFunction);
-
-                        foreach (LoopLeavePatch patch in _continueLists.Peek())
-                            _insns[patch.Index] = new Instruction(
-                                OpCode.LEAVE,
-                                new object[] { loopStart, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, s) },
-                                s.Line, s.Col, s.OriginFile);
-
-                        _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
-                        _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col, s.OriginFile);
-
-                        foreach (LoopLeavePatch patch in _breakLists.Peek())
-                            _insns[patch.Index] = new Instruction(
-                                OpCode.LEAVE,
-                                new object[] { _insns.Count, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, s) },
-                                s.Line, s.Col, s.OriginFile);
-
-                        _breakLists.Pop();
-                        _continueLists.Pop();
-                        break;
-                    }
-
-                case ForStmt fs:
-                    {
-                        EmitPushScope(s);
-                        int loopScopeDepth = _scopeDepth;
-
-                        if (fs.Init != null) CompileStmt(fs.Init, insideFunction);
-                        int loopStart = _insns.Count;
-                        _breakLists.Push(new List<LoopLeavePatch>());
-                        _continueLists.Push(new List<LoopLeavePatch>());
-
-                        if (fs.Condition != null)
-                        {
-                            CompileExpr(fs.Condition);
-                            int jmpFalseIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, s.Line, s.Col, s.OriginFile));
-
-                            CompileStmt(fs.Body, insideFunction);
-
-                            int incStart = _insns.Count;
-                            foreach (LoopLeavePatch patch in _continueLists.Peek())
-                                _insns[patch.Index] = new Instruction(
-                                    OpCode.LEAVE,
-                                    new object[] { incStart, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, s) },
-                                    s.Line, s.Col, s.OriginFile);
-
-                            if (fs.Increment != null) CompileStmt(fs.Increment, insideFunction);
-                            _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
-                            _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, s.Line, s.Col, s.OriginFile);
-
-                            foreach (LoopLeavePatch patch in _breakLists.Peek())
-                                _insns[patch.Index] = new Instruction(
-                                    OpCode.LEAVE,
-                                    new object[] { _insns.Count, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, s) },
-                                    s.Line, s.Col, s.OriginFile);
-                        }
-                        else
-                        {
-                            CompileStmt(fs.Body, insideFunction);
-
-                            int incStart = _insns.Count;
-                            foreach (LoopLeavePatch patch in _continueLists.Peek())
-                                _insns[patch.Index] = new Instruction(
-                                    OpCode.LEAVE,
-                                    new object[] { incStart, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, s) },
-                                    s.Line, s.Col, s.OriginFile);
-
-                            if (fs.Increment != null) CompileStmt(fs.Increment, insideFunction);
-                            _insns.Add(new Instruction(OpCode.JMP, loopStart, s.Line, s.Col, s.OriginFile));
-
-                            foreach (LoopLeavePatch patch in _breakLists.Peek())
-                                _insns[patch.Index] = new Instruction(
-                                    OpCode.LEAVE,
-                                    new object[] { _insns.Count, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, s) },
-                                    s.Line, s.Col, s.OriginFile);
-                        }
-
-                        _breakLists.Pop();
-                        _continueLists.Pop();
-
-                        EmitPopScope(s);
-                        break;
-                    }
-
-                case ForeachStmt fe:
-                    {
-
-                        EmitPushScope(s);
-                        int loopScopeDepth = _scopeDepth;
-
-                        string seqNm = $"__fe_seq_{_anonCounter++}";
-                        string keysNm = $"__fe_keys_{_anonCounter++}";
-                        string lenNm = $"__fe_len_{_anonCounter++}";
-                        string idxNm = $"__fe_i_{_anonCounter++}";
-                        string isDictNm = $"__fe_isdict_{_anonCounter++}";
-
-                        CompileExpr(fe.Iterable);
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, seqNm, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.IS_DICT, null, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, isDictNm, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, isDictNm, fe.Line, fe.Col, fe.OriginFile));
-                        int jmpIfNotDict = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "keys", fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, 0, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, keysNm, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, keysNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "len", fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, 0, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, lenNm, fe.Line, fe.Col, fe.OriginFile));
-
-                        int jmpAfterDictInit = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP, null, fe.Line, fe.Col, fe.OriginFile));
-
-                        int notDictAddr = _insns.Count;
-                        _insns[jmpIfNotDict] = new Instruction(OpCode.JMP_IF_FALSE, notDictAddr, fe.Line, fe.Col, fe.OriginFile);
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, "len", fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, 0, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, lenNm, fe.Line, fe.Col, fe.OriginFile));
-
-                        int afterInit = _insns.Count;
-                        _insns[jmpAfterDictInit] = new Instruction(OpCode.JMP, afterInit, fe.Line, fe.Col, fe.OriginFile);
-
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, 0, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, idxNm, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
-                        if (_localVarsStack.Count > 0)
-                            CurrentLocals.Add(fe.VarName);
-
-                        if (fe.DeclareLocal && fe.TargetPattern is not null)
-                        {
-                            foreach (string binding in CollectDestructureBindingNames(fe.TargetPattern))
-                            {
-                                _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fe.Line, fe.Col, fe.OriginFile));
-                                _insns.Add(new Instruction(OpCode.VAR_DECL, binding, fe.Line, fe.Col, fe.OriginFile));
-                                if (_localVarsStack.Count > 0)
-                                    CurrentLocals.Add(binding);
-                            }
-                        }
-
-                        int loopStart = _insns.Count;
-                        _breakLists.Push(new List<LoopLeavePatch>());
-                        _continueLists.Push(new List<LoopLeavePatch>());
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, lenNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.LT, null, fe.Line, fe.Col, fe.OriginFile));
-                        int jmpIfFalse = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, isDictNm, fe.Line, fe.Col, fe.OriginFile));
-                        int jmpToSeqPath = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, keysNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.SWAP, null, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, keysNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.SWAP, null, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.NEW_ARRAY, 2, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.STORE_VAR, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
-                        if (fe.TargetPattern is not null)
-                            EmitDestructureBinding(fe.TargetPattern, fe.VarName, DestructureBindMode.Assign, fe);
-
-                        int jmpAfterSet = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP, null, fe.Line, fe.Col, fe.OriginFile));
-
-                        int seqPathAddr = _insns.Count;
-                        _insns[jmpToSeqPath] = new Instruction(OpCode.JMP_IF_FALSE, seqPathAddr, fe.Line, fe.Col, fe.OriginFile);
-
-                        if (fe.UseIndexValuePair)
-                        {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
-                            _insns.Add(new Instruction(OpCode.NEW_ARRAY, 2, fe.Line, fe.Col, fe.OriginFile));
-                            _insns.Add(new Instruction(OpCode.STORE_VAR, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
-                        }
-                        else
-                        {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
-                            _insns.Add(new Instruction(OpCode.STORE_VAR, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
-                        }
-                        if (fe.TargetPattern is not null)
-                            EmitDestructureBinding(fe.TargetPattern, fe.VarName, DestructureBindMode.Assign, fe);
-
-                        int afterSet = _insns.Count;
-                        _insns[jmpAfterSet] = new Instruction(OpCode.JMP, afterSet, fe.Line, fe.Col, fe.OriginFile);
-
-                        CompileStmt(fe.Body, insideFunction);
-
-                        int incStart = _insns.Count;
-                        foreach (LoopLeavePatch patch in _continueLists.Peek())
-                            _insns[patch.Index] = new Instruction(
-                                OpCode.LEAVE,
-                                new object[] { incStart, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, fe) },
-                                fe.Line, fe.Col, fe.OriginFile);
-
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, 1, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.ADD, null, fe.Line, fe.Col, fe.OriginFile));
-                        _insns.Add(new Instruction(OpCode.STORE_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
-
-                        _insns.Add(new Instruction(OpCode.JMP, loopStart, fe.Line, fe.Col, fe.OriginFile));
-                        _insns[jmpIfFalse] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, fe.Line, fe.Col, fe.OriginFile);
-
-                        foreach (LoopLeavePatch patch in _breakLists.Peek())
-                            _insns[patch.Index] = new Instruction(
-                                OpCode.LEAVE,
-                                new object[] { _insns.Count, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, fe) },
-                                fe.Line, fe.Col, fe.OriginFile);
-
-                        _breakLists.Pop();
-                        _continueLists.Pop();
-
-                        EmitPopScope(s);
-                        break;
-                    }
-
-                case TryStmt ts:
-                    {
-                        int tryPushIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.TRY_PUSH, null, ts.Line, ts.Col, ts.OriginFile));
-
-                        CompileStmt(ts.TryBlock, insideFunction);
-
-                        int afterTryIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
-
-                        int jmpAfterTryToEndIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP, null, ts.Line, ts.Col, ts.OriginFile));
-
-                        int catchStart = -1;
-                        if (ts.CatchBlock != null)
-                        {
-                            catchStart = _insns.Count;
-
-                            if (ts.CatchIdent != null)
-                            {
-                                EmitPushScope(ts.CatchBlock);
-                                _insns.Add(new Instruction(OpCode.VAR_DECL, ts.CatchIdent, ts.CatchBlock.Line, ts.CatchBlock.Col, ts.CatchBlock.OriginFile));
-                            }
-                            else
-                            {
-                                _insns.Add(new Instruction(OpCode.POP, null, ts.CatchBlock.Line, ts.CatchBlock.Col, ts.CatchBlock.OriginFile));
-                            }
-
-                            CompileStmt(ts.CatchBlock, insideFunction);
-
-                            if (ts.CatchIdent != null)
-                                EmitPopScope(ts.CatchBlock);
-
-                            _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
-                        }
-
-                        int finallyStart = -1;
-                        if (ts.FinallyBlock != null)
-                        {
-                            finallyStart = _insns.Count;
-
-                            EmitPushScope(ts.FinallyBlock);
-                            CompileStmt(ts.FinallyBlock, insideFunction);
-                            EmitPopScope(ts.FinallyBlock);
-                        }
-
-                        int endTryPopIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
-
-                        _insns[tryPushIdx] = new Instruction(
-                            OpCode.TRY_PUSH,
-                            new object[] { catchStart, finallyStart },
-                            ts.Line, ts.Col, ts.OriginFile
-                        );
-
-                        _insns[jmpAfterTryToEndIdx] = new Instruction(
-                            OpCode.JMP,
-                            endTryPopIdx,
-                            ts.Line, ts.Col, ts.OriginFile
-                        );
-
-                        break;
-                    }
-
-                case UsingStmt us:
-                    {
-                        EmitPushScope(us);
-                        try
-                        {
-                            string resourceTemp = $"__using_resource_{_anonCounter++}";
-
-                            CompileExpr(us.Resource);
-                            _insns.Add(new Instruction(OpCode.VAR_DECL, resourceTemp, us.Line, us.Col, us.OriginFile));
-                            if (_localVarsStack.Count > 0)
-                                CurrentLocals.Add(resourceTemp);
-
-                            if (us.BindingName != null)
-                            {
-                                _insns.Add(new Instruction(OpCode.LOAD_VAR, resourceTemp, us.Line, us.Col, us.OriginFile));
-                                _insns.Add(new Instruction(
-                                    us.BindingIsConst ? OpCode.CONST_DECL : OpCode.VAR_DECL,
-                                    us.BindingName,
-                                    us.Line,
-                                    us.Col,
-                                    us.OriginFile));
-
-                                if (_localVarsStack.Count > 0)
-                                    CurrentLocals.Add(us.BindingName);
-                            }
-
-                            int tryPushIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.TRY_PUSH, null, us.Line, us.Col, us.OriginFile));
-
-                            CompileStmt(us.Body, insideFunction);
-
-                            _insns.Add(new Instruction(OpCode.TRY_POP, null, us.Line, us.Col, us.OriginFile));
-
-                            int jmpAfterBodyToEndIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, us.Line, us.Col, us.OriginFile));
-
-                            int finallyStart = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, resourceTemp, us.Line, us.Col, us.OriginFile));
-                            _insns.Add(new Instruction(OpCode.DESTROY, null, us.Line, us.Col, us.OriginFile));
-
-                            int endTryPopIdx = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.TRY_POP, null, us.Line, us.Col, us.OriginFile));
-
-                            _insns[tryPushIdx] = new Instruction(
-                                OpCode.TRY_PUSH,
-                                new object[] { -1, finallyStart },
-                                us.Line, us.Col, us.OriginFile
-                            );
-
-                            _insns[jmpAfterBodyToEndIdx] = new Instruction(
-                                OpCode.JMP,
-                                endTryPopIdx,
-                                us.Line, us.Col, us.OriginFile
-                            );
-                        }
-                        finally
-                        {
-                            EmitPopScope(us);
-                        }
-
-                        break;
-                    }
-
-                case ThrowStmt th:
-                    {
-                        CompileExpr(th.Value);
-                        _insns.Add(new Instruction(OpCode.THROW, null, th.Line, th.Col, th.OriginFile));
-                        break;
-                    }
-
-                case YieldStmt ys:
-                    {
-                        if (!insideFunction)
-                            throw new CompilerException("yield can only be used in function statements", ys.Line, ys.Col, ys.OriginFile);
-
-                        if (_asyncFunctionDepth <= 0)
-                            throw new CompilerException("yield can only be used in async function statements", ys.Line, ys.Col, ys.OriginFile);
-
-                        _insns.Add(new Instruction(OpCode.YIELD, null, ys.Line, ys.Col, ys.OriginFile));
-                        _insns.Add(new Instruction(OpCode.POP, null, ys.Line, ys.Col, ys.OriginFile));
-                        break;
-                    }
-
-                case ContinueStmt:
-                    {
-                        if (_continueLists.Count == 0)
-                            throw new VMException("Compile error: 'continue' outside of loop.", s.Line, s.Col, s.OriginFile, false, null!);
-                        int leaveIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.LEAVE, null, s.Line, s.Col, s.OriginFile));
-                        _continueLists.Peek().Add(new LoopLeavePatch(leaveIdx, _scopeDepth));
-                        break;
-                    }
-
-                case BreakStmt:
-                    {
-                        if (_breakLists.Count == 0)
-                            throw new VMException("Compile error: 'break' outside of loop.", s.Line, s.Col, s.OriginFile, false, null!);
-                        int leaveIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.LEAVE, null, s.Line, s.Col, s.OriginFile));
-                        _breakLists.Peek().Add(new LoopLeavePatch(leaveIdx, _scopeDepth));
-                        break;
-                    }
-
-                case ExprStmt es:
-                    CompileExpr(es.Expression);
-                    _insns.Add(new Instruction(OpCode.POP, null, s.Line, s.Col, s.OriginFile));
-                    break;
-
-                case CompoundAssignStmt ca:
-                    CompileLValue(ca.Target, load: true);
-                    CompileExpr(ca.Value);
-
-                    _insns.Add(new Instruction(OpFromToken(ca.Op, ca, FileName), null, s.Line, s.Col, s.OriginFile));
-                    CompileLValueStore(ca.Target);
-                    break;
-
-                case FuncDeclStmt fd:
-                    {
-                        int jmpOverFuncIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP, null, fd.Line, fd.Col, s.OriginFile));
-
-                        int funcStart = _insns.Count;
-                        string internalName = $"__local_{fd.Name}_{_anonCounter++}";
-                        Functions[internalName] = new FunctionInfo(fd.Parameters, funcStart, fd.MinArgs, fd.RestParameter, fd.IsAsync);
-
-                        if (fd.Body is BlockStmt fb) fb.IsFunctionBody = true;
-
-                        ReceiverContextKind prevReceiverContext = _receiverContext;
-                        _receiverContext = ReceiverContextKind.None;
-                        EnterFunctionLocals(fd.Parameters);
-                        if (fd.IsAsync) _asyncFunctionDepth++;
-                        try
-                        {
-                            CompileStmt(fd.Body, insideFunction: true);
-                        }
-                        finally
-                        {
-                            if (fd.IsAsync) _asyncFunctionDepth--;
-                            LeaveFunctionLocals();
-                            _receiverContext = prevReceiverContext;
-                        }
-
-                        if (_insns.Count == 0 || _insns[^1].Code != OpCode.RET)
-                        {
-                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fd.Line, fd.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.RET, null, fd.Line, fd.Col, s.OriginFile));
-                        }
-
-                        _insns[jmpOverFuncIdx] = new Instruction(OpCode.JMP, _insns.Count, fd.Line, fd.Col, s.OriginFile);
-
-                        _insns.Add(new Instruction(OpCode.PUSH_CLOSURE, new object[] { funcStart, fd.Name }, fd.Line, fd.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, fd.Line, fd.Col, s.OriginFile));
-
-                        if (_localVarsStack.Count > 0)
-                            CurrentLocals.Add(fd.Name);
-
-                        break;
-                    }
-
-                case ReturnStmt rs:
-                    if (rs.Value != null) CompileExpr(rs.Value);
-                    else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, s.Line, s.Col, s.OriginFile));
-                    _insns.Add(new Instruction(OpCode.RET, null, s.Line, s.Col, s.OriginFile));
-                    break;
-
-                default:
-                    throw new CompilerException($"unknown statement type {s.GetType().Name}", s.Line, s.Col, s.OriginFile);
-            }
-        }
-
-        /// <summary>
-        /// The CompileExpr
-        /// </summary>
-        /// <param name="e">The e<see cref="Expr?"/></param>
-        private void CompileExpr(Expr? e)
-        {
-            switch (e)
-            {
-                case NumberExpr n:
-                    if (n.Value is int)
-                        _insns.Add(new Instruction(OpCode.PUSH_INT, n.Value, e.Line, e.Col, e.OriginFile));
-                    else if (n.Value is long)
-                        _insns.Add(new Instruction(OpCode.PUSH_LNG, n.Value, e.Line, e.Col, e.OriginFile));
-                    else if (n.Value is float)
-                        _insns.Add(new Instruction(OpCode.PUSH_FLT, n.Value, e.Line, e.Col, e.OriginFile));
-                    else if (n.Value is double)
-                        _insns.Add(new Instruction(OpCode.PUSH_DBL, n.Value, e.Line, e.Col, e.OriginFile));
-                    else if (n.Value is decimal)
-                        _insns.Add(new Instruction(OpCode.PUSH_DEC, n.Value, e.Line, e.Col, e.OriginFile));
-                    else if (n.Value is BigInteger)
-                        _insns.Add(new Instruction(OpCode.PUSH_SPC, n.Value, e.Line, e.Col, e.OriginFile));
-                    else
-                        throw new CompilerException("invalid number value", n.Line, n.Col, e.OriginFile);
-                    break;
-
-                case StringExpr s:
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, s.Value, e.Line, e.Col, e.OriginFile));
-                    break;
-
-                case CharExpr che:
-                    _insns.Add(new Instruction(OpCode.PUSH_CHR, che.Value, e.Line, e.Col, e.OriginFile));
-                    break;
-                case BoolExpr bxe:
-                    _insns.Add(new Instruction(OpCode.PUSH_BOOL, bxe.Value, e.Line, e.Col, e.OriginFile));
-                    break;
-
-                case VarExpr v:
-                    {
-                        string name = v.Name;
-
-                        if (IsReceiverIdentifier(name))
-                        {
-                            ValidateReceiverUsage(name, v);
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, name, e.Line, e.Col, e.OriginFile));
-                            break;
-                        }
-
-                        if (CurrentLocals.Contains(name))
-                        {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, name, e.Line, e.Col, e.OriginFile));
-                            break;
-                        }
-
-                        if (!TryEmitImplicitMemberLoad(name, v))
-                        {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, name, e.Line, e.Col, e.OriginFile));
-                        }
-                        break;
-                    }
-
-                case ArrayExpr a:
-                    foreach (Expr elem in a.Elements) CompileExpr(elem);
-                    _insns.Add(new Instruction(OpCode.NEW_ARRAY, a.Elements.Count, e.Line, e.Col, e.OriginFile));
-                    break;
-
-                case IndexExpr idx:
-                    if (idx.Index == null)
-                        throw new CompilerException("empty index '[]' cannot be used as expression", idx.Line, idx.Col, e.OriginFile);
-
-                    ValidateExplicitMemberAccess(idx, isStore: false);
-                    CompileExpr(idx.Target);
-                    CompileExpr(idx.Index);
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, idx.Line, idx.Col, e.OriginFile));
-                    break;
-
-                case SliceExpr slice:
-                    CompileExpr(slice.Target);
-
-                    if (slice.Start is not null)
-                        CompileExpr(slice.Start);
-                    else
-                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, slice.Line, slice.Col, e.OriginFile));
-
-                    if (slice.End is not null)
-                        CompileExpr(slice.End);
-                    else
-                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, slice.Line, slice.Col, e.OriginFile));
-
-                    _insns.Add(new Instruction(OpCode.SLICE_GET, null, slice.Line, slice.Col, e.OriginFile));
-                    break;
-                case NullExpr nil:
-                    _insns.Add(new Instruction(OpCode.PUSH_NULL, null, e.Line, e.Col, e.OriginFile));
-                    break;
-
-                case BinaryExpr b:
-                    {
-                        if (b.Op == TokenType.AndAnd)
-                        {
-                            CompileExpr(b.Left);
-
-                            int jmpIfLeftFalse = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, b.Line, b.Col, b.OriginFile));
-
-                            CompileExpr(b.Right);
-
-                            int jmpIfRightFalse = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, b.Line, b.Col, b.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.PUSH_BOOL, true, b.Line, b.Col, b.OriginFile));
-                            int jmpEnd = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, b.Line, b.Col, b.OriginFile));
-
-                            int lFalse = _insns.Count;
-                            _insns[jmpIfLeftFalse] = new Instruction(OpCode.JMP_IF_FALSE, lFalse, b.Line, b.Col, b.OriginFile);
-                            _insns[jmpIfRightFalse] = new Instruction(OpCode.JMP_IF_FALSE, lFalse, b.Line, b.Col, b.OriginFile);
-
-                            _insns.Add(new Instruction(OpCode.PUSH_BOOL, false, b.Line, b.Col, b.OriginFile));
-
-                            _insns[jmpEnd] = new Instruction(OpCode.JMP, _insns.Count, b.Line, b.Col, b.OriginFile);
-                            break;
-                        }
-                        else if (b.Op == TokenType.OrOr)
-                        {
-                            CompileExpr(b.Left);
-
-                            int jmpIfLeftTrue = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP_IF_TRUE, null, b.Line, b.Col, b.OriginFile));
-
-                            CompileExpr(b.Right);
-
-                            int jmpIfRightTrue = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP_IF_TRUE, null, b.Line, b.Col, b.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.PUSH_BOOL, false, b.Line, b.Col, b.OriginFile));
-                            int jmpEnd = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, b.Line, b.Col, b.OriginFile));
-
-                            int lTrue = _insns.Count;
-                            _insns[jmpIfLeftTrue] = new Instruction(OpCode.JMP_IF_TRUE, lTrue, b.Line, b.Col, b.OriginFile);
-                            _insns[jmpIfRightTrue] = new Instruction(OpCode.JMP_IF_TRUE, lTrue, b.Line, b.Col, b.OriginFile);
-
-                            _insns.Add(new Instruction(OpCode.PUSH_BOOL, true, b.Line, b.Col, b.OriginFile));
-
-                            _insns[jmpEnd] = new Instruction(OpCode.JMP, _insns.Count, b.Line, b.Col, b.OriginFile);
-                            break;
-                        }
-                        else if (b.Op == TokenType.QQNull)
-                        {
-                            CompileExpr(b.Left);
-
-                            _insns.Add(new Instruction(OpCode.DUP, null, b.Line, b.Col, b.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, b.Line, b.Col, b.OriginFile));
-                            _insns.Add(new Instruction(OpCode.EQ, null, b.Line, b.Col, b.OriginFile));
-
-                            int jmpIfNull = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP_IF_TRUE, null, b.Line, b.Col, b.OriginFile));
-
-                            int jmpEnd = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, b.Line, b.Col, b.OriginFile));
-
-                            _insns[jmpIfNull] = new Instruction(OpCode.JMP_IF_TRUE, _insns.Count, b.Line, b.Col, b.OriginFile);
-
-                            _insns.Add(new Instruction(OpCode.POP, null, b.Line, b.Col, b.OriginFile));
-                            CompileExpr(b.Right);
-
-                            _insns[jmpEnd] = new Instruction(OpCode.JMP, _insns.Count, b.Line, b.Col, b.OriginFile);
-                            break;
-                        }
-
-                        OpCode op = OpFromToken(b.Op, b, FileName);
-                        CompileExpr(b.Left);
-                        CompileExpr(b.Right);
-                        _insns.Add(new Instruction(op, null, b.Line, b.Col, b.OriginFile));
-                        break;
-                    }
-
-                case UnaryExpr ue:
-                    CompileExpr(ue.Right);
-                    switch (ue.Op)
-                    {
-                        case TokenType.Minus: _insns.Add(new Instruction(OpCode.NEG, null, e.Line, e.Col, e.OriginFile)); break;
-                        case TokenType.Plus: break;
-                        case TokenType.Not: _insns.Add(new Instruction(OpCode.NOT, null, e.Line, e.Col, e.OriginFile)); break;
-                        default: throw new CompilerException($"unknown unary operator {ue.Op}", ue.Line, ue.Col, e.OriginFile);
-                    }
-                    break;
-
-                case DictExpr d:
-                    foreach ((Expr k, Expr v) in d.Pairs)
-                    {
-                        CompileExpr(k);
-                        CompileExpr(v);
-                    }
-                    _insns.Add(new Instruction(OpCode.NEW_DICT, d.Pairs.Count, e.Line, e.Col, e.OriginFile));
-                    break;
-
-                case PostfixExpr pf:
-                    CompileLValue(pf.Target, load: true);
-                    _insns.Add(new Instruction(OpCode.DUP, null, e.Line, e.Col, e.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_INT, 1, e.Line, e.Col, e.OriginFile));
-                    _insns.Add(new Instruction(pf.Op == TokenType.PlusPlus ? OpCode.ADD : OpCode.SUB, null, e.Line, e.Col, e.OriginFile));
-                    CompileLValueStore(pf.Target);
-                    break;
-
-                case PrefixExpr pre:
-                    CompileLValue(pre.Target, load: true);
-                    _insns.Add(new Instruction(OpCode.PUSH_INT, 1, e.Line, e.Col, e.OriginFile));
-                    _insns.Add(new Instruction(pre.Op == TokenType.PlusPlus ? OpCode.ADD : OpCode.SUB, null, e.Line, e.Col, e.OriginFile));
-                    CompileLValueStore(pre.Target);
-                    CompileLValue(pre.Target, load: true);
-                    break;
-
-                case AwaitExpr aw:
-                    {
-
-                        CompileExpr(aw.Inner);
-                        _insns.Add(new Instruction(OpCode.AWAIT, null, e.Line, e.Col, e.OriginFile));
-                        break;
-                    }
-                case CallExpr call:
-                    {
-                        if (call.Target is IndexExpr ie)
-                        {
-                            CompileExpr(ie.Target);
-                            if (ie.Index is StringExpr s)
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, s.Value, e.Line, e.Col, e.OriginFile));
-                            else
-                                CompileExpr(ie.Index);
-
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, e.Line, e.Col, e.OriginFile));
-
-                            for (int i = call.Args.Count - 1; i >= 0; i--)
-                                CompileExpr(call.Args[i]);
-
-                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, call.Args.Count, e.Line, e.Col, e.OriginFile));
-                        }
-                        else
-                        {
-                            CompileExpr(call.Target);
-
-                            for (int i = call.Args.Count - 1; i >= 0; i--)
-                                CompileExpr(call.Args[i]);
-
-                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, call.Args.Count, e.Line, e.Col, e.OriginFile));
-                        }
-                        break;
-                    }
-
-                case NewExpr ne:
-                    {
-                        string[] parts = ne.ClassName.Split('.');
-                        bool usedOuterBinding = false;
-                        ValidateNewObjectInitializers(ne);
-
-                        if (_currentClass != null && !_currentMethodIsStatic)
-                        {
-                            if (parts.Length == 1)
-                            {
-                                if (_currentClassDecl != null && _classInfos.TryGetValue(_currentClassDecl, out ClassInfo? ci)
-                                    && ci.StaticMembers.Contains(parts[0]))
-                                {
-                                    _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", ne.Line, ne.Col, e.OriginFile));
-                                    _insns.Add(new Instruction(OpCode.PUSH_STR, parts[0], ne.Line, ne.Col, e.OriginFile));
-                                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, e.OriginFile));
-                                    usedOuterBinding = true;
-                                }
-                            }
-                            else if (string.Equals(parts[0], _currentClass.Name, StringComparison.Ordinal))
-                            {
-                                _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", ne.Line, ne.Col, e.OriginFile));
-                                for (int i = 1; i < parts.Length; i++)
-                                {
-                                    _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], ne.Line, ne.Col, e.OriginFile));
-                                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, e.OriginFile));
-                                }
-                                usedOuterBinding = true;
-                            }
-                        }
-
-                        if (!usedOuterBinding)
-                        {
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, parts[0], ne.Line, ne.Col, e.OriginFile));
-                            for (int i = 1; i < parts.Length; i++)
-                            {
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], ne.Line, ne.Col, e.OriginFile));
-                                _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, e.OriginFile));
-                            }
-                        }
-
-                        for (int i = ne.Args.Count - 1; i >= 0; i--)
-                            CompileExpr(ne.Args[i]);
-
-                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, ne.Args.Count, ne.Line, ne.Col, e.OriginFile));
-
-                        if (ne.Initializers != null && ne.Initializers.Count > 0)
-                        {
-                            foreach ((string name, Expr valueExpr) in ne.Initializers)
-                            {
-                                _insns.Add(new Instruction(OpCode.DUP, null, ne.Line, ne.Col, e.OriginFile));
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, name, ne.Line, ne.Col, e.OriginFile));
-                                CompileExpr(valueExpr);
-                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, ne.Line, ne.Col, e.OriginFile));
-                            }
-                        }
-
-                        break;
-                    }
-
-                case ObjectInitExpr oi:
-                    {
-                        if (oi.Target is CallExpr ce &&
-                            ce.Target is IndexExpr ie &&
-                            ie.Index is StringExpr keyStr)
-                        {
-                            string tmpOuter = $"__tmp_outer_{_anonCounter++}";
-
-                            CompileExpr(ie.Target);
-                            _insns.Add(new Instruction(OpCode.VAR_DECL, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "__type", oi.Line, oi.Col, oi.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, oi.Line, oi.Col, oi.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, keyStr.Value, oi.Line, oi.Col, oi.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, oi.Line, oi.Col, oi.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, "new", oi.Line, oi.Col, oi.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_GET, null, oi.Line, oi.Col, oi.OriginFile));
-
-                            for (int i = ce.Args.Count - 1; i >= 0; i--)
-                                CompileExpr(ce.Args[i]);
-
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, ce.Args.Count + 1, oi.Line, oi.Col, oi.OriginFile));
-
-                            _insns.Add(new Instruction(OpCode.DUP, null, oi.Line, oi.Col, oi.OriginFile));
-                            _insns.Add(new Instruction(OpCode.LOAD_VAR, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, keyStr.Value, oi.Line, oi.Col, oi.OriginFile));
-                            _insns.Add(new Instruction(OpCode.ROT, null, oi.Line, oi.Col, oi.OriginFile));
-                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, oi.Line, oi.Col, oi.OriginFile));
-
-                            foreach ((string fieldName, Expr fieldExpr) in oi.Inits)
-                            {
-                                _insns.Add(new Instruction(OpCode.DUP, null, oi.Line, oi.Col, oi.OriginFile));
-                                _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, oi.Line, oi.Col, oi.OriginFile));
-                                CompileExpr(fieldExpr);
-                                _insns.Add(new Instruction(OpCode.INDEX_SET, null, oi.Line, oi.Col, oi.OriginFile));
-                            }
-
-                            break;
-                        }
-
-                        CompileExpr(oi.Target);
-                        foreach ((string fieldName, Expr fieldExpr) in oi.Inits)
-                        {
-                            _insns.Add(new Instruction(OpCode.DUP, null, oi.Line, oi.Col, oi.OriginFile));
-                            _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, oi.Line, oi.Col, oi.OriginFile));
-                            CompileExpr(fieldExpr);
-                            _insns.Add(new Instruction(OpCode.INDEX_SET, null, oi.Line, oi.Col, oi.OriginFile));
-                        }
-                        break;
-                    }
-
-                case MethodCallExpr mce:
-                    {
-                        CompileExpr(mce.Target);
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, mce.Method, mce.Line, mce.Col, e.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, mce.Line, mce.Col, e.OriginFile));
-
-                        for (int i = mce.Args.Count - 1; i >= 0; i--)
-                            CompileExpr(mce.Args[i]);
-
-                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, mce.Args.Count, mce.Line, mce.Col, e.OriginFile));
-                        break;
-                    }
-
-                case FuncExpr fe:
-                    {
-                        int jmpOverFuncIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP, null, e.Line, e.Col, e.OriginFile));
-
-                        int funcStart = _insns.Count;
-
-                        string anonName = $"__anon_{_anonCounter++}";
-                        Functions[anonName] = new FunctionInfo(fe.Parameters, funcStart, fe.MinArgs, fe.RestParameter, fe.IsAsync);
-
-                        ReceiverContextKind prevReceiverContext = _receiverContext;
-                        _receiverContext = DetermineReceiverContext(fe);
-                        EnterFunctionLocals(fe.Parameters);
-                        if (fe.IsAsync) _asyncFunctionDepth++;
-                        try
-                        {
-                            CompileStmt(fe.Body, insideFunction: true);
-                        }
-                        finally
-                        {
-                            if (fe.IsAsync) _asyncFunctionDepth--;
-                            LeaveFunctionLocals();
-                            _receiverContext = prevReceiverContext;
-                        }
-
-                        if (_insns.Count == 0 || _insns[^1].Code != OpCode.RET)
-                        {
-                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, e.Line, e.Col, e.OriginFile));
-                            _insns.Add(new Instruction(OpCode.RET, null, e.Line, e.Col, e.OriginFile));
-                        }
-
-                        _insns[jmpOverFuncIdx] = new Instruction(OpCode.JMP, _insns.Count, e.Line, e.Col, e.OriginFile);
-
-                        _insns.Add(new Instruction(OpCode.PUSH_CLOSURE, new object[] { funcStart, anonName }, e.Line, e.Col, e.OriginFile));
-                        break;
-                    }
-
-                case NamedArgExpr na:
-                    {
-                        CompileExpr(na.Value);
-                        _insns.Add(new Instruction(OpCode.MAKE_NAMED_ARG, na.Name, e.Line, e.Col, e.OriginFile));
-                        break;
-                    }
-
-                case SpreadArgExpr sa:
-                    {
-                        CompileExpr(sa.Value);
-                        _insns.Add(new Instruction(OpCode.MAKE_SPREAD_ARG, null, e.Line, e.Col, e.OriginFile));
-                        break;
-                    }
-
-                case OutExpr ox:
-                    {
-                        List<Stmt> stmts = ox.Body.Statements;
-
-                        int lastExprIdx = -1;
-                        for (int i = stmts.Count - 1; i >= 0; i--)
-                            if (stmts[i] is ExprStmt) { lastExprIdx = i; break; }
-
-                        EmitPushScope(ox);
-
-                        for (int i = 0; i < stmts.Count; i++)
-                        {
-                            if (stmts[i] is ExprStmt es)
-                            {
-                                CompileExpr(es.Expression);
-                                if (i != lastExprIdx)
-                                    _insns.Add(new Instruction(OpCode.POP, null, es.Line, es.Col, es.OriginFile));
-                            }
-                            else
-                            {
-                                CompileStmt(stmts[i], insideFunction: false);
-                            }
-                        }
-
-                        if (lastExprIdx == -1)
-                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, ox.Line, ox.Col, ox.OriginFile));
-
-                        EmitPopScope(ox);
-                        break;
-                    }
-
-                case ConditionalExpr cnd:
-                    {
-                        CompileExpr(cnd.Condition);
-
-                        int jmpIfFalseIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, e.Line, e.Col, e.OriginFile));
-
-                        CompileExpr(cnd.ThenExpr);
-
-                        int jmpEndIdx = _insns.Count;
-                        _insns.Add(new Instruction(OpCode.JMP, null, e.Line, e.Col, e.OriginFile));
-
-                        _insns[jmpIfFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, e.Line, e.Col, e.OriginFile);
-
-                        CompileExpr(cnd.ElseExpr);
-
-                        _insns[jmpEndIdx] = new Instruction(OpCode.JMP, _insns.Count, e.Line, e.Col, e.OriginFile);
-                        break;
-                    }
-
-                case MatchExpr me:
-                    {
-                        EmitPushScope(me);
-
-                        string scrutineeVar = $"__match_scrut_{_anonCounter++}";
-                        CompileExpr(me.Scrutinee);
-                        EmitVarDeclTracked(scrutineeVar, me, trackInLocals: false);
-
-                        List<int> endJumps = new();
-
-                        foreach (CaseExprArm arm in me.Arms)
-                        {
-                            bool enteredArmLocals = EnterMatchArmLocals();
-                            EmitPushScope(arm);
-
-                            List<int> failJumps = new();
-                            EmitPatternMatch(arm.Pattern, scrutineeVar, failJumps);
-
-                            if (arm.Guard != null)
-                            {
-                                CompileExpr(arm.Guard);
-                                EmitPatternFailJump(failJumps, arm);
-                            }
-
-                            CompileExpr(arm.Body);
-                            EmitPopScope(arm);
-
-                            int jmpEnd = _insns.Count;
-                            _insns.Add(new Instruction(OpCode.JMP, null, arm.Line, arm.Col, arm.OriginFile));
-                            endJumps.Add(jmpEnd);
-
-                            int failTarget = _insns.Count;
-                            foreach (int failIdx in failJumps)
-                                _insns[failIdx] = new Instruction(OpCode.JMP_IF_FALSE, failTarget, arm.Line, arm.Col, arm.OriginFile);
-
-                            _insns.Add(new Instruction(OpCode.POP_SCOPE, null, arm.Line, arm.Col, arm.OriginFile));
-                            LeaveMatchArmLocals(enteredArmLocals);
-                        }
-
-                        if (me.DefaultArm != null)
-                            CompileExpr(me.DefaultArm);
-                        else
-                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, me.Line, me.Col, me.OriginFile));
-
-                        int endTarget = _insns.Count;
-                        EmitPopScope(me);
-                        foreach (int idx in endJumps)
-                            _insns[idx] = new Instruction(OpCode.JMP, endTarget, me.Line, me.Col, me.OriginFile);
-
-                        break;
-                    }
-
-                default:
-                    throw new CompilerException($"unknown expr type {e?.GetType().Name}", e?.Line ?? -1, e?.Col ?? -1, e?.OriginFile ?? "");
-            }
-        }
 
         /// <summary>
         /// The OpFromToken
@@ -4421,7 +1623,7 @@ namespace CFGS_VM.VMCore
         /// The BuildClassInfos
         /// </summary>
         /// <param name="sortedClasses">The sortedClasses<see cref="List{ClassDeclStmt}"/></param>
-        private void BuildClassInfos(List<ClassDeclStmt> sortedClasses)
+        internal void BuildClassInfos(List<ClassDeclStmt> sortedClasses)
         {
             _classInfos.Clear();
 
@@ -4684,3 +1886,4 @@ namespace CFGS_VM.VMCore
         }
     }
 }
+
