@@ -569,6 +569,35 @@ Schritte:
 - [ ] Ordnerstruktur konsolidieren.
 - [x] Changelog in dieser Roadmap aktualisieren.
 
+Geplante kleine PRs fuer Phase 11:
+
+- [ ] PR17 Parser-Feinschnitt
+  - `Parser.cs` auf Entry, Cursor-/Context-Fassade und kleine Shared-Helpers reduzieren.
+  - Restzustand wie `multipleVarDecl`, `_destructureParamCounter` und `_foreachDestructureCounter` pruefen und entweder kapseln, verschieben oder entfernen.
+  - `Parser.Imports.cs` von Namespace-/Qualified-Type-Helfern entmischen.
+  - `Parser.Statements.cs` weiter in fachlich klare Parser-Dateien schneiden, mindestens fuer Deklarationen, Patterns und Control Flow.
+  - Zieltests:
+    - `101`, `102`, `205`, `212`, `215`, `239`, `401`, `403`, `418`, `436`
+
+- [ ] PR18 Compiler-Feinschnitt
+  - `Compiler.cs` auf Fassade, Context-Zugriff und wirklich gemeinsame Utilities reduzieren.
+  - LValue-Emission aus `Compiler.cs` in einen passenden Codegen-Bereich ziehen.
+  - Visibility-/Constructor-Metadaten-Helfer aus `Compiler.cs` in `Semantics` oder `Codegen` verschieben.
+  - Interne Records/Enums an die fachlich passende Stelle ziehen, damit `Compiler.cs` keine Sammeldatei bleibt.
+  - Zieltests:
+    - `218`, `220`, `221`, `224`, `225`, `239`, `452`, `456`, `468`, `483`, `485`
+
+- [ ] PR19 Ordnerkonsolidierung
+  - Physische Ordnerstruktur auf die dokumentierte Architektur ausrichten.
+  - `Analytic/Core`, `Analytic/Tokens` und `Analytic/Exception` gegen eine konsistente Frontend-Struktur pruefen.
+  - Entscheiden, ob `Compiler.cs` langfristig als VMCore-Fassade bleibt oder physisch in `Codegen` aufgeht.
+  - Doku und Dateipfade angleichen, ohne in diesem Schritt neue Logik einzufuehren.
+  - Zieltests:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `CFGS_NE\\_edgecases\\_tmp_lsp_test.dll`
+    - `CFGS_NE\\_edgecases\\_tmp_lsp_interface_smoke.dll`
+    - voller Edgecase-Run
+
 DoD:
 - [x] Keine Parallelarchitekturen mehr.
 - [x] Die neue Struktur ist die einzige produktive Struktur.
@@ -597,6 +626,9 @@ Empfohlene PR-Reihenfolge:
 - [x] PR15 BindingRuntime + Print/JSON split
 - [x] PR15b ValueOps + ExceptionRuntime split
 - [x] PR16 Cleanup + Doku + LSP-Abgleich
+- [ ] PR17 Parser-Feinschnitt
+- [ ] PR18 Compiler-Feinschnitt
+- [ ] PR19 Ordnerkonsolidierung
 
 ## Dinge, die wir bewusst spaeter anfassen
 
