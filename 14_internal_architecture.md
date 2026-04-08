@@ -19,11 +19,17 @@ The language server uses the same frontend and compiler path. There is no separa
 
 ## Folder Ownership
 
-### `CFGS_NE/Analytic`
+### `CFGS_NE/Frontend`
 
-- `Core`
-  - `Lexer`, `TokenCursor`, `Parser`, `ParserContext`
+- `Lexing`
+  - `Lexer`, `Token`, `TokenType`, `TokenCursor`, `LexerException`
+  - Owns tokenization, cursoring, and lexer-specific diagnostics.
+- `Syntax`
+  - `Parser`, `ParserContext`, parser partial files, `ParserException`
   - Owns syntax parsing and parser-local context rules.
+- `Syntax/Tree`
+  - `Ast`
+  - Owns AST node definitions shared by parsing, lowering, semantics, and codegen.
 - `Modules`
   - `ImportResolver`, `SourceResolver`
   - Owns file, HTTP, DLL, cache, and recursive import resolution.
@@ -31,12 +37,10 @@ The language server uses the same frontend and compiler path. There is no separa
   - `SyntaxLowerer`, `NamespaceLowerer`, `ParamLowerer`
   - Owns syntax sugar lowering after parse and before compile.
 - `Semantics`
-  - `SymbolIndex`, `TopLevelValidator`, `ClassCatalog`, `InterfaceCatalog`, `ClassSemanticValidator`, `MemberAccessRules`
+  - `BoundProgram`, `SymbolIndex`, `TopLevelValidator`, `ClassCatalog`, `InterfaceCatalog`, `ClassSemanticValidator`, `MemberAccessRules`
   - Owns declaration indexing and semantic validation that must happen before bytecode emission.
-- `Tree`
-  - AST node definitions shared by parsing, lowering, semantics, and codegen.
 
-### `CFGS_NE/VMCore/Codegen`
+### `CFGS_NE/Codegen`
 
 - `CompilationPipeline`
   - Orchestrates the compiler passes in order.
@@ -44,11 +48,13 @@ The language server uses the same frontend and compiler path. There is no separa
   - Holds compiler-wide state such as function tables, type maps, and emitted program state.
 - `BytecodeEmitter`
   - Owns final program emission.
+- `Compiler.ClassMetadata` and `Compiler.TypeResolution`
+  - Own compiler-adjacent metadata and type-resolution helpers that are no longer part of the core facade file.
 - `Emitters`
-  - `StmtEmitter`, `ExprEmitter`, `PatternEmitter`, `ClassEmitter`, `FlowEmitter`, `CallEmitter`
-  - Own statement, expression, pattern, class, flow, and call emission logic.
+  - `StmtEmitter`, `ExprEmitter`, `PatternEmitter`, `ClassEmitter`, `FlowEmitter`, `CallEmitter`, `LValueEmitter`, `MemberResolutionEmitter`
+  - Own statement, expression, pattern, class, flow, call, lvalue, and member-resolution emission logic.
 
-### `CFGS_NE/VMCore/Runtime`
+### `CFGS_NE/Runtime`
 
 - `VmState`
   - Owns mutable VM execution state.
@@ -71,6 +77,13 @@ The language server uses the same frontend and compiler path. There is no separa
 - `ValuePrinter`
   - Owns value formatting, console printing, and JSON stringification.
 
+### `CFGS_NE/VMCore`
+
+- `Compiler` and `VM`
+  - Remain the public compiler and runtime facade entry points, while compiler partials live across `VMCore` and `Codegen`.
+- `Command`, `Extensions`, `Plugin`
+  - Remain VM-adjacent support code that is not part of the moved `Runtime` service layer.
+
 ## Compiler Passes
 
 The compiler pipeline is intentionally pass-based:
@@ -82,6 +95,22 @@ The compiler pipeline is intentionally pass-based:
 5. Emit bytecode.
 
 Validation and emission are separate responsibilities. Semantic code should not emit instructions, and emitters should not introduce new semantic rules.
+The productive compiler now uses a lightweight `BoundProgram` handoff between symbol indexing and later passes. `BoundStmt` and `BoundExpr` wrap the lowered AST and carry declaration order plus export/top-level surfaces, but they do not replace `CompilationContext` or the focused semantic passes with a second fully normalized IR.
+
+## Lowering Output
+
+`SyntaxLowerer` is not a generic cleanup pass. It produces a more compiler-friendly AST with two concrete responsibilities:
+
+- `NamespaceLowerer` rewrites namespace syntax into explicit top-level runtime-shape statements.
+  - Namespace roots and nested paths become ordinary `VarDecl` and `AssignExprStmt` nodes that ensure the dictionary/object path exists.
+  - Namespace bodies are wrapped in a scoped `BlockStmt` with a synthetic namespace temp such as `__ns_scope_*`.
+  - Parser-only namespace import alias nodes such as `NamespaceImportAliasStmt` and `ImportAliasDeclStmt` are rewritten into ordinary alias declarations and indexed assignments.
+- `ParamLowerer` rewrites function sugar into ordinary statements inside function bodies.
+  - Default parameters become `if (param == null) param = <default>` style initialization statements at the start of the body.
+  - Destructure parameters become explicit `DestructureDeclStmt` nodes against the synthetic parameter variable.
+  - After lowering, function declarations and function expressions keep plain parameter lists and empty `ParameterSpecs`, so codegen no longer has to interpret parser-only parameter metadata.
+
+The compiler therefore receives regularized AST nodes, not parser-side execution side effects.
 
 ## Runtime Split
 
@@ -120,5 +149,5 @@ These boundaries should stay hard:
 - CLI/runtime entry: `CFGS_NE/Program.cs`
 - LSP analysis entry: `CFGS.Lsp/Analysis/CfgsAnalyzer.cs`
 - LSP server entry: `CFGS.Lsp/LspServer.cs`
-- Compiler pipeline entry: `CFGS_NE/VMCore/Codegen/CompilationPipeline.cs`
-- Runtime loop entry: `CFGS_NE/VMCore/Runtime/ExecutionEngine.cs`
+- Compiler pipeline entry: `CFGS_NE/Codegen/CompilationPipeline.cs`
+- Runtime loop entry: `CFGS_NE/Runtime/ExecutionEngine.cs`

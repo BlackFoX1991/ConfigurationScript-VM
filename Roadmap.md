@@ -1,6 +1,6 @@
 # CFGS Parser Compiler VM Refactor Roadmap
 
-Stand: 2026-04-07
+Stand: 2026-04-08
 
 ## Ziel
 
@@ -14,7 +14,7 @@ kleinen bis mittleren PR umsetzbar sein und einen klaren Rueckweg haben.
 
 Aktuell sind die Kernkomponenten funktional stark, aber strukturell zu dicht gekoppelt:
 
-- `CFGS_NE/Analytic/Core/Parser.cs`
+- `CFGS_NE/Frontend/Syntax/Parser.cs`
   - mischt Syntax, Import-I/O, HTTP-Import, DLL-Aktivierung, Namespace-Materialisierung und
     Param-Lowering.
 - `CFGS_NE/VMCore/Compiler.cs`
@@ -27,51 +27,66 @@ Ziel ist keine "Neuschreibung", sondern ein kontrollierter Umbau in Passes.
 
 ## Leitlinien
 
-- [ ] Verhalten zuerst erhalten, dann Struktur verbessern.
-- [ ] Keine grosse IR-Neuschreibung am Anfang.
-- [ ] Keine gleichzeitige Vollsanierung von Parser und VM.
-- [ ] Jeder Schritt muss separat buildbar und testbar bleiben.
-- [ ] Bestehende Edgecases muessen waehrend des gesamten Umbaus gruen bleiben.
-- [ ] Neue Strukturen erst einfuehren, dann Altcode schrittweise entkernen.
+- Verhalten zuerst erhalten, dann Struktur verbessern.
+- Keine grosse IR-Neuschreibung am Anfang.
+- Keine gleichzeitige Vollsanierung von Parser und VM.
+- Jeder Schritt muss separat buildbar und testbar bleiben.
+- Bestehende Edgecases muessen waehrend des gesamten Umbaus gruen bleiben.
+- Neue Strukturen erst einfuehren, dann Altcode schrittweise entkernen.
 
 ## Zielarchitektur
 
 Die finale Zielstruktur ist ungefaehr diese:
+
+Hinweis zum Ist-Stand 2026-04-08:
+- Produktiv verwendet das Repo jetzt `CFGS_NE/Frontend/*`, `CFGS_NE/Codegen/*` und `CFGS_NE/Runtime/*`.
+- `CFGS_NE/VMCore/Compiler.cs` und `CFGS_NE/VMCore/VM.cs` bleiben vorerst als Fassaden- und Einstiegspunkte bestehen.
+- Im Lowering existiert aktuell `SyntaxLowerer.cs` als produktive Fassade; `SugarLowerer.cs` bleibt optionales Zielbild.
 
 ```text
 CFGS_NE/
   Frontend/
     Lexing/
       Lexer.cs
+      Token.cs
+      TokenType.cs
       TokenCursor.cs
+      LexerException.cs
     Syntax/
       Parser.cs
       ParserContext.cs
-      Parsing/
-        ImportSyntaxParser.cs
-        DeclarationParser.cs
-        StatementParser.cs
-        ExpressionParser.cs
-        PatternParser.cs
+      Parser.Imports.cs
+      Parser.Declarations.cs
+      Parser.ControlFlow.cs
+      Parser.Patterns.cs
+      Parser.Expressions.cs
+      Parser.FunctionParams.cs
+      Parser.Namespaces.cs
+      Parser.TopLevelSymbols.cs
+      ParserException.cs
+      Tree/
+        Ast.cs
     Modules/
       ImportResolver.cs
-      ModuleGraphBuilder.cs
       SourceResolver.cs
     Semantics/
+      BoundProgram.cs
       SymbolIndex.cs
       TopLevelValidator.cs
-      NamespaceBinder.cs
       ClassCatalog.cs
       InterfaceCatalog.cs
+      ClassSemanticValidator.cs
       MemberAccessRules.cs
     Lowering/
       ParamLowerer.cs
       NamespaceLowerer.cs
-      SugarLowerer.cs
+      SyntaxLowerer.cs
   Codegen/
     CompilationPipeline.cs
     CompilationContext.cs
     BytecodeEmitter.cs
+    Compiler.ClassMetadata.cs
+    Compiler.TypeResolution.cs
     Emitters/
       StmtEmitter.cs
       ExprEmitter.cs
@@ -79,6 +94,8 @@ CFGS_NE/
       ClassEmitter.cs
       FlowEmitter.cs
       CallEmitter.cs
+      LValueEmitter.cs
+      MemberResolutionEmitter.cs
   Runtime/
     VmState.cs
     ExecutionEngine.cs
@@ -100,11 +117,11 @@ Hinweis:
 
 Jede Phase gilt nur dann als abgeschlossen, wenn alle Punkte erfuellt sind:
 
-- [ ] `dotnet build -v minimal CFGS_VM.sln` ist gruen.
-- [ ] Selektive Edgecases fuer die geaenderten Bereiche sind gruen.
-- [ ] Voller Lauf `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild` ist gruen.
-- [ ] Keine funktionale Regression in Doku-Samples, REPL oder LSP.
-- [ ] Altcode wurde nicht "parallel weiterleben" gelassen, wenn der neue Pfad produktiv ist.
+- `dotnet build -v minimal CFGS_VM.sln` ist gruen.
+- Selektive Edgecases fuer die geaenderten Bereiche sind gruen.
+- Voller Lauf `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild` ist gruen.
+- Keine funktionale Regression in Doku-Samples, REPL oder LSP.
+- Altcode wurde nicht "parallel weiterleben" gelassen, wenn der neue Pfad produktiv ist.
 
 ## Phase 0 - Baseline und Sicherheitsnetz
 
@@ -118,7 +135,7 @@ Jede Phase gilt nur dann als abgeschlossen, wenn alle Punkte erfuellt sind:
   - VM Async-Pfad
   - VM Object/Visibility-Pfad
 - [x] Fuer jeden der grossen Bereiche einen minimalen "Smoke-Cluster" von Edgecases notieren.
-- [ ] Optional: kleine interne Notizdatei `artifacts/refactor_notes.md` oder aehnlich fuer Migrationserkenntnisse.
+- [x] Optional: kleine interne Notizdatei `artifacts/refactor_notes.md` oder aehnlich fuer Migrationserkenntnisse.
 
 DoD:
 - [x] Es ist fuer jede Folgephase klar, welche Testfaelle den Bereich absichern.
@@ -150,7 +167,7 @@ Ziel:
 
 Schritte:
 - [x] `Parser` als `partial class` vorbereiten.
-- [ ] Dateischnitt einfuehren:
+- [x] Dateischnitt einfuehren:
   - [x] `Parser.cs` als Kernfile behalten
   - [x] `Parser.Imports.cs`
   - [x] `Parser.Statements.cs`
@@ -184,7 +201,7 @@ Schritte:
   - [x] Next
   - [x] Advance
   - [x] Eat
-  - [ ] optionale `Match`/`Expect`-Hilfen
+  - [x] optionale `Match`/`Expect`-Hilfen
 - [x] Parser intern von `_current` und `_next` auf Cursor abstrahieren.
 - [x] `ParserContext` einfuehren fuer:
   - [x] Function depth
@@ -220,21 +237,27 @@ Neue Zielelemente:
 - `Frontend/Modules/ModuleGraphBuilder.cs`
 
 Schritte:
-- [ ] Importformen explizit als AST/Syntaxobjekte modellieren, falls noch nicht vorhanden.
+- [x] Importformen explizit als AST/Syntaxobjekte modellieren, falls noch nicht vorhanden.
 - [x] `TryHandleDllImport`, `GetImports`, `ResolveImportPath`, HTTP-Download und Import-Cache aus dem Parser herausziehen.
-- [ ] Parser darf nur noch:
+- [x] Parser darf nur noch:
   - `import "x"`
   - `import * as Ns from "x"`
   - `import { a as b } from "x"`
   - `import X from "x"`
     syntaktisch erkennen.
-- [ ] `ModuleGraphBuilder` baut den Importgraphen.
+- [x] `ModuleGraphBuilder` baut den Importgraphen.
 - [x] `ImportResolver` materialisiert Module und Plugins ausserhalb des Ausdrucks-/Statement-Parsers.
 - [x] Header-Regeln, Zyklen, Selbstimporte und Mehrfachimporte ueber den Modulpfad absichern.
 
+Status 2026-04-08:
+- `ImportResolver`, `SourceResolver` und `ModuleGraphBuilder` sind produktiv.
+- `Parser.Imports.cs` erzeugt jetzt nur noch `BareImportSyntaxStmt`, `NamespaceImportSyntaxStmt`, `NamedImportSyntaxStmt` und `DefaultImportSyntaxStmt`.
+- `Program`, LSP-Analyse und rekursive Imports im `ImportResolver` fahren jetzt explizit die Pipeline `Parse -> ResolveImports -> SyntaxLowerer`.
+- `ModuleGraphBuilder` laedt, cached und verknuepft Modulabhaengigkeiten vor der eigentlichen Import-Materialisierung; der Resolver konzentriert sich damit auf die Import-Semantik.
+
 DoD:
-- [ ] Parser kann ohne Dateisystem-/HTTP-/DLL-Seiteneffekte arbeiten.
-- [ ] Modulverhalten bleibt identisch.
+- [x] Parser kann ohne Dateisystem-/HTTP-/DLL-Seiteneffekte arbeiten.
+- [x] Modulverhalten bleibt identisch.
 
 Regressionstests:
 - [x] `207_module_exports_imports`
@@ -257,12 +280,16 @@ Neue Zielelemente:
 - `Frontend/Lowering/NamespaceLowerer.cs`
 - optional `Frontend/Lowering/SugarLowerer.cs`
 
+Status 2026-04-08:
+- Produktiv existieren `ParamLowerer.cs`, `NamespaceLowerer.cs` und `SyntaxLowerer.cs`.
+- Das Lowering-Ergebnis ist in `14_internal_architecture.md` jetzt explizit dokumentiert.
+
 Schritte:
 - [x] `ParseFunctionParamsWithDefaults()` so umbauen, dass es keine Statements mehr erzeugt.
 - [x] Synthetische Param-Namen weiter erlauben, aber in einen dedizierten Lowering-Schritt verschieben.
 - [x] Namespace-Alias-Erzeugung aus dem Parser entfernen.
 - [x] Default-Parameter-Initialisierung, Destructure-Param-Bindung und Namespace-Alias-Materialisierung in Lowering-Passes uebernehmen.
-- [ ] Lowering-Ergebnis explizit dokumentieren.
+- [x] Lowering-Ergebnis explizit dokumentieren.
 
 DoD:
 - [x] Parser erzeugt keine "Ausfuehrungs-Statements" als Nebenprodukt syntaktischer Analyse.
@@ -284,20 +311,20 @@ Ziel:
 Neue Zielelemente:
 - `Codegen/CompilationPipeline.cs`
 - `Codegen/CompilationContext.cs`
-- `Analytic/Semantics/SymbolIndex.cs`
-- `Analytic/Semantics/TopLevelValidator.cs`
-- `Analytic/Semantics/ClassCatalog.cs`
-- `Analytic/Semantics/InterfaceCatalog.cs`
-- `Analytic/Semantics/ClassSemanticValidator.cs`
-- `Analytic/Semantics/MemberAccessRules.cs`
+- `Frontend/Semantics/SymbolIndex.cs`
+- `Frontend/Semantics/TopLevelValidator.cs`
+- `Frontend/Semantics/ClassCatalog.cs`
+- `Frontend/Semantics/InterfaceCatalog.cs`
+- `Frontend/Semantics/ClassSemanticValidator.cs`
+- `Frontend/Semantics/MemberAccessRules.cs`
 
 Schritte:
 - [x] `Compiler.Compile()` auf reine Orchestrierung reduzieren.
-- [ ] Pass 1: Symbolindex
+- [x] Pass 1: Symbolindex
   - [x] Top-Level-Namen
   - [x] Qualified class/interface names
   - [x] Namespace-Sicht
-  - [ ] Exportoberflaechen
+  - [x] Exportoberflaechen
 - [x] Pass 2: Klassenzusammenhang
   - [x] Vererbungsordnung
   - [x] Basistypauflosung
@@ -309,8 +336,13 @@ Schritte:
   - [x] Visibility / Memberaccess
 - [x] Pass 4: Bytecode-Emission bleibt zunaechst noch im alten Compiler, aber mit sauberer Eingabe aus den Vorpasses.
 
+Status 2026-04-08:
+- `CompilationPipeline`, `CompilationContext`, `BoundProgram` und die Semantik-Passes sind produktiv.
+- `SymbolIndex` baut jetzt ein leichtgewichtiges `BoundProgram` mit getrennten Top-Level- und Export-Surfaces.
+- Ein separater `StatementShapeValidator` faengt offensichtliche LValue-/`push`-Fehler jetzt vor der Bytecode-Emission ab.
+
 DoD:
-- [ ] Semantische Fehler kommen nicht mehr aus Bytecode-Emission, wenn sie vorher pruefbar sind.
+- [x] Semantische Fehler kommen nicht mehr aus Bytecode-Emission, wenn sie vorher pruefbar sind.
 - [x] Der Compiler ist in klar erkennbare, isolierbare Passes getrennt.
 
 Regressionstests:
@@ -338,6 +370,9 @@ Regressionstests:
 - [x] `475_protected_access_outside_fail`
 - [x] `476_protected_static_access_outside_fail`
 - [x] `483_override_visibility_narrower_instance_fail`
+- [x] `510_invalid_assign_target_fail`
+- [x] `511_invalid_update_target_fail`
+- [x] `512_invalid_push_target_fail`
 - [x] `485_constructor_private_external_fail`
 - [x] `508_interface_visibility_fail`
 - [x] `509_interface_extends_class_fail`
@@ -372,8 +407,8 @@ Schritte:
 - [x] Call- und Argumentverarbeitung nach `CallEmitter`.
 
 DoD:
-- [ ] Die grossen Methoden `CompileStmt` und `CompileExpr` sind nicht mehr zentrale Sammelstellen.
-- [ ] Emissionsregeln sind dateiweise lokalisiert.
+- [x] Die grossen Methoden `CompileStmt` und `CompileExpr` sind nicht mehr zentrale Sammelstellen.
+- [x] Emissionsregeln sind dateiweise lokalisiert.
 
 Regressionstests:
 - [x] `102_control_flow_and_match`
@@ -417,15 +452,22 @@ Ziel:
 - Nach der Pass-Trennung entscheiden, ob ein `BoundProgram` echten Mehrwert bringt.
 
 Entscheidungspunkt:
-- [ ] Wenn Semantikdaten noch zu oft aus rohem AST gezogen werden, `Bound*`-Layer einfuehren.
-- [ ] Wenn die jetzige Pass-Struktur stabil und klar genug ist, kein Bound-Layer erzwingen.
+- [x] Wenn Semantikdaten noch zu oft aus rohem AST gezogen werden, einen leichten `Bound*`-Layer einfuehren.
+- [ ] Wenn die jetzige Pass-Struktur stabil und klar genug ist, ganz ohne Bound-Layer bleiben.
 
-Falls eingefuehrt:
-- [ ] `BoundProgram`
-- [ ] `BoundFunction`
-- [ ] `BoundClass`
-- [ ] `BoundExpr`
-- [ ] `BoundStmt`
+Status 2026-04-08:
+- `SymbolIndex` baut jetzt ein produktives `BoundProgram` als Handoff in die spaeteren Compiler-Passes.
+- `BoundStmt` und `BoundExpr` bleiben bewusst leichtgewichtig: sie kapseln lowered AST-Knoten und tragen Ordnung sowie Surfaces, ohne eine zweite vollstaendige IR zu erzwingen.
+- `CompilationContext`, `ClassCatalog`, `InterfaceCatalog`, `ClassSemanticValidator`, `StatementShapeValidator` und `MemberAccessRules` bleiben die autoritativen Semantikdienste; der neue Bound-Layer ersetzt diese Passes nicht.
+- `CompilationPipeline`, `Compiler.Pipeline`, `BytecodeEmitter` und `Compiler.ClassMetadata` arbeiten jetzt gegen `BoundProgram`, `BoundFunction`, `BoundClass` und `BoundInterface` statt gegen `CompilationPlan`.
+- Entscheidung: `BoundProgram`/`Bound*` sind jetzt als schlanker produktiver Handoff eingefuehrt; ein tief normalisierter zweiter Semantikgraph bleibt vorerst bewusst aus.
+
+Produktiv eingefuehrt:
+- [x] `BoundProgram`
+- [x] `BoundFunction`
+- [x] `BoundClass`
+- [x] `BoundExpr`
+- [x] `BoundStmt`
 
 Kriterien fuer "ja":
 - Wiederholte Namensaufloesung an mehreren Stellen
@@ -523,13 +565,19 @@ Ziel:
 
 Schritte:
 - [x] Plugin-Lader bleibt fuer Assembly/Attribute/Registrierung zustaendig.
-- [ ] VM bekommt nur noch abstrahierte Registries.
+- [x] VM bekommt nur noch abstrahierte Registries.
 - [x] `LoadPlugin` und `LoadPluginsFrom` als Binding-Schicht kapseln.
 - [x] Intrinsic-Bindung und Reserved-Name-Checks in `BindingRuntime` konzentrieren.
-- [ ] Optional kleines Interface fuer VM-Binding einfuehren.
+- [x] Optional kleines Interface fuer VM-Binding einfuehren.
+
+Status 2026-04-08:
+- Plugin-Binding ist aus Collection-/Object-/Dispatch-Code herausgezogen.
+- `BindingRuntime` kapselt konkrete `BuiltinRegistry`- und `IntrinsicRegistry`-Instanzen jetzt hinter `IVmBindingRuntime`, `IBuiltinRegistry` und `IIntrinsicRegistry`.
+- `VM.cs` und `CallRuntime.cs` greifen nur noch ueber Binding-Helfer wie `TryGetBuiltin(...)` und `CopyBindingsTo(...)` auf die Binding-Schicht zu.
 
 DoD:
 - [x] Plugin-Mechanik ist nicht mehr mit Collection-/Object-/Dispatch-Code verschmolzen.
+- [x] VM- und Hot-Start-Pfade kennen keine konkreten Registry-Typen mehr.
 
 Regressionstests:
 - [x] `231_plugin_nonblocking_loader`
@@ -563,15 +611,15 @@ Ziel:
 - Altcode, tote Helfer und Migrationsreste entfernen.
 
 Schritte:
-- [ ] Nicht mehr genutzte Parser-Hilfen entfernen.
-- [ ] Nicht mehr genutzte Compiler-Zwischenpfade entfernen.
+- [x] Nicht mehr genutzte Parser-Hilfen entfernen.
+- [x] Nicht mehr genutzte Compiler-Zwischenpfade entfernen.
 - [x] Nicht mehr genutzte VM-Hilfen entfernen.
-- [ ] Ordnerstruktur konsolidieren.
+- [x] Ordnerstruktur konsolidieren.
 - [x] Changelog in dieser Roadmap aktualisieren.
 
 Geplante kleine PRs fuer Phase 11:
 
-- [ ] PR17 Parser-Feinschnitt
+- [x] PR17 Parser-Feinschnitt
   - `Parser.cs` auf Entry, Cursor-/Context-Fassade und kleine Shared-Helpers reduzieren.
   - Restzustand wie `multipleVarDecl`, `_destructureParamCounter` und `_foreachDestructureCounter` pruefen und entweder kapseln, verschieben oder entfernen.
   - `Parser.Imports.cs` von Namespace-/Qualified-Type-Helfern entmischen.
@@ -579,7 +627,7 @@ Geplante kleine PRs fuer Phase 11:
   - Zieltests:
     - `101`, `102`, `205`, `212`, `215`, `239`, `401`, `403`, `418`, `436`
 
-- [ ] PR18 Compiler-Feinschnitt
+- [x] PR18 Compiler-Feinschnitt
   - `Compiler.cs` auf Fassade, Context-Zugriff und wirklich gemeinsame Utilities reduzieren.
   - LValue-Emission aus `Compiler.cs` in einen passenden Codegen-Bereich ziehen.
   - Visibility-/Constructor-Metadaten-Helfer aus `Compiler.cs` in `Semantics` oder `Codegen` verschieben.
@@ -587,7 +635,7 @@ Geplante kleine PRs fuer Phase 11:
   - Zieltests:
     - `218`, `220`, `221`, `224`, `225`, `239`, `452`, `456`, `468`, `483`, `485`
 
-- [ ] PR19 Ordnerkonsolidierung
+- [x] PR19 Ordnerkonsolidierung
   - Physische Ordnerstruktur auf die dokumentierte Architektur ausrichten.
   - `Analytic/Core`, `Analytic/Tokens` und `Analytic/Exception` gegen eine konsistente Frontend-Struktur pruefen.
   - Entscheiden, ob `Compiler.cs` langfristig als VMCore-Fassade bleibt oder physisch in `Codegen` aufgeht.
@@ -600,7 +648,7 @@ Geplante kleine PRs fuer Phase 11:
 
 DoD:
 - [x] Keine Parallelarchitekturen mehr.
-- [x] Die neue Struktur ist die einzige produktive Struktur.
+- [x] Parser-/Compiler-Restzustand ist bereinigt und die Zielordnerstruktur ist physisch hergestellt.
 
 ## Konkrete Reihenfolge fuer kleine PRs
 
@@ -626,50 +674,194 @@ Empfohlene PR-Reihenfolge:
 - [x] PR15 BindingRuntime + Print/JSON split
 - [x] PR15b ValueOps + ExceptionRuntime split
 - [x] PR16 Cleanup + Doku + LSP-Abgleich
-- [ ] PR17 Parser-Feinschnitt
-- [ ] PR18 Compiler-Feinschnitt
-- [ ] PR19 Ordnerkonsolidierung
+- [x] PR17 Parser-Feinschnitt
+- [x] PR18 Compiler-Feinschnitt
+- [x] PR19 Ordnerkonsolidierung
 
 ## Dinge, die wir bewusst spaeter anfassen
 
-- [ ] Neues Opcode-Design
-- [ ] Neue IR vor Abschluss der Compiler-Pass-Trennung
-- [ ] JIT oder Performance-Spezialumbauten
-- [ ] Grossflaechige AST-Neumodellierung
-- [ ] Plugin-Sandboxing als separates Sicherheitsprojekt
+- Neues Opcode-Design
+- Neue IR vor Abschluss der Compiler-Pass-Trennung
+- JIT oder Performance-Spezialumbauten
+- Grossflaechige AST-Neumodellierung
+- Plugin-Sandboxing als separates Sicherheitsprojekt
 
 ## Red Flags waehrend der Umsetzung
 
 Wenn einer dieser Punkte auftritt, Phase sofort stoppen und neu schneiden:
 
-- [ ] Parser erzeugt weiterhin Runtime- oder Lowering-Nebenprodukte.
-- [ ] Compiler validiert und emittiert denselben Sachverhalt in zwei Pfaden.
-- [ ] VM-Serviceklassen greifen kreuz und quer direkt auf fremde Teilverantwortungen zu.
-- [ ] Neue Architektur existiert parallel zum Altcode ohne klaren Umschaltpunkt.
-- [ ] Edgecases werden "temporar" deaktiviert statt sauber angepasst.
+- Parser erzeugt weiterhin Runtime- oder Lowering-Nebenprodukte.
+- Compiler validiert und emittiert denselben Sachverhalt in zwei Pfaden.
+- VM-Serviceklassen greifen kreuz und quer direkt auf fremde Teilverantwortungen zu.
+- Neue Architektur existiert parallel zum Altcode ohne klaren Umschaltpunkt.
+- Edgecases werden "temporar" deaktiviert statt sauber angepasst.
 
 ## Teststrategie
 
 Vor jedem PR:
 
-- [ ] `dotnet build -v minimal CFGS_VM.sln`
-- [ ] Selektive Edgecases fuer den Zielbereich
+- `dotnet build -v minimal CFGS_VM.sln`
+- Selektive Edgecases fuer den Zielbereich
 
 Nach jedem PR:
 
-- [ ] `dotnet build -v minimal CFGS_VM.sln`
-- [ ] `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
+- `dotnet build -v minimal CFGS_VM.sln`
+- `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
 
 Optional fuer schnellere lokale Schleifen:
 
-- [ ] Parser-nahe PRs:
+- Parser-nahe PRs:
   - `101`, `102`, `205`, `212`, `215`, `401`, `403`
-- [ ] Compiler-nahe PRs:
+- Compiler-nahe PRs:
   - `218`, `221`, `239`, `452`, `456`, `468`
-- [ ] VM-nahe PRs:
+- VM-nahe PRs:
   - `226`, `230`, `233`, `236`, `237`, `243`
 
 ## Changelog
+
+- 2026-04-08: Interne Refactor-Notiz ergaenzt.
+  - `artifacts/refactor_notes.md` haelt die produktive Zielpipeline, die wichtigsten Architekturentscheidungen und die bewaehrten Test-/Migrationsregeln fest.
+- 2026-04-08: `TokenCursor` um `Match`/`Expect`-Hilfen ergaenzt.
+  - `Frontend/Lexing/TokenCursor.cs` bietet jetzt konsumierende `Match(...)`- und `Expect(...)`-Helfer.
+  - `Frontend/Syntax/Parser.State.cs` exponiert die neuen Cursor-Helfer fuer Parser-Partial-Dateien.
+  - Namespace- und Import-Parsing verwenden die neuen Helfer jetzt an mechanischen Identifier-/String-Pfaden.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "101_*|102_*|205_*|212_*|215_*|401_*|403_*"`
+- 2026-04-08: Phase 7 auf leichten Bound-Handoff umgestellt.
+  - `Frontend/Semantics/BoundProgram.cs` fuehrt `BoundProgram`, `BoundFunction`, `BoundClass`, `BoundInterface`, `BoundStmt` und `BoundExpr` als produktiven Handoff zwischen Symbolindex und spaeteren Compiler-Passes ein.
+  - `Frontend/Semantics/SymbolIndex.cs`, `Codegen/CompilationPipeline.cs`, `Codegen/Compiler.Pipeline.cs`, `Codegen/BytecodeEmitter.cs` und `Codegen/Compiler.ClassMetadata.cs` arbeiten jetzt gegen den Bound-Handoff statt gegen `CompilationPlan`.
+  - Der neue Bound-Layer bleibt bewusst leichtgewichtig: Semantikregeln und Aufloesung verbleiben in `CompilationContext`, `ClassCatalog`, `InterfaceCatalog`, `ClassSemanticValidator`, `StatementShapeValidator` und `MemberAccessRules`.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "215_*|221_*|239_*|439_*|452_*|456_*|468_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
+- 2026-04-08: Phase-4-Lowering-Doku nachgezogen.
+  - `14_internal_architecture.md` beschreibt jetzt explizit, wie `SyntaxLowerer`, `NamespaceLowerer` und `ParamLowerer` Parser-Sugar in compilerfreundliche AST-Formen ueberfuehren.
+- 2026-04-08: Phase 11 abgeschlossen.
+  - Verbleibende tote Parser-Durchreicher in `Frontend/Syntax/Parser.TopLevelSymbols.cs` entfernt; Namespace-Root-Konflikte gehen direkt ueber `TopLevelSymbolFacts`.
+  - `Compiler.Pipeline.cs` physisch nach `Codegen/` verschoben, damit der letzte Compiler-Orchestrierungs-Partial nicht mehr im VM-Kern liegt.
+  - `Parser.cs` und `Compiler.cs` bleiben als kleine Fassaden im Kern, waehrend Parser-Top-Level-Logik und Compiler-Pipeline/Emitter jetzt fachlich in `Frontend/` bzw. `Codegen/` liegen.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "215_*|239_*|401_*|403_*|439_*|468_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
+- 2026-04-08: Phase 9 abgeschlossen.
+  - `Runtime/IVmBindingRuntime.cs` eingefuehrt, damit der VM-Binding-Pfad ueber eine kleine Schnittstelle statt ueber konkrete Registry-Typen laeuft.
+  - `Runtime/BindingRuntime.cs` haelt `BuiltinRegistry` und `IntrinsicRegistry` jetzt privat und exponiert nur noch `IBuiltinRegistry` und `IIntrinsicRegistry`.
+  - `Runtime/CallRuntime.cs` und `VM.cs` greifen fuer Builtin-Lookups und Hot-Start-Binding-Kopien nur noch ueber `TryGetBuiltin(...)` und `CopyBindingsTo(...)` auf die Binding-Schicht zu.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "230_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "*plugin*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
+- 2026-04-08: Phase 3 auf reine Importsyntax umgestellt.
+  - Neue Syntaxknoten `BareImportSyntaxStmt`, `NamespaceImportSyntaxStmt`, `NamedImportSyntaxStmt` und `DefaultImportSyntaxStmt` in `Frontend/Syntax/Tree/Ast.cs` eingefuehrt.
+  - Gemeinsame Top-Level-Symbollogik in `Frontend/Semantics/TopLevelSymbolFacts.cs` konzentriert, damit Parser und Importauflosung dieselben Konfliktregeln verwenden.
+  - `Parser.Imports.cs` auf reine Header-Syntax reduziert; keine Dateisystem-, HTTP- oder DLL-Auflosung mehr im Parser.
+  - `Frontend/Modules/ImportResolver.cs` materialisiert Importsyntax jetzt ausserhalb des Parsers und benutzt dieselbe Pipeline auch fuer rekursive Imports.
+  - `Program.cs` und `CFGS.Lsp/Analysis/CfgsAnalyzer.cs` fahren jetzt `Parse -> ResolveImports -> SyntaxLowerer`.
+  - `Frontend/Modules/ModuleGraphBuilder.cs` fuehrt den rekursiven Modulgraph-Bau, Cache und Zyklenpruefung jetzt als eigene Stufe aus; `ImportResolver` haelt nur noch die Import-Semantik.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "*import*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "*namespace*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
+- 2026-04-08: Phase 5 vervollstaendigt.
+  - `CompilationPlan` um `TopLevelSurface` und `ExportSurface` erweitert; `SymbolIndex` fuellt beide Strukturen jetzt im ersten Pass.
+  - Neuer `Frontend/Semantics/StatementShapeValidator.cs` prueft LValue-/Update-/`push`-Formen vor der Bytecode-Emission.
+  - `CompilationPipeline` laesst die Shape-Pruefung jetzt als Semantikschritt vor `EmitProgram()` laufen.
+  - Neue Edgecases `510_invalid_assign_target_fail`, `511_invalid_update_target_fail` und `512_invalid_push_target_fail` abgesichert.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "51*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
+- 2026-04-08: Phase-11-Restcleanup fuer Parser und Compiler begonnen.
+  - Tote Parser-Tracker `_seenFunctions`, `_seenClasses`, `_seenEnums` und `_knownTopLevelNames` entfernt.
+  - Verbleibender Top-Level-Symbolzustand aus `Parser.cs` in `Parser.TopLevelSymbols.cs` konzentriert.
+  - Cursor- und Kontext-Fassade aus `Parser.cs` nach `Frontend/Syntax/Parser.State.cs` verschoben.
+  - Parameternamens-Helfer aus `Parser.cs` nach `Frontend/Syntax/Parser.FunctionParams.cs` verschoben.
+  - Gemeinsame Method-Shape-Regeln nach `Frontend/Semantics/MethodShapeRules.cs` gezogen.
+  - Namespace-nahe Class-/Interface-Ordnungs- und Semantikdelegation aus `Compiler.cs` entfernt; `FlowEmitter` ruft die fachlichen Services jetzt direkt.
+  - `TryGetNamespaceScopePath`, Qualified-Load-, Operator- und Function-Locals-Helfer aus `Compiler.cs` in `Codegen/Compiler.NamespaceScopes.cs` und `Codegen/Compiler.EmitHelpers.cs` verschoben.
+  - Tote Compiler-Alias-Eigenschaft `_classMemberSetCache` aus `Compiler.cs` entfernt.
+  - `Compiler.cs` damit weiter auf gemeinsame Utilities und Fassadenlogik reduziert.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "215_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "218_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "239_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "401_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "403_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "439_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "468_*"`
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "215_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "239_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "468_*"`
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "205_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "212_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "215_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild -NameFilter "239_*"`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
+
+- 2026-04-08: PR19 Ordnerkonsolidierung abgeschlossen.
+  - Parser-, Semantik-, Lowering- und Moduldateien physisch von `CFGS_NE/Analytic/*` nach `CFGS_NE/Frontend/*` verschoben.
+  - Codegen-Dateien physisch von `CFGS_NE/VMCore/Codegen/*` nach `CFGS_NE/Codegen/*` verschoben.
+  - Runtime-Service-Dateien physisch von `CFGS_NE/VMCore/Runtime/*` nach `CFGS_NE/Runtime/*` verschoben.
+  - `14_internal_architecture.md` und die aktuelle Roadmap-Beschreibung auf die neue Ordnerstruktur und die verbleibenden `VMCore`-Fassaden nachgezogen.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `dotnet .\\CFGS_NE\\_edgecases\\_tmp_lsp_test.dll`
+    - `dotnet .\\CFGS_NE\\_edgecases\\_tmp_lsp_interface_smoke.dll`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
+
+- 2026-04-08: PR18 Compiler-Feinschnitt abgeschlossen.
+  - `Compiler.cs` auf Fassade, Pipeline-nahe Aufrufer und gemeinsame Utilities reduziert.
+  - Voller Edgecase-Run nach dem Compiler-Feinschnitt ist gruen.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
+
+- 2026-04-08: PR18 Compiler-Feinschnitt begonnen.
+  - LValue-Emission aus `Compiler.cs` nach `Codegen/Emitters/LValueEmitter.cs` verschoben.
+  - Live genutzte Class-/Visibility-Metadaten nach `Codegen/Compiler.ClassMetadata.cs` verschoben.
+  - Receiver-, implizite Member- und Member-Access-Emission nach `Codegen/Emitters/MemberResolutionEmitter.cs` verschoben.
+  - Typ-/Interface-Aufloesung und Interface-Contract-Building nach `Codegen/Compiler.TypeResolution.cs` verschoben.
+  - Nicht mehr genutzte Thin-Wrapper fuer `NormalizeClassInheritanceDeclarations()` und `ValidateAllKnownInterfaces()` aus `Compiler.cs` entfernt.
+  - Veraltete Inheritance-/Visibility-Dubletten aus `Compiler.cs` entfernt, weil die produktive Logik bereits in `ClassSemanticValidator` und `MemberAccessRules` liegt.
+  - `Compiler.cs` ist damit ein Stueck staerker auf Fassade, Kontextzugriff und wirklich gemeinsame Utilities reduziert.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - fokussierte Compiler-/Member-Access-Smokes
+
+- 2026-04-08: PR17 Parser-Feinschnitt abgeschlossen.
+  - `Parser.Imports.cs` auf Importsyntax, Moduloberflaechen und Materialisierung des Header-Blocks reduziert.
+  - Top-Level-Symbol-Tracking, Duplicate-Filterung und Origin-Normalisierung nach `Parser.TopLevelSymbols.cs` verschoben.
+  - `Parse()` als Parser-Einstieg wieder in `Parser.cs` konzentriert; der Parser-Kern ist damit klarer von Imports, Declarations, Patterns und Control Flow getrennt.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - `powershell -ExecutionPolicy Bypass -File .\\CFGS_NE\\_edgecases\\run_all_edgecases.ps1 -SkipBuild`
+
+- 2026-04-08: PR17 Parser-Feinschnitt begonnen.
+  - Restzustand `multipleVarDecl`, `_destructureParamCounter` und `_foreachDestructureCounter` aus `Parser.cs` in `ParserContext.cs` gekapselt.
+  - `Parser.cs` enthaelt damit weniger parserinterne Detailzustandsfelder.
+  - Namespace- und Qualified-Type-Helfer aus `Parser.Imports.cs` nach `Parser.Namespaces.cs` verschoben.
+  - Tote Duplikate fuer Namespace-Pfadaufbau aus `Parser.Imports.cs` entfernt.
+  - Deklarationsparser fuer `enum`, `interface`, `class`, `var`, `const` und `export` aus `Parser.Statements.cs` nach `Parser.Declarations.cs` verschoben.
+  - Match- und Destructure-Parsing aus `Parser.Statements.cs` nach `Parser.Patterns.cs` verschoben.
+  - Control-Flow- und Block-Parsing aus `Parser.Statements.cs` nach `Parser.ControlFlow.cs` verschoben.
+  - Verifikation:
+    - `dotnet build -v minimal CFGS_VM.sln`
+    - selektive Parser-Smokes (`101`, `102`, `205`, `212`, `215`, `239`, `401`, `403`, `418`, `436`)
+
+- 2026-04-08: Roadmap gegen den aktuellen Codebestand abgeglichen.
+  - `dotnet build -v minimal CFGS_VM.sln` und voller Edgecase-Run sind gruen.
+  - Phase 3 bleibt offen, weil `Parser.Imports.cs` Imports weiterhin direkt ueber `ImportResolver` materialisiert.
+  - Phase 5 bleibt teilweise offen, weil Exportoberflaechen noch nicht separat im `CompilationPlan` liegen und einige Compilerfehler weiter aus der Emission kommen.
+  - Phase 9 bleibt teilweise offen, weil `VM` noch konkrete `BuiltinRegistry`-/`IntrinsicRegistry`-Instanzen haelt.
+  - Phase 11 bleibt offen fuer Parser-/Compiler-Feinschnitt und physische Ordnerkonsolidierung.
 
 - 2026-04-07: PR16 fuer Phase 10/11 umgesetzt.
   - `14_internal_architecture.md` eingefuehrt.

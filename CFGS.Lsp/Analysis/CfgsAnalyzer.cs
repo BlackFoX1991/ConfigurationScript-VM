@@ -1,7 +1,9 @@
 using System.Text;
+using CFGS_VM.Analytic;
 using CFGS_VM.Analytic.Core;
 using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Lowering;
+using CFGS_VM.Analytic.Modules;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
@@ -49,12 +51,11 @@ internal sealed class CfgsAnalyzer
 
         try
         {
-            using CurrentDirectoryScope _ = CurrentDirectoryScope.ForDocument(origin);
-
-            Lexer lexer = new(origin, sourceText);
-            Parser parser = new(lexer, _ => { }, loadImportSource: sources.GetOverlaySourceText);
-            List<Stmt> ast = parser.Parse();
-            ast = new SyntaxLowerer().Lower(ast);
+            FrontendPipeline frontendPipeline = new(
+                loadPluginDll: _ => { },
+                loadImportSource: sources.GetOverlaySourceText,
+                workingDirectory: FrontendPipeline.TryGetWorkingDirectory(origin));
+            List<Stmt> ast = frontendPipeline.BuildLoweredAst(origin, sourceText);
 
             Compiler compiler = new(origin);
             compiler.Compile(ast);
@@ -1505,31 +1506,6 @@ internal sealed class CfgsAnalyzer
             => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
     }
 
-    private sealed class CurrentDirectoryScope : IDisposable
-    {
-        private readonly string _previousDirectory;
-
-        private CurrentDirectoryScope(string previousDirectory)
-        {
-            _previousDirectory = previousDirectory;
-        }
-
-        public static CurrentDirectoryScope ForDocument(string origin)
-        {
-            string previousDirectory = Environment.CurrentDirectory;
-            string? localPath = SourceResolver.TryGetLocalPath(origin) ?? (Path.IsPathFullyQualified(origin) ? Path.GetFullPath(origin) : null);
-            string? nextDirectory = localPath is null ? null : Path.GetDirectoryName(localPath);
-            if (!string.IsNullOrWhiteSpace(nextDirectory) && Directory.Exists(nextDirectory))
-                Environment.CurrentDirectory = nextDirectory;
-
-            return new CurrentDirectoryScope(previousDirectory);
-        }
-
-        public void Dispose()
-        {
-            Environment.CurrentDirectory = _previousDirectory;
-        }
-    }
 }
 
 internal sealed record CfgsAnalysisResult(
