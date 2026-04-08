@@ -1,6 +1,8 @@
 ﻿using CFGS_VM.Analytic.Core;
+using CFGS_VM.Analytic;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.Analytic.Lowering;
+using CFGS_VM.Analytic.Modules;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
@@ -88,7 +90,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v4.5.8";
+    public const string Version = "v4.8.2";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -257,12 +259,12 @@ public class Program
 
                     string input = File.ReadAllText(file);
 
-                    Environment.CurrentDirectory =
-                        Path.GetDirectoryName(Path.GetFullPath(file))
+                    string workingDirectory =
+                        FrontendPipeline.TryGetWorkingDirectory(file)
                         ?? Path.GetDirectoryName(Environment.ProcessPath)
                         ?? AppContext.BaseDirectory;
 
-                    await RunSourceAsync(input, file, IsDebug);
+                    await RunSourceAsync(input, file, IsDebug, workingDirectory: workingDirectory);
                     currentSourceForError = null;
                 }
             }
@@ -432,20 +434,19 @@ public class Program
         string name,
         bool debug = false,
         CancellationToken ct = default,
-        VM? sharedVm = null)
+        VM? sharedVm = null,
+        string? workingDirectory = null)
     {
-        Lexer? lexer = null;
-        Parser? parser = null;
         List<Stmt> ast = new();
         List<Instruction> bytecode = new();
         Compiler? compiler = null;
 
         VM vm = sharedVm ?? new VM();
 
-        lexer = new(name, source);
-        parser = new(lexer, vm.LoadPlugin);
-        ast = parser.Parse();
-        ast = new SyntaxLowerer().Lower(ast);
+        FrontendPipeline frontendPipeline = new(
+            loadPluginDll: vm.LoadPlugin,
+            workingDirectory: workingDirectory);
+        ast = frontendPipeline.BuildLoweredAst(name, source);
 
         compiler = new(name);
         bytecode = compiler.Compile(ast);
@@ -460,10 +461,11 @@ public class Program
 
         if (debug)
         {
-            VM.DebugStream!.Position = 0;
-            string lpath = $"{Environment.CurrentDirectory}\\log_file.log";
+            vm.DebugOutput.Position = 0;
+            string logDirectory = workingDirectory ?? Environment.CurrentDirectory;
+            string lpath = Path.Combine(logDirectory, "log_file.log");
             using FileStream file = File.Create(lpath);
-            VM.DebugStream.CopyTo(file);
+            vm.DebugOutput.CopyTo(file);
             Console.WriteLine($"[DEBUG] log-file created : {lpath}");
         }
     }

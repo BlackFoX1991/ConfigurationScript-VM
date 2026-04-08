@@ -10,6 +10,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Text;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace CFGS_VM.VMCore
 {
@@ -59,8 +60,13 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public static int DEBUG_BUFFER = 100;
 
-        [ThreadStatic]
-        public static VM? CurrentVm;
+        private static readonly AsyncLocal<VM?> CurrentVmSlot = new();
+
+        public static VM? CurrentVm
+        {
+            get => CurrentVmSlot.Value;
+            private set => CurrentVmSlot.Value = value;
+        }
 
         /// <summary>
         /// Gets the try handler stack.
@@ -225,9 +231,7 @@ namespace CFGS_VM.VMCore
         public static bool AllowFileIO { get; set; } = true;
 
         /// <summary>
-        /// Gets or sets a value indicating whether IsDebugging
-        /// </summary>
-        public static bool IsDebugging { get; set; } = false;
+        private bool _isDebugging;
 
         /// <summary>
         /// Gets or sets the loaded program.
@@ -613,7 +617,7 @@ namespace CFGS_VM.VMCore
                             break;
                         }
 
-                        if (Builtins.TryGet(name, out BuiltinDescriptor? d))
+                        if (TryGetBuiltin(name, out BuiltinDescriptor d))
                         {
                             _stack.Push(new BuiltinCallable(d.Name, d.ArityMin, d.ArityMax));
                             break;
@@ -895,9 +899,27 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// Gets the DebugStream
+        private MemoryStream _debugStream;
+
+        /// <summary>
+        /// Gets the contextual debug flag for the currently running VM.
         /// </summary>
-        public static MemoryStream? DebugStream { get; private set; }
+        public static bool IsDebugging => CurrentVm?._isDebugging ?? false;
+
+        /// <summary>
+        /// Gets the contextual debug stream for the currently running VM.
+        /// </summary>
+        public static MemoryStream? DebugStream => CurrentVm?._debugStream;
+
+        /// <summary>
+        /// Gets a value indicating whether this VM instance is currently debugging.
+        /// </summary>
+        public bool DebugEnabled => _isDebugging;
+
+        /// <summary>
+        /// Gets the debug stream for this VM instance.
+        /// </summary>
+        public MemoryStream DebugOutput => _debugStream;
 
         /// <summary>
         /// The RequireStack
@@ -918,7 +940,7 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public VM()
         {
-            DebugStream = new MemoryStream();
+            _debugStream = new MemoryStream();
         }
     }
 }
