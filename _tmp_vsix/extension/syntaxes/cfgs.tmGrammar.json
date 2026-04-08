@@ -15,6 +15,9 @@
       "include": "#keywords"
     },
     {
+      "include": "#receivers"
+    },
+    {
       "include": "#types"
     },
     {
@@ -73,15 +76,23 @@
       "patterns": [
         {
           "name": "keyword.control.cfgs",
-          "match": "\\b(?:if|else|while|do|for|foreach|in|is|break|continue|return|match|case|default|try|catch|finally|throw|await|yield|out)\\b"
+          "match": "\\b(?:if|else|while|do|for|foreach|in|is|break|continue|return|match|case|default|try|catch|finally|throw|await|yield|out|using|defer)\\b"
         },
         {
           "name": "keyword.declaration.cfgs",
-          "match": "\\b(?:var|const|func|class|enum|namespace|import|export|from|as|static|public|private|protected|async|new|delete)\\b"
+          "match": "\\b(?:var|const|func|class|interface|enum|namespace|import|export|from|as|static|public|private|protected|async|override|new|delete)\\b"
         },
         {
           "name": "constant.language.cfgs",
           "match": "\\b(?:true|false|null)\\b"
+        }
+      ]
+    },
+    "receivers": {
+      "patterns": [
+        {
+          "name": "variable.language.cfgs",
+          "match": "\\b(?:this|type|super|outer)\\b"
         }
       ]
     },
@@ -93,7 +104,7 @@
         },
         {
           "name": "entity.name.type.class.cfgs",
-          "match": "\\b(?:class|enum|namespace)\\s+([A-Za-z_][A-Za-z0-9_\\.]*)"
+          "match": "\\b(?:class|interface|enum|namespace)\\s+([A-Za-z_][A-Za-z0-9_\\.]*)"
         }
       ]
     },
