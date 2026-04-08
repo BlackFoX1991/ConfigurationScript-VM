@@ -15,6 +15,9 @@
       "include": "#keywords"
     },
     {
+      "include": "#receivers"
+    },
+    {
       "include": "#types"
     },
     {
@@ -73,15 +76,23 @@
       "patterns": [
         {
           "name": "keyword.control.cfgs",
-          "match": "\\b(?:if|else|while|do|for|foreach|in|is|break|continue|return|match|case|default|try|catch|finally|throw|await|yield|out)\\b"
+          "match": "\\b(?:if|else|while|do|for|foreach|in|is|break|continue|return|match|case|default|try|catch|finally|throw|await|yield|out|using|defer)\\b"
         },
         {
           "name": "keyword.declaration.cfgs",
-          "match": "\\b(?:var|const|func|class|interface|enum|namespace|import|export|from|as|static|public|private|protected|async|new|delete)\\b"
+          "match": "\\b(?:var|const|func|class|interface|enum|namespace|import|export|from|as|static|public|private|protected|async|override|new|delete)\\b"
         },
         {
           "name": "constant.language.cfgs",
           "match": "\\b(?:true|false|null)\\b"
+        }
+      ]
+    },
+    "receivers": {
+      "patterns": [
+        {
+          "name": "variable.language.cfgs",
+          "match": "\\b(?:this|type|super|outer)\\b"
         }
       ]
     },

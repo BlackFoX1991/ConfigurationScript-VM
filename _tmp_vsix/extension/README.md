@@ -1,6 +1,6 @@
 # CFGS Language Tools
 
-Visual Studio Code support for ConfigurationScript (`.cfs`) with the bundled CFGS language server.
+Visual Studio Code support for ConfigurationScript (`.cfs`) with the bundled CFGS language server and syntax highlighting.
 
 ## Features
 
@@ -12,6 +12,9 @@ Visual Studio Code support for ConfigurationScript (`.cfs`) with the bundled CFG
 - Completion
 - Signature Help
 - Semantic Tokens
+- Document Symbols
+- Formatting
+- Syntax highlighting for the current CFGS keyword and receiver set
 - Quick Fixes for common local import errors
 
 ## Notes
