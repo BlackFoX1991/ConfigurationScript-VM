@@ -1,0 +1,3 @@
+export func add_base(v) {
+    return v + 1;
+}

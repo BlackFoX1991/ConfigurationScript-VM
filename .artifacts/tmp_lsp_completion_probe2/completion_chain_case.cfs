@@ -1,0 +1,15 @@
+class Worker() {
+    func run(v) {
+        return v;
+    }
+
+    static func build() {
+        return new Worker();
+    }
+}
+
+func run() {
+    var direct = new Worker();
+    direct.run(1);
+    Worker.build();
+}

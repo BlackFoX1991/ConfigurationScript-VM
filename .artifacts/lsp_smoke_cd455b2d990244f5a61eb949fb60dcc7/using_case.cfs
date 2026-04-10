@@ -1,0 +1,10 @@
+class Handle() {
+    var value = 1;
+    func destroy() {}
+}
+
+func work() {
+    using (var h = new Handle()) {
+        h.value;
+    }
+}

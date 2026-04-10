@@ -1,0 +1,29 @@
+import { add_base as plus, scale_twice as twice } from "./module_case.cfs";
+
+class CallableBox() {
+    var fn = null;
+}
+
+func run_member_boxes() {
+    var first = new CallableBox();
+    var second = new CallableBox();
+    first.fn = plus;
+    second.fn = twice;
+    return first.fn(5) + second.fn(1);
+}
+
+func run_dynamic_box() {
+    var bag = {};
+    bag["fn"] = plus;
+    var forwarded = bag;
+    var local = forwarded["fn"];
+    return forwarded["fn"](7) + local(2);
+}
+
+func run_nested_container() {
+    var root = {};
+    root["inner"] = {};
+    var forwarded = root["inner"];
+    forwarded["fn"] = plus;
+    return root["inner"]["fn"](4);
+}

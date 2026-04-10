@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using CFGS_VM.Analytic.Tree;
@@ -7,13 +8,25 @@ namespace CFGS.Lsp;
 internal sealed record CfgsSemanticModel(
     IReadOnlyList<CfgsSymbol> Symbols,
     IReadOnlyDictionary<string, CfgsSymbol> SymbolsById,
-    IReadOnlyList<CfgsResolvedOccurrence> Occurrences);
+    IReadOnlyList<CfgsResolvedOccurrence> Occurrences,
+    IReadOnlyList<CfgsResolvedCallSite> CallSites,
+    IReadOnlyList<CfgsResolvedCompletionTarget> CompletionTargets);
 
 internal sealed record CfgsResolvedOccurrence(
     string Uri,
     RangeInfo Range,
     string SymbolId,
     bool IsDeclaration);
+
+internal sealed record CfgsResolvedCallSite(
+    string Uri,
+    RangeInfo Range,
+    IReadOnlyList<string> SymbolIds);
+
+internal sealed record CfgsResolvedCompletionTarget(
+    string Uri,
+    PositionInfo End,
+    IReadOnlyList<CfgsCompletionItem> Items);
 
 internal sealed record CfgsSignature(
     string Label,
@@ -33,14 +46,32 @@ internal readonly record struct SignatureRequest(
 
 internal sealed class CfgsSemanticModelBuilder
 {
+    private const int MaxLoopFixpointIterations = 16;
     private readonly SemanticSourceResolver _sources;
     private readonly string _documentUri;
     private readonly Dictionary<object, CfgsSymbol> _symbolsByNode = new(ReferenceEqualityComparer.Instance);
     private readonly List<CfgsSymbol> _symbols = [];
     private readonly Dictionary<string, CfgsSymbol> _symbolsById = new(StringComparer.Ordinal);
     private readonly List<CfgsResolvedOccurrence> _occurrences = [];
+    private readonly Dictionary<string, HashSet<string>> _callSiteSymbolIdsByKey = new(StringComparer.Ordinal);
+    private readonly List<CfgsResolvedCallSite> _callSites = [];
+    private readonly Dictionary<string, Dictionary<string, CfgsCompletionItem>> _completionItemsByAnchorKey = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlyList<CfgsCompletionItem>> _completionItemsByPathMode = new(StringComparer.Ordinal);
+    private readonly List<CfgsResolvedCompletionTarget> _completionTargets = [];
     private readonly Dictionary<string, string> _memberTypesByQualifiedName = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CfgsSymbol> _memberSymbolAliasesByQualifiedName = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _memberAccessPathsByQualifiedName = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, ClassMemberBinding>> _instanceMembersByType = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Dictionary<string, ClassMemberBinding>> _staticMembersByType = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _baseTypeByType = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string?> _containerBaseTypeByPath = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> _functionReturnCallTargetIdsBySymbolId = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> _functionReturnAccessPathsBySymbolId = new(StringComparer.Ordinal);
+    private readonly Dictionary<object, string> _accessPathsByNode = new(ReferenceEqualityComparer.Instance);
+    private readonly Stack<FunctionFlowContext> _functionContexts = new();
+    private int _flowOnlyDepth;
     private int _nextSymbolId;
+    private int _nextAccessPathId;
 
     public CfgsSemanticModelBuilder(string documentUri, string documentOrigin, string sourceText, IReadOnlyDictionary<string, string>? openDocumentSources = null)
     {
@@ -56,7 +87,9 @@ internal sealed class CfgsSemanticModelBuilder
         foreach (Stmt stmt in statements)
             VisitStatement(stmt, rootScope, null);
 
-        return new CfgsSemanticModel(_symbols, _symbolsById, _occurrences);
+        FinalizeCallSites();
+        FinalizeCompletionTargets();
+        return new CfgsSemanticModel(_symbols, _symbolsById, _occurrences, _callSites, _completionTargets);
     }
 
     private void PredeclareStatements(IEnumerable<Stmt> statements, SemanticScope scope, string? containerQualifiedName)
@@ -101,166 +134,169 @@ internal sealed class CfgsSemanticModelBuilder
         }
     }
 
-    private void VisitStatement(Stmt stmt, SemanticScope scope, string? containerQualifiedName)
+    private CompletionResult VisitStatement(Stmt stmt, SemanticScope scope, string? containerQualifiedName)
     {
         if (stmt is ExportStmt export)
-        {
-            VisitStatement(export.Inner, scope, containerQualifiedName);
-            return;
-        }
+            return VisitStatement(export.Inner, scope, containerQualifiedName);
 
         if (stmt is BlockStmt block && block.IsNamespaceScope)
         {
             VisitNamespaceScope(block, scope);
-            return;
+            return CompletionResult.Fallthrough();
         }
 
         switch (stmt)
         {
             case EmptyStmt:
-            case BreakStmt:
-            case ContinueStmt:
             case YieldStmt:
-                return;
+                return CompletionResult.Fallthrough();
+
+            case BreakStmt:
+                return CompletionResult.WithBreak(CaptureCompletionScope(scope));
+
+            case ContinueStmt:
+                return CompletionResult.WithContinue(CaptureCompletionScope(scope));
 
             case ExprStmt exprStmt:
                 VisitExpr(exprStmt.Expression, scope);
-                return;
+                return CompletionResult.Fallthrough();
 
             case VarDecl varDecl:
                 VisitVarDecl(varDecl, scope, containerQualifiedName);
-                return;
+                return CompletionResult.Fallthrough();
 
             case ConstDecl constDecl:
                 VisitConstDecl(constDecl, scope, containerQualifiedName);
-                return;
+                return CompletionResult.Fallthrough();
+
+            case UsingStmt usingStmt:
+                return VisitUsingStmt(usingStmt, scope, containerQualifiedName);
 
             case DestructureDeclStmt destructureDecl:
                 VisitExpr(destructureDecl.Value, scope);
                 BindPattern(destructureDecl.Pattern, scope, declareBindings: true, containerQualifiedName);
-                return;
+                return CompletionResult.Fallthrough();
 
             case DestructureAssignStmt destructureAssign:
                 VisitExpr(destructureAssign.Value, scope);
                 BindPattern(destructureAssign.Pattern, scope, declareBindings: false, containerQualifiedName);
-                return;
+                return CompletionResult.Fallthrough();
 
             case AssignStmt assignStmt:
                 RecordNamedReference(assignStmt.Name, assignStmt.Line, assignStmt.Col, assignStmt.OriginFile, scope);
                 VisitExpr(assignStmt.Value, scope);
                 scope.SetResolvedValueType(assignStmt.Name, TryInferValueTypeQualifiedName(assignStmt.Value, scope));
-                return;
+                scope.SetResolvedCallTargetIds(assignStmt.Name, TryResolveCallableSymbols(assignStmt.Value, scope).Select(static symbol => symbol.Id!).Where(static id => !string.IsNullOrWhiteSpace(id)));
+                scope.SetResolvedAccessPaths(assignStmt.Name, TryResolveContainerAccessPaths(assignStmt.Value, scope));
+                return CompletionResult.Fallthrough();
 
             case AssignIndexExprStmt assignIndexExpr:
                 VisitExpr(assignIndexExpr.Target, scope);
                 VisitExpr(assignIndexExpr.Value, scope);
-                return;
+                TrackAssignedMemberBinding(assignIndexExpr.Target, assignIndexExpr.Value, scope);
+                return CompletionResult.Fallthrough();
 
             case AssignExprStmt assignExpr:
                 VisitExpr(assignExpr.Target, scope);
                 VisitExpr(assignExpr.Value, scope);
                 if (assignExpr.Target is VarExpr targetVar)
+                {
                     scope.SetResolvedValueType(targetVar.Name, TryInferValueTypeQualifiedName(assignExpr.Value, scope));
-                return;
+                    scope.SetResolvedCallTargetIds(targetVar.Name, TryResolveCallableSymbols(assignExpr.Value, scope).Select(static symbol => symbol.Id!).Where(static id => !string.IsNullOrWhiteSpace(id)));
+                    scope.SetResolvedAccessPaths(targetVar.Name, TryResolveContainerAccessPaths(assignExpr.Value, scope));
+                }
+                else
+                    TrackAssignedMemberBinding(assignExpr.Target, assignExpr.Value, scope);
+                return CompletionResult.Fallthrough();
 
             case CompoundAssignStmt compoundAssign:
                 VisitExpr(compoundAssign.Target, scope);
                 VisitExpr(compoundAssign.Value, scope);
-                return;
+                return CompletionResult.Fallthrough();
 
             case SliceSetStmt sliceSet:
                 VisitExpr(sliceSet.Slice, scope);
                 VisitExpr(sliceSet.Value, scope);
-                return;
+                return CompletionResult.Fallthrough();
 
             case PushStmt pushStmt:
                 VisitExpr(pushStmt.Target, scope);
                 VisitExpr(pushStmt.Value, scope);
-                return;
+                return CompletionResult.Fallthrough();
 
             case DeleteVarStmt deleteVar:
                 RecordNamedReference(deleteVar.Name, deleteVar.Line, deleteVar.Col, deleteVar.OriginFile, scope);
-                return;
+                return CompletionResult.Fallthrough();
 
             case DeleteIndexStmt deleteIndex:
                 RecordNamedReference(deleteIndex.Name, deleteIndex.Line, deleteIndex.Col, deleteIndex.OriginFile, scope);
                 VisitExpr(deleteIndex.Index, scope);
-                return;
+                return CompletionResult.Fallthrough();
 
             case DeleteAllStmt deleteAll:
                 VisitExpr(deleteAll.Target, scope);
-                return;
+                return CompletionResult.Fallthrough();
 
             case DeleteExprStmt deleteExpr:
                 VisitExpr(deleteExpr.Target, scope);
-                return;
+                return CompletionResult.Fallthrough();
 
             case FuncDeclStmt func:
                 VisitFunctionDecl(func, scope);
-                return;
+                return CompletionResult.Fallthrough();
 
             case ClassDeclStmt @class:
                 VisitClassDecl(@class, scope, containerQualifiedName);
-                return;
+                return CompletionResult.Fallthrough();
 
             case InterfaceDeclStmt @interface:
                 VisitInterfaceDecl(@interface, scope, containerQualifiedName);
-                return;
+                return CompletionResult.Fallthrough();
 
             case EnumDeclStmt @enum:
                 VisitEnumDecl(@enum, scope, containerQualifiedName);
-                return;
+                return CompletionResult.Fallthrough();
 
             case IfStmt ifStmt:
-                VisitExpr(ifStmt.Condition, scope);
-                VisitBlock(ifStmt.ThenBlock, scope, containerQualifiedName);
-                if (ifStmt.ElseBranch is not null)
-                    VisitElseBranch(ifStmt.ElseBranch, scope, containerQualifiedName);
-                return;
+                return VisitIfStmt(ifStmt, scope, containerQualifiedName);
 
             case WhileStmt whileStmt:
-                VisitExpr(whileStmt.Condition, scope);
-                VisitBlock(whileStmt.Body, scope, containerQualifiedName);
-                return;
+                return VisitWhileStmt(whileStmt, scope, containerQualifiedName);
 
             case DoWhileStmt doWhileStmt:
-                VisitLoopBody(doWhileStmt.Body, scope, containerQualifiedName);
-                VisitExpr(doWhileStmt.Condition, scope);
-                return;
+                return VisitDoWhileStmt(doWhileStmt, scope, containerQualifiedName);
 
             case ForStmt forStmt:
-                VisitForStmt(forStmt, scope, containerQualifiedName);
-                return;
+                return VisitForStmt(forStmt, scope, containerQualifiedName);
 
             case ForeachStmt foreachStmt:
-                VisitForeachStmt(foreachStmt, scope, containerQualifiedName);
-                return;
+                return VisitForeachStmt(foreachStmt, scope, containerQualifiedName);
 
             case MatchStmt matchStmt:
-                VisitMatchStmt(matchStmt, scope, containerQualifiedName);
-                return;
+                return VisitMatchStmt(matchStmt, scope, containerQualifiedName);
 
             case TryStmt tryStmt:
-                VisitTryStmt(tryStmt, scope, containerQualifiedName);
-                return;
+                return VisitTryStmt(tryStmt, scope, containerQualifiedName);
 
             case ThrowStmt throwStmt:
                 VisitExpr(throwStmt.Value, scope);
-                return;
+                return CompletionResult.WithThrow(CaptureCompletionScope(scope));
 
             case ReturnStmt returnStmt:
                 if (returnStmt.Value is not null)
                     VisitExpr(returnStmt.Value, scope);
-                return;
+
+                return CompletionResult.WithReturn(CaptureReturnFlow(returnStmt.Value, scope));
 
             case SetFieldStmt setField:
                 VisitExpr(setField.Target, scope);
                 RecordQualifiedMemberReference(setField.Target, setField.Field, setField.Line, setField.Col, setField.OriginFile, scope);
                 VisitExpr(setField.Value, scope);
-                return;
+                TrackAssignedMemberBinding(new GetFieldExpr(setField.Target, setField.Field, setField.Line, setField.Col, setField.OriginFile), setField.Value, scope);
+                return CompletionResult.Fallthrough();
 
             default:
-                return;
+                return CompletionResult.Fallthrough();
         }
     }
 
@@ -284,7 +320,9 @@ internal sealed class CfgsSemanticModelBuilder
 
         bool synthetic = IsSyntheticGeneratedName(varDecl.Name);
         string? valueTypeQualifiedName = TryInferValueTypeQualifiedName(varDecl.Value, scope);
-        DeclareValueSymbol(varDecl, scope, containerQualifiedName, 13, "var", synthetic, TryGetFunctionSignature(varDecl.Value), valueTypeQualifiedName);
+        DeclareValueSymbol(varDecl, scope, containerQualifiedName, 13, "var", synthetic, TryGetFunctionSignature(varDecl.Value, scope), valueTypeQualifiedName, callTargetSymbolId: null);
+        scope.SetResolvedCallTargetIds(varDecl.Name, TryResolveCallableSymbols(varDecl.Value, scope).Select(static symbol => symbol.Id!).Where(static id => !string.IsNullOrWhiteSpace(id)));
+        scope.SetResolvedAccessPaths(varDecl.Name, TryResolveContainerAccessPaths(varDecl.Value, scope));
     }
 
     private void VisitConstDecl(ConstDecl constDecl, SemanticScope scope, string? containerQualifiedName)
@@ -292,14 +330,21 @@ internal sealed class CfgsSemanticModelBuilder
         VisitExpr(constDecl.Value, scope);
         bool synthetic = IsSyntheticGeneratedName(constDecl.Name);
         string? valueTypeQualifiedName = TryInferValueTypeQualifiedName(constDecl.Value, scope);
-        DeclareValueSymbol(constDecl, scope, containerQualifiedName, 14, "const", synthetic, TryGetFunctionSignature(constDecl.Value), valueTypeQualifiedName);
+        CfgsSymbol? callTargetSymbol = TryResolveCallableSymbol(constDecl.Value, scope);
+        DeclareValueSymbol(constDecl, scope, containerQualifiedName, 14, "const", synthetic, TryGetFunctionSignature(constDecl.Value, scope), valueTypeQualifiedName, callTargetSymbol?.Id);
+        scope.SetResolvedCallTargetIds(constDecl.Name, TryResolveCallableSymbols(constDecl.Value, scope).Select(static symbol => symbol.Id!).Where(static id => !string.IsNullOrWhiteSpace(id)));
+        scope.SetResolvedAccessPaths(constDecl.Name, TryResolveContainerAccessPaths(constDecl.Value, scope));
     }
 
     private void VisitFunctionDecl(FuncDeclStmt func, SemanticScope scope)
     {
-        SemanticScope functionScope = new(scope);
+        CfgsSymbol? functionSymbol = _symbolsByNode.GetValueOrDefault(func);
+        FunctionFlowContext? functionContext = BeginFunctionFlow(functionSymbol);
+        SemanticScope functionScope = new(scope, inheritReceiverContext: false);
         DeclareParameters(func.Parameters, func.RestParameter, functionScope, func.OriginFile, func.Line, func.Col);
-        VisitBlockStatements(func.Body.Statements, functionScope, null);
+        CompletionResult functionCompletion = VisitBlockStatements(func.Body.Statements, functionScope, null);
+        RecordReturnCompletions(functionCompletion);
+        EndFunctionFlow(functionContext);
     }
 
     private void VisitClassDecl(ClassDeclStmt classDecl, SemanticScope scope, string? containerQualifiedName)
@@ -307,6 +352,7 @@ internal sealed class CfgsSemanticModelBuilder
         CfgsSymbol classSymbol = DeclareClassSymbol(classDecl, scope, containerQualifiedName, synthetic: false);
         string qualifiedClassName = classSymbol.QualifiedName;
         string? baseQualifiedName = ResolveBaseQualifiedName(classDecl, containerQualifiedName);
+        _baseTypeByType[qualifiedClassName] = baseQualifiedName;
 
         if (!string.IsNullOrWhiteSpace(classDecl.BaseName))
             RecordTypeReference(classDecl.BaseName, classDecl.Line, classDecl.Col, classDecl.OriginFile, scope);
@@ -314,14 +360,47 @@ internal sealed class CfgsSemanticModelBuilder
         foreach (string interfaceName in classDecl.ImplementedInterfaces)
             RecordTypeReference(interfaceName, classDecl.Line, classDecl.Col, classDecl.OriginFile, scope);
 
+        foreach ((string fieldName, Expr? fieldValue) in classDecl.Fields)
+        {
+            bool isConst = classDecl.ConstFields.Contains(fieldName);
+            string? valueTypeQualifiedName = TryInferValueTypeQualifiedName(fieldValue, scope);
+            CfgsSymbol? callTargetSymbol = TryResolveCallableSymbol(fieldValue, scope);
+            CfgsSymbol fieldSymbol = DeclareClassFieldSymbol(classDecl, fieldName, qualifiedClassName, isStatic: false, isConst, TryGetFunctionSignature(fieldValue, scope), valueTypeQualifiedName, isConst ? callTargetSymbol?.Id : null);
+            RegisterClassMember(qualifiedClassName, fieldName, fieldSymbol, isStatic: false, valueTypeQualifiedName);
+        }
+
+        foreach ((string staticFieldName, Expr? staticFieldValue) in classDecl.StaticFields)
+        {
+            bool isConst = classDecl.StaticConstFields.Contains(staticFieldName);
+            string? valueTypeQualifiedName = TryInferValueTypeQualifiedName(staticFieldValue, scope);
+            CfgsSymbol? callTargetSymbol = TryResolveCallableSymbol(staticFieldValue, scope);
+            CfgsSymbol fieldSymbol = DeclareClassFieldSymbol(classDecl, staticFieldName, qualifiedClassName, isStatic: true, isConst, TryGetFunctionSignature(staticFieldValue, scope), valueTypeQualifiedName, isConst ? callTargetSymbol?.Id : null);
+            RegisterClassMember(qualifiedClassName, staticFieldName, fieldSymbol, isStatic: true, valueTypeQualifiedName);
+        }
+
         foreach (FuncDeclStmt method in classDecl.Methods)
-            DeclareFunctionSymbol(method, scope, qualifiedClassName, isMethod: true, synthetic: false);
+        {
+            CfgsSymbol methodSymbol = DeclareFunctionSymbol(method, scope, qualifiedClassName, isMethod: true, synthetic: false);
+            RegisterClassMember(qualifiedClassName, method.Name, methodSymbol, isStatic: false, valueTypeQualifiedName: null);
+        }
 
         foreach (FuncDeclStmt staticMethod in classDecl.StaticMethods)
-            DeclareFunctionSymbol(staticMethod, scope, qualifiedClassName, isMethod: true, synthetic: false);
+        {
+            CfgsSymbol methodSymbol = DeclareFunctionSymbol(staticMethod, scope, qualifiedClassName, isMethod: true, synthetic: false);
+            RegisterClassMember(qualifiedClassName, staticMethod.Name, methodSymbol, isStatic: true, valueTypeQualifiedName: null);
+        }
 
         foreach (ClassDeclStmt nestedClass in classDecl.NestedClasses)
-            DeclareClassSymbol(nestedClass, scope, qualifiedClassName, synthetic: false);
+        {
+            CfgsSymbol nestedClassSymbol = DeclareClassSymbol(nestedClass, scope, qualifiedClassName, synthetic: false);
+            RegisterClassMember(qualifiedClassName, nestedClass.Name, nestedClassSymbol, isStatic: true, valueTypeQualifiedName: nestedClassSymbol.QualifiedName);
+        }
+
+        foreach (EnumDeclStmt enumDecl in classDecl.Enums)
+        {
+            CfgsSymbol enumSymbol = DeclareEnumSymbol(enumDecl, scope, qualifiedClassName, synthetic: false);
+            RegisterClassMember(qualifiedClassName, enumDecl.Name, enumSymbol, isStatic: true, valueTypeQualifiedName: enumSymbol.QualifiedName);
+        }
 
         foreach ((string fieldName, Expr? fieldValue) in classDecl.Fields)
         {
@@ -337,11 +416,13 @@ internal sealed class CfgsSemanticModelBuilder
             TrackMemberValueType(qualifiedClassName, staticFieldName, staticFieldValue, scope);
         }
 
+        string? outerClassQualifiedName = classDecl.IsNested ? containerQualifiedName : null;
+
         foreach (FuncDeclStmt staticMethod in classDecl.StaticMethods)
-            VisitMethodBody(staticMethod, scope, qualifiedClassName, baseQualifiedName);
+            VisitMethodBody(staticMethod, scope, qualifiedClassName, baseQualifiedName, outerClassQualifiedName, isStaticMethod: true);
 
         foreach (FuncDeclStmt method in classDecl.Methods)
-            VisitMethodBody(method, scope, qualifiedClassName, baseQualifiedName);
+            VisitMethodBody(method, scope, qualifiedClassName, baseQualifiedName, outerClassQualifiedName, isStaticMethod: false);
 
         foreach (EnumDeclStmt enumDecl in classDecl.Enums)
             VisitEnumDecl(enumDecl, scope, qualifiedClassName);
@@ -362,11 +443,30 @@ internal sealed class CfgsSemanticModelBuilder
             DeclareInterfaceMethodSymbol(method, qualifiedInterfaceName, synthetic: false);
     }
 
-    private void VisitMethodBody(FuncDeclStmt method, SemanticScope parentScope, string classQualifiedName, string? baseQualifiedName)
+    private void VisitMethodBody(
+        FuncDeclStmt method,
+        SemanticScope parentScope,
+        string classQualifiedName,
+        string? baseQualifiedName,
+        string? outerClassQualifiedName,
+        bool isStaticMethod)
     {
-        SemanticScope methodScope = new(parentScope, classQualifiedName, baseQualifiedName);
+        SemanticScope implicitMemberScope = CreateImplicitMemberScope(parentScope, classQualifiedName, isStaticMethod);
+        SemanticScope methodScope = new(
+            implicitMemberScope,
+            currentClassQualifiedName: classQualifiedName,
+            currentBaseQualifiedName: baseQualifiedName,
+            currentOuterClassQualifiedName: outerClassQualifiedName,
+            allowThis: !isStaticMethod,
+            allowType: true,
+            allowSuper: !string.IsNullOrWhiteSpace(baseQualifiedName),
+            allowOuter: !isStaticMethod && !string.IsNullOrWhiteSpace(outerClassQualifiedName),
+            inheritReceiverContext: false);
+        FunctionFlowContext? functionContext = BeginFunctionFlow(_symbolsByNode.GetValueOrDefault(method));
         DeclareParameters(method.Parameters, method.RestParameter, methodScope, method.OriginFile, method.Line, method.Col);
-        VisitBlockStatements(method.Body.Statements, methodScope, null);
+        CompletionResult methodCompletion = VisitBlockStatements(method.Body.Statements, methodScope, null);
+        RecordReturnCompletions(methodCompletion);
+        EndFunctionFlow(functionContext);
     }
 
     private void VisitEnumDecl(EnumDeclStmt enumDecl, SemanticScope scope, string? containerQualifiedName)
@@ -376,32 +476,316 @@ internal sealed class CfgsSemanticModelBuilder
             DeclareEnumMemberSymbol(member, enumSymbol.QualifiedName);
     }
 
-    private void VisitElseBranch(Stmt elseBranch, SemanticScope scope, string? containerQualifiedName)
+    private CompletionResult VisitIfStmt(IfStmt ifStmt, SemanticScope scope, string? containerQualifiedName)
+    {
+        VisitExpr(ifStmt.Condition, scope);
+
+        SemanticScope thenFlowScope = CreateFlowBranchScope(scope);
+        CompletionResult thenCompletion = VisitBlock(ifStmt.ThenBlock, thenFlowScope, containerQualifiedName);
+
+        SemanticScope elseFlowScope = CreateFlowBranchScope(scope);
+        CompletionResult elseCompletion = CompletionResult.Fallthrough();
+        if (ifStmt.ElseBranch is not null)
+            elseCompletion = VisitElseBranch(ifStmt.ElseBranch, elseFlowScope, containerQualifiedName);
+
+        List<SemanticScope> fallthroughScopes = [];
+        if (thenCompletion.FallsThrough)
+            fallthroughScopes.Add(thenFlowScope);
+        if (elseCompletion.FallsThrough)
+            fallthroughScopes.Add(elseFlowScope);
+
+        MergeFlowBranches(scope, fallthroughScopes);
+
+        CompletionResult completion = new();
+        completion.SetFallsThrough(fallthroughScopes.Count > 0);
+        completion.AddPropagated(thenCompletion);
+        completion.AddPropagated(elseCompletion);
+        return completion;
+    }
+
+    private CompletionResult VisitElseBranch(Stmt elseBranch, SemanticScope scope, string? containerQualifiedName)
     {
         if (elseBranch is BlockStmt elseBlock)
-        {
-            VisitBlock(elseBlock, scope, containerQualifiedName);
-            return;
-        }
+            return VisitBlock(elseBlock, scope, containerQualifiedName);
 
         SemanticScope elseScope = new(scope);
-        VisitStatement(elseBranch, elseScope, containerQualifiedName);
+        return VisitStatement(elseBranch, elseScope, containerQualifiedName);
     }
 
-    private void VisitBlock(BlockStmt block, SemanticScope parentScope, string? containerQualifiedName)
+    private CompletionResult VisitBlock(BlockStmt block, SemanticScope parentScope, string? containerQualifiedName)
     {
         SemanticScope blockScope = new(parentScope);
-        VisitBlockStatements(block.Statements, blockScope, containerQualifiedName);
+        return VisitBlockStatements(block.Statements, blockScope, containerQualifiedName);
     }
 
-    private void VisitBlockStatements(IEnumerable<Stmt> statements, SemanticScope scope, string? containerQualifiedName)
+    private CompletionResult VisitBlockStatements(IEnumerable<Stmt> statements, SemanticScope scope, string? containerQualifiedName)
     {
         PredeclareStatements(statements, scope, containerQualifiedName);
+        CompletionResult aggregate = CompletionResult.Fallthrough();
         foreach (Stmt stmt in statements)
-            VisitStatement(stmt, scope, containerQualifiedName);
+        {
+            if (!aggregate.FallsThrough)
+                break;
+
+            CompletionResult statementCompletion = VisitStatement(stmt, scope, containerQualifiedName);
+            aggregate.AddPropagated(statementCompletion);
+            aggregate.SetFallsThrough(statementCompletion.FallsThrough);
+        }
+
+        return aggregate;
     }
 
-    private void VisitForStmt(ForStmt forStmt, SemanticScope scope, string? containerQualifiedName)
+    private static SemanticScope CreateFlowBranchScope(SemanticScope parentScope)
+        => new(parentScope, delayParentFlowMutations: true);
+
+    private static SemanticScope CreateFlowSnapshotScope(SemanticScope parentScope)
+    {
+        SemanticScope snapshotScope = CreateFlowBranchScope(parentScope);
+        foreach (string name in parentScope.GetVisibleNames())
+        {
+            if (parentScope.TryGetResolvedValueType(name, out string? valueTypeQualifiedName))
+                snapshotScope.SetResolvedValueType(name, valueTypeQualifiedName);
+
+            if (parentScope.TryGetResolvedCallTargetIds(name, out IReadOnlyCollection<string> callTargetIds))
+                snapshotScope.SetResolvedCallTargetIds(name, callTargetIds);
+
+            if (parentScope.TryGetResolvedAccessPaths(name, out IReadOnlyCollection<string> accessPaths))
+                snapshotScope.SetResolvedAccessPaths(name, accessPaths);
+        }
+
+        return snapshotScope;
+    }
+
+    private static SemanticScope CaptureCompletionScope(SemanticScope scope)
+        => CreateFlowSnapshotScope(scope);
+
+    private static SemanticScope CreateMergedFlowScope(SemanticScope parentScope, params SemanticScope?[] branchScopes)
+    {
+        SemanticScope mergedScope = CreateFlowBranchScope(parentScope);
+        MergeFlowBranches(mergedScope, branchScopes);
+        return mergedScope;
+    }
+
+    private static void MergeFlowBranches(SemanticScope parentScope, IEnumerable<SemanticScope?> branchScopes)
+    {
+        List<SemanticScope> branches = branchScopes.Where(static scope => scope is not null).Cast<SemanticScope>().ToList();
+        if (branches.Count == 0)
+            return;
+
+        HashSet<string> names = new(StringComparer.Ordinal);
+        foreach (SemanticScope branch in branches)
+            names.UnionWith(branch.GetLocalFlowNames());
+
+        foreach (string name in names)
+        {
+            if (!parentScope.TryResolve(name, out _))
+                continue;
+
+            if (branches.Any(branch => branch.HasLocalValueTypeEntry(name)))
+            {
+                HashSet<string?> possibleTypes = new();
+                foreach (SemanticScope branch in branches)
+                {
+                    string? valueType = branch.HasLocalValueTypeEntry(name)
+                        ? branch.GetLocalValueType(name)
+                        : parentScope.GetResolvedValueTypeOrNull(name);
+                    possibleTypes.Add(valueType);
+                }
+
+                parentScope.SetResolvedValueType(name, possibleTypes.Count == 1 ? possibleTypes.First() : null);
+            }
+
+            if (branches.Any(branch => branch.HasLocalCallTargetEntry(name)))
+            {
+                HashSet<string> mergedCallTargets = new(StringComparer.Ordinal);
+                foreach (SemanticScope branch in branches)
+                {
+                    IEnumerable<string> callTargets = branch.HasLocalCallTargetEntry(name)
+                        ? branch.GetLocalCallTargetIds(name)
+                        : parentScope.GetResolvedCallTargetIds(name);
+                    mergedCallTargets.UnionWith(callTargets);
+                }
+
+                parentScope.SetResolvedCallTargetIds(name, mergedCallTargets);
+            }
+
+            if (branches.Any(branch => branch.HasLocalAccessPathEntry(name)))
+            {
+                HashSet<string> mergedAccessPaths = new(StringComparer.Ordinal);
+                foreach (SemanticScope branch in branches)
+                {
+                    IEnumerable<string> accessPaths = branch.HasLocalAccessPathEntry(name)
+                        ? branch.GetLocalAccessPaths(name)
+                        : parentScope.GetResolvedAccessPaths(name);
+                    mergedAccessPaths.UnionWith(accessPaths);
+                }
+
+                parentScope.SetResolvedAccessPaths(name, mergedAccessPaths);
+            }
+        }
+    }
+
+    private LoopAnalysisResult ComputeLoopFixpoint(
+        SemanticScope snapshotScope,
+        bool includeSnapshotState,
+        Func<SemanticScope, CompletionResult> executeIteration)
+    {
+        List<SemanticScope> breakScopes = [];
+        CompletionResult propagatedCompletion = new();
+
+        SemanticScope firstIterationScope = CreateFlowBranchScope(snapshotScope);
+        CompletionResult firstCompletion = executeIteration(firstIterationScope);
+        SemanticScope? reachableScope = MergeLoopReentryScopes(snapshotScope, null, firstIterationScope, firstCompletion);
+        CollectLoopPropagatedCompletions(firstCompletion, breakScopes, propagatedCompletion);
+
+        for (int iteration = 1; iteration < MaxLoopFixpointIterations && reachableScope is not null; iteration++)
+        {
+            SemanticScope iterationSnapshot = CreateFlowSnapshotScope(reachableScope);
+            SemanticScope iterationScope = CreateFlowBranchScope(iterationSnapshot);
+            CompletionResult iterationCompletion = CompletionResult.Fallthrough();
+            RunFlowOnly(() => iterationCompletion = executeIteration(iterationScope));
+
+            SemanticScope? nextReachableScope = MergeLoopReentryScopes(snapshotScope, reachableScope, iterationScope, iterationCompletion);
+            CollectLoopPropagatedCompletions(iterationCompletion, breakScopes, propagatedCompletion);
+            if (HaveEquivalentFlowState(reachableScope, nextReachableScope))
+            {
+                reachableScope = nextReachableScope;
+                break;
+            }
+
+            reachableScope = nextReachableScope;
+        }
+
+        List<SemanticScope> exitScopes = [];
+        if (includeSnapshotState)
+            exitScopes.Add(snapshotScope);
+        if (reachableScope is not null)
+            exitScopes.Add(reachableScope);
+        exitScopes.AddRange(breakScopes);
+
+        propagatedCompletion.SetFallsThrough(exitScopes.Count > 0);
+        return new LoopAnalysisResult
+        {
+            ExitScope = exitScopes.Count > 0
+                ? CreateMergedFlowScope(snapshotScope, exitScopes.ToArray())
+                : CreateFlowBranchScope(snapshotScope),
+            Completion = propagatedCompletion
+        };
+    }
+
+    private static SemanticScope? MergeLoopReentryScopes(
+        SemanticScope snapshotScope,
+        SemanticScope? existingReachableScope,
+        SemanticScope iterationScope,
+        CompletionResult completion)
+    {
+        List<SemanticScope> reentryScopes = [];
+        if (existingReachableScope is not null)
+            reentryScopes.Add(existingReachableScope);
+        if (completion.FallsThrough)
+            reentryScopes.Add(CaptureCompletionScope(iterationScope));
+        reentryScopes.AddRange(completion.ContinueScopes);
+        return reentryScopes.Count > 0
+            ? CreateMergedFlowScope(snapshotScope, reentryScopes.ToArray())
+            : null;
+    }
+
+    private static void CollectLoopPropagatedCompletions(
+        CompletionResult source,
+        List<SemanticScope> breakScopes,
+        CompletionResult destination)
+    {
+        breakScopes.AddRange(source.BreakScopes);
+        destination.ReturnFlows.AddRange(source.ReturnFlows);
+        destination.ThrowScopes.AddRange(source.ThrowScopes);
+    }
+
+    private static bool HaveEquivalentFlowState(SemanticScope? left, SemanticScope? right)
+    {
+        if (ReferenceEquals(left, right))
+            return true;
+
+        if (left is null || right is null)
+            return false;
+
+        HashSet<string> names = new(StringComparer.Ordinal);
+        names.UnionWith(left.GetVisibleNames());
+        names.UnionWith(right.GetVisibleNames());
+
+        foreach (string name in names)
+        {
+            if (!left.TryResolve(name, out _) && !right.TryResolve(name, out _))
+                continue;
+
+            if (!string.Equals(left.GetResolvedValueTypeOrNull(name), right.GetResolvedValueTypeOrNull(name), StringComparison.Ordinal))
+                return false;
+
+            if (!HaveEquivalentValues(left.GetResolvedCallTargetIds(name), right.GetResolvedCallTargetIds(name)))
+                return false;
+
+            if (!HaveEquivalentValues(left.GetResolvedAccessPaths(name), right.GetResolvedAccessPaths(name)))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool HaveEquivalentValues(IEnumerable<string> left, IEnumerable<string> right)
+        => NormalizeEquivalentValues(left).SetEquals(NormalizeEquivalentValues(right));
+
+    private static HashSet<string> NormalizeEquivalentValues(IEnumerable<string> values)
+        => values
+            .Where(static value => !string.IsNullOrWhiteSpace(value))
+            .ToHashSet(StringComparer.Ordinal);
+
+    private bool IsFlowOnlyPass
+        => _flowOnlyDepth > 0;
+
+    private void RunFlowOnly(Action action)
+    {
+        _flowOnlyDepth++;
+        try
+        {
+            action();
+        }
+        finally
+        {
+            _flowOnlyDepth--;
+        }
+    }
+
+    private CompletionResult VisitWhileStmt(WhileStmt whileStmt, SemanticScope scope, string? containerQualifiedName)
+    {
+        VisitExpr(whileStmt.Condition, scope);
+
+        SemanticScope snapshotScope = CreateFlowSnapshotScope(scope);
+        LoopAnalysisResult loopResult = ComputeLoopFixpoint(
+            snapshotScope,
+            includeSnapshotState: true,
+            iterationScope => VisitBlock(whileStmt.Body, iterationScope, containerQualifiedName));
+
+        MergeFlowBranches(scope, [loopResult.ExitScope]);
+        return loopResult.Completion;
+    }
+
+    private CompletionResult VisitDoWhileStmt(DoWhileStmt doWhileStmt, SemanticScope scope, string? containerQualifiedName)
+    {
+        SemanticScope snapshotScope = CreateFlowSnapshotScope(scope);
+        LoopAnalysisResult loopResult = ComputeLoopFixpoint(
+            snapshotScope,
+            includeSnapshotState: false,
+            iterationScope =>
+            {
+                CompletionResult completion = VisitLoopBody(doWhileStmt.Body, iterationScope, containerQualifiedName);
+                VisitExpr(doWhileStmt.Condition, iterationScope);
+                return completion;
+            });
+
+        MergeFlowBranches(scope, [loopResult.ExitScope]);
+        return loopResult.Completion;
+    }
+
+    private CompletionResult VisitForStmt(ForStmt forStmt, SemanticScope scope, string? containerQualifiedName)
     {
         SemanticScope loopScope = new(scope);
 
@@ -411,13 +795,45 @@ internal sealed class CfgsSemanticModelBuilder
         if (forStmt.Condition is not null)
             VisitExpr(forStmt.Condition, loopScope);
 
-        if (forStmt.Increment is not null)
-            VisitStatement(forStmt.Increment, loopScope, containerQualifiedName);
+        SemanticScope snapshotScope = CreateFlowSnapshotScope(loopScope);
+        LoopAnalysisResult loopResult = ComputeLoopFixpoint(
+            snapshotScope,
+            includeSnapshotState: true,
+            iterationScope =>
+            {
+                CompletionResult bodyCompletion = VisitBlock(forStmt.Body, iterationScope, containerQualifiedName);
+                if (forStmt.Increment is null)
+                    return bodyCompletion;
 
-        VisitBlockStatements(forStmt.Body.Statements, new SemanticScope(loopScope), containerQualifiedName);
+                List<SemanticScope> reentryScopes = [];
+                if (bodyCompletion.FallsThrough)
+                    reentryScopes.Add(iterationScope);
+                reentryScopes.AddRange(bodyCompletion.ContinueScopes);
+
+                CompletionResult incrementedCompletion = new();
+                foreach (SemanticScope reentryScope in reentryScopes)
+                {
+                    SemanticScope incrementScope = CreateFlowSnapshotScope(reentryScope);
+                    CompletionResult incrementCompletion = VisitStatement(forStmt.Increment, incrementScope, containerQualifiedName);
+                    incrementedCompletion.AddPropagated(incrementCompletion);
+                    if (incrementCompletion.FallsThrough)
+                    {
+                        incrementedCompletion.SetFallsThrough(true);
+                        incrementedCompletion.ContinueScopes.Add(CaptureCompletionScope(incrementScope));
+                    }
+                }
+
+                incrementedCompletion.BreakScopes.AddRange(bodyCompletion.BreakScopes);
+                incrementedCompletion.ReturnFlows.AddRange(bodyCompletion.ReturnFlows);
+                incrementedCompletion.ThrowScopes.AddRange(bodyCompletion.ThrowScopes);
+                return incrementedCompletion;
+            });
+
+        MergeFlowBranches(scope, [loopResult.ExitScope]);
+        return loopResult.Completion;
     }
 
-    private void VisitForeachStmt(ForeachStmt foreachStmt, SemanticScope scope, string? containerQualifiedName)
+    private CompletionResult VisitForeachStmt(ForeachStmt foreachStmt, SemanticScope scope, string? containerQualifiedName)
     {
         VisitExpr(foreachStmt.Iterable, scope);
 
@@ -434,51 +850,163 @@ internal sealed class CfgsSemanticModelBuilder
                 RecordNamedReference(foreachStmt.VarName, foreachStmt.Line, foreachStmt.Col, foreachStmt.OriginFile, loopScope);
         }
 
-        VisitLoopBody(foreachStmt.Body, loopScope, containerQualifiedName);
+        SemanticScope snapshotScope = CreateFlowSnapshotScope(loopScope);
+        LoopAnalysisResult loopResult = ComputeLoopFixpoint(
+            snapshotScope,
+            includeSnapshotState: true,
+            iterationScope => VisitLoopBody(foreachStmt.Body, iterationScope, containerQualifiedName));
+
+        MergeFlowBranches(scope, [loopResult.ExitScope]);
+        return loopResult.Completion;
     }
 
-    private void VisitLoopBody(Stmt body, SemanticScope loopScope, string? containerQualifiedName)
+    private CompletionResult VisitLoopBody(Stmt body, SemanticScope loopScope, string? containerQualifiedName)
     {
         if (body is BlockStmt bodyBlock)
-        {
-            VisitBlock(bodyBlock, loopScope, containerQualifiedName);
-            return;
-        }
+            return VisitBlock(bodyBlock, loopScope, containerQualifiedName);
 
-        VisitStatement(body, loopScope, containerQualifiedName);
+        return VisitStatement(body, loopScope, containerQualifiedName);
     }
 
-    private void VisitMatchStmt(MatchStmt matchStmt, SemanticScope scope, string? containerQualifiedName)
+    private CompletionResult VisitMatchStmt(MatchStmt matchStmt, SemanticScope scope, string? containerQualifiedName)
     {
         VisitExpr(matchStmt.Expression, scope);
 
+        List<SemanticScope> fallthroughScopes = [];
+        CompletionResult completion = new();
         foreach (CaseClause clause in matchStmt.Cases)
         {
-            SemanticScope caseScope = new(scope);
+            SemanticScope branchScope = CreateFlowBranchScope(scope);
+            SemanticScope caseScope = new(branchScope);
             BindPattern(clause.Pattern, caseScope, declareBindings: true, containerQualifiedName);
             if (clause.Guard is not null)
                 VisitExpr(clause.Guard, caseScope);
-            VisitBlockStatements(clause.Body.Statements, new SemanticScope(caseScope), containerQualifiedName);
+            CompletionResult branchCompletion = VisitBlockStatements(clause.Body.Statements, new SemanticScope(caseScope), containerQualifiedName);
+            completion.AddPropagated(branchCompletion);
+            if (branchCompletion.FallsThrough)
+                fallthroughScopes.Add(branchScope);
         }
 
         if (matchStmt.DefaultCase is not null)
-            VisitBlock(matchStmt.DefaultCase, scope, containerQualifiedName);
-    }
-
-    private void VisitTryStmt(TryStmt tryStmt, SemanticScope scope, string? containerQualifiedName)
-    {
-        VisitBlock(tryStmt.TryBlock, scope, containerQualifiedName);
-
-        if (tryStmt.CatchBlock is not null)
         {
-            SemanticScope catchScope = new(scope);
-            if (!string.IsNullOrWhiteSpace(tryStmt.CatchIdent))
-                DeclareCatchSymbol(tryStmt.CatchIdent!, tryStmt.CatchBlock.Line, tryStmt.CatchBlock.Col, tryStmt.CatchBlock.OriginFile, catchScope, containerQualifiedName);
-            VisitBlockStatements(tryStmt.CatchBlock.Statements, new SemanticScope(catchScope), containerQualifiedName);
+            SemanticScope defaultScope = CreateFlowBranchScope(scope);
+            CompletionResult defaultCompletion = VisitBlock(matchStmt.DefaultCase, defaultScope, containerQualifiedName);
+            completion.AddPropagated(defaultCompletion);
+            if (defaultCompletion.FallsThrough)
+                fallthroughScopes.Add(defaultScope);
         }
 
-        if (tryStmt.FinallyBlock is not null)
-            VisitBlock(tryStmt.FinallyBlock, scope, containerQualifiedName);
+        MergeFlowBranches(scope, fallthroughScopes);
+        completion.SetFallsThrough(fallthroughScopes.Count > 0);
+        return completion;
+    }
+
+    private CompletionResult VisitTryStmt(TryStmt tryStmt, SemanticScope scope, string? containerQualifiedName)
+    {
+        SemanticScope snapshotScope = CreateFlowSnapshotScope(scope);
+        SemanticScope tryFlowScope = CreateFlowBranchScope(snapshotScope);
+        CompletionResult tryCompletion = VisitBlock(tryStmt.TryBlock, tryFlowScope, containerQualifiedName);
+
+        List<SemanticScope> preFinallyFallthroughScopes = [];
+        if (tryCompletion.FallsThrough)
+            preFinallyFallthroughScopes.Add(CaptureCompletionScope(tryFlowScope));
+
+        CompletionResult preFinallyCompletion = new();
+        preFinallyCompletion.BreakScopes.AddRange(tryCompletion.BreakScopes);
+        preFinallyCompletion.ContinueScopes.AddRange(tryCompletion.ContinueScopes);
+        preFinallyCompletion.ReturnFlows.AddRange(tryCompletion.ReturnFlows);
+
+        if (tryStmt.CatchBlock is not null && tryCompletion.ThrowScopes.Count > 0)
+        {
+            foreach (SemanticScope throwScope in tryCompletion.ThrowScopes)
+            {
+                SemanticScope catchFlowScope = CreateFlowBranchScope(throwScope);
+                if (!string.IsNullOrWhiteSpace(tryStmt.CatchIdent))
+                    DeclareCatchSymbol(tryStmt.CatchIdent!, tryStmt.CatchBlock.Line, tryStmt.CatchBlock.Col, tryStmt.CatchBlock.OriginFile, catchFlowScope, containerQualifiedName);
+
+                CompletionResult catchCompletion = VisitBlock(tryStmt.CatchBlock, catchFlowScope, containerQualifiedName);
+                preFinallyCompletion.AddPropagated(catchCompletion);
+                if (catchCompletion.FallsThrough)
+                    preFinallyFallthroughScopes.Add(CaptureCompletionScope(catchFlowScope));
+            }
+        }
+        else
+        {
+            preFinallyCompletion.ThrowScopes.AddRange(tryCompletion.ThrowScopes);
+        }
+
+        if (tryStmt.FinallyBlock is null)
+        {
+            MergeFlowBranches(scope, preFinallyFallthroughScopes);
+            preFinallyCompletion.SetFallsThrough(preFinallyFallthroughScopes.Count > 0);
+            return preFinallyCompletion;
+        }
+
+        CompletionResult completion = new();
+        List<SemanticScope> finalFallthroughScopes = [];
+
+        foreach (SemanticScope fallthroughScope in preFinallyFallthroughScopes)
+            ApplyFinallyBlock(tryStmt.FinallyBlock, fallthroughScope, containerQualifiedName, completion, finalScope => finalFallthroughScopes.Add(finalScope));
+
+        foreach (SemanticScope breakScope in preFinallyCompletion.BreakScopes)
+            ApplyFinallyBlock(tryStmt.FinallyBlock, breakScope, containerQualifiedName, completion, finalScope => completion.BreakScopes.Add(finalScope));
+
+        foreach (SemanticScope continueScope in preFinallyCompletion.ContinueScopes)
+            ApplyFinallyBlock(tryStmt.FinallyBlock, continueScope, containerQualifiedName, completion, finalScope => completion.ContinueScopes.Add(finalScope));
+
+        foreach (CapturedReturnFlow returnFlow in preFinallyCompletion.ReturnFlows)
+            ApplyFinallyBlock(tryStmt.FinallyBlock, returnFlow, containerQualifiedName, completion, survivingReturnFlow => completion.ReturnFlows.Add(survivingReturnFlow));
+
+        foreach (SemanticScope throwScope in preFinallyCompletion.ThrowScopes)
+            ApplyFinallyBlock(tryStmt.FinallyBlock, throwScope, containerQualifiedName, completion, finalScope => completion.ThrowScopes.Add(finalScope));
+
+        MergeFlowBranches(scope, finalFallthroughScopes);
+        completion.SetFallsThrough(finalFallthroughScopes.Count > 0);
+        return completion;
+    }
+
+    private void ApplyFinallyBlock(
+        BlockStmt finallyBlock,
+        SemanticScope incomingScope,
+        string? containerQualifiedName,
+        CompletionResult destination,
+        Action<SemanticScope> onFallthrough)
+    {
+        SemanticScope finallyFlowScope = CreateFlowBranchScope(incomingScope);
+        CompletionResult finallyCompletion = VisitBlock(finallyBlock, finallyFlowScope, containerQualifiedName);
+        destination.AddPropagated(finallyCompletion);
+        if (finallyCompletion.FallsThrough)
+            onFallthrough(CaptureCompletionScope(finallyFlowScope));
+    }
+
+    private void ApplyFinallyBlock(
+        BlockStmt finallyBlock,
+        CapturedReturnFlow incomingReturn,
+        string? containerQualifiedName,
+        CompletionResult destination,
+        Action<CapturedReturnFlow> onFallthrough)
+    {
+        SemanticScope finallyFlowScope = CreateFlowBranchScope(incomingReturn.Scope);
+        CompletionResult finallyCompletion = VisitBlock(finallyBlock, finallyFlowScope, containerQualifiedName);
+        destination.AddPropagated(finallyCompletion);
+        if (finallyCompletion.FallsThrough)
+            onFallthrough(incomingReturn.WithScope(CaptureCompletionScope(finallyFlowScope)));
+    }
+
+    private CompletionResult VisitUsingStmt(UsingStmt usingStmt, SemanticScope scope, string? containerQualifiedName)
+    {
+        VisitExpr(usingStmt.Resource, scope);
+
+        SemanticScope usingScope = new(scope);
+        if (!string.IsNullOrWhiteSpace(usingStmt.BindingName))
+        {
+            string? valueTypeQualifiedName = TryInferValueTypeQualifiedName(usingStmt.Resource, scope);
+            DeclareUsingBindingSymbol(usingStmt, usingScope, containerQualifiedName, valueTypeQualifiedName);
+            usingScope.SetResolvedCallTargetIds(usingStmt.BindingName!, TryResolveCallableSymbols(usingStmt.Resource, scope).Select(static symbol => symbol.Id!).Where(static id => !string.IsNullOrWhiteSpace(id)));
+            usingScope.SetResolvedAccessPaths(usingStmt.BindingName!, TryResolveContainerAccessPaths(usingStmt.Resource, scope));
+        }
+
+        return VisitBlockStatements(usingStmt.Body.Statements, usingScope, containerQualifiedName);
     }
 
     private void VisitExpr(Expr expr, SemanticScope scope)
@@ -516,15 +1044,24 @@ internal sealed class CfgsSemanticModelBuilder
                 return;
 
             case ArrayExpr arrayExpr:
-                foreach (Expr item in arrayExpr.Elements)
+                string arrayAccessPath = GetOrCreateAccessPath(arrayExpr, null);
+                for (int i = 0; i < arrayExpr.Elements.Count; i++)
+                {
+                    Expr item = arrayExpr.Elements[i];
                     VisitExpr(item, scope);
+                    TrackAssignedMemberBinding(arrayAccessPath, i.ToString(CultureInfo.InvariantCulture), item, scope);
+                }
                 return;
 
             case DictExpr dictExpr:
+                string dictAccessPath = GetOrCreateAccessPath(dictExpr, null);
                 foreach ((Expr Key, Expr Value) pair in dictExpr.Pairs)
                 {
                     VisitExpr(pair.Key, scope);
                     VisitExpr(pair.Value, scope);
+
+                    if (TryGetIndexMemberName(pair.Key, out string? memberName))
+                        TrackAssignedMemberBinding(dictAccessPath, memberName!, pair.Value, scope);
                 }
                 return;
 
@@ -533,8 +1070,13 @@ internal sealed class CfgsSemanticModelBuilder
                     return;
                 if (indexExpr.Target is not null)
                     VisitExpr(indexExpr.Target, scope);
-                if (indexExpr.Target is not null && indexExpr.Index is StringExpr stringIndex)
-                    RecordQualifiedMemberReference(indexExpr.Target, stringIndex.Value, indexExpr.Line, indexExpr.Col, indexExpr.OriginFile, scope);
+                if (indexExpr.Target is not null &&
+                    TryGetIndexMemberName(indexExpr.Index, out string? completionMemberName))
+                {
+                    RecordCompletionTarget(indexExpr.Target, completionMemberName!, scope, indexExpr.OriginFile);
+                }
+                if (indexExpr.Target is not null && TryGetIndexMemberName(indexExpr.Index, out string? indexMemberName))
+                    RecordQualifiedMemberReference(indexExpr.Target, indexMemberName!, indexExpr.Line, indexExpr.Col, indexExpr.OriginFile, scope);
                 if (indexExpr.Index is not null)
                     VisitExpr(indexExpr.Index, scope);
                 return;
@@ -570,6 +1112,7 @@ internal sealed class CfgsSemanticModelBuilder
 
             case GetFieldExpr getFieldExpr:
                 VisitExpr(getFieldExpr.Target, scope);
+                RecordCompletionTarget(getFieldExpr.Target, getFieldExpr.Field, scope, getFieldExpr.OriginFile);
                 RecordQualifiedMemberReference(getFieldExpr.Target, getFieldExpr.Field, getFieldExpr.Line, getFieldExpr.Col, getFieldExpr.OriginFile, scope);
                 return;
 
@@ -615,7 +1158,11 @@ internal sealed class CfgsSemanticModelBuilder
 
             case CallExpr callExpr:
                 if (callExpr.Target is not null)
+                {
                     VisitExpr(callExpr.Target, scope);
+                    RecordCallSite(callExpr.Target, scope);
+                    TryRecordCallableOccurrence(callExpr.Target, scope);
+                }
                 foreach (Expr arg in callExpr.Args)
                     VisitExpr(arg, scope);
                 return;
@@ -628,11 +1175,659 @@ internal sealed class CfgsSemanticModelBuilder
         }
     }
 
+    private void RecordCompletionTarget(Expr expr, string memberName, SemanticScope scope, string originFile)
+    {
+        if (IsFlowOnlyPass)
+            return;
+
+        string uri = _sources.ToDocumentUri(originFile, _documentUri);
+        if (!string.Equals(uri, _documentUri, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            return;
+
+        string? sourceText = _sources.GetSourceText(originFile);
+        if (sourceText is null)
+            return;
+
+        sourceText = NormalizeSourceText(sourceText);
+        if (!TryGetExpressionEnd(expr, out PositionInfo targetEnd) ||
+            !TryFindMemberAccessAnchor(sourceText, targetEnd, memberName, out PositionInfo anchor))
+        {
+            return;
+        }
+
+        IReadOnlyList<CfgsCompletionItem> items = GetCompletionItemsForExpr(expr, scope);
+        if (items.Count == 0)
+            return;
+
+        string key = $"{uri}|{anchor.Line}:{anchor.Character}";
+        if (!_completionItemsByAnchorKey.TryGetValue(key, out Dictionary<string, CfgsCompletionItem>? itemsByLabel))
+        {
+            itemsByLabel = new Dictionary<string, CfgsCompletionItem>(StringComparer.Ordinal);
+            _completionItemsByAnchorKey[key] = itemsByLabel;
+        }
+
+        foreach (CfgsCompletionItem item in items)
+        {
+            if (!itemsByLabel.ContainsKey(item.Label))
+                itemsByLabel[item.Label] = item;
+        }
+    }
+
+    private static bool TryFindMemberAccessAnchor(string sourceText, PositionInfo targetEnd, string memberName, out PositionInfo anchor)
+    {
+        anchor = default;
+        int absoluteIndex = TryGetAbsoluteIndex(sourceText, targetEnd.Line, targetEnd.Character);
+        if (absoluteIndex < 0)
+            return false;
+
+        SkipWhitespace(sourceText, ref absoluteIndex);
+        if (absoluteIndex >= sourceText.Length || sourceText[absoluteIndex] != '.')
+            return false;
+
+        absoluteIndex++;
+        SkipWhitespace(sourceText, ref absoluteIndex);
+        if (absoluteIndex < 0 || absoluteIndex + memberName.Length > sourceText.Length)
+            return false;
+
+        if (!string.Equals(sourceText.Substring(absoluteIndex, memberName.Length), memberName, StringComparison.Ordinal))
+            return false;
+
+        if (!TryGetLineCharacter(sourceText, absoluteIndex, out int line, out int character))
+            return false;
+
+        anchor = new PositionInfo(line, character);
+        return true;
+    }
+
+    private IReadOnlyList<CfgsCompletionItem> GetCompletionItemsForExpr(Expr expr, SemanticScope scope)
+    {
+        IReadOnlyList<string> containerPaths = TryResolveContainerAccessPaths(expr, scope);
+        if (containerPaths.Count == 0)
+            return [];
+
+        bool preferInstanceMembers = ShouldPreferInstanceMembers(expr, scope);
+        Dictionary<string, CfgsCompletionItem> items = new(StringComparer.Ordinal);
+        foreach (string containerPath in containerPaths)
+        {
+            foreach (CfgsCompletionItem item in GetCompletionItemsForPath(containerPath, preferInstanceMembers))
+            {
+                if (!items.ContainsKey(item.Label))
+                    items[item.Label] = item;
+            }
+        }
+
+        return items.Values
+            .OrderBy(static item => item.Label, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private IReadOnlyList<CfgsCompletionItem> GetCompletionItemsForPath(string containerPath, bool preferInstanceMembers)
+    {
+        string cacheKey = $"{(preferInstanceMembers ? 'i' : 's')}|{containerPath}";
+        if (_completionItemsByPathMode.TryGetValue(cacheKey, out IReadOnlyList<CfgsCompletionItem>? cached))
+            return cached;
+
+        Dictionary<string, CfgsCompletionItem> items = new(StringComparer.Ordinal);
+        CollectCompletionItemsForPath(containerPath, preferInstanceMembers, items, new HashSet<string>(StringComparer.Ordinal));
+        IReadOnlyList<CfgsCompletionItem> computed = items.Values
+            .OrderBy(static item => item.Label, StringComparer.Ordinal)
+            .ToList();
+        _completionItemsByPathMode[cacheKey] = computed;
+        return computed;
+    }
+
+    private bool ShouldPreferInstanceMembers(Expr expr, SemanticScope scope)
+    {
+        if (expr is VarExpr varExpr && scope.ResolveContextualQualifier(varExpr.Name) is not null)
+            return !string.Equals(varExpr.Name, "type", StringComparison.Ordinal);
+
+        return !TryResolveExprSymbol(expr, scope, out CfgsSymbol? symbol) ||
+               symbol!.Kind is not (3 or 5 or 10 or 11);
+    }
+
+    private void CollectCompletionItemsForPath(
+        string containerPath,
+        bool preferInstanceMembers,
+        Dictionary<string, CfgsCompletionItem> items,
+        HashSet<string> seenPaths)
+    {
+        if (!seenPaths.Add(containerPath))
+            return;
+
+        AddDynamicCompletionItems(containerPath, items);
+
+        if (TryResolveByExactName(containerPath, out CfgsSymbol? exact))
+        {
+            switch (exact!.Kind)
+            {
+                case 5:
+                    (Dictionary<string, ClassMemberBinding> instanceMembers, Dictionary<string, ClassMemberBinding> staticMembers) = BuildAccessibleMembers(containerPath);
+                    AddClassMemberCompletions(preferInstanceMembers ? instanceMembers : staticMembers, items);
+                    return;
+
+                case 3:
+                case 10:
+                case 11:
+                    AddDirectQualifiedChildItems(containerPath, items);
+                    return;
+            }
+        }
+
+        if (_containerBaseTypeByPath.TryGetValue(containerPath, out string? baseType) &&
+            !string.IsNullOrWhiteSpace(baseType))
+        {
+            CollectCompletionItemsForPath(baseType!, preferInstanceMembers: true, items, seenPaths);
+            return;
+        }
+
+        AddDirectQualifiedChildItems(containerPath, items);
+    }
+
+    private void AddDynamicCompletionItems(string containerPath, Dictionary<string, CfgsCompletionItem> items)
+    {
+        string prefix = containerPath + ".";
+        HashSet<string> memberNames = new(StringComparer.Ordinal);
+
+        foreach (string qualifiedName in _memberSymbolAliasesByQualifiedName.Keys)
+        {
+            if (TryExtractDirectMemberName(qualifiedName, prefix, out string? memberName))
+                memberNames.Add(memberName!);
+        }
+
+        foreach (string qualifiedName in _memberTypesByQualifiedName.Keys)
+        {
+            if (TryExtractDirectMemberName(qualifiedName, prefix, out string? memberName))
+                memberNames.Add(memberName!);
+        }
+
+        foreach (string qualifiedName in _memberAccessPathsByQualifiedName.Keys)
+        {
+            if (TryExtractDirectMemberName(qualifiedName, prefix, out string? memberName))
+                memberNames.Add(memberName!);
+        }
+
+        foreach (string memberName in memberNames)
+        {
+            if (items.ContainsKey(memberName))
+                continue;
+
+            string qualified = prefix + memberName;
+            if (_memberSymbolAliasesByQualifiedName.TryGetValue(qualified, out CfgsSymbol? aliasedSymbol))
+            {
+                items[memberName] = CreateCompletionItem(memberName, aliasedSymbol!);
+                continue;
+            }
+
+            if (_memberTypesByQualifiedName.TryGetValue(qualified, out string? valueTypeQualifiedName) &&
+                !string.IsNullOrWhiteSpace(valueTypeQualifiedName) &&
+                TryResolveByExactName(valueTypeQualifiedName!, out CfgsSymbol? valueTypeSymbol))
+            {
+                items[memberName] = CreateCompletionItem(memberName, valueTypeSymbol!);
+                continue;
+            }
+
+            if (_memberAccessPathsByQualifiedName.TryGetValue(qualified, out string? accessPath) &&
+                !string.IsNullOrWhiteSpace(accessPath) &&
+                TryResolveByExactName(accessPath!, out CfgsSymbol? accessPathSymbol))
+            {
+                items[memberName] = CreateCompletionItem(memberName, accessPathSymbol!);
+                continue;
+            }
+
+            items[memberName] = new CfgsCompletionItem(memberName, 6, "member");
+        }
+    }
+
+    private void AddClassMemberCompletions(
+        Dictionary<string, ClassMemberBinding> members,
+        Dictionary<string, CfgsCompletionItem> items)
+    {
+        foreach ((string name, ClassMemberBinding binding) in members)
+        {
+            if (binding.Symbol.IsSynthetic || items.ContainsKey(name))
+                continue;
+
+            items[name] = CreateCompletionItem(name, binding.Symbol);
+        }
+    }
+
+    private void AddDirectQualifiedChildItems(string containerPath, Dictionary<string, CfgsCompletionItem> items)
+    {
+        string prefix = containerPath + ".";
+        foreach (CfgsSymbol symbol in _symbols)
+        {
+            if (symbol.IsSynthetic ||
+                string.IsNullOrWhiteSpace(symbol.QualifiedName) ||
+                !TryExtractDirectMemberName(symbol.QualifiedName, prefix, out string? memberName) ||
+                items.ContainsKey(memberName!))
+            {
+                continue;
+            }
+
+            items[memberName!] = CreateCompletionItem(memberName!, symbol);
+        }
+    }
+
+    private static bool TryExtractDirectMemberName(string qualifiedName, string prefix, out string? memberName)
+    {
+        memberName = null;
+        if (!qualifiedName.StartsWith(prefix, StringComparison.Ordinal))
+            return false;
+
+        string remainder = qualifiedName[prefix.Length..];
+        if (string.IsNullOrWhiteSpace(remainder) ||
+            remainder.Contains('.', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        memberName = remainder;
+        return true;
+    }
+
+    private static CfgsCompletionItem CreateCompletionItem(string label, CfgsSymbol symbol)
+        => new(label, ToCompletionKind(symbol.Kind), symbol.Detail);
+
+    private void InvalidateCompletionItems(string containerPath)
+    {
+        _completionItemsByPathMode.Remove($"i|{containerPath}");
+        _completionItemsByPathMode.Remove($"s|{containerPath}");
+    }
+
+    private static int ToCompletionKind(int symbolKind)
+        => symbolKind switch
+        {
+            5 => 7,
+            11 => 8,
+            6 => 2,
+            10 => 13,
+            12 => 3,
+            13 => 6,
+            14 => 21,
+            22 => 20,
+            _ => 1
+        };
+
+    private bool TryGetCompletionTarget(Expr expr, out string uri, out PositionInfo end)
+    {
+        uri = _sources.ToDocumentUri(expr.OriginFile, _documentUri);
+        return TryGetExpressionEnd(expr, out end);
+    }
+
+    private bool TryGetExpressionEnd(Expr expr, out PositionInfo end)
+    {
+        string? sourceText = _sources.GetSourceText(expr.OriginFile);
+        if (sourceText is null)
+        {
+            end = default;
+            return false;
+        }
+
+        sourceText = NormalizeSourceText(sourceText);
+
+        switch (expr)
+        {
+            case VarExpr varExpr:
+                end = new PositionInfo(Math.Max(varExpr.Line - 1, 0), Math.Max(varExpr.Col - 1, 0) + varExpr.Name.Length);
+                return true;
+
+            case ArrayExpr arrayExpr:
+                return TryFindMatchingDelimiterEnd(sourceText, Math.Max(arrayExpr.Line - 1, 0), Math.Max(arrayExpr.Col - 1, 0), '[', ']', out end);
+
+            case DictExpr dictExpr:
+                return TryFindMatchingDelimiterEnd(sourceText, Math.Max(dictExpr.Line - 1, 0), Math.Max(dictExpr.Col - 1, 0), '{', '}', out end);
+
+            case IndexExpr indexExpr when indexExpr.Target is not null:
+                if (!TryGetExpressionEnd(indexExpr.Target, out PositionInfo targetEnd))
+                {
+                    end = default;
+                    return false;
+                }
+
+                int absoluteIndex = TryGetAbsoluteIndex(sourceText, targetEnd.Line, targetEnd.Character);
+                if (absoluteIndex >= 0)
+                {
+                    SkipWhitespace(sourceText, ref absoluteIndex);
+                    if (absoluteIndex < sourceText.Length && sourceText[absoluteIndex] == '[')
+                    {
+                        if (!TryGetLineCharacter(sourceText, absoluteIndex, out int indexLine, out int indexCharacter))
+                        {
+                            end = default;
+                            return false;
+                        }
+
+                        return TryFindMatchingDelimiterEnd(sourceText, indexLine, indexCharacter, '[', ']', out end);
+                    }
+                }
+
+                if (TryGetIndexMemberName(indexExpr.Index, out string? memberName) &&
+                    TryFindMemberAccessAnchor(sourceText, targetEnd, memberName!, out PositionInfo memberStart))
+                {
+                    end = new PositionInfo(memberStart.Line, memberStart.Character + memberName!.Length);
+                    return true;
+                }
+
+                end = default;
+                return false;
+
+            case CallExpr callExpr when callExpr.Target is not null:
+                if (TryGetExpressionEnd(callExpr.Target, out PositionInfo callTargetEnd) &&
+                    TryFindTrailingBlockEnd(sourceText, callTargetEnd, '(', ')', out end))
+                {
+                    return true;
+                }
+
+                end = default;
+                return false;
+
+            case NewExpr newExpr:
+                return TryFindNewExpressionEnd(newExpr, sourceText, out end);
+
+            case ObjectInitExpr objectInitExpr:
+                if (!TryGetExpressionEnd(objectInitExpr.Target, out PositionInfo objectInitTargetEnd))
+                {
+                    end = default;
+                    return false;
+                }
+
+                if (TryFindTrailingBlockEnd(sourceText, objectInitTargetEnd, '{', '}', out PositionInfo objectEnd))
+                {
+                    end = objectEnd;
+                    return true;
+                }
+
+                end = objectInitTargetEnd;
+                return true;
+
+            case GetFieldExpr getFieldExpr:
+                if (TryGetExpressionEnd(getFieldExpr.Target, out PositionInfo fieldTargetEnd) &&
+                    TryFindMemberAccessAnchor(sourceText, fieldTargetEnd, getFieldExpr.Field, out PositionInfo fieldStart))
+                {
+                    end = new PositionInfo(fieldStart.Line, fieldStart.Character + getFieldExpr.Field.Length);
+                    return true;
+                }
+
+                end = default;
+                return false;
+
+            default:
+                end = default;
+                return false;
+        }
+    }
+
+    private static bool TryFindNewExpressionEnd(NewExpr newExpr, string sourceText, out PositionInfo end)
+    {
+        end = default;
+        int absoluteStart = TryGetAbsoluteIndex(sourceText, Math.Max(newExpr.Line - 1, 0), Math.Max(newExpr.Col - 1, 0));
+        if (absoluteStart < 0 || absoluteStart >= sourceText.Length)
+            return false;
+
+        int cursor = absoluteStart;
+        if (!TryConsumeExactText(sourceText, ref cursor, "new"))
+            return false;
+
+        SkipWhitespace(sourceText, ref cursor);
+        while (cursor < sourceText.Length && IsQualifiedIdentifierChar(sourceText[cursor]))
+            cursor++;
+
+        SkipWhitespace(sourceText, ref cursor);
+        if (cursor < sourceText.Length && sourceText[cursor] == '(')
+        {
+            if (!TryGetLineCharacter(sourceText, cursor, out int openParenLine, out int openParenCharacter) ||
+                !TryFindMatchingDelimiterEnd(sourceText, openParenLine, openParenCharacter, '(', ')', out PositionInfo afterArgs))
+            {
+                return false;
+            }
+
+            cursor = TryGetAbsoluteIndex(sourceText, afterArgs.Line, afterArgs.Character);
+            if (cursor < 0)
+                return false;
+        }
+
+        SkipWhitespace(sourceText, ref cursor);
+        if (newExpr.Initializers.Count > 0 && cursor < sourceText.Length && sourceText[cursor] == '{')
+        {
+            if (!TryGetLineCharacter(sourceText, cursor, out int openBraceLine, out int openBraceCharacter) ||
+                !TryFindMatchingDelimiterEnd(sourceText, openBraceLine, openBraceCharacter, '{', '}', out end))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        if (!TryGetLineCharacter(sourceText, cursor, out int endLine, out int endCharacter))
+            return false;
+
+        end = new PositionInfo(endLine, endCharacter);
+        return true;
+    }
+
+    private static bool TryFindTrailingBlockEnd(string sourceText, PositionInfo start, char openChar, char closeChar, out PositionInfo end)
+    {
+        end = default;
+        int absoluteIndex = TryGetAbsoluteIndex(sourceText, start.Line, start.Character);
+        if (absoluteIndex < 0)
+            return false;
+
+        SkipWhitespace(sourceText, ref absoluteIndex);
+        if (absoluteIndex >= sourceText.Length || sourceText[absoluteIndex] != openChar)
+            return false;
+
+        if (!TryGetLineCharacter(sourceText, absoluteIndex, out int line, out int character))
+            return false;
+
+        return TryFindMatchingDelimiterEnd(sourceText, line, character, openChar, closeChar, out end);
+    }
+
+    private static bool TryFindMatchingDelimiterEnd(
+        string sourceText,
+        int startLine,
+        int startCharacter,
+        char openChar,
+        char closeChar,
+        out PositionInfo end)
+    {
+        end = default;
+        int absoluteStart = TryGetAbsoluteIndex(sourceText, startLine, startCharacter);
+        if (absoluteStart < 0)
+            return false;
+
+        int cursor = absoluteStart;
+        SkipWhitespace(sourceText, ref cursor);
+        if (cursor >= sourceText.Length || sourceText[cursor] != openChar)
+            return false;
+
+        int depth = 0;
+        bool inString = false;
+        bool escape = false;
+        char stringDelimiter = '\0';
+
+        for (int i = cursor; i < sourceText.Length; i++)
+        {
+            char current = sourceText[i];
+            if (inString)
+            {
+                if (escape)
+                {
+                    escape = false;
+                    continue;
+                }
+
+                if (current == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (current == stringDelimiter)
+                    inString = false;
+
+                continue;
+            }
+
+            if (current is '"' or '\'')
+            {
+                inString = true;
+                stringDelimiter = current;
+                continue;
+            }
+
+            if (current == openChar)
+            {
+                depth++;
+                continue;
+            }
+
+            if (current != closeChar)
+                continue;
+
+            depth--;
+            if (depth == 0 && TryGetLineCharacter(sourceText, i + 1, out int endLine, out int endCharacter))
+            {
+                end = new PositionInfo(endLine, endCharacter);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryConsumeExactText(string sourceText, ref int cursor, string value)
+    {
+        if (cursor < 0 || cursor + value.Length > sourceText.Length)
+            return false;
+
+        if (!string.Equals(sourceText.Substring(cursor, value.Length), value, StringComparison.Ordinal))
+            return false;
+
+        cursor += value.Length;
+        return true;
+    }
+
+    private static void SkipWhitespace(string sourceText, ref int cursor)
+    {
+        while (cursor < sourceText.Length && char.IsWhiteSpace(sourceText[cursor]))
+            cursor++;
+    }
+
+    private static bool IsQualifiedIdentifierChar(char ch)
+        => char.IsLetterOrDigit(ch) || ch == '_' || ch == '.';
+
+    private static int TryGetAbsoluteIndex(string sourceText, int line, int character)
+    {
+        if (line < 0 || character < 0)
+            return -1;
+
+        int currentLine = 0;
+        int currentCharacter = 0;
+        for (int i = 0; i < sourceText.Length; i++)
+        {
+            if (currentLine == line && currentCharacter == character)
+                return i;
+
+            if (sourceText[i] == '\n')
+            {
+                currentLine++;
+                currentCharacter = 0;
+            }
+            else
+            {
+                currentCharacter++;
+            }
+        }
+
+        return currentLine == line && currentCharacter == character ? sourceText.Length : -1;
+    }
+
+    private static bool TryGetLineCharacter(string sourceText, int absoluteIndex, out int line, out int character)
+    {
+        line = 0;
+        character = 0;
+
+        if (absoluteIndex < 0 || absoluteIndex > sourceText.Length)
+            return false;
+
+        for (int i = 0; i < absoluteIndex; i++)
+        {
+            if (sourceText[i] == '\n')
+            {
+                line++;
+                character = 0;
+            }
+            else
+            {
+                character++;
+            }
+        }
+
+        return true;
+    }
+
+    private static string NormalizeSourceText(string sourceText)
+        => sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+
     private void VisitFunctionExpr(FuncExpr funcExpr, SemanticScope scope)
     {
-        SemanticScope functionScope = new(scope);
+        SemanticScope functionScope = new(scope, inheritReceiverContext: false);
         DeclareParameters(funcExpr.Parameters, funcExpr.RestParameter, functionScope, funcExpr.OriginFile, funcExpr.Line, funcExpr.Col);
         VisitBlockStatements(funcExpr.Body.Statements, functionScope, null);
+    }
+
+    private FunctionFlowContext? BeginFunctionFlow(CfgsSymbol? functionSymbol)
+    {
+        if (functionSymbol is null || string.IsNullOrWhiteSpace(functionSymbol.Id))
+            return null;
+
+        FunctionFlowContext context = new(functionSymbol.Id!);
+        _functionContexts.Push(context);
+        return context;
+    }
+
+    private void EndFunctionFlow(FunctionFlowContext? context)
+    {
+        if (context is null)
+            return;
+
+        FunctionFlowContext popped = _functionContexts.Pop();
+        if (!ReferenceEquals(popped, context))
+            throw new InvalidOperationException("Function flow stack out of sync.");
+
+        _functionReturnCallTargetIdsBySymbolId[context.SymbolId] = context.ReturnCallTargetIds;
+        _functionReturnAccessPathsBySymbolId[context.SymbolId] = context.ReturnAccessPaths;
+    }
+
+    private void RecordReturnCompletions(CompletionResult completion)
+    {
+        if (_functionContexts.Count == 0)
+            return;
+
+        FunctionFlowContext context = _functionContexts.Peek();
+        foreach (CapturedReturnFlow returnFlow in completion.ReturnFlows)
+        {
+            context.ReturnCallTargetIds.UnionWith(returnFlow.CallTargetIds);
+            context.ReturnAccessPaths.UnionWith(returnFlow.AccessPaths);
+        }
+    }
+
+    private CapturedReturnFlow CaptureReturnFlow(Expr? expr, SemanticScope scope)
+    {
+        HashSet<string> callTargetIds = new(StringComparer.Ordinal);
+        HashSet<string> accessPaths = new(StringComparer.Ordinal);
+        if (expr is not null)
+        {
+            foreach (CfgsSymbol callable in TryResolveCallableSymbols(expr, scope))
+            {
+                if (!string.IsNullOrWhiteSpace(callable.Id))
+                    callTargetIds.Add(callable.Id!);
+            }
+
+            foreach (string accessPath in TryResolveContainerAccessPaths(expr, scope))
+                accessPaths.Add(accessPath);
+        }
+
+        return new CapturedReturnFlow(CaptureCompletionScope(scope), callTargetIds, accessPaths);
     }
 
     private void BindPattern(MatchPattern pattern, SemanticScope scope, bool declareBindings, string? containerQualifiedName)
@@ -687,12 +1882,8 @@ internal sealed class CfgsSemanticModelBuilder
 
     private void RecordQualifiedMemberReference(Expr target, string memberName, int line, int column, string originFile, SemanticScope scope)
     {
-        if (!TryExtractQualifiedAccess(target, scope, out string? path))
-            return;
-
-        string qualified = $"{path}.{memberName}";
-        if (TryResolveByExactName(qualified, out CfgsSymbol? symbol))
-            AddOccurrence(symbol!, line, column, originFile, memberName, isDeclaration: false);
+        foreach (CfgsSymbol symbol in ResolveMemberSymbols(TryResolveContainerAccessPaths(target, scope), memberName))
+            AddOccurrence(symbol, line, column, originFile, memberName, isDeclaration: false);
     }
 
     private bool TryResolveByExactName(string qualifiedName, out CfgsSymbol? symbol)
@@ -724,6 +1915,418 @@ internal sealed class CfgsSemanticModelBuilder
         return false;
     }
 
+    private bool TryResolveExprSymbol(Expr expr, SemanticScope scope, out CfgsSymbol? symbol)
+    {
+        symbol = TryResolveExprSymbols(expr, scope).FirstOrDefault();
+        return symbol is not null;
+    }
+
+    private IReadOnlyList<CfgsSymbol> TryResolveExprSymbols(Expr expr, SemanticScope scope)
+    {
+        switch (expr)
+        {
+            case VarExpr varExpr:
+                List<CfgsSymbol> varSymbols = [];
+                if (scope.TryResolve(varExpr.Name, out CfgsSymbol? scopedSymbol))
+                    varSymbols.Add(scopedSymbol!);
+
+                if (scope.ResolveContextualQualifier(varExpr.Name) is string contextual &&
+                    TryResolveByExactName(contextual, out CfgsSymbol? contextualSymbol))
+                {
+                    varSymbols.Add(contextualSymbol!);
+                }
+
+                return DistinctSymbols(varSymbols);
+
+            case IndexExpr indexExpr
+                when indexExpr.Target is not null
+                && TryGetIndexMemberName(indexExpr.Index, out string? indexMemberName):
+                return ResolveMemberSymbols(TryResolveContainerAccessPaths(indexExpr.Target, scope), indexMemberName!);
+
+            case GetFieldExpr getFieldExpr:
+                return ResolveMemberSymbols(TryResolveContainerAccessPaths(getFieldExpr.Target, scope), getFieldExpr.Field);
+
+            default:
+                return [];
+        }
+    }
+
+    private CfgsSymbol? TryResolveCallableSymbol(Expr? expr, SemanticScope scope)
+    {
+        IReadOnlyList<CfgsSymbol> symbols = TryResolveCallableSymbols(expr, scope);
+        return symbols.Count == 1 ? symbols[0] : null;
+    }
+
+    private IReadOnlyList<CfgsSymbol> TryResolveCallableSymbols(Expr? expr, SemanticScope scope)
+    {
+        if (expr is null)
+            return [];
+
+        if (expr is CallExpr callExpr)
+        {
+            List<CfgsSymbol> returnedCallables = [];
+            foreach (CfgsSymbol callee in TryResolveCallableSymbols(callExpr.Target, scope))
+            {
+                if (string.IsNullOrWhiteSpace(callee.Id) ||
+                    !_functionReturnCallTargetIdsBySymbolId.TryGetValue(callee.Id!, out HashSet<string>? returnIds))
+                {
+                    continue;
+                }
+
+                foreach (string returnId in returnIds)
+                {
+                    if (_symbolsById.TryGetValue(returnId, out CfgsSymbol? returnedSymbol))
+                    {
+                        CfgsSymbol? resolved = ResolveCallTargetSymbol(returnedSymbol);
+                        if (resolved is not null)
+                            returnedCallables.Add(resolved);
+                    }
+                }
+            }
+
+            return DistinctSymbols(returnedCallables);
+        }
+
+        if (expr is VarExpr varExpr &&
+            scope.TryGetResolvedCallTargetIds(varExpr.Name, out IReadOnlyCollection<string> resolvedCallTargetIds))
+        {
+            List<CfgsSymbol> scopedCallTargets = [];
+            foreach (string resolvedCallTargetId in resolvedCallTargetIds)
+            {
+                if (_symbolsById.TryGetValue(resolvedCallTargetId, out CfgsSymbol? scopedCallTarget))
+                {
+                    CfgsSymbol? resolved = ResolveCallTargetSymbol(scopedCallTarget);
+                    if (resolved is not null)
+                        scopedCallTargets.Add(resolved);
+                }
+            }
+
+            return DistinctSymbols(scopedCallTargets);
+        }
+
+        List<CfgsSymbol> callables = [];
+        foreach (CfgsSymbol symbol in TryResolveExprSymbols(expr, scope))
+        {
+            CfgsSymbol? resolved = ResolveCallTargetSymbol(symbol);
+            if (resolved is not null)
+                callables.Add(resolved);
+        }
+
+        return DistinctSymbols(callables);
+    }
+
+    private void TryRecordCallableOccurrence(Expr expr, SemanticScope scope)
+    {
+        if (IsFlowOnlyPass)
+            return;
+
+        IReadOnlyList<CfgsSymbol> callableSymbols = TryResolveCallableSymbols(expr, scope);
+        if (callableSymbols.Count == 0)
+            return;
+
+        HashSet<string> directCallTargetIds = new(StringComparer.Ordinal);
+        foreach (CfgsSymbol directSymbol in TryResolveExprSymbols(expr, scope))
+        {
+            CfgsSymbol? directCallTarget = ResolveCallTargetSymbol(directSymbol);
+            if (!string.IsNullOrWhiteSpace(directCallTarget?.Id))
+                directCallTargetIds.Add(directCallTarget.Id!);
+        }
+
+        if (!TryGetCallableOccurrenceAnchor(expr, out int line, out int column, out string? originFile, out string? token))
+            return;
+
+        foreach (CfgsSymbol callableSymbol in callableSymbols)
+        {
+            if (string.IsNullOrWhiteSpace(callableSymbol.Id) || directCallTargetIds.Contains(callableSymbol.Id!))
+                continue;
+
+            AddOccurrence(callableSymbol, line, column, originFile!, token!, isDeclaration: false);
+        }
+    }
+
+    private void RecordCallSite(Expr expr, SemanticScope scope)
+    {
+        if (IsFlowOnlyPass)
+            return;
+
+        IReadOnlyList<string> symbolIds = TryResolveCallableSymbols(expr, scope)
+            .Select(static symbol => symbol.Id)
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (symbolIds.Count == 0 ||
+            !TryGetCallableOccurrenceAnchor(expr, out int line, out int column, out string? originFile, out string? token))
+        {
+            return;
+        }
+
+        string uri = _sources.ToDocumentUri(originFile!, _documentUri);
+        string? source = _sources.GetSourceText(originFile!);
+        RangeInfo range = TextLocator.CreateRange(source, line, column, token);
+        string key = $"{uri}|{range.Start.Line}:{range.Start.Character}:{range.End.Line}:{range.End.Character}";
+        if (!_callSiteSymbolIdsByKey.TryGetValue(key, out HashSet<string>? ids))
+        {
+            ids = new HashSet<string>(StringComparer.Ordinal);
+            _callSiteSymbolIdsByKey[key] = ids;
+        }
+
+        ids.UnionWith(symbolIds);
+    }
+
+    private static bool TryGetCallableOccurrenceAnchor(Expr expr, out int line, out int column, out string? originFile, out string? token)
+    {
+        switch (expr)
+        {
+            case VarExpr varExpr:
+                line = varExpr.Line;
+                column = varExpr.Col;
+                originFile = varExpr.OriginFile;
+                token = varExpr.Name;
+                return true;
+
+            case GetFieldExpr getFieldExpr:
+                line = getFieldExpr.Line;
+                column = getFieldExpr.Col;
+                originFile = getFieldExpr.OriginFile;
+                token = getFieldExpr.Field;
+                return true;
+
+            case IndexExpr indexExpr when TryGetIndexMemberName(indexExpr.Index, out string? indexMemberName):
+                line = indexExpr.Line;
+                column = indexExpr.Col;
+                originFile = indexExpr.OriginFile;
+                token = indexMemberName;
+                return true;
+
+            default:
+                line = 0;
+                column = 0;
+                originFile = null;
+                token = null;
+                return false;
+        }
+    }
+
+    private CfgsSymbol? ResolveCallTargetSymbol(CfgsSymbol? symbol)
+    {
+        if (symbol is null)
+            return null;
+
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        CfgsSymbol current = symbol;
+
+        while (!string.IsNullOrWhiteSpace(current.CallTargetSymbolId) &&
+               seen.Add(current.Id ?? current.QualifiedName) &&
+               _symbolsById.TryGetValue(current.CallTargetSymbolId!, out CfgsSymbol? next))
+        {
+            current = next;
+        }
+
+        return current.Kind is 5 or 6 or 12 ? current : null;
+    }
+
+    private string? TryResolveContainerAccessPath(Expr? expr, SemanticScope scope)
+    {
+        IReadOnlyList<string> accessPaths = TryResolveContainerAccessPaths(expr, scope);
+        return accessPaths.Count == 1 ? accessPaths[0] : null;
+    }
+
+    private IReadOnlyList<string> TryResolveContainerAccessPaths(Expr? expr, SemanticScope scope)
+    {
+        switch (expr)
+        {
+            case null:
+                return [];
+
+            case NewExpr newExpr:
+                return [GetOrCreateAccessPath(newExpr, TryResolveNamedContainer(newExpr.ClassName, scope))];
+
+            case ArrayExpr arrayExpr:
+                return [GetOrCreateAccessPath(arrayExpr, null)];
+
+            case DictExpr dictExpr:
+                return [GetOrCreateAccessPath(dictExpr, null)];
+
+            case ObjectInitExpr objectInitExpr:
+                return DistinctValues(
+                    TryResolveContainerAccessPaths(objectInitExpr.Target, scope)
+                        .Concat([GetOrCreateAccessPath(objectInitExpr, TryInferValueTypeQualifiedName(objectInitExpr.Target, scope))]));
+
+            case CallExpr callExpr:
+                List<string> returnedAccessPaths = [];
+                foreach (CfgsSymbol callee in TryResolveCallableSymbols(callExpr.Target, scope))
+                {
+                    if (string.IsNullOrWhiteSpace(callee.Id) ||
+                        !_functionReturnAccessPathsBySymbolId.TryGetValue(callee.Id!, out HashSet<string>? accessPaths))
+                    {
+                        continue;
+                    }
+
+                    returnedAccessPaths.AddRange(accessPaths);
+                }
+
+                return DistinctValues(returnedAccessPaths);
+
+            case VarExpr varExpr:
+                List<string> varPaths = [];
+                if (scope.ResolveContextualQualifier(varExpr.Name) is string contextual)
+                    varPaths.Add(contextual);
+
+                if (scope.TryGetResolvedAccessPaths(varExpr.Name, out IReadOnlyCollection<string> resolvedAccessPaths))
+                    varPaths.AddRange(resolvedAccessPaths);
+                else if (scope.TryGetResolvedValueType(varExpr.Name, out string? resolvedType) &&
+                         !string.IsNullOrWhiteSpace(resolvedType))
+                    varPaths.Add(resolvedType!);
+                else if (TryResolveNamedContainer(varExpr.Name, scope) is string namedContainer)
+                    varPaths.Add(namedContainer);
+
+                return DistinctValues(varPaths);
+
+            case IndexExpr indexExpr
+                when indexExpr.Target is not null
+                && TryGetIndexMemberName(indexExpr.Index, out string? indexMemberName):
+                List<string> indexPaths = [];
+                foreach (string targetPath in TryResolveContainerAccessPaths(indexExpr.Target, scope))
+                {
+                    string? accessPath = TryResolveMemberAccessPath(targetPath, indexMemberName!);
+                    if (!string.IsNullOrWhiteSpace(accessPath))
+                        indexPaths.Add(accessPath!);
+
+                    string? valueType = TryResolveMemberValueType(targetPath, indexMemberName!);
+                    if (!string.IsNullOrWhiteSpace(valueType))
+                        indexPaths.Add(valueType!);
+                }
+
+                return DistinctValues(indexPaths);
+
+            case GetFieldExpr getFieldExpr:
+                List<string> fieldPaths = [];
+                foreach (string targetPath in TryResolveContainerAccessPaths(getFieldExpr.Target, scope))
+                {
+                    string? accessPath = TryResolveMemberAccessPath(targetPath, getFieldExpr.Field);
+                    if (!string.IsNullOrWhiteSpace(accessPath))
+                        fieldPaths.Add(accessPath!);
+
+                    string? valueType = TryResolveMemberValueType(targetPath, getFieldExpr.Field);
+                    if (!string.IsNullOrWhiteSpace(valueType))
+                        fieldPaths.Add(valueType!);
+                }
+
+                return DistinctValues(fieldPaths);
+
+            default:
+                return [];
+        }
+    }
+
+    private string GetOrCreateAccessPath(object nodeKey, string? baseTypeQualifiedName)
+    {
+        if (_accessPathsByNode.TryGetValue(nodeKey, out string? existing))
+        {
+            RememberContainerBaseType(existing, baseTypeQualifiedName);
+            return existing;
+        }
+
+        string accessPath = $"obj_{++_nextAccessPathId}";
+        _accessPathsByNode[nodeKey] = accessPath;
+        RememberContainerBaseType(accessPath, baseTypeQualifiedName);
+        return accessPath;
+    }
+
+    private void RememberContainerBaseType(string accessPath, string? baseTypeQualifiedName)
+    {
+        if (!_containerBaseTypeByPath.ContainsKey(accessPath))
+        {
+            _containerBaseTypeByPath[accessPath] = string.IsNullOrWhiteSpace(baseTypeQualifiedName)
+                ? null
+                : baseTypeQualifiedName;
+            InvalidateCompletionItems(accessPath);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(baseTypeQualifiedName))
+        {
+            _containerBaseTypeByPath[accessPath] = baseTypeQualifiedName;
+            InvalidateCompletionItems(accessPath);
+        }
+    }
+
+    private string? TryResolveMemberAccessPath(string containerPath, string memberName)
+        => TryResolveMemberAccessPath(containerPath, memberName, new HashSet<string>(StringComparer.Ordinal));
+
+    private string? TryResolveMemberAccessPath(string containerPath, string memberName, HashSet<string> seen)
+    {
+        if (!seen.Add(containerPath))
+            return null;
+
+        string qualified = $"{containerPath}.{memberName}";
+        if (_memberAccessPathsByQualifiedName.TryGetValue(qualified, out string? accessPath))
+            return accessPath;
+
+        if (_containerBaseTypeByPath.TryGetValue(containerPath, out string? baseType) &&
+            !string.IsNullOrWhiteSpace(baseType))
+        {
+            return TryResolveMemberAccessPath(baseType!, memberName, seen);
+        }
+
+        return null;
+    }
+
+    private bool TryResolveMemberSymbol(string containerPath, string memberName, out CfgsSymbol? symbol)
+        => TryResolveMemberSymbol(containerPath, memberName, new HashSet<string>(StringComparer.Ordinal), out symbol);
+
+    private bool TryResolveMemberSymbol(string containerPath, string memberName, HashSet<string> seen, out CfgsSymbol? symbol)
+    {
+        if (!seen.Add(containerPath))
+        {
+            symbol = null;
+            return false;
+        }
+
+        string qualified = $"{containerPath}.{memberName}";
+        if (_memberSymbolAliasesByQualifiedName.TryGetValue(qualified, out symbol) ||
+            TryResolveByExactName(qualified, out symbol))
+        {
+            return true;
+        }
+
+        if (_containerBaseTypeByPath.TryGetValue(containerPath, out string? baseType) &&
+            !string.IsNullOrWhiteSpace(baseType))
+        {
+            return TryResolveMemberSymbol(baseType!, memberName, seen, out symbol);
+        }
+
+        symbol = null;
+        return false;
+    }
+
+    private IReadOnlyList<CfgsSymbol> ResolveMemberSymbols(IEnumerable<string> containerPaths, string memberName)
+    {
+        List<CfgsSymbol> symbols = [];
+        foreach (string containerPath in containerPaths)
+        {
+            if (TryResolveMemberSymbol(containerPath, memberName, out CfgsSymbol? symbol))
+                symbols.Add(symbol!);
+        }
+
+        return DistinctSymbols(symbols);
+    }
+
+    private static IReadOnlyList<CfgsSymbol> DistinctSymbols(IEnumerable<CfgsSymbol> symbols)
+        => symbols
+            .Where(static symbol => symbol is not null)
+            .GroupBy(static symbol => symbol.Id ?? symbol.QualifiedName, StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .ToList();
+
+    private static IReadOnlyList<string> DistinctValues(IEnumerable<string> values)
+        => values
+            .Where(static value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
     private bool TryRecordQualifiedTypePath(Expr expr, SemanticScope scope)
     {
         string? typePath = TextLocator.TryExtractQualifiedPath(expr);
@@ -739,37 +2342,9 @@ internal sealed class CfgsSemanticModelBuilder
 
     private bool TryExtractQualifiedAccess(Expr expr, SemanticScope scope, out string? path)
     {
-        switch (expr)
-        {
-            case VarExpr varExpr:
-                path = scope.ResolveContextualQualifier(varExpr.Name);
-                if (path is not null)
-                    return true;
-
-                if (scope.TryGetResolvedValueType(varExpr.Name, out string? resolvedType))
-                {
-                    path = resolvedType;
-                    return true;
-                }
-
-                path = TryResolveNamedContainer(varExpr.Name, scope);
-                return path is not null;
-
-            case IndexExpr indexExpr
-                when indexExpr.Target is not null
-                && indexExpr.Index is StringExpr stringIndex
-                && TryExtractQualifiedAccess(indexExpr.Target, scope, out string? targetPath):
-                path = TryResolveMemberValueType(targetPath!, stringIndex.Value);
-                return path is not null;
-
-            case GetFieldExpr getFieldExpr when TryExtractQualifiedAccess(getFieldExpr.Target, scope, out string? targetPath):
-                path = TryResolveMemberValueType(targetPath!, getFieldExpr.Field);
-                return path is not null;
-
-            default:
-                path = null;
-                return false;
-        }
+        IReadOnlyList<string> paths = TryResolveContainerAccessPaths(expr, scope);
+        path = paths.Count == 1 ? paths[0] : null;
+        return path is not null;
     }
 
     private void TrackMemberValueType(string containerQualifiedName, string memberName, Expr? value, SemanticScope scope)
@@ -779,6 +2354,87 @@ internal sealed class CfgsSemanticModelBuilder
             return;
 
         _memberTypesByQualifiedName[$"{containerQualifiedName}.{memberName}"] = valueTypeQualifiedName!;
+    }
+
+    private void TrackAssignedMemberBinding(Expr target, Expr value, SemanticScope scope)
+    {
+        switch (target)
+        {
+            case IndexExpr indexExpr
+                when indexExpr.Target is not null
+                && TryGetIndexMemberName(indexExpr.Index, out string? indexMemberName)
+                && TryExtractQualifiedAccess(indexExpr.Target, scope, out string? targetPath):
+                TrackAssignedMemberBinding(targetPath!, indexMemberName!, value, scope);
+                return;
+
+            case GetFieldExpr getFieldExpr
+                when TryExtractQualifiedAccess(getFieldExpr.Target, scope, out string? fieldTargetPath):
+                TrackAssignedMemberBinding(fieldTargetPath!, getFieldExpr.Field, value, scope);
+                return;
+        }
+    }
+
+    private void TrackAssignedMemberBinding(string containerPath, string memberName, Expr value, SemanticScope scope)
+    {
+        string qualified = $"{containerPath}.{memberName}";
+        InvalidateCompletionItems(containerPath);
+
+        string? valueTypeQualifiedName = TryInferValueTypeQualifiedName(value, scope);
+        if (!string.IsNullOrWhiteSpace(valueTypeQualifiedName))
+            _memberTypesByQualifiedName[qualified] = valueTypeQualifiedName!;
+
+        string? accessPath = TryResolveContainerAccessPath(value, scope);
+        if (!string.IsNullOrWhiteSpace(accessPath))
+            _memberAccessPathsByQualifiedName[qualified] = accessPath!;
+        else
+            _memberAccessPathsByQualifiedName.Remove(qualified);
+
+        CfgsSymbol? callableSymbol = TryResolveCallableSymbol(value, scope);
+        if (callableSymbol is not null)
+        {
+            _memberSymbolAliasesByQualifiedName[qualified] = callableSymbol;
+            return;
+        }
+
+        if (TryResolveExprSymbol(value, scope, out CfgsSymbol? valueSymbol))
+        {
+            _memberSymbolAliasesByQualifiedName[qualified] = valueSymbol!;
+            return;
+        }
+
+        _memberSymbolAliasesByQualifiedName.Remove(qualified);
+    }
+
+    private static bool TryGetIndexMemberName(Expr? indexExpr, out string? memberName)
+    {
+        switch (indexExpr)
+        {
+            case StringExpr stringIndex:
+                memberName = stringIndex.Value;
+                return true;
+
+            case NumberExpr numberIndex:
+                memberName = TryFormatLiteralIndex(numberIndex.Value);
+                return !string.IsNullOrWhiteSpace(memberName);
+
+            default:
+                memberName = null;
+                return false;
+        }
+    }
+
+    private static string? TryFormatLiteralIndex(dynamic? value)
+    {
+        if (value is null)
+            return null;
+
+        if (value is string stringValue)
+            return stringValue;
+
+        if (value is IFormattable formattable)
+            return formattable.ToString(null, CultureInfo.InvariantCulture);
+
+        return Convert.ToString(value, CultureInfo.InvariantCulture);
     }
 
     private string? TryInferValueTypeQualifiedName(Expr? expr, SemanticScope scope)
@@ -819,15 +2475,126 @@ internal sealed class CfgsSemanticModelBuilder
     }
 
     private string? TryResolveMemberValueType(string containerPath, string memberName)
+        => TryResolveMemberValueType(containerPath, memberName, new HashSet<string>(StringComparer.Ordinal));
+
+    private string? TryResolveMemberValueType(string containerPath, string memberName, HashSet<string> seen)
     {
+        if (!seen.Add(containerPath))
+            return null;
+
         string qualified = $"{containerPath}.{memberName}";
+        if (_memberAccessPathsByQualifiedName.TryGetValue(qualified, out string? accessPath) &&
+            !string.IsNullOrWhiteSpace(accessPath) &&
+            _containerBaseTypeByPath.TryGetValue(accessPath!, out string? accessBaseType) &&
+            !string.IsNullOrWhiteSpace(accessBaseType))
+        {
+            return accessBaseType;
+        }
+
         if (_memberTypesByQualifiedName.TryGetValue(qualified, out string? memberType))
             return memberType;
 
-        if (TryResolveByExactName(qualified, out CfgsSymbol? symbol) && symbol!.Kind is 5 or 10 or 11)
-            return symbol.QualifiedName;
+        if (_memberSymbolAliasesByQualifiedName.TryGetValue(qualified, out CfgsSymbol? aliasedSymbol))
+        {
+            if (!string.IsNullOrWhiteSpace(aliasedSymbol.ValueTypeQualifiedName))
+                return aliasedSymbol.ValueTypeQualifiedName;
+
+            if (aliasedSymbol.Kind is 5 or 10 or 11)
+                return aliasedSymbol.QualifiedName;
+        }
+
+        if (TryResolveByExactName(qualified, out CfgsSymbol? symbol))
+        {
+            if (!string.IsNullOrWhiteSpace(symbol!.ValueTypeQualifiedName))
+                return symbol.ValueTypeQualifiedName;
+
+            if (symbol.Kind is 5 or 10 or 11)
+                return symbol.QualifiedName;
+        }
+
+        if (_containerBaseTypeByPath.TryGetValue(containerPath, out string? baseType) &&
+            !string.IsNullOrWhiteSpace(baseType))
+        {
+            return TryResolveMemberValueType(baseType!, memberName, seen);
+        }
 
         return null;
+    }
+
+    private void RegisterClassMember(string classQualifiedName, string memberName, CfgsSymbol symbol, bool isStatic, string? valueTypeQualifiedName)
+    {
+        Dictionary<string, Dictionary<string, ClassMemberBinding>> owner = isStatic ? _staticMembersByType : _instanceMembersByType;
+        if (!owner.TryGetValue(classQualifiedName, out Dictionary<string, ClassMemberBinding>? members))
+        {
+            members = new Dictionary<string, ClassMemberBinding>(StringComparer.Ordinal);
+            owner[classQualifiedName] = members;
+        }
+
+        members[memberName] = new ClassMemberBinding(symbol, valueTypeQualifiedName);
+    }
+
+    private SemanticScope CreateImplicitMemberScope(SemanticScope parentScope, string classQualifiedName, bool isStaticMethod)
+    {
+        SemanticScope memberScope = new(parentScope);
+        (Dictionary<string, ClassMemberBinding> instanceMembers, Dictionary<string, ClassMemberBinding> staticMembers) = BuildAccessibleMembers(classQualifiedName);
+
+        if (isStaticMethod)
+        {
+            foreach ((string name, ClassMemberBinding binding) in staticMembers)
+                memberScope.Declare(name, binding.Symbol, binding.ValueTypeQualifiedName);
+
+            return memberScope;
+        }
+
+        HashSet<string> memberNames = new(instanceMembers.Keys, StringComparer.Ordinal);
+        memberNames.UnionWith(staticMembers.Keys);
+
+        foreach (string name in memberNames)
+        {
+            ClassMemberBinding? instanceBinding = instanceMembers.GetValueOrDefault(name);
+            ClassMemberBinding? staticBinding = staticMembers.GetValueOrDefault(name);
+            bool hasInstance = instanceBinding is not null;
+            bool hasStatic = staticBinding is not null;
+            if (hasInstance && hasStatic)
+                continue;
+
+            ClassMemberBinding binding = hasInstance ? instanceBinding! : staticBinding!;
+            memberScope.Declare(name, binding.Symbol, binding.ValueTypeQualifiedName);
+        }
+
+        return memberScope;
+    }
+
+    private (Dictionary<string, ClassMemberBinding> InstanceMembers, Dictionary<string, ClassMemberBinding> StaticMembers) BuildAccessibleMembers(string classQualifiedName)
+    {
+        Dictionary<string, ClassMemberBinding> instanceMembers = new(StringComparer.Ordinal);
+        Dictionary<string, ClassMemberBinding> staticMembers = new(StringComparer.Ordinal);
+
+        if (_baseTypeByType.TryGetValue(classQualifiedName, out string? baseQualifiedName) &&
+            !string.IsNullOrWhiteSpace(baseQualifiedName))
+        {
+            (Dictionary<string, ClassMemberBinding> baseInstanceMembers, Dictionary<string, ClassMemberBinding> baseStaticMembers) = BuildAccessibleMembers(baseQualifiedName!);
+
+            foreach ((string name, ClassMemberBinding binding) in baseInstanceMembers)
+                instanceMembers[name] = binding;
+
+            foreach ((string name, ClassMemberBinding binding) in baseStaticMembers)
+                staticMembers[name] = binding;
+        }
+
+        if (_instanceMembersByType.TryGetValue(classQualifiedName, out Dictionary<string, ClassMemberBinding>? declaredInstanceMembers))
+        {
+            foreach ((string name, ClassMemberBinding binding) in declaredInstanceMembers)
+                instanceMembers[name] = binding;
+        }
+
+        if (_staticMembersByType.TryGetValue(classQualifiedName, out Dictionary<string, ClassMemberBinding>? declaredStaticMembers))
+        {
+            foreach ((string name, ClassMemberBinding binding) in declaredStaticMembers)
+                staticMembers[name] = binding;
+        }
+
+        return (instanceMembers, staticMembers);
     }
 
     private string? TryResolveNamedContainer(string name, SemanticScope scope)
@@ -877,6 +2644,34 @@ internal sealed class CfgsSemanticModelBuilder
             signature: null);
 
         scope.Declare(name, symbol, valueTypeQualifiedName: null);
+    }
+
+    private void DeclareUsingBindingSymbol(UsingStmt usingStmt, SemanticScope scope, string? containerQualifiedName, string? valueTypeQualifiedName)
+    {
+        if (string.IsNullOrWhiteSpace(usingStmt.BindingName))
+            return;
+
+        bool synthetic = IsSyntheticGeneratedName(usingStmt.BindingName!);
+        string qualifiedName = CreateLocalQualifiedName(containerQualifiedName, usingStmt.BindingName!);
+        int kind = usingStmt.BindingIsConst ? 14 : 13;
+        string detail = usingStmt.BindingIsConst ? "using const" : "using var";
+        CfgsSymbol symbol = CreateSymbol(
+            new object(),
+            usingStmt.BindingName!,
+            qualifiedName,
+            kind,
+            usingStmt.OriginFile,
+            usingStmt.Line,
+            usingStmt.Col,
+            detail,
+            $"{detail} {usingStmt.BindingName}",
+            [],
+            synthetic,
+            addOccurrence: !synthetic,
+            signature: null,
+            valueTypeQualifiedName);
+
+        scope.Declare(usingStmt.BindingName!, symbol, valueTypeQualifiedName);
     }
 
     private void DeclareSyntheticAwareLocal(Node node, string name, SemanticScope scope, string? containerQualifiedName, string detailPrefix)
@@ -947,11 +2742,11 @@ internal sealed class CfgsSemanticModelBuilder
 
     private CfgsSymbol DeclareFunctionSymbol(FuncDeclStmt func, SemanticScope scope, string? containerQualifiedName, bool isMethod, bool synthetic)
     {
-        string prefix = func.IsAsync ? "async func" : "func";
-        string label = $"{prefix} {func.Name}({string.Join(", ", func.Parameters)})";
+        string label = SignatureDisplay.BuildFunctionLabel(func.Name, func.IsAsync, func.Parameters, func.ParameterSpecs, func.RestParameter);
+        IReadOnlyList<string> parameterDisplay = SignatureDisplay.GetParameterDisplayList(func.Parameters, func.ParameterSpecs, func.RestParameter);
         CfgsSignature signature = new(
             label,
-            func.Parameters.ToList(),
+            parameterDisplay,
             func.RestParameter,
             func.MinArgs);
 
@@ -1090,7 +2885,31 @@ internal sealed class CfgsSemanticModelBuilder
             signature: null);
     }
 
-    private void DeclareValueSymbol(Node node, SemanticScope scope, string? containerQualifiedName, int kind, string prefix, bool synthetic, CfgsSignature? signature, string? valueTypeQualifiedName)
+    private CfgsSymbol DeclareClassFieldSymbol(ClassDeclStmt classDecl, string fieldName, string containerQualifiedName, bool isStatic, bool isConst, CfgsSignature? signature, string? valueTypeQualifiedName, string? callTargetSymbolId)
+    {
+        string detail = isStatic
+            ? (isConst ? $"static const {fieldName}" : $"static var {fieldName}")
+            : (isConst ? $"const {fieldName}" : $"var {fieldName}");
+
+        return CreateSymbol(
+            (containerQualifiedName, fieldName, isStatic, isConst),
+            fieldName,
+            Qualify(containerQualifiedName, fieldName),
+            isConst ? 14 : 13,
+            classDecl.OriginFile,
+            classDecl.Line,
+            classDecl.Col,
+            detail,
+            detail,
+            [],
+            synthetic: false,
+            addOccurrence: true,
+            signature,
+            valueTypeQualifiedName,
+            callTargetSymbolId);
+    }
+
+    private void DeclareValueSymbol(Node node, SemanticScope scope, string? containerQualifiedName, int kind, string prefix, bool synthetic, CfgsSignature? signature, string? valueTypeQualifiedName, string? callTargetSymbolId)
     {
         string name = node switch
         {
@@ -1114,7 +2933,9 @@ internal sealed class CfgsSemanticModelBuilder
             [],
             synthetic,
             addOccurrence: !synthetic,
-            signature);
+            signature,
+            valueTypeQualifiedName,
+            callTargetSymbolId);
 
         scope.Declare(name, symbol, valueTypeQualifiedName);
     }
@@ -1152,14 +2973,17 @@ internal sealed class CfgsSemanticModelBuilder
         return bestIndex >= 0 ? (bestIndex + 1, 1) : (fallbackLine, fallbackColumn);
     }
 
-    private CfgsSignature? TryGetFunctionSignature(Expr? expr)
+    private CfgsSignature? TryGetFunctionSignature(Expr? expr, SemanticScope scope)
     {
         if (expr is not FuncExpr funcExpr)
-            return null;
+        {
+            CfgsSymbol? callableSymbol = TryResolveCallableSymbol(expr, scope);
+            return callableSymbol?.Signature;
+        }
 
-        string prefix = funcExpr.IsAsync ? "async func" : "func";
-        string label = $"{prefix} ({string.Join(", ", funcExpr.Parameters)})";
-        return new CfgsSignature(label, funcExpr.Parameters.ToList(), funcExpr.RestParameter, funcExpr.MinArgs);
+        string label = SignatureDisplay.BuildFunctionLabel(string.Empty, funcExpr.IsAsync, funcExpr.Parameters, funcExpr.ParameterSpecs, funcExpr.RestParameter, includeName: false);
+        IReadOnlyList<string> parameterDisplay = SignatureDisplay.GetParameterDisplayList(funcExpr.Parameters, funcExpr.ParameterSpecs, funcExpr.RestParameter);
+        return new CfgsSignature(label, parameterDisplay, funcExpr.RestParameter, funcExpr.MinArgs);
     }
 
     private CfgsSymbol CreateSymbol(
@@ -1175,14 +2999,17 @@ internal sealed class CfgsSemanticModelBuilder
         IReadOnlyList<CfgsSymbol> children,
         bool synthetic,
         bool addOccurrence,
-        CfgsSignature? signature)
+        CfgsSignature? signature,
+        string? valueTypeQualifiedName = null,
+        string? callTargetSymbolId = null)
     {
         if (_symbolsByNode.TryGetValue(nodeKey, out CfgsSymbol? existing))
             return existing;
 
-        string symbolId = $"sym_{_nextSymbolId++}";
+        string? symbolId = IsFlowOnlyPass ? null : $"sym_{_nextSymbolId++}";
         string? source = _sources.GetSourceText(originFile);
         RangeInfo selectionRange = TextLocator.CreateRange(source, line, column, name);
+        RangeInfo fullRange = CreateSymbolRange(nodeKey, source, selectionRange);
         string uri = _sources.ToDocumentUri(originFile, _documentUri);
 
         CfgsSymbol symbol = new(
@@ -1191,34 +3018,126 @@ internal sealed class CfgsSemanticModelBuilder
             kind,
             uri,
             originFile,
-            selectionRange,
+            fullRange,
             selectionRange,
             detail,
             CreateHoverText(hoverHeader, uri),
             children,
             synthetic,
             symbolId,
-            signature);
+            signature,
+            valueTypeQualifiedName,
+            callTargetSymbolId);
+
+        if (IsFlowOnlyPass)
+            return symbol;
 
         _symbolsByNode[nodeKey] = symbol;
         _symbols.Add(symbol);
-        _symbolsById[symbolId] = symbol;
+        _symbolsById[symbolId!] = symbol;
 
         if (addOccurrence)
-            _occurrences.Add(new CfgsResolvedOccurrence(uri, selectionRange, symbolId, IsDeclaration: true));
+            _occurrences.Add(new CfgsResolvedOccurrence(uri, selectionRange, symbolId!, IsDeclaration: true));
 
         return symbol;
     }
 
+    private static RangeInfo CreateSymbolRange(object nodeKey, string? source, RangeInfo selectionRange)
+    {
+        return nodeKey switch
+        {
+            FuncDeclStmt func => CreateBlockRange(source, selectionRange, func.Body),
+            FuncExpr funcExpr => CreateBlockRange(source, selectionRange, funcExpr.Body),
+            _ => selectionRange
+        };
+    }
+
+    private static RangeInfo CreateBlockRange(string? source, RangeInfo selectionRange, BlockStmt body)
+    {
+        PositionInfo start = new(selectionRange.Start.Line, 0);
+        if (string.IsNullOrWhiteSpace(source))
+            return new RangeInfo(start, selectionRange.End);
+
+        string[] lines = source.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        (int Line, int Character)? blockEnd = TryFindBlockEnd(lines, Math.Max(body.Line - 1, 0), Math.Max(body.Col - 1, 0));
+        if (blockEnd is null)
+            return new RangeInfo(start, selectionRange.End);
+
+        return new RangeInfo(start, new PositionInfo(blockEnd.Value.Line, blockEnd.Value.Character));
+    }
+
+    private static (int Line, int Character)? TryFindBlockEnd(string[] lines, int startLine, int startCharacter)
+    {
+        bool foundOpeningBrace = false;
+        int depth = 0;
+
+        for (int lineIndex = Math.Max(startLine, 0); lineIndex < lines.Length; lineIndex++)
+        {
+            string lineText = lines[lineIndex];
+            int charIndex = lineIndex == startLine
+                ? Math.Min(Math.Max(startCharacter, 0), lineText.Length)
+                : 0;
+
+            for (; charIndex < lineText.Length; charIndex++)
+            {
+                char current = lineText[charIndex];
+                if (current == '{')
+                {
+                    foundOpeningBrace = true;
+                    depth++;
+                    continue;
+                }
+
+                if (current != '}' || !foundOpeningBrace)
+                    continue;
+
+                depth--;
+                if (depth == 0)
+                    return (lineIndex, charIndex + 1);
+            }
+        }
+
+        return null;
+    }
+
     private void AddOccurrence(CfgsSymbol symbol, int line, int column, string originFile, string token, bool isDeclaration)
     {
-        if (symbol.Id is null)
+        if (IsFlowOnlyPass || symbol.Id is null)
             return;
 
         string uri = _sources.ToDocumentUri(originFile, _documentUri);
         string? source = _sources.GetSourceText(originFile);
         RangeInfo range = TextLocator.CreateRange(source, line, column, token);
         _occurrences.Add(new CfgsResolvedOccurrence(uri, range, symbol.Id, isDeclaration));
+    }
+
+    private void FinalizeCallSites()
+    {
+        foreach ((string key, HashSet<string> symbolIds) in _callSiteSymbolIdsByKey)
+        {
+            string[] parts = key.Split('|', 2, StringSplitOptions.None);
+            string uri = parts[0];
+            string[] rangeParts = parts[1].Split(':');
+            RangeInfo range = new(
+                new PositionInfo(int.Parse(rangeParts[0]), int.Parse(rangeParts[1])),
+                new PositionInfo(int.Parse(rangeParts[2]), int.Parse(rangeParts[3])));
+            _callSites.Add(new CfgsResolvedCallSite(uri, range, symbolIds.OrderBy(static id => id, StringComparer.Ordinal).ToList()));
+        }
+    }
+
+    private void FinalizeCompletionTargets()
+    {
+        foreach ((string key, Dictionary<string, CfgsCompletionItem> itemsByLabel) in _completionItemsByAnchorKey)
+        {
+            string[] parts = key.Split('|', 2, StringSplitOptions.None);
+            string uri = parts[0];
+            string[] anchorParts = parts[1].Split(':');
+            PositionInfo end = new(int.Parse(anchorParts[0]), int.Parse(anchorParts[1]));
+            IReadOnlyList<CfgsCompletionItem> items = itemsByLabel.Values
+                .OrderBy(static item => item.Label, StringComparer.Ordinal)
+                .ToList();
+            _completionTargets.Add(new CfgsResolvedCompletionTarget(uri, end, items));
+        }
     }
 
     private static string CreateHoverText(string header, string uri)
@@ -1319,28 +3238,160 @@ internal sealed class CfgsSemanticModelBuilder
         }
     }
 
+    private sealed record ClassMemberBinding(CfgsSymbol Symbol, string? ValueTypeQualifiedName);
+
+    private sealed class FunctionFlowContext
+    {
+        public FunctionFlowContext(string symbolId)
+        {
+            SymbolId = symbolId;
+        }
+
+        public string SymbolId { get; }
+
+        public HashSet<string> ReturnCallTargetIds { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> ReturnAccessPaths { get; } = new(StringComparer.Ordinal);
+    }
+
+    private sealed class CapturedReturnFlow
+    {
+        public CapturedReturnFlow(SemanticScope scope, IEnumerable<string> callTargetIds, IEnumerable<string> accessPaths)
+        {
+            Scope = scope;
+            CallTargetIds = callTargetIds.ToHashSet(StringComparer.Ordinal);
+            AccessPaths = accessPaths.ToHashSet(StringComparer.Ordinal);
+        }
+
+        public SemanticScope Scope { get; }
+
+        public HashSet<string> CallTargetIds { get; }
+
+        public HashSet<string> AccessPaths { get; }
+
+        public CapturedReturnFlow WithScope(SemanticScope scope)
+            => new(scope, CallTargetIds, AccessPaths);
+    }
+
+    private sealed class CompletionResult
+    {
+        public bool FallsThrough { get; private set; }
+
+        public List<SemanticScope> BreakScopes { get; } = [];
+
+        public List<SemanticScope> ContinueScopes { get; } = [];
+
+        public List<CapturedReturnFlow> ReturnFlows { get; } = [];
+
+        public List<SemanticScope> ThrowScopes { get; } = [];
+
+        public static CompletionResult Fallthrough()
+            => new() { FallsThrough = true };
+
+        public static CompletionResult WithBreak(SemanticScope scope)
+            => new() { FallsThrough = false, BreakScopes = { scope } };
+
+        public static CompletionResult WithContinue(SemanticScope scope)
+            => new() { FallsThrough = false, ContinueScopes = { scope } };
+
+        public static CompletionResult WithReturn(CapturedReturnFlow returnFlow)
+            => new() { FallsThrough = false, ReturnFlows = { returnFlow } };
+
+        public static CompletionResult WithThrow(SemanticScope scope)
+            => new() { FallsThrough = false, ThrowScopes = { scope } };
+
+        public void AddPropagated(CompletionResult other)
+        {
+            BreakScopes.AddRange(other.BreakScopes);
+            ContinueScopes.AddRange(other.ContinueScopes);
+            ReturnFlows.AddRange(other.ReturnFlows);
+            ThrowScopes.AddRange(other.ThrowScopes);
+        }
+
+        public void SetFallsThrough(bool fallsThrough)
+            => FallsThrough = fallsThrough;
+    }
+
+    private sealed class LoopAnalysisResult
+    {
+        public SemanticScope ExitScope { get; init; } = null!;
+
+        public CompletionResult Completion { get; init; } = null!;
+    }
+
     private sealed class SemanticScope
     {
         private readonly Dictionary<string, CfgsSymbol> _symbols = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, string> _resolvedValueTypes = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string?> _resolvedValueTypes = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string?> _resolvedCallTargetIds = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string?> _resolvedAccessPaths = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, HashSet<string>> _possibleCallTargetIds = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, HashSet<string>> _possibleAccessPaths = new(StringComparer.Ordinal);
 
-        public SemanticScope(SemanticScope? parent, string? currentClassQualifiedName = null, string? currentBaseQualifiedName = null)
+        public SemanticScope(
+            SemanticScope? parent,
+            string? currentClassQualifiedName = null,
+            string? currentBaseQualifiedName = null,
+            string? currentOuterClassQualifiedName = null,
+            bool? allowThis = null,
+            bool? allowType = null,
+            bool? allowSuper = null,
+            bool? allowOuter = null,
+            bool inheritReceiverContext = true,
+            bool delayParentFlowMutations = false)
         {
             Parent = parent;
-            CurrentClassQualifiedName = currentClassQualifiedName ?? parent?.CurrentClassQualifiedName;
-            CurrentBaseQualifiedName = currentBaseQualifiedName ?? parent?.CurrentBaseQualifiedName;
+            DelayParentFlowMutations = delayParentFlowMutations;
+
+            if (inheritReceiverContext && parent is not null)
+            {
+                CurrentClassQualifiedName = currentClassQualifiedName ?? parent.CurrentClassQualifiedName;
+                CurrentBaseQualifiedName = currentBaseQualifiedName ?? parent.CurrentBaseQualifiedName;
+                CurrentOuterClassQualifiedName = currentOuterClassQualifiedName ?? parent.CurrentOuterClassQualifiedName;
+                AllowThis = allowThis ?? parent.AllowThis;
+                AllowType = allowType ?? parent.AllowType;
+                AllowSuper = allowSuper ?? parent.AllowSuper;
+                AllowOuter = allowOuter ?? parent.AllowOuter;
+                return;
+            }
+
+            CurrentClassQualifiedName = currentClassQualifiedName;
+            CurrentBaseQualifiedName = currentBaseQualifiedName;
+            CurrentOuterClassQualifiedName = currentOuterClassQualifiedName;
+            AllowThis = allowThis ?? false;
+            AllowType = allowType ?? false;
+            AllowSuper = allowSuper ?? false;
+            AllowOuter = allowOuter ?? false;
         }
 
         public SemanticScope? Parent { get; }
+
+        public bool DelayParentFlowMutations { get; }
 
         public string? CurrentClassQualifiedName { get; }
 
         public string? CurrentBaseQualifiedName { get; }
 
+        public string? CurrentOuterClassQualifiedName { get; }
+
+        public bool AllowThis { get; }
+
+        public bool AllowType { get; }
+
+        public bool AllowSuper { get; }
+
+        public bool AllowOuter { get; }
+
         public void Declare(string name, CfgsSymbol symbol, string? valueTypeQualifiedName)
         {
             _symbols[name] = symbol;
             SetResolvedValueType(name, valueTypeQualifiedName);
+
+            if (symbol.Kind is 13 or 14 || !string.IsNullOrWhiteSpace(symbol.CallTargetSymbolId))
+                SetResolvedCallTargetId(name, symbol.CallTargetSymbolId);
+
+            if (symbol.Kind is 13 or 14)
+                SetResolvedAccessPath(name, null);
         }
 
         public bool TryResolve(string name, out CfgsSymbol? symbol)
@@ -1359,32 +3410,171 @@ internal sealed class CfgsSemanticModelBuilder
             return Parent is not null && Parent.TryGetResolvedValueType(name, out valueTypeQualifiedName);
         }
 
+        public bool TryGetResolvedCallTargetId(string name, out string? callTargetSymbolId)
+        {
+            if (_resolvedCallTargetIds.TryGetValue(name, out callTargetSymbolId))
+                return true;
+
+            return Parent is not null && Parent.TryGetResolvedCallTargetId(name, out callTargetSymbolId);
+        }
+
+        public bool TryGetResolvedAccessPath(string name, out string? accessPath)
+        {
+            if (_resolvedAccessPaths.TryGetValue(name, out accessPath))
+                return true;
+
+            return Parent is not null && Parent.TryGetResolvedAccessPath(name, out accessPath);
+        }
+
+        public bool TryGetResolvedCallTargetIds(string name, out IReadOnlyCollection<string> callTargetIds)
+        {
+            if (_possibleCallTargetIds.TryGetValue(name, out HashSet<string>? resolved))
+            {
+                callTargetIds = resolved;
+                return true;
+            }
+
+            if (Parent is not null)
+                return Parent.TryGetResolvedCallTargetIds(name, out callTargetIds);
+
+            callTargetIds = Array.Empty<string>();
+            return false;
+        }
+
+        public bool TryGetResolvedAccessPaths(string name, out IReadOnlyCollection<string> accessPaths)
+        {
+            if (_possibleAccessPaths.TryGetValue(name, out HashSet<string>? resolved))
+            {
+                accessPaths = resolved;
+                return true;
+            }
+
+            if (Parent is not null)
+                return Parent.TryGetResolvedAccessPaths(name, out accessPaths);
+
+            accessPaths = Array.Empty<string>();
+            return false;
+        }
+
         public void SetResolvedValueType(string name, string? valueTypeQualifiedName)
         {
-            if (string.IsNullOrWhiteSpace(valueTypeQualifiedName))
+            if (ShouldStoreFlowLocally(name))
             {
-                if (_symbols.ContainsKey(name) || Parent is null || !Parent.TryResolve(name, out _))
-                    _resolvedValueTypes.Remove(name);
-                else
-                    Parent.SetResolvedValueType(name, null);
+                _resolvedValueTypes[name] = string.IsNullOrWhiteSpace(valueTypeQualifiedName) ? null : valueTypeQualifiedName!;
                 return;
             }
 
-            if (_symbols.ContainsKey(name) || Parent is null || !Parent.TryResolve(name, out _))
-            {
-                _resolvedValueTypes[name] = valueTypeQualifiedName!;
-                return;
-            }
-
-            Parent.SetResolvedValueType(name, valueTypeQualifiedName);
+            Parent!.SetResolvedValueType(name, valueTypeQualifiedName);
         }
+
+        public void SetResolvedCallTargetId(string name, string? callTargetSymbolId)
+            => SetResolvedCallTargetIds(
+                name,
+                string.IsNullOrWhiteSpace(callTargetSymbolId)
+                    ? Array.Empty<string>()
+                    : new[] { callTargetSymbolId! });
+
+        public void SetResolvedCallTargetIds(string name, IEnumerable<string> callTargetSymbolIds)
+        {
+            HashSet<string> normalized = NormalizeValues(callTargetSymbolIds);
+            if (ShouldStoreFlowLocally(name))
+            {
+                _possibleCallTargetIds[name] = normalized;
+                _resolvedCallTargetIds[name] = normalized.Count == 1 ? normalized.First() : null;
+                return;
+            }
+
+            Parent!.SetResolvedCallTargetIds(name, normalized);
+        }
+
+        public void SetResolvedAccessPath(string name, string? accessPath)
+            => SetResolvedAccessPaths(
+                name,
+                string.IsNullOrWhiteSpace(accessPath)
+                    ? Array.Empty<string>()
+                    : new[] { accessPath! });
+
+        public void SetResolvedAccessPaths(string name, IEnumerable<string> accessPaths)
+        {
+            HashSet<string> normalized = NormalizeValues(accessPaths);
+            if (ShouldStoreFlowLocally(name))
+            {
+                _possibleAccessPaths[name] = normalized;
+                _resolvedAccessPaths[name] = normalized.Count == 1 ? normalized.First() : null;
+                return;
+            }
+
+            Parent!.SetResolvedAccessPaths(name, normalized);
+        }
+
+        public IReadOnlyCollection<string> GetResolvedCallTargetIds(string name)
+            => TryGetResolvedCallTargetIds(name, out IReadOnlyCollection<string> ids) ? ids : Array.Empty<string>();
+
+        public IReadOnlyCollection<string> GetResolvedAccessPaths(string name)
+            => TryGetResolvedAccessPaths(name, out IReadOnlyCollection<string> paths) ? paths : Array.Empty<string>();
+
+        public string? GetResolvedValueTypeOrNull(string name)
+            => TryGetResolvedValueType(name, out string? valueType) ? valueType : null;
+
+        public bool HasLocalValueTypeEntry(string name)
+            => _resolvedValueTypes.ContainsKey(name);
+
+        public string? GetLocalValueType(string name)
+            => _resolvedValueTypes.TryGetValue(name, out string? valueType) ? valueType : null;
+
+        public bool HasLocalCallTargetEntry(string name)
+            => _possibleCallTargetIds.ContainsKey(name);
+
+        public IReadOnlyCollection<string> GetLocalCallTargetIds(string name)
+            => _possibleCallTargetIds.TryGetValue(name, out HashSet<string>? values) ? values : Array.Empty<string>();
+
+        public bool HasLocalAccessPathEntry(string name)
+            => _possibleAccessPaths.ContainsKey(name);
+
+        public IReadOnlyCollection<string> GetLocalAccessPaths(string name)
+            => _possibleAccessPaths.TryGetValue(name, out HashSet<string>? values) ? values : Array.Empty<string>();
+
+        public IReadOnlyCollection<string> GetLocalFlowNames()
+        {
+            HashSet<string> names = new(StringComparer.Ordinal);
+            names.UnionWith(_resolvedValueTypes.Keys);
+            names.UnionWith(_possibleCallTargetIds.Keys);
+            names.UnionWith(_possibleAccessPaths.Keys);
+            return names;
+        }
+
+        public IReadOnlyCollection<string> GetVisibleNames()
+        {
+            HashSet<string> names = new(StringComparer.Ordinal);
+            names.UnionWith(_symbols.Keys);
+            names.UnionWith(_resolvedValueTypes.Keys);
+            names.UnionWith(_possibleCallTargetIds.Keys);
+            names.UnionWith(_possibleAccessPaths.Keys);
+
+            if (Parent is not null)
+                names.UnionWith(Parent.GetVisibleNames());
+
+            return names;
+        }
+
+        private bool ShouldStoreFlowLocally(string name)
+            => _symbols.ContainsKey(name) ||
+               Parent is null ||
+               !Parent.TryResolve(name, out _) ||
+               DelayParentFlowMutations;
+
+        private static HashSet<string> NormalizeValues(IEnumerable<string> values)
+            => values
+                .Where(static value => !string.IsNullOrWhiteSpace(value))
+                .ToHashSet(StringComparer.Ordinal);
 
         public string? ResolveContextualQualifier(string name)
             => name switch
             {
-                "this" => CurrentClassQualifiedName,
-                "type" => CurrentClassQualifiedName,
-                "super" => CurrentBaseQualifiedName,
+                "this" when AllowThis => CurrentClassQualifiedName,
+                "type" when AllowType => CurrentClassQualifiedName,
+                "super" when AllowSuper => CurrentBaseQualifiedName,
+                "outer" when AllowOuter => CurrentOuterClassQualifiedName,
                 _ => null
             };
     }
@@ -1661,12 +3851,21 @@ internal static class SignatureLocator
         if (absoluteIndex < 0 || absoluteIndex >= sourceText.Length)
             return -1;
 
-        int searchStart = absoluteIndex;
-        while (searchStart < sourceText.Length && char.IsWhiteSpace(sourceText[searchStart]))
-            searchStart++;
+        for (int searchIndex = absoluteIndex; searchIndex < sourceText.Length; searchIndex++)
+        {
+            char current = sourceText[searchIndex];
+            if (current == '(')
+                return searchIndex;
 
-        if (searchStart < sourceText.Length && sourceText[searchStart] == '(')
-            return searchStart;
+            if (char.IsWhiteSpace(current) ||
+                current is '"' or '\'' or '.' or '[' or ']')
+            {
+                continue;
+            }
+
+            if (current is ';' or '{' or '}')
+                return -1;
+        }
 
         return -1;
     }

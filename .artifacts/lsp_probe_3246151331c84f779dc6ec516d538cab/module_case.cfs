@@ -1,0 +1,7 @@
+export func add_base(v) {
+    return v + 1;
+}
+
+export func scale_twice(x) {
+    return x * 2;
+}

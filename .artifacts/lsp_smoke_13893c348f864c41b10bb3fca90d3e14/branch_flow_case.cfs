@@ -1,0 +1,48 @@
+import { add_base as plus, scale_twice as twice } from "./module_case.cfs";
+
+func choose_callable(flag) {
+    if (flag) {
+        return plus;
+    }
+
+    return twice;
+}
+
+func run_choose_callable(flag) {
+    var picked = choose_callable(flag);
+    return picked(3);
+}
+
+func run_branch_merge(flag) {
+    var picked = plus;
+    if (flag) {
+        picked = twice;
+    }
+
+    return picked(4);
+}
+
+func build_plus_box() {
+    var bag = {};
+    bag["fn"] = plus;
+    return bag;
+}
+
+func build_twice_box() {
+    var bag = {};
+    bag["fn"] = twice;
+    return bag;
+}
+
+func choose_box(flag) {
+    if (flag) {
+        return build_plus_box();
+    }
+
+    return build_twice_box();
+}
+
+func run_choose_box(flag) {
+    var picked = choose_box(flag);
+    return picked["fn"](2);
+}

@@ -1,0 +1,35 @@
+import { add_base as plus, scale_twice as twice } from "./module_case.cfs";
+
+func build_handler_array() {
+    return [plus, twice];
+}
+
+func run_array_literal_calls() {
+    var handlers = [plus, twice];
+    return handlers[0](14) + handlers[1](15);
+}
+
+func run_array_assignment_calls() {
+    var handlers = [];
+    handlers[0] = plus;
+    handlers[1] = twice;
+    return handlers[0](16) + handlers[1](17);
+}
+
+func run_returned_array_calls() {
+    var handlers = build_handler_array();
+    return handlers[0](18) + handlers[1](19);
+}
+
+func choose_literal_box(flag) {
+    if (flag) {
+        return {"fn": plus};
+    }
+
+    return {"fn": twice};
+}
+
+func run_returned_dict_literal(flag) {
+    var bag = choose_literal_box(flag);
+    return bag["fn"](20);
+}
