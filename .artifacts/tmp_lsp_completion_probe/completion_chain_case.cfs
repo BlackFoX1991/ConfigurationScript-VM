@@ -1,5 +1,0 @@
-import * as Tools from "./module_case.cfs";
-
-func run() {
-    Tools.add_base(1);
-}

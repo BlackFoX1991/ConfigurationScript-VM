@@ -1,7 +1,0 @@
-import { Worker } from "./iface.cfs";
-
-class WorkerImpl() : Worker {
-    func ping() {
-        return null;
-    }
-}
