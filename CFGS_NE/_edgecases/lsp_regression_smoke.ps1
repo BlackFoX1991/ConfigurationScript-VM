@@ -419,6 +419,14 @@ class Counter() {
 }
 '@
 
+$keywordHoverText = @'
+var bla = 123;
+
+func blabla() {
+    return bla;
+}
+'@
+
 $moduleText = @'
 export func add_base(v) {
     return v + 1;
@@ -862,6 +870,7 @@ $implPath = Join-Path $workspaceRoot "impl.cfs"
 $importsPath = Join-Path $workspaceRoot "imports_case.cfs"
 $signaturePath = Join-Path $workspaceRoot "signature_case.cfs"
 $implicitMemberPath = Join-Path $workspaceRoot "implicit_member_case.cfs"
+$keywordHoverPath = Join-Path $workspaceRoot "keyword_hover_case.cfs"
 $modulePath = Join-Path $workspaceRoot "module_case.cfs"
 $namespaceConsumerPath = Join-Path $workspaceRoot "namespace_consumer_case.cfs"
 $completionChainPath = Join-Path $workspaceRoot "completion_chain_case.cfs"
@@ -882,6 +891,7 @@ $loopControlFlowPath = Join-Path $workspaceRoot "loop_control_flow_case.cfs"
 [IO.File]::WriteAllText($importsPath, $importsText)
 [IO.File]::WriteAllText($signaturePath, $signatureText)
 [IO.File]::WriteAllText($implicitMemberPath, $implicitMemberText)
+[IO.File]::WriteAllText($keywordHoverPath, $keywordHoverText)
 [IO.File]::WriteAllText($modulePath, $moduleText)
 [IO.File]::WriteAllText($namespaceConsumerPath, $namespaceConsumerText)
 [IO.File]::WriteAllText($completionChainPath, $completionChainText)
@@ -912,6 +922,7 @@ try {
     Open-Document -Process $process -Path $importsPath -Text $importsText
     Open-Document -Process $process -Path $signaturePath -Text $signatureText
     Open-Document -Process $process -Path $implicitMemberPath -Text $implicitMemberText
+    Open-Document -Process $process -Path $keywordHoverPath -Text $keywordHoverText
     Open-Document -Process $process -Path $modulePath -Text $moduleText
     Open-Document -Process $process -Path $namespaceConsumerPath -Text $namespaceConsumerText
     Open-Document -Process $process -Path $completionChainPath -Text $completionChainText
@@ -989,6 +1000,19 @@ try {
         position = $implicitMemberPos
     })
     Assert-True -Name "lsp_implicit_member_definition" -Condition (Has-LspResultItems $implicitMemberDefs) -Details "Expected definition for implicit member 'value'. Actual: $(Format-JsonCompact $implicitMemberDefs)"
+
+    $funcKeywordPos = Find-Position -Text $keywordHoverText -Needle "func blabla()" -CharacterOffset 1
+    $funcNamePos = Find-Position -Text $keywordHoverText -Needle "func blabla()" -CharacterOffset ([string]'func bla').Length
+    $funcKeywordHover = Send-LspRequest -Process $process -Method "textDocument/hover" -Params ([ordered]@{
+        textDocument = @{ uri = (New-FileUri $keywordHoverPath) }
+        position = $funcKeywordPos
+    })
+    $funcNameHover = Send-LspRequest -Process $process -Method "textDocument/hover" -Params ([ordered]@{
+        textDocument = @{ uri = (New-FileUri $keywordHoverPath) }
+        position = $funcNamePos
+    })
+    Assert-True -Name "lsp_keyword_hover_ignores_func" -Condition ($null -eq $funcKeywordHover) -Details "Expected no hover on 'func' keyword. Actual: $(Format-JsonCompact $funcKeywordHover)"
+    Assert-True -Name "lsp_function_name_hover_resolves_function" -Condition (($null -ne $funcNameHover) -and $funcNameHover.contents.value -like '*func blabla()*') -Details "Expected hover on function name to resolve function symbol. Actual: $(Format-JsonCompact $funcNameHover)"
 
     $moduleAddPos = Find-Position -Text $moduleText -Needle "add_base(v)"
     $moduleScalePos = Find-Position -Text $moduleText -Needle "scale_twice(x)"

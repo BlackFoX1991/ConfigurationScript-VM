@@ -100,11 +100,21 @@
       "patterns": [
         {
           "name": "entity.name.function.cfgs",
-          "match": "\\b(?:func)\\s+([A-Za-z_][A-Za-z0-9_]*)"
+          "match": "\\bfunc\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.cfgs"
+            }
+          }
         },
         {
           "name": "entity.name.type.class.cfgs",
-          "match": "\\b(?:class|interface|enum|namespace)\\s+([A-Za-z_][A-Za-z0-9_\\.]*)"
+          "match": "\\b(?:class|interface|enum|namespace)\\s+([A-Za-z_][A-Za-z0-9_\\.]*)",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.class.cfgs"
+            }
+          }
         }
       ]
     },

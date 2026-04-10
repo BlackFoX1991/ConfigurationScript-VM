@@ -13,6 +13,15 @@ namespace CFGS.Lsp;
 
 internal sealed class CfgsAnalyzer
 {
+    private static readonly HashSet<string> NonSymbolKeywords = new(StringComparer.Ordinal)
+    {
+        "var", "const", "if", "else", "delete", "while", "do", "for", "foreach", "in", "is",
+        "break", "continue", "func", "return", "match", "case", "default", "try", "catch",
+        "finally", "throw", "class", "interface", "enum", "new", "null", "true", "false", "import",
+        "export", "namespace", "from", "as", "static", "public", "private", "protected",
+        "async", "await", "yield", "out", "using", "defer", "override"
+    };
+
     public static readonly string[] SemanticTokenTypes =
     [
         "namespace",
@@ -183,6 +192,9 @@ internal sealed class CfgsAnalyzer
 
     public IReadOnlyList<CfgsSymbol> FindDefinitions(CfgsAnalysisResult result, int line, int character)
     {
+        if (TryGetNonSymbolKeywordAt(result.SourceText, line, character, out _))
+            return [];
+
         if (TryFindResolvedSymbol(result, line, character, out CfgsSymbol? resolved))
             return [resolved!];
 
@@ -222,6 +234,9 @@ internal sealed class CfgsAnalyzer
 
     public CfgsSymbol? ResolveSymbol(CfgsAnalysisResult result, int line, int character)
     {
+        if (TryGetNonSymbolKeywordAt(result.SourceText, line, character, out _))
+            return null;
+
         if (TryFindResolvedSymbol(result, line, character, out CfgsSymbol? resolved))
             return resolved;
 
@@ -879,6 +894,12 @@ internal sealed class CfgsAnalyzer
             return false;
 
         return true;
+    }
+
+    private static bool TryGetNonSymbolKeywordAt(string sourceText, int line, int character, out string? keyword)
+    {
+        keyword = TextLocator.GetIdentifierAt(sourceText, line, character);
+        return !string.IsNullOrWhiteSpace(keyword) && NonSymbolKeywords.Contains(keyword);
     }
 
     private static StringComparison GetPathComparison()

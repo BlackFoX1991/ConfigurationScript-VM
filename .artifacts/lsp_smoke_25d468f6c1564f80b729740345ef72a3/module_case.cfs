@@ -1,7 +1,0 @@
-export func add_base(v) {
-    return v + 1;
-}
-
-export enum Flag {
-    On
-}
