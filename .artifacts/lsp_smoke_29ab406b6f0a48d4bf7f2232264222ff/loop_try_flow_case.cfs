@@ -1,0 +1,81 @@
+import { add_base as plus, scale_twice as twice } from "./module_case.cfs";
+
+func run_while_merge(flag) {
+    var picked = plus;
+    while (flag) {
+        picked = twice;
+        break;
+    }
+
+    return picked(7);
+}
+
+func run_do_while_override() {
+    var picked = plus;
+    do {
+        picked = twice;
+    } while (false);
+
+    return picked(8);
+}
+
+func run_for_merge(flag) {
+    var picked = plus;
+    for (; flag; flag = false;) {
+        picked = twice;
+    }
+
+    return picked(9);
+}
+
+func run_foreach_merge(items) {
+    var picked = plus;
+    foreach (var value in items) {
+        picked = twice;
+        break;
+    }
+
+    return picked(10);
+}
+
+func run_try_catch_merge(flag) {
+    var picked = plus;
+    try {
+        if (flag) {
+            throw "boom";
+        }
+
+        picked = plus;
+    } catch (e) {
+        picked = twice;
+    }
+
+    return picked(11);
+}
+
+func run_try_finally_forward(flag) {
+    var picked = plus;
+    var forwarded = plus;
+    try {
+        if (flag) {
+            picked = twice;
+        }
+    } finally {
+        forwarded = picked;
+    }
+
+    return forwarded(12);
+}
+
+func run_try_finally_override(flag) {
+    var picked = plus;
+    try {
+        if (flag) {
+            picked = plus;
+        }
+    } finally {
+        picked = twice;
+    }
+
+    return picked(13);
+}

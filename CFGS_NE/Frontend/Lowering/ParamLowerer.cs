@@ -109,7 +109,7 @@ namespace CFGS_VM.Analytic.Lowering
                 stmt.Col,
                 stmt.OriginFile,
                 stmt.IsAsync,
-                parameterSpecs: new List<FunctionParameterSpec>());
+                parameterSpecs: new List<FunctionParameterSpec>(stmt.ParameterSpecs));
         }
 
         private FuncExpr LowerFunctionExpr(FuncExpr expr)
@@ -133,7 +133,7 @@ namespace CFGS_VM.Analytic.Lowering
                 expr.Col,
                 expr.OriginFile,
                 expr.IsAsync,
-                parameterSpecs: new List<FunctionParameterSpec>());
+                parameterSpecs: new List<FunctionParameterSpec>(expr.ParameterSpecs));
         }
 
         private ClassDeclStmt LowerClassDecl(ClassDeclStmt stmt)

@@ -1,0 +1,5 @@
+func sum([a, b], c = 3, *rest) {
+    return a + b + c;
+}
+
+sum([1, 2], 4);

@@ -5,7 +5,7 @@ const vscode = require('vscode');
 
 let activeClient = null;
 const semanticTokenLegend = new vscode.SemanticTokensLegend(
-  ['namespace', 'class', 'enum', 'enumMember', 'function', 'method', 'parameter', 'variable'],
+  ['namespace', 'class', 'interface', 'enum', 'enumMember', 'function', 'method', 'parameter', 'variable'],
   ['declaration', 'readonly', 'static', 'async', 'defaultLibrary']
 );
 

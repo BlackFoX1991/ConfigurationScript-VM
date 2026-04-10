@@ -1,0 +1,7 @@
+import * as Tools from "./module_case.cfs";
+import { add_base } from "./module_case.cfs";
+
+func run() {
+    var flag = Tools["Flag"]["On"];
+    return Tools["add_base"](5) + add_base(1);
+}

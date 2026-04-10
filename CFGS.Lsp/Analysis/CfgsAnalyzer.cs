@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using CFGS_VM.Analytic;
 using CFGS_VM.Analytic.Core;
 using CFGS_VM.Analytic.Ex;
@@ -85,7 +86,7 @@ internal sealed class CfgsAnalyzer
         }
 
         EnsureDocumentEntry(diagnosticsByUri, documentUri);
-        return new CfgsAnalysisResult(documentUri, origin, sourceText, diagnosticsByUri, [], [], new CfgsSemanticModel([], new Dictionary<string, CfgsSymbol>(), []));
+        return new CfgsAnalysisResult(documentUri, origin, sourceText, diagnosticsByUri, [], [], new CfgsSemanticModel([], new Dictionary<string, CfgsSymbol>(), [], [], []));
     }
 
     public IReadOnlyList<CfgsCompletionItem> GetCompletions(CfgsAnalysisResult result)
@@ -279,7 +280,9 @@ internal sealed class CfgsAnalyzer
                 [],
                 resolvedSymbol.IsSynthetic,
                 resolvedSymbol.Id,
-                resolvedSymbol.Signature))
+                resolvedSymbol.Signature,
+                resolvedSymbol.ValueTypeQualifiedName,
+                resolvedSymbol.CallTargetSymbolId))
             .ToList();
     }
 
@@ -322,20 +325,54 @@ internal sealed class CfgsAnalyzer
     public IReadOnlyList<CfgsSymbol> FindImplementations(CfgsAnalysisResult result, int line, int character)
     {
         CfgsSymbol? symbol = ResolveSymbol(result, line, character);
-        if (symbol is null)
-            return [];
+        return symbol is null ? [] : FindImplementations(result, symbol);
+    }
 
-        if (symbol.Kind is 5 or 11)
-            return FindTypeImplementations(result, symbol);
+    public IReadOnlyList<CfgsSymbol> FindImplementations(CfgsAnalysisResult result, CfgsSymbol symbol)
+    {
+        CfgsSymbol? resolvedSymbol = FindEquivalentSemanticSymbol(result, symbol) ?? symbol;
 
-        if (symbol.Kind == 6)
+        if (resolvedSymbol.Kind is 5 or 11)
+            return FindTypeImplementations(result, resolvedSymbol);
+
+        if (resolvedSymbol.Kind == 6)
         {
-            string methodName = symbol.Name;
+            string? containingTypeQualifiedName = TryGetContainingTypeQualifiedName(resolvedSymbol.QualifiedName);
+            if (!string.IsNullOrWhiteSpace(containingTypeQualifiedName))
+            {
+                CfgsSymbol? containingType = result.AllSymbols
+                    .Concat(result.SemanticModel.Symbols)
+                    .FirstOrDefault(s =>
+                        string.Equals(s.QualifiedName, containingTypeQualifiedName, StringComparison.Ordinal) &&
+                        s.Kind is 5 or 11);
+
+                if (containingType is not null)
+                {
+                    List<CfgsSymbol> members = FindTypeImplementations(result, containingType)
+                        .SelectMany(candidateType => result.AllSymbols
+                            .Concat(result.SemanticModel.Symbols)
+                            .Where(s =>
+                                s.Kind == 6 &&
+                                !s.IsSynthetic &&
+                                string.Equals(
+                                    s.QualifiedName,
+                                    $"{candidateType.QualifiedName}.{resolvedSymbol.Name}",
+                                    StringComparison.Ordinal)))
+                        .GroupBy(s => s.QualifiedName, StringComparer.Ordinal)
+                        .Select(static g => g.First())
+                        .ToList();
+
+                    if (members.Count > 0)
+                        return members;
+                }
+            }
+
+            string methodName = resolvedSymbol.Name;
             return result.AllSymbols
                 .Concat(result.SemanticModel.Symbols)
                 .Where(s => s.Kind == 6 && !s.IsSynthetic &&
                             string.Equals(s.Name, methodName, StringComparison.Ordinal) &&
-                            !string.Equals(s.QualifiedName, symbol.QualifiedName, StringComparison.Ordinal))
+                            !string.Equals(s.QualifiedName, resolvedSymbol.QualifiedName, StringComparison.Ordinal))
                 .GroupBy(s => s.QualifiedName, StringComparer.Ordinal)
                 .Select(static g => g.First())
                 .ToList();
@@ -347,7 +384,14 @@ internal sealed class CfgsAnalyzer
     public CfgsCallHierarchyItem? PrepareCallHierarchy(CfgsAnalysisResult result, int line, int character)
     {
         CfgsSymbol? symbol = ResolveSymbol(result, line, character);
+        symbol = ResolveCallTargetSymbol(result, symbol);
         if (symbol is null || symbol.IsSynthetic || symbol.Kind is not (6 or 12))
+        {
+            if (!TryFindResolvedCallableSymbol(result, line, character, static s => !s.IsSynthetic && s.Kind is 6 or 12, out symbol))
+                return null;
+        }
+
+        if (symbol is null)
             return null;
 
         return new CfgsCallHierarchyItem(symbol.Name, symbol.Kind, symbol.Uri, symbol.Range, symbol.SelectionRange, symbol.Detail);
@@ -358,18 +402,19 @@ internal sealed class CfgsAnalyzer
         CfgsSymbol? target = result.SemanticModel.Symbols
             .FirstOrDefault(s => string.Equals(s.Name, item.Name, StringComparison.Ordinal) &&
                                  string.Equals(s.Uri, item.Uri, GetPathComparison()) &&
+                                 s.SelectionRange.Equals(item.SelectionRange) &&
                                  s.Kind is 6 or 12);
 
         if (target is null || string.IsNullOrWhiteSpace(target.Id))
             return [];
 
-        IReadOnlyList<CfgsResolvedOccurrence> callSites = result.SemanticModel.Occurrences
-            .Where(o => string.Equals(o.SymbolId, target.Id, StringComparison.Ordinal) && !o.IsDeclaration)
-            .ToList();
-
         Dictionary<string, (CfgsSymbol Caller, List<RangeInfo> Ranges)> callers = new(StringComparer.Ordinal);
-        foreach (CfgsResolvedOccurrence callSite in callSites)
+        foreach (CfgsResolvedCallSite callSite in GetResolvedCallSites(result))
         {
+            IReadOnlyList<CfgsSymbol> calledSymbols = ResolveCallSiteSymbols(result, callSite, static s => s.Kind is 6 or 12);
+            if (!calledSymbols.Any(calledSymbol => string.Equals(calledSymbol.Id, target.Id, StringComparison.Ordinal)))
+                continue;
+
             CfgsSymbol? caller = FindEnclosingFunction(result, callSite.Uri, callSite.Range.Start.Line, callSite.Range.Start.Character);
             if (caller is null)
                 continue;
@@ -380,7 +425,8 @@ internal sealed class CfgsAnalyzer
                 entry = (caller, []);
                 callers[key] = entry;
             }
-            entry.Ranges.Add(callSite.Range);
+            if (!entry.Ranges.Contains(callSite.Range))
+                entry.Ranges.Add(callSite.Range);
         }
 
         return callers.Values
@@ -395,6 +441,7 @@ internal sealed class CfgsAnalyzer
         CfgsSymbol? source = result.SemanticModel.Symbols
             .FirstOrDefault(s => string.Equals(s.Name, item.Name, StringComparison.Ordinal) &&
                                  string.Equals(s.Uri, item.Uri, GetPathComparison()) &&
+                                 s.SelectionRange.Equals(item.SelectionRange) &&
                                  s.Kind is 6 or 12);
 
         if (source is null || string.IsNullOrWhiteSpace(source.Id))
@@ -407,31 +454,28 @@ internal sealed class CfgsAnalyzer
             return [];
 
         Dictionary<string, (CfgsSymbol Callee, List<RangeInfo> Ranges)> callees = new(StringComparer.Ordinal);
-        foreach (CfgsResolvedOccurrence occurrence in result.SemanticModel.Occurrences)
+        foreach (CfgsResolvedCallSite callSite in GetResolvedCallSites(result))
         {
-            if (occurrence.IsDeclaration)
+            if (!string.Equals(callSite.Uri, decl.Uri, GetPathComparison()))
                 continue;
 
-            if (!string.Equals(occurrence.Uri, decl.Uri, GetPathComparison()))
-                continue;
-
-            CfgsSymbol? enclosing = FindEnclosingFunction(result, occurrence.Uri, occurrence.Range.Start.Line, occurrence.Range.Start.Character);
+            CfgsSymbol? enclosing = FindEnclosingFunction(result, callSite.Uri, callSite.Range.Start.Line, callSite.Range.Start.Character);
             if (enclosing is null || !string.Equals(enclosing.Id, source.Id, StringComparison.Ordinal))
                 continue;
 
-            if (!result.SemanticModel.SymbolsById.TryGetValue(occurrence.SymbolId, out CfgsSymbol? calledSymbol))
-                continue;
-
-            if (calledSymbol.Kind is not (6 or 12))
-                continue;
-
-            string key = $"{calledSymbol.Uri}|{calledSymbol.QualifiedName}";
-            if (!callees.TryGetValue(key, out var entry))
+            foreach (CfgsSymbol calledSymbol in ResolveCallSiteSymbols(result, callSite, static s => s.Kind is 6 or 12))
             {
-                entry = (calledSymbol, []);
-                callees[key] = entry;
+                string key = $"{calledSymbol.Uri}|{calledSymbol.QualifiedName}";
+                if (!callees.TryGetValue(key, out var entry))
+                {
+                    entry = (calledSymbol, []);
+                    callees[key] = entry;
+                }
+
+                if (!entry.Ranges.Contains(callSite.Range))
+                    entry.Ranges.Add(callSite.Range);
             }
-            entry.Ranges.Add(occurrence.Range);
+
         }
 
         return callees.Values
@@ -445,36 +489,28 @@ internal sealed class CfgsAnalyzer
     {
         List<CfgsInlayHint> hints = [];
 
-        foreach (CfgsResolvedOccurrence occurrence in result.SemanticModel.Occurrences)
+        foreach (CfgsResolvedCallSite callSite in GetResolvedCallSites(result, range))
         {
-            if (!string.Equals(occurrence.Uri, result.DocumentUri, GetPathComparison()))
+            IReadOnlyList<CfgsSignature> signatures = ResolveCallSiteSymbols(result, callSite, static s => s.Signature is not null && s.Kind is 6 or 12 or 5)
+                .Select(static symbol => symbol.Signature!)
+                .GroupBy(static signature => signature.Label, StringComparer.Ordinal)
+                .Select(static group => group.First())
+                .ToList();
+            if (signatures.Count == 0)
                 continue;
 
-            if (occurrence.IsDeclaration)
-                continue;
-
-            if (occurrence.Range.Start.Line < range.Start.Line || occurrence.Range.Start.Line > range.End.Line)
-                continue;
-
-            if (!result.SemanticModel.SymbolsById.TryGetValue(occurrence.SymbolId, out CfgsSymbol? symbol))
-                continue;
-
-            if (symbol.Signature is null || symbol.Kind is not (6 or 12 or 5))
-                continue;
-
-            int callArgIndex = SignatureLocator.TryFindCallArgPositions(result.SourceText, occurrence.Range.Start.Line, occurrence.Range.End.Character);
+            int callArgIndex = SignatureLocator.TryFindCallArgPositions(result.SourceText, callSite.Range.Start.Line, callSite.Range.End.Character);
             if (callArgIndex < 0)
                 continue;
 
             IReadOnlyList<(PositionInfo Position, int ArgIndex)> argPositions =
-                SignatureLocator.GetArgumentPositions(result.SourceText, occurrence.Range.Start.Line, callArgIndex);
+                SignatureLocator.GetArgumentPositions(result.SourceText, callSite.Range.Start.Line, callArgIndex);
 
             foreach ((PositionInfo position, int argIndex) in argPositions)
             {
-                if (argIndex >= symbol.Signature.Parameters.Count)
-                    break;
-
-                hints.Add(new CfgsInlayHint(position, $"{symbol.Signature.Parameters[argIndex]}:", CfgsInlayHintKind.Parameter));
+                string? label = TryGetConsensusParameterLabel(signatures, argIndex);
+                if (label is not null)
+                    hints.Add(new CfgsInlayHint(position, $"{label}:", CfgsInlayHintKind.Parameter));
             }
         }
 
@@ -498,27 +534,16 @@ internal sealed class CfgsAnalyzer
 
         for (int i = 0; i < lines.Length; i++)
         {
-            System.Text.RegularExpressions.Match match =
-                System.Text.RegularExpressions.Regex.Match(lines[i], @"from\s+""(?<path>[^""]+)""");
-            if (!match.Success)
-            {
-                match = System.Text.RegularExpressions.Regex.Match(lines[i], @"from\s+'(?<path>[^']+)'");
-                if (!match.Success)
-                    continue;
-            }
-
-            string rawPath = match.Groups["path"].Value;
-            if (rawPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            (string RawPath, int StartChar, int EndChar)? importPath = TryMatchImportPath(lines[i]);
+            if (importPath is null)
                 continue;
 
-            string? resolvedUri = TryResolveImportUri(result.Origin, rawPath);
+            string? resolvedUri = TryResolveImportUri(result.Origin, importPath.Value.RawPath);
             if (resolvedUri is null)
                 continue;
 
-            int startChar = match.Groups["path"].Index;
-            int endChar = startChar + match.Groups["path"].Length;
             links.Add(new CfgsDocumentLink(
-                new RangeInfo(new PositionInfo(i, startChar), new PositionInfo(i, endChar)),
+                new RangeInfo(new PositionInfo(i, importPath.Value.StartChar), new PositionInfo(i, importPath.Value.EndChar)),
                 resolvedUri));
         }
 
@@ -603,12 +628,24 @@ internal sealed class CfgsAnalyzer
 
     public IReadOnlyList<CfgsCompletionItem> GetCompletions(CfgsAnalysisResult result, int line, int character)
     {
+        MemberCompletionRequest? request = TryFindMemberCompletionRequest(result.SourceText, line, character);
+        if (request is not null)
+        {
+            IReadOnlyList<CfgsCompletionItem> semanticItems = GetSemanticDotCompletions(result, request.Value);
+            if (semanticItems.Count > 0)
+                return semanticItems;
+        }
+
         string? prefix = GetDotPrefix(result.SourceText, line, character);
         if (prefix is not null)
             return GetDotCompletions(result, prefix);
 
         return GetCompletions(result);
     }
+
+    public bool ShouldIncludeSnippetCompletions(CfgsAnalysisResult result, int line, int character)
+        => TryFindMemberCompletionRequest(result.SourceText, line, character) is null &&
+           GetDotPrefix(result.SourceText, line, character) is null;
 
     public IReadOnlyList<CfgsCompletionItem> GetSnippetCompletions()
     {
@@ -636,14 +673,24 @@ internal sealed class CfgsAnalyzer
         if (request is null)
             return null;
 
-        if (!TryFindResolvedSymbol(result, request.Value.TargetLine, request.Value.TargetCharacter, out CfgsSymbol? symbol))
+        IReadOnlyList<CfgsSignature> signatures = FindResolvedCallSite(result, request.Value.TargetLine, request.Value.TargetCharacter) is CfgsResolvedCallSite callSite
+            ? ResolveCallSiteSymbols(result, callSite, static s => s.Signature is not null)
+                .Select(static symbol => symbol.Signature!)
+                .GroupBy(static signature => signature.Label, StringComparer.Ordinal)
+                .Select(static group => group.First())
+                .ToList()
+            : FindResolvedCallableSymbols(result, request.Value.TargetLine, request.Value.TargetCharacter, static s => s.Signature is not null)
+                .Select(static symbol => symbol.Signature!)
+                .GroupBy(static signature => signature.Label, StringComparer.Ordinal)
+                .Select(static group => group.First())
+                .ToList();
+
+        if (signatures.Count == 0)
             return null;
 
-        if (symbol?.Signature is null)
-            return null;
-
-        int activeParameter = Math.Min(request.Value.ActiveParameter, Math.Max(symbol.Signature.Parameters.Count - 1, 0));
-        return new CfgsSignatureHelpResult([symbol.Signature], 0, activeParameter);
+        int maxParameters = signatures.Max(static signature => signature.Parameters.Count);
+        int activeParameter = Math.Min(request.Value.ActiveParameter, Math.Max(maxParameters - 1, 0));
+        return new CfgsSignatureHelpResult(signatures, 0, activeParameter);
     }
 
     public CfgsRenameResult? RenameSymbol(CfgsAnalysisResult result, int line, int character, string newName)
@@ -679,11 +726,127 @@ internal sealed class CfgsAnalyzer
 
     private static CfgsSymbol? FindEquivalentSemanticSymbol(CfgsAnalysisResult result, CfgsSymbol symbol)
     {
-        if (!string.IsNullOrWhiteSpace(symbol.Id) && result.SemanticModel.SymbolsById.TryGetValue(symbol.Id!, out CfgsSymbol? exact))
+        CfgsSymbolIdentity identity = CfgsSymbolIdentity.From(symbol);
+        if (!string.IsNullOrWhiteSpace(symbol.Id) && result.SemanticModel.SymbolsById.TryGetValue(symbol.Id!, out CfgsSymbol? exact) && identity.Matches(exact))
             return exact;
 
-        CfgsSymbolIdentity identity = CfgsSymbolIdentity.From(symbol);
         return result.SemanticModel.Symbols.FirstOrDefault(candidate => identity.Matches(candidate));
+    }
+
+    private static CfgsSymbol? ResolveCallTargetSymbol(CfgsAnalysisResult result, CfgsSymbol? symbol)
+    {
+        if (symbol is null)
+            return null;
+
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        CfgsSymbol current = symbol;
+
+        while (!string.IsNullOrWhiteSpace(current.CallTargetSymbolId) &&
+               seen.Add(current.Id ?? current.QualifiedName) &&
+               result.SemanticModel.SymbolsById.TryGetValue(current.CallTargetSymbolId!, out CfgsSymbol? next))
+        {
+            current = next;
+        }
+
+        return current;
+    }
+
+    private static HashSet<string> CollectCallTargetSymbolIds(CfgsAnalysisResult result, CfgsSymbol target)
+    {
+        HashSet<string> ids = new(StringComparer.Ordinal);
+        if (!string.IsNullOrWhiteSpace(target.Id))
+            ids.Add(target.Id!);
+
+        foreach (CfgsSymbol symbol in result.SemanticModel.Symbols)
+        {
+            CfgsSymbol? resolved = ResolveCallTargetSymbol(result, symbol);
+            if (resolved is null || !string.Equals(resolved.Id, target.Id, StringComparison.Ordinal))
+                continue;
+
+            if (!string.IsNullOrWhiteSpace(symbol.Id))
+                ids.Add(symbol.Id!);
+        }
+
+        return ids;
+    }
+
+    private static IReadOnlyList<CfgsResolvedCallSite> GetResolvedCallSites(CfgsAnalysisResult result, RangeInfo? range = null)
+    {
+        return result.SemanticModel.CallSites
+            .Where(callSite =>
+                string.Equals(callSite.Uri, result.DocumentUri, GetPathComparison()) &&
+                (range is null ||
+                 (callSite.Range.Start.Line >= range.Value.Start.Line &&
+                  callSite.Range.Start.Line <= range.Value.End.Line)))
+            .ToList();
+    }
+
+    private static CfgsResolvedCallSite? FindResolvedCallSite(CfgsAnalysisResult result, int line, int character)
+        => result.SemanticModel.CallSites.FirstOrDefault(callSite =>
+            string.Equals(callSite.Uri, result.DocumentUri, GetPathComparison()) &&
+            Contains(callSite.Range, line, character));
+
+    private static IReadOnlyList<CfgsSymbol> ResolveCallSiteSymbols(CfgsAnalysisResult result, CfgsResolvedCallSite callSite, Func<CfgsSymbol, bool> predicate)
+        => callSite.SymbolIds
+            .Select(symbolId => result.SemanticModel.SymbolsById.GetValueOrDefault(symbolId))
+            .Where(symbol => symbol is not null && predicate(symbol))
+            .Cast<CfgsSymbol>()
+            .GroupBy(static symbol => symbol.Id ?? symbol.QualifiedName, StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .ToList();
+
+    private static string? TryGetConsensusParameterLabel(IReadOnlyList<CfgsSignature> signatures, int argIndex)
+    {
+        string? label = null;
+        foreach (CfgsSignature signature in signatures)
+        {
+            if (argIndex >= signature.Parameters.Count)
+                return null;
+
+            string candidate = signature.Parameters[argIndex];
+            if (label is null)
+            {
+                label = candidate;
+                continue;
+            }
+
+            if (!string.Equals(label, candidate, StringComparison.Ordinal))
+                return null;
+        }
+
+        return label;
+    }
+
+    private static IReadOnlyList<CfgsSymbol> FindResolvedCallableSymbols(CfgsAnalysisResult result, int line, int character, Func<CfgsSymbol, bool> predicate)
+    {
+        List<CfgsSymbol> symbols = [];
+
+        foreach (CfgsResolvedOccurrence occurrence in result.SemanticModel.Occurrences)
+        {
+            if (!string.Equals(occurrence.Uri, result.DocumentUri, GetPathComparison()))
+                continue;
+
+            if (!Contains(occurrence.Range, line, character))
+                continue;
+
+            if (!result.SemanticModel.SymbolsById.TryGetValue(occurrence.SymbolId, out CfgsSymbol? occurrenceSymbol))
+                continue;
+
+            CfgsSymbol? callable = ResolveCallTargetSymbol(result, occurrenceSymbol);
+            if (callable is not null && predicate(callable))
+                symbols.Add(callable);
+        }
+
+        return symbols
+            .GroupBy(static symbol => symbol.Id ?? symbol.QualifiedName, StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .ToList();
+    }
+
+    private static bool TryFindResolvedCallableSymbol(CfgsAnalysisResult result, int line, int character, Func<CfgsSymbol, bool> predicate, out CfgsSymbol? symbol)
+    {
+        symbol = FindResolvedCallableSymbols(result, line, character, predicate).FirstOrDefault();
+        return symbol is not null;
     }
 
     private static bool TryFindResolvedSymbol(CfgsAnalysisResult result, int line, int character, out CfgsSymbol? symbol)
@@ -802,12 +965,22 @@ internal sealed class CfgsAnalyzer
 
         return result.AllSymbols
             .Concat(result.SemanticModel.Symbols)
-            .Where(candidate => candidate.Kind == 5 &&
+            .Where(candidate => (typeSymbol.Kind == 11 ? candidate.Kind is 5 or 11 : candidate.Kind == 5) &&
                                 !candidate.IsSynthetic &&
+                                !string.Equals(candidate.QualifiedName, typeSymbol.QualifiedName, StringComparison.Ordinal) &&
                                 DeclaresTypeReference(candidate.Detail, candidates))
             .GroupBy(candidate => candidate.QualifiedName, StringComparer.Ordinal)
             .Select(static group => group.First())
             .ToList();
+    }
+
+    private static string? TryGetContainingTypeQualifiedName(string qualifiedName)
+    {
+        if (string.IsNullOrWhiteSpace(qualifiedName))
+            return null;
+
+        int lastDot = qualifiedName.LastIndexOf('.');
+        return lastDot > 0 ? qualifiedName[..lastDot] : null;
     }
 
     private static bool DeclaresTypeReference(string detail, HashSet<string> candidates)
@@ -831,6 +1004,9 @@ internal sealed class CfgsAnalyzer
     {
         if (symbol.Kind is 5 or 10 or 11)
             return symbol.QualifiedName;
+
+        if (!string.IsNullOrWhiteSpace(symbol.ValueTypeQualifiedName))
+            return symbol.ValueTypeQualifiedName;
 
         if (symbol.Detail.StartsWith("var ", StringComparison.Ordinal) || symbol.Detail.StartsWith("const ", StringComparison.Ordinal))
         {
@@ -912,6 +1088,15 @@ internal sealed class CfgsAnalyzer
         if (string.IsNullOrWhiteSpace(rawPath))
             return null;
 
+        if (Uri.TryCreate(rawPath, UriKind.Absolute, out Uri? absoluteImportUri))
+        {
+            if (!absoluteImportUri.IsFile)
+                return absoluteImportUri.AbsoluteUri;
+
+            string absoluteImportPath = Path.GetFullPath(absoluteImportUri.LocalPath);
+            return File.Exists(absoluteImportPath) ? new Uri(absoluteImportPath).AbsoluteUri : null;
+        }
+
         string? sourceDir = Path.GetDirectoryName(origin);
         if (string.IsNullOrWhiteSpace(sourceDir))
             return null;
@@ -922,6 +1107,70 @@ internal sealed class CfgsAnalyzer
         string fullPath = Path.GetFullPath(candidatePath);
 
         return File.Exists(fullPath) ? new Uri(fullPath).AbsoluteUri : null;
+    }
+
+    private static (string RawPath, int StartChar, int EndChar)? TryMatchImportPath(string lineText)
+    {
+        foreach (string pattern in new[]
+                 {
+                     @"\bfrom\s+""(?<path>[^""]+)""",
+                     @"\bfrom\s+'(?<path>[^']+)'",
+                     @"^\s*import\s+""(?<path>[^""]+)""",
+                     @"^\s*import\s+'(?<path>[^']+)'"
+                 })
+        {
+            Match match = Regex.Match(lineText, pattern);
+            if (!match.Success)
+                continue;
+
+            Group pathGroup = match.Groups["path"];
+            return (pathGroup.Value, pathGroup.Index, pathGroup.Index + pathGroup.Length);
+        }
+
+        return null;
+    }
+
+    private static MemberCompletionRequest? TryFindMemberCompletionRequest(string sourceText, int line, int character)
+    {
+        string[] lines = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        if (line < 0 || line >= lines.Length)
+            return null;
+
+        string lineText = lines[line];
+        int cursor = Math.Min(Math.Max(character, 0), lineText.Length);
+        int memberStart = cursor;
+        while (memberStart > 0 && IsIdentifierChar(lineText[memberStart - 1]))
+            memberStart--;
+
+        int dotIndex = memberStart - 1;
+        if (dotIndex < 0 || dotIndex >= lineText.Length || lineText[dotIndex] != '.')
+            return null;
+
+        string typedPrefix = lineText[memberStart..cursor];
+        return new MemberCompletionRequest(line, memberStart, typedPrefix);
+    }
+
+    private IReadOnlyList<CfgsCompletionItem> GetSemanticDotCompletions(CfgsAnalysisResult result, MemberCompletionRequest request)
+    {
+        List<CfgsResolvedCompletionTarget> candidates = result.SemanticModel.CompletionTargets
+            .Where(target =>
+                string.Equals(target.Uri, result.DocumentUri, GetPathComparison()) &&
+                target.End.Line == request.TargetLine &&
+                target.End.Character == request.TargetCharacter)
+            .ToList();
+
+        if (candidates.Count == 0)
+            return [];
+
+        return candidates
+            .SelectMany(static target => target.Items)
+            .Where(item =>
+                string.IsNullOrWhiteSpace(request.TypedPrefix) ||
+                item.Label.StartsWith(request.TypedPrefix, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(static item => item.Label, StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .OrderBy(static item => item.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static string? GetDotPrefix(string sourceText, int line, int character)
@@ -969,6 +1218,9 @@ internal sealed class CfgsAnalyzer
 
         return items.OrderBy(static item => item.Label, StringComparer.Ordinal).ToList();
     }
+
+    private static bool IsIdentifierChar(char ch)
+        => char.IsLetterOrDigit(ch) || ch == '_';
 
     private sealed class StringTupleComparer : IEqualityComparer<(string, string)>
     {
@@ -1053,7 +1305,7 @@ internal sealed class CfgsAnalyzer
             {
                 if (stmt is BlockStmt block && block.IsNamespaceScope && TryCreateNamespaceSymbol(block, out CfgsSymbol? namespaceSymbol))
                 {
-                    AllSymbols.Add(namespaceSymbol!);
+                    AddFlattenedSymbol(namespaceSymbol!);
                     if (IsCurrentDocument(block.OriginFile))
                         DocumentSymbols.Add(namespaceSymbol!);
                     continue;
@@ -1064,11 +1316,19 @@ internal sealed class CfgsAnalyzer
 
                 if (TryCreateSymbol(stmt, null, out CfgsSymbol? symbol))
                 {
-                    AllSymbols.Add(symbol!);
+                    AddFlattenedSymbol(symbol!);
                     if (IsCurrentDocument(symbol!.OriginFile))
                         DocumentSymbols.Add(symbol);
                 }
             }
+        }
+
+        private void AddFlattenedSymbol(CfgsSymbol symbol)
+        {
+            AllSymbols.Add(symbol);
+
+            foreach (CfgsSymbol child in symbol.Children)
+                AddFlattenedSymbol(child);
         }
 
         private bool IsSyntheticNamespaceRoot(VarDecl decl)
@@ -1106,9 +1366,6 @@ internal sealed class CfgsAnalyzer
                 $"```cfgs\nnamespace {namespacePath}\n```",
                 children,
                 IsSynthetic: false);
-
-            foreach (CfgsSymbol child in children)
-                AllSymbols.Add(child);
 
             return true;
         }
@@ -1280,8 +1537,7 @@ internal sealed class CfgsAnalyzer
         private CfgsSymbol CreateFunctionSymbol(FuncDeclStmt func, string? containerName, bool isMethod)
         {
             string qualifiedName = Qualify(containerName, func.Name);
-            string prefix = func.IsAsync ? "async func" : "func";
-            string signature = $"{prefix} {func.Name}({string.Join(", ", func.Parameters)})";
+            string signature = SignatureDisplay.BuildFunctionLabel(func.Name, func.IsAsync, func.Parameters, func.ParameterSpecs, func.RestParameter);
             return CreateSymbol(
                 func.Name,
                 qualifiedName,
@@ -1372,10 +1628,7 @@ internal sealed class CfgsAnalyzer
         }
 
         private static string BuildInterfaceMethodSignature(InterfaceMethodDecl method)
-        {
-            string prefix = method.IsAsync ? "async func" : "func";
-            return $"{prefix} {method.Name}({string.Join(", ", method.Parameters)})";
-        }
+            => SignatureDisplay.BuildFunctionLabel(method.Name, method.IsAsync, method.Parameters, parameterSpecs: null, method.RestParameter);
 
         private static StringComparison GetPathComparison()
             => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -1530,6 +1783,11 @@ internal sealed record CfgsCompletionItem(
     string Detail,
     string? InsertText = null);
 
+internal readonly record struct MemberCompletionRequest(
+    int TargetLine,
+    int TargetCharacter,
+    string TypedPrefix);
+
 internal readonly record struct CfgsSemanticTokenSpan(
     int Line,
     int Character,
@@ -1578,7 +1836,9 @@ internal sealed record CfgsSymbol(
     IReadOnlyList<CfgsSymbol> Children,
     bool IsSynthetic,
     string? Id = null,
-    CfgsSignature? Signature = null);
+    CfgsSignature? Signature = null,
+    string? ValueTypeQualifiedName = null,
+    string? CallTargetSymbolId = null);
 
 internal readonly record struct PositionInfo(int Line, int Character);
 

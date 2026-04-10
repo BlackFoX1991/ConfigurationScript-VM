@@ -1,0 +1,6 @@
+import { add_base as plus } from "./module_case.cfs";
+
+func run_alias() {
+    var local = plus;
+    return local(5) + plus(1);
+}

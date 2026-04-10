@@ -1,0 +1,6 @@
+import { add_base as plus, scale_twice as twice } from "./module_case.cfs";
+
+func run_array_literal_calls() {
+    var handlers = [plus, twice];
+    return handlers[0](14) + handlers[1](15);
+}

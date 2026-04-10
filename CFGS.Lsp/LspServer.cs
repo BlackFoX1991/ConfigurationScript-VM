@@ -353,7 +353,8 @@ internal sealed class LspServer
                         CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
                         List<object> items = _analyzer.GetCompletions(analysis, line, character)
                             .Select(ToCompletionPayload).ToList();
-                        items.AddRange(_analyzer.GetSnippetCompletions().Select(ToSnippetCompletionPayload));
+                        if (_analyzer.ShouldIncludeSnippetCompletions(analysis, line, character))
+                            items.AddRange(_analyzer.GetSnippetCompletions().Select(ToSnippetCompletionPayload));
                         await SendResponseAsync(idElement, items, cancellationToken);
                     }
                     return true;
@@ -704,7 +705,7 @@ internal sealed class LspServer
             return [];
 
         return EnumerateWorkspaceStates(anchorState.Uri)
-            .SelectMany(state => _analyzer.FindImplementations(state.Analysis, line, character))
+            .SelectMany(state => _analyzer.FindImplementations(state.Analysis, symbol))
             .GroupBy(s => (s.QualifiedName, s.Uri))
             .Select(static g => g.First())
             .ToList();
@@ -753,7 +754,7 @@ internal sealed class LspServer
         {
             foreach (CfgsCallHierarchyIncomingCall call in _analyzer.FindIncomingCalls(state.Analysis, item))
             {
-                string key = $"{call.From.Uri}|{call.From.Name}";
+                string key = $"{call.From.Uri}|{call.From.SelectionRange.Start.Line}:{call.From.SelectionRange.Start.Character}|{call.From.Name}";
                 if (!merged.TryGetValue(key, out var entry))
                 {
                     entry = (call.From, []);
@@ -776,7 +777,7 @@ internal sealed class LspServer
         {
             foreach (CfgsCallHierarchyOutgoingCall call in _analyzer.FindOutgoingCalls(state.Analysis, item))
             {
-                string key = $"{call.To.Uri}|{call.To.Name}";
+                string key = $"{call.To.Uri}|{call.To.SelectionRange.Start.Line}:{call.To.SelectionRange.Start.Character}|{call.To.Name}";
                 if (!merged.TryGetValue(key, out var entry))
                 {
                     entry = (call.To, []);
@@ -1601,7 +1602,7 @@ internal sealed class LspServer
             Uri = uri;
             Text = text;
             Version = version;
-            Analysis = new CfgsAnalysisResult(uri, uri, text, new Dictionary<string, List<CfgsDiagnostic>>(), [], [], new CfgsSemanticModel([], new Dictionary<string, CfgsSymbol>(), []));
+            Analysis = new CfgsAnalysisResult(uri, uri, text, new Dictionary<string, List<CfgsDiagnostic>>(), [], [], new CfgsSemanticModel([], new Dictionary<string, CfgsSymbol>(), [], [], []));
             LastSuccessfulAnalysis = null;
             PublishedDiagnosticUris = new HashSet<string>(GetUriComparer());
         }

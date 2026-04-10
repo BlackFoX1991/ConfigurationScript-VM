@@ -1,0 +1,9 @@
+class Outer(seed) {
+    var seed = 0;
+
+    class Inner() {
+        func total() {
+            return outer.seed;
+        }
+    }
+}

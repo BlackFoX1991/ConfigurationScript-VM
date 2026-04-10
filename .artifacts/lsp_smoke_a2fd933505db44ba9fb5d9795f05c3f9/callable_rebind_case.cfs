@@ -1,0 +1,11 @@
+import { add_base as plus, scale_twice as twice } from "./module_case.cfs";
+
+func run_rebind() {
+    var local = plus;
+    local = twice;
+
+    var forwarded = null;
+    forwarded = local;
+
+    return forwarded(5) + local(1);
+}
