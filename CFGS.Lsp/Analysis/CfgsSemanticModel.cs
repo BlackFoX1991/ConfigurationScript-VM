@@ -2950,6 +2950,7 @@ internal sealed class CfgsSemanticModelBuilder
         int expectedIndex = Math.Max(fallbackLine - 1, 0);
         int bestIndex = -1;
         int bestDistance = int.MaxValue;
+        int bestNameIndex = -1;
 
         for (int i = Math.Max(0, expectedIndex - 2); i <= Math.Min(lines.Length - 1, expectedIndex + 2); i++)
         {
@@ -2967,10 +2968,11 @@ internal sealed class CfgsSemanticModelBuilder
             {
                 bestDistance = distance;
                 bestIndex = i;
+                bestNameIndex = nameIndex;
             }
         }
 
-        return bestIndex >= 0 ? (bestIndex + 1, 1) : (fallbackLine, fallbackColumn);
+        return bestIndex >= 0 ? (bestIndex + 1, bestNameIndex + 1) : (fallbackLine, fallbackColumn);
     }
 
     private CfgsSignature? TryGetFunctionSignature(Expr? expr, SemanticScope scope)

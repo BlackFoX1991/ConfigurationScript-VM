@@ -1996,13 +1996,17 @@ internal static class TextLocator
 
     private static int FindIdentifier(string lineText, string token, int minIndex)
     {
+        if (string.IsNullOrEmpty(token))
+            return -1;
+
         int searchIndex = Math.Min(Math.Max(minIndex, 0), lineText.Length);
-        int found = lineText.IndexOf(token, searchIndex, StringComparison.Ordinal);
-        if (IsValidIdentifierMatch(lineText, found, token.Length))
+        int found = FindValidIdentifierMatch(lineText, token, searchIndex, lineText.Length);
+        if (found >= 0)
             return found;
 
-        found = lineText.IndexOf(token, StringComparison.Ordinal);
-        return IsValidIdentifierMatch(lineText, found, token.Length) ? found : -1;
+        return searchIndex > 0
+            ? FindValidIdentifierMatch(lineText, token, 0, searchIndex)
+            : -1;
     }
 
     private static bool IsValidIdentifierMatch(string lineText, int start, int length)
@@ -2019,23 +2023,46 @@ internal static class TextLocator
     private static (int lineIndex, int charIndex)? FindIdentifierNearby(string[] lines, int expectedLine, string token)
     {
         int bestDistance = int.MaxValue;
+        int bestDirectionScore = int.MaxValue;
         (int lineIndex, int charIndex)? best = null;
 
-        for (int i = Math.Max(0, expectedLine - 2); i <= Math.Min(lines.Length - 1, expectedLine + 2); i++)
+        for (int i = 0; i < lines.Length; i++)
         {
             int found = FindIdentifier(lines[i], token, 0);
             if (found < 0)
                 continue;
 
             int distance = Math.Abs(i - expectedLine);
-            if (distance < bestDistance)
+            int directionScore = i < expectedLine ? 1 : 0;
+            if (distance < bestDistance || (distance == bestDistance && directionScore < bestDirectionScore))
             {
                 bestDistance = distance;
+                bestDirectionScore = directionScore;
                 best = (i, found);
             }
         }
 
         return best;
+    }
+
+    private static int FindValidIdentifierMatch(string lineText, string token, int startIndex, int endExclusive)
+    {
+        int limit = Math.Min(Math.Max(endExclusive, 0), lineText.Length);
+        int searchIndex = Math.Min(Math.Max(startIndex, 0), limit);
+
+        while (searchIndex <= limit)
+        {
+            int found = lineText.IndexOf(token, searchIndex, StringComparison.Ordinal);
+            if (found < 0 || found >= limit)
+                return -1;
+
+            if (IsValidIdentifierMatch(lineText, found, token.Length))
+                return found;
+
+            searchIndex = found + 1;
+        }
+
+        return -1;
     }
 
     private static int ClampIndex(string text, int index)
