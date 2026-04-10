@@ -1,0 +1,8 @@
+﻿class MyClass() {
+    var a = 1;
+    var b = 2;
+}
+
+func main() {
+    print("Hello");
+}

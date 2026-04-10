@@ -12,6 +12,9 @@
       "include": "#numbers"
     },
     {
+      "include": "#declarations"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -80,11 +83,37 @@
         },
         {
           "name": "keyword.declaration.cfgs",
-          "match": "\\b(?:var|const|func|class|interface|enum|namespace|import|export|from|as|static|public|private|protected|async|override|new|delete)\\b"
+          "match": "\\b(?:var|const|import|export|from|as|static|public|private|protected|async|override|new|delete)\\b"
         },
         {
           "name": "constant.language.cfgs",
           "match": "\\b(?:true|false|null)\\b"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(func)\\b(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.cfgs"
+            },
+            "3": {
+              "name": "entity.name.function.cfgs"
+            }
+          }
+        },
+        {
+          "match": "\\b(class|interface|enum|namespace)\\b(\\s+)([A-Za-z_][A-Za-z0-9_\\.]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.cfgs"
+            },
+            "3": {
+              "name": "entity.name.type.class.cfgs"
+            }
+          }
         }
       ]
     },
@@ -99,22 +128,8 @@
     "types": {
       "patterns": [
         {
-          "name": "entity.name.function.cfgs",
-          "match": "\\bfunc\\s+([A-Za-z_][A-Za-z0-9_]*)",
-          "captures": {
-            "1": {
-              "name": "entity.name.function.cfgs"
-            }
-          }
-        },
-        {
           "name": "entity.name.type.class.cfgs",
-          "match": "\\b(?:class|interface|enum|namespace)\\s+([A-Za-z_][A-Za-z0-9_\\.]*)",
-          "captures": {
-            "1": {
-              "name": "entity.name.type.class.cfgs"
-            }
-          }
+          "match": "\\b[A-Z][A-Za-z0-9_]*(?:\\.[A-Z][A-Za-z0-9_]*)*\\b"
         }
       ]
     },

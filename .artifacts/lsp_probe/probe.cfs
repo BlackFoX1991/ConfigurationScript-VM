@@ -1,0 +1,9 @@
+﻿class myclass
+{
+    var a = 1;
+}
+
+func main()
+{
+    print("Hello");
+}

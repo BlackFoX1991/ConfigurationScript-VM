@@ -419,6 +419,14 @@ class Counter() {
 }
 '@
 
+$singleCharFieldText = @'
+class HighlightCase() {
+    var a = 1;
+    var b = 2;
+    var c = 3;
+}
+'@
+
 $keywordHoverText = @'
 var bla = 123;
 
@@ -870,6 +878,7 @@ $implPath = Join-Path $workspaceRoot "impl.cfs"
 $importsPath = Join-Path $workspaceRoot "imports_case.cfs"
 $signaturePath = Join-Path $workspaceRoot "signature_case.cfs"
 $implicitMemberPath = Join-Path $workspaceRoot "implicit_member_case.cfs"
+$singleCharFieldPath = Join-Path $workspaceRoot "single_char_field_case.cfs"
 $keywordHoverPath = Join-Path $workspaceRoot "keyword_hover_case.cfs"
 $modulePath = Join-Path $workspaceRoot "module_case.cfs"
 $namespaceConsumerPath = Join-Path $workspaceRoot "namespace_consumer_case.cfs"
@@ -891,6 +900,7 @@ $loopControlFlowPath = Join-Path $workspaceRoot "loop_control_flow_case.cfs"
 [IO.File]::WriteAllText($importsPath, $importsText)
 [IO.File]::WriteAllText($signaturePath, $signatureText)
 [IO.File]::WriteAllText($implicitMemberPath, $implicitMemberText)
+[IO.File]::WriteAllText($singleCharFieldPath, $singleCharFieldText)
 [IO.File]::WriteAllText($keywordHoverPath, $keywordHoverText)
 [IO.File]::WriteAllText($modulePath, $moduleText)
 [IO.File]::WriteAllText($namespaceConsumerPath, $namespaceConsumerText)
@@ -922,6 +932,7 @@ try {
     Open-Document -Process $process -Path $importsPath -Text $importsText
     Open-Document -Process $process -Path $signaturePath -Text $signatureText
     Open-Document -Process $process -Path $implicitMemberPath -Text $implicitMemberText
+    Open-Document -Process $process -Path $singleCharFieldPath -Text $singleCharFieldText
     Open-Document -Process $process -Path $keywordHoverPath -Text $keywordHoverText
     Open-Document -Process $process -Path $modulePath -Text $moduleText
     Open-Document -Process $process -Path $namespaceConsumerPath -Text $namespaceConsumerText
@@ -1000,6 +1011,48 @@ try {
         position = $implicitMemberPos
     })
     Assert-True -Name "lsp_implicit_member_definition" -Condition (Has-LspResultItems $implicitMemberDefs) -Details "Expected definition for implicit member 'value'. Actual: $(Format-JsonCompact $implicitMemberDefs)"
+
+    $singleCharFieldSymbols = Send-LspRequest -Process $process -Method "textDocument/documentSymbol" -Params ([ordered]@{
+        textDocument = @{ uri = (New-FileUri $singleCharFieldPath) }
+    })
+    $singleCharFieldSymbolList = @($singleCharFieldSymbols)
+    $singleCharFieldChildren = if ($singleCharFieldSymbolList.Length -gt 0) { @($singleCharFieldSymbolList[0].children) } else { @() }
+    $fieldA = $singleCharFieldChildren | Where-Object { $null -ne $_ -and $_.name -eq "a" } | Select-Object -First 1
+    $fieldC = $singleCharFieldChildren | Where-Object { $null -ne $_ -and $_.name -eq "c" } | Select-Object -First 1
+    $singleCharFieldRangesOk =
+        ($null -ne $fieldA) -and
+        ($fieldA.selectionRange.start.line -eq 1) -and
+        ($fieldA.selectionRange.start.character -eq 8) -and
+        ($null -ne $fieldC) -and
+        ($fieldC.selectionRange.start.line -eq 3) -and
+        ($fieldC.selectionRange.start.character -eq 8)
+    Assert-True -Name "lsp_single_char_class_field_ranges" -Condition $singleCharFieldRangesOk -Details "Expected one-letter class fields to resolve to their declaration lines. Actual: $(Format-JsonCompact $singleCharFieldSymbols)"
+
+    $singleCharFieldTokens = Send-LspRequest -Process $process -Method "textDocument/semanticTokens/full" -Params ([ordered]@{
+        textDocument = @{ uri = (New-FileUri $singleCharFieldPath) }
+    })
+    $hasKeywordOverlayToken = $false
+    $absoluteLine = 0
+    $absoluteCharacter = 0
+    $tokenData = @($singleCharFieldTokens.data)
+    for ($i = 0; $i -lt $tokenData.Length; $i += 5) {
+        $deltaLine = [int]$tokenData[$i]
+        $deltaCharacter = [int]$tokenData[$i + 1]
+        $length = [int]$tokenData[$i + 2]
+
+        if ($deltaLine -ne 0) {
+            $absoluteLine += $deltaLine
+            $absoluteCharacter = $deltaCharacter
+        } else {
+            $absoluteCharacter += $deltaCharacter
+        }
+
+        if ($absoluteLine -eq 0 -and $absoluteCharacter -eq 0 -and $length -eq 1) {
+            $hasKeywordOverlayToken = $true
+            break
+        }
+    }
+    Assert-True -Name "lsp_single_char_field_semantic_tokens" -Condition (-not $hasKeywordOverlayToken) -Details "Expected no bogus semantic token on the first character of the class keyword. Actual: $(Format-JsonCompact $singleCharFieldTokens)"
 
     $funcKeywordPos = Find-Position -Text $keywordHoverText -Needle "func blabla()" -CharacterOffset 1
     $funcNamePos = Find-Position -Text $keywordHoverText -Needle "func blabla()" -CharacterOffset ([string]'func bla').Length

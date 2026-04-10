@@ -91,7 +91,7 @@ powershell -ExecutionPolicy Bypass -File vscode-cfgs\scripts\package-vsix.ps1
 The package is written to:
 
 ```text
-artifacts/blackfox1991.cfgs-vscode-0.1.0.vsix
+artifacts/blackfox1991.cfgs-vscode-0.3.3.vsix
 ```
 
 The packaged extension includes the built CFGS language server under `extension/server`, so it can start directly after installation as long as `dotnet` is available on the machine.

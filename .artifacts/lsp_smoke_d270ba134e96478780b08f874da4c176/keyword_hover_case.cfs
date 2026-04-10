@@ -1,0 +1,5 @@
+var bla = 123;
+
+func blabla() {
+    return bla;
+}
