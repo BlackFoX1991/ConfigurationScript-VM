@@ -101,6 +101,15 @@ foreach (var key, value in {"a": 1, "b": 2}) {
 }
 ```
 
+With a single binding, dictionary iteration yields a `[key, value]` pair array.
+
+```cfs
+foreach (var entry in {"a": 1, "b": 2}) {
+    print(entry[0]);
+    print(entry[1]);
+}
+```
+
 ### Destructuring inside `foreach`
 
 ```cfs

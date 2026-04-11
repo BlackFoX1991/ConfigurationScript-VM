@@ -83,7 +83,7 @@
         },
         {
           "name": "keyword.declaration.cfgs",
-          "match": "\\b(?:var|const|import|export|from|as|static|public|private|protected|async|override|new|delete)\\b"
+          "match": "\\b(?:var|const|import|export|from|as|static|public|private|protected|async|new|delete)\\b"
         },
         {
           "name": "constant.language.cfgs",

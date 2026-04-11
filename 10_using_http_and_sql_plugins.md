@@ -27,7 +27,7 @@ After that, their builtins and intrinsics are available globally.
 - `urldecode(text)`
 - `http_server(port)`
 
-`http_post`, `http_put`, and `http_patch` accept an optional `contentType` parameter. The default is `application/json`.
+`http_post`, `http_put`, and `http_patch` accept an optional `contentType` parameter. The default is `text/plain`.
 
 ### Return Shape of `http_get`, `http_post`, and Others
 
