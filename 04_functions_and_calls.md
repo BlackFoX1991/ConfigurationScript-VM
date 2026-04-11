@@ -84,6 +84,8 @@ func open_port(host, port = 80) {
 
 An important detail is that default values may refer to earlier parameters.
 
+Another important detail is that CFGS lowers default parameters to `if (param == null) ...` initialization at function start. Missing optional arguments therefore arrive as `null`, and an explicitly passed `null` also triggers the default.
+
 ```cfs
 func with_dep(a, b = a * 2, c = b + 1) {
     return a + b + c;

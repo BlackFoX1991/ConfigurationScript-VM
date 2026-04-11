@@ -71,7 +71,7 @@ If the class defines `init`, the `new` call uses it with the provided arguments.
 
 ## Object Initializers
 
-Directly after `new`, you can override known members.
+Directly after `new`, you can set known members through an object initializer.
 
 ```cfs
 class Config(host, port) {
@@ -603,6 +603,8 @@ class Token(value) {
 ## Override Rules
 
 Overrides are validated strictly. The compiler checks several things.
+
+Overriding is implicit by redeclaring a member with the same name in a derived class. There is no separate `override` keyword in CFGS.
 
 - Member kind must match. Instance against instance. Static against static.
 - Parameter shape and arity must be compatible.

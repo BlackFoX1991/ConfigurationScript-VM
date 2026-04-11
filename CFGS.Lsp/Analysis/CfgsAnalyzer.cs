@@ -19,7 +19,7 @@ internal sealed class CfgsAnalyzer
         "break", "continue", "func", "return", "match", "case", "default", "try", "catch",
         "finally", "throw", "class", "interface", "enum", "new", "null", "true", "false", "import",
         "export", "namespace", "from", "as", "static", "public", "private", "protected",
-        "async", "await", "yield", "out", "using", "defer", "override"
+        "async", "await", "yield", "out", "using", "defer"
     };
 
     public static readonly string[] SemanticTokenTypes =
@@ -668,14 +668,14 @@ internal sealed class CfgsAnalyzer
         [
             new CfgsCompletionItem("if", 15, "if statement", "if (${1:condition}) {\n\t$0\n}"),
             new CfgsCompletionItem("ife", 15, "if-else statement", "if (${1:condition}) {\n\t$2\n} else {\n\t$0\n}"),
-            new CfgsCompletionItem("for", 15, "for loop", "for (var ${1:i} = 0; ${1:i} < ${2:count}; ${1:i}++) {\n\t$0\n}"),
+            new CfgsCompletionItem("for", 15, "for loop", "for (var ${1:i} = 0; ${1:i} < ${2:count}; ${1:i}++;) {\n\t$0\n}"),
             new CfgsCompletionItem("foreach", 15, "foreach loop", "foreach (var ${1:item} in ${2:collection}) {\n\t$0\n}"),
             new CfgsCompletionItem("while", 15, "while loop", "while (${1:condition}) {\n\t$0\n}"),
             new CfgsCompletionItem("func", 15, "function declaration", "func ${1:name}(${2:params}) {\n\t$0\n}"),
             new CfgsCompletionItem("class", 15, "class declaration", "class ${1:Name}(${2:params}) {\n\t$0\n}"),
             new CfgsCompletionItem("interface", 15, "interface declaration", "interface ${1:IName} {\n\tfunc ${2:name}(${3:params});\n\t$0\n}"),
             new CfgsCompletionItem("try", 15, "try-catch block", "try {\n\t$1\n} catch (${2:err}) {\n\t$0\n}"),
-            new CfgsCompletionItem("match", 15, "match expression", "match (${1:expr}) {\n\tcase ${2:pattern} => $0\n}"),
+            new CfgsCompletionItem("match", 15, "match statement", "match (${1:expr}) {\n\tcase ${2:pattern}: {\n\t\t$0\n\t}\n}"),
             new CfgsCompletionItem("import", 15, "import statement", "import { ${1:name} } from \"${2:./module.cfs}\""),
             new CfgsCompletionItem("export", 15, "export declaration", "export ${0}"),
             new CfgsCompletionItem("async", 15, "async function", "async func ${1:name}(${2:params}) {\n\t$0\n}"),

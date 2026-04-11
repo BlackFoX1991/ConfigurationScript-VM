@@ -108,7 +108,7 @@ The productive compiler now uses a lightweight `BoundProgram` handoff between sy
 - `ParamLowerer` rewrites function sugar into ordinary statements inside function bodies.
   - Default parameters become `if (param == null) param = <default>` style initialization statements at the start of the body.
   - Destructure parameters become explicit `DestructureDeclStmt` nodes against the synthetic parameter variable.
-  - After lowering, function declarations and function expressions keep plain parameter lists and empty `ParameterSpecs`, so codegen no longer has to interpret parser-only parameter metadata.
+  - After lowering, function declarations and function expressions keep plain parameter lists and preserve `ParameterSpecs` metadata for downstream validation and tooling.
 
 The compiler therefore receives regularized AST nodes, not parser-side execution side effects.
 

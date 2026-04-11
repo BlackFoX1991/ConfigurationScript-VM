@@ -265,9 +265,9 @@ print(arr.slice(1, 3));
 
 ```cfs
 var nums = [3, 1, 4, 1, 5];
-var doubled = nums.map(func(x) => x * 2);
-var evens = nums.filter(func(x) => x % 2 == 0);
-var sum = nums.reduce(func(acc, x) => acc + x, 0);
+var doubled = nums.map(func(x) { return x * 2; });
+var evens = nums.filter(func(x) { return x % 2 == 0; });
+var sum = nums.reduce(func(acc, x) { return acc + x; }, 0);
 print(doubled);
 print(evens);
 print(sum);

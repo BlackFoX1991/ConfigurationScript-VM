@@ -87,7 +87,7 @@ This is the most precise form when you only need part of the module surface.
 import triple from "tools.cfs";
 ```
 
-This is the shorthand form for importing exactly one exported symbol.
+This is the shorthand form for importing exactly one exported symbol by name. It is not a JavaScript-style special `default` export.
 
 ## Namespace Import
 
