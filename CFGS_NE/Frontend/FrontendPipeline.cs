@@ -5,6 +5,8 @@ using CFGS_VM.Analytic.Tree;
 
 namespace CFGS_VM.Analytic
 {
+    public sealed record FrontendBuildResult(List<Stmt> SyntaxAst, List<Stmt> LoweredAst);
+
     public sealed class FrontendPipeline
     {
         private readonly Action<string>? _loadPluginDll;
@@ -27,10 +29,13 @@ namespace CFGS_VM.Analytic
             _sharedImportStack = sharedImportStack;
         }
 
-        public List<Stmt> BuildLoweredAst(string origin, string sourceText)
+        public FrontendBuildResult BuildLoweredAstWithSyntax(
+            string origin,
+            string sourceText,
+            Parser.TopLevelMode topLevelMode = Parser.TopLevelMode.Script)
         {
             Lexer lexer = new(origin, sourceText);
-            Parser parser = new(lexer);
+            Parser parser = new(lexer, topLevelMode);
             SourceResolver sourceResolver = new(_workingDirectory);
             ImportResolver importResolver = new(
                 _loadPluginDll,
@@ -39,9 +44,18 @@ namespace CFGS_VM.Analytic
                 _sharedImportStack,
                 sourceResolver);
 
-            List<Stmt> ast = parser.Parse();
-            ast = importResolver.ResolveImports(ast);
-            return new SyntaxLowerer().Lower(ast);
+            List<Stmt> syntaxAst = parser.Parse();
+            List<Stmt> resolvedAst = importResolver.ResolveImports(syntaxAst);
+            List<Stmt> loweredAst = new SyntaxLowerer().Lower(resolvedAst);
+            return new FrontendBuildResult(syntaxAst, loweredAst);
+        }
+
+        public List<Stmt> BuildLoweredAst(
+            string origin,
+            string sourceText,
+            Parser.TopLevelMode topLevelMode = Parser.TopLevelMode.Script)
+        {
+            return BuildLoweredAstWithSyntax(origin, sourceText, topLevelMode).LoweredAst;
         }
 
         public static string? TryGetWorkingDirectory(string? origin)

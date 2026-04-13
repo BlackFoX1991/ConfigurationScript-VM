@@ -18,7 +18,7 @@ Across several lines.
 
 ## Top Level Rules
 
-At top level these forms are generally allowed and useful.
+At top level these forms are the declaration-oriented set used by imported modules and namespace bodies.
 
 - Empty statements with `;`
 - `import`
@@ -27,15 +27,9 @@ At top level these forms are generally allowed and useful.
 - `var` and `const`
 - `func` and `async func`
 - `class` and `enum`
-- Statements that begin with an identifier, such as `main();` or `x = 1;`
+Direct control flow statements such as `if`, `for`, `foreach`, `while`, `match`, `try`, `throw`, `break`, `continue`, and `delete` are not allowed at declaration-oriented top level. Free executable statements such as `main();` or `x = 1;` are also rejected there.
 
-Direct control flow statements such as `if`, `for`, `foreach`, `while`, `match`, `try`, `throw`, `break`, `continue`, and `delete` are not allowed at top level.
-
-One important special case is `await`. A bare top level statement like `await work();` is not allowed. An embedded await inside an expression is allowed. That is why this pattern appears often.
-
-```cfs
-var _ = await main();
-```
+Directly executed root scripts still accept the older script-style top level for compatibility. If a direct script is purely declarative and defines `main`, the CLI invokes `main` automatically.
 
 ## Literals
 

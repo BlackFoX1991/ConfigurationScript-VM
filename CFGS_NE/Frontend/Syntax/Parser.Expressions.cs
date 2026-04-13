@@ -567,7 +567,8 @@ namespace CFGS_VM.Analytic.Core
                 int awaitCol = _current.Column;
                 string awaitFile = _current.Filename;
 
-                if (IsInFunction && !IsInAsyncFunction)
+                if ((IsInFunction && !IsInAsyncFunction) ||
+                    (!IsInFunction && _topLevelMode == TopLevelMode.Module))
                     throw new ParserException("await can only be used in async function statements", awaitLine, awaitCol, awaitFile);
 
                 Eat(TokenType.Await);

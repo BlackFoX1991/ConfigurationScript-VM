@@ -83,7 +83,7 @@ namespace CFGS_VM.Analytic.Core
                     "nested namespace declarations are not supported. Use a qualified namespace name (for example: namespace A.B { ... }).",
                     _current.Line, _current.Column, _current.Filename);
 
-            if (TryParseCommonStatement(out Stmt stmt))
+            if (TryParseModuleScopeStatement(out Stmt stmt))
                 return stmt;
 
             throw new ParserException(

@@ -1,0 +1,8 @@
+import "edge_assert.cfs";
+
+async func main() {
+    edge_begin("514_script_automain_async");
+    var _ = await nextTick();
+    edge_eq("automain_async_runs", 41 + 1, 42);
+    edge_finish("514_script_automain_async");
+}

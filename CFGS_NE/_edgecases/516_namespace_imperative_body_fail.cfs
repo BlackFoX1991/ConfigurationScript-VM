@@ -1,0 +1,7 @@
+namespace Demo {
+    func ping() {
+        return 1;
+    }
+
+    ping();
+}

@@ -11,7 +11,7 @@ For `.cfs`, the focus is exported language symbols. For `.dll`, the focus is run
 
 ## Import Header Rule
 
-Imports must live in the script header. In practice that means every `import` statement belongs near the start of the file, before normal top level logic begins.
+Imports must live in the script header. For imported `.cfs` modules, the rest of the file is declaration-oriented: declarations belong there, but free executable statements such as `main();`, assignment statements, or naked blocks do not.
 
 Clean.
 
