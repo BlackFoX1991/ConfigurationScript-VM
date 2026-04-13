@@ -446,7 +446,9 @@ public class Program
         FrontendPipeline frontendPipeline = new(
             loadPluginDll: vm.LoadPlugin,
             workingDirectory: workingDirectory);
-        ast = frontendPipeline.BuildLoweredAst(name, source);
+        FrontendBuildResult frontendBuild = frontendPipeline.BuildLoweredAstWithSyntax(name, source);
+        ast = frontendBuild.LoweredAst;
+        bool shouldAutoInvokeMain = sharedVm is null && ShouldAutoInvokeMain(frontendBuild.SyntaxAst);
 
         compiler = new(name);
         bytecode = compiler.Compile(ast);
@@ -459,6 +461,9 @@ public class Program
 
         await vm.RunAsync(debug, 0, ct);
 
+        if (shouldAutoInvokeMain)
+            _ = await vm.InvokeGlobalFunctionAsync("main", originFile: name);
+
         if (debug)
         {
             vm.DebugOutput.Position = 0;
@@ -467,6 +472,153 @@ public class Program
             using FileStream file = File.Create(lpath);
             vm.DebugOutput.CopyTo(file);
             Console.WriteLine($"[DEBUG] log-file created : {lpath}");
+        }
+    }
+
+    private static bool ShouldAutoInvokeMain(IReadOnlyList<Stmt> syntaxAst)
+        => HasTopLevelMainFunction(syntaxAst) &&
+           !HasImperativeTopLevelStatements(syntaxAst) &&
+           !HasExplicitTopLevelMainInvocation(syntaxAst);
+
+    private static bool HasTopLevelMainFunction(IEnumerable<Stmt> statements)
+    {
+        foreach (Stmt stmt in statements)
+        {
+            switch (stmt)
+            {
+                case FuncDeclStmt funcDecl when string.Equals(funcDecl.Name, "main", StringComparison.Ordinal):
+                    return true;
+                case ExportStmt exportStmt when exportStmt.Inner is FuncDeclStmt exportedFunc &&
+                                               string.Equals(exportedFunc.Name, "main", StringComparison.Ordinal):
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasImperativeTopLevelStatements(IEnumerable<Stmt> statements)
+    {
+        foreach (Stmt stmt in statements)
+        {
+            if (!IsDeclarativeTopLevelStatement(stmt))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsDeclarativeTopLevelStatement(Stmt stmt)
+        => stmt switch
+        {
+            EmptyStmt => true,
+            BareImportSyntaxStmt => true,
+            NamespaceImportSyntaxStmt => true,
+            NamedImportSyntaxStmt => true,
+            DefaultImportSyntaxStmt => true,
+            VarDecl => true,
+            ConstDecl => true,
+            FuncDeclStmt => true,
+            ClassDeclStmt => true,
+            InterfaceDeclStmt => true,
+            EnumDeclStmt => true,
+            NamespaceDeclStmt => true,
+            ExportStmt exportStmt => IsDeclarativeTopLevelStatement(exportStmt.Inner),
+            _ => false
+        };
+
+    private static bool HasExplicitTopLevelMainInvocation(IEnumerable<Stmt> statements)
+    {
+        foreach (Stmt stmt in statements)
+        {
+            if (HasExplicitTopLevelMainInvocation(stmt))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasExplicitTopLevelMainInvocation(Stmt stmt)
+        => stmt switch
+        {
+            ExprStmt exprStmt => ContainsDirectMainCall(exprStmt.Expression),
+            AssignExprStmt assignStmt => ContainsDirectMainCall(assignStmt.Value),
+            SliceSetStmt sliceSetStmt => ContainsDirectMainCall(sliceSetStmt.Value),
+            PushStmt pushStmt => ContainsDirectMainCall(pushStmt.Value),
+            VarDecl varDecl => ContainsDirectMainCall(varDecl.Value),
+            ConstDecl constDecl => ContainsDirectMainCall(constDecl.Value),
+            ExportStmt exportStmt => HasExplicitTopLevelMainInvocation(exportStmt.Inner),
+            BlockStmt blockStmt => HasExplicitTopLevelMainInvocation(blockStmt.Statements),
+            NamespaceDeclStmt namespaceDecl => HasExplicitTopLevelMainInvocation(namespaceDecl.BodyStatements),
+            _ => false
+        };
+
+    private static bool ContainsDirectMainCall(Expr? expr)
+    {
+        switch (expr)
+        {
+            case null:
+                return false;
+            case VarExpr:
+                return false;
+            case FuncExpr:
+                return false;
+            case CallExpr callExpr:
+                if (callExpr.Target is VarExpr targetVar &&
+                    string.Equals(targetVar.Name, "main", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (ContainsDirectMainCall(callExpr.Target))
+                    return true;
+
+                foreach (Expr arg in callExpr.Args)
+                {
+                    if (ContainsDirectMainCall(arg))
+                        return true;
+                }
+
+                return false;
+            case AwaitExpr awaitExpr:
+                return ContainsDirectMainCall(awaitExpr.Inner);
+            case BinaryExpr binaryExpr:
+                return ContainsDirectMainCall(binaryExpr.Left) || ContainsDirectMainCall(binaryExpr.Right);
+            case UnaryExpr unaryExpr:
+                return ContainsDirectMainCall(unaryExpr.Right);
+            case ConditionalExpr conditionalExpr:
+                return ContainsDirectMainCall(conditionalExpr.Condition) ||
+                       ContainsDirectMainCall(conditionalExpr.ThenExpr) ||
+                       ContainsDirectMainCall(conditionalExpr.ElseExpr);
+            case ArrayExpr arrayExpr:
+                return arrayExpr.Elements.Any(ContainsDirectMainCall);
+            case DictExpr dictExpr:
+                return dictExpr.Pairs.Any(pair => ContainsDirectMainCall(pair.Key) || ContainsDirectMainCall(pair.Value));
+            case IndexExpr indexExpr:
+                return ContainsDirectMainCall(indexExpr.Target) || ContainsDirectMainCall(indexExpr.Index);
+            case SliceExpr sliceExpr:
+                return ContainsDirectMainCall(sliceExpr.Target) ||
+                       ContainsDirectMainCall(sliceExpr.Start) ||
+                       ContainsDirectMainCall(sliceExpr.End);
+            case ObjectInitExpr objectInitExpr:
+                return ContainsDirectMainCall(objectInitExpr.Target) ||
+                       objectInitExpr.Inits.Any(init => ContainsDirectMainCall(init.Value));
+            case NewExpr newExpr:
+                return newExpr.Args.Any(ContainsDirectMainCall) ||
+                       newExpr.Initializers.Any(init => ContainsDirectMainCall(init.Value));
+            case MatchExpr matchExpr:
+                if (ContainsDirectMainCall(matchExpr.Scrutinee) || ContainsDirectMainCall(matchExpr.DefaultArm))
+                    return true;
+
+                foreach (CaseExprArm arm in matchExpr.Arms)
+                {
+                    if (ContainsDirectMainCall(arm.Guard) || ContainsDirectMainCall(arm.Body))
+                        return true;
+                }
+
+                return false;
+            default:
+                return false;
         }
     }
 

@@ -12,6 +12,39 @@ namespace CFGS_VM.VMCore
     public partial class VM
     {
         /// <summary>
+        /// Invokes a named top-level CFGS function after the module body has finished loading.
+        /// </summary>
+        public async Task<object?> InvokeGlobalFunctionAsync(string name, List<object>? args = null, string? originFile = null)
+        {
+            if (!Functions.TryGetValue(name, out FunctionInfo? func))
+            {
+                throw new VMException(
+                    $"Runtime error: undefined function '{name}'",
+                    -1, -1, originFile ?? string.Empty, IsDebugging, DebugStream!);
+            }
+
+            if (_scopes.Count == 0)
+                throw new InvalidOperationException("Cannot invoke global function: no global scope available.");
+
+            args ??= [];
+
+            Closure closure = new(
+                func.Address,
+                func.Parameters,
+                func.MinArgs,
+                _scopes[0],
+                name,
+                func.RestParameter,
+                func.isAsync);
+
+            Instruction syntheticCall = new(OpCode.CALL, name, -1, -1, originFile ?? string.Empty);
+            if (TryStartHotAsyncCall(closure, args, receiver: null, accessType: null, syntheticCall, out Task<object?> startedTask))
+                return await startedTask.ConfigureAwait(false);
+
+            return InvokeClosureSync(closure, args, syntheticCall);
+        }
+
+        /// <summary>
         /// Invokes a CFGS closure synchronously from within an intrinsic/builtin.
         /// </summary>
         public object? InvokeClosureSync(Closure closure, List<object> args, Instruction instr)

@@ -49,8 +49,6 @@ import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 func main() {
     print("Hello from CFGS");
 }
-
-main();
 ```
 
 If you want to jump straight into the plugin topics, use these three pages.

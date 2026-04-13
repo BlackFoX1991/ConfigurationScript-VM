@@ -104,13 +104,11 @@ import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 func main() {
     print("CFGS is running");
 }
-
-main();
 ```
 
 ## Top Level Behavior in Short
 
-Top level code in CFGS is intentionally strict. Imports, declarations, and identifier led statements belong there. Control flow such as `if`, `while`, or `try` belongs inside functions or methods.
+Top level code in CFGS now has two practical modes. Directly executed scripts stay compatibility-friendly, but imported `.cfs` modules and namespace bodies are declaration-oriented. In those declaration-oriented contexts, imports and declarations belong at top level, while control flow and free executable statements belong inside functions or methods.
 
 That usually leads to a simple pattern like this.
 
@@ -122,8 +120,8 @@ func main() {
         print("all good");
     }
 }
-
-main();
 ```
+
+When a directly executed script is purely declarative at top level and defines `main`, the CLI invokes `main` automatically. Older scripts that still call `main();` or `var _ = await main();` at top level continue to work.
 
 If you want to understand why certain constructs are not allowed at top level, continue with [Language and Data](02_language_and_data.md) and [Control Flow and Errors](03_control_flow_and_errors.md).

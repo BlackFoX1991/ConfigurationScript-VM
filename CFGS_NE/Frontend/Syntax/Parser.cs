@@ -9,18 +9,26 @@ namespace CFGS_VM.Analytic.Core
     /// </summary>
     public partial class Parser
     {
+        public enum TopLevelMode
+        {
+            Script,
+            Module
+        }
+
         /// <summary>
         /// Defines the _lexer
         /// </summary>
         private readonly Lexer _lexer;
+        private readonly TopLevelMode _topLevelMode;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Parser"/> class.
         /// </summary>
         /// <param name="lexer">The lexer<see cref="Lexer"/></param>
-        public Parser(Lexer lexer)
+        public Parser(Lexer lexer, TopLevelMode topLevelMode = TopLevelMode.Script)
         {
             _lexer = lexer;
+            _topLevelMode = topLevelMode;
             _cursor = new TokenCursor(_lexer);
         }
 

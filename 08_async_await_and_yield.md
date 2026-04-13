@@ -168,7 +168,7 @@ func bad() {
 }
 ```
 
-At top level, a bare `await` statement is also invalid. An embedded await inside an assignment or another identifier led statement is valid.
+At top level, a bare `await` statement is also invalid. In directly executed scripts, an embedded await inside a top-level declaration is still valid for backward compatibility. Imported `.cfs` modules do not allow top-level `await`; put that logic into `async func main()` or another async function instead.
 
 Clean.
 

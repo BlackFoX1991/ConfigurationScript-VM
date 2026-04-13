@@ -1,0 +1,7 @@
+import "edge_assert.cfs";
+
+func main() {
+    edge_begin("513_script_automain_sync");
+    edge_eq("automain_sync_runs", 2 + 3, 5);
+    edge_finish("513_script_automain_sync");
+}

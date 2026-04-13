@@ -168,7 +168,7 @@ namespace CFGS_VM.Analytic.Modules
         private ModuleGraphNode BuildModuleNode(string cacheKey, string sourceName, string sourceText, bool isFileImport)
         {
             Lexer lexer = new(sourceName, sourceText);
-            Parser parser = new(lexer);
+            Parser parser = new(lexer, Parser.TopLevelMode.Module);
             List<Stmt> syntaxStatements = parser.Parse();
 
             ModuleGraphNode node = new(

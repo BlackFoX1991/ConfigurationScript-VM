@@ -76,6 +76,41 @@ namespace CFGS_VM.Analytic.Core
         }
 
         /// <summary>
+        /// Tries to parse a declaration-only statement that is valid in module scope.
+        /// </summary>
+        private bool TryParseModuleScopeStatement(out Stmt stmt)
+        {
+            switch (_current.Type)
+            {
+                case TokenType.Semi:
+                    stmt = ParseEmptyStmt;
+                    return true;
+                case TokenType.Var:
+                    stmt = ParseVarDecl;
+                    return true;
+                case TokenType.Const:
+                    stmt = ParseConstDecl;
+                    return true;
+                case TokenType.Func:
+                case TokenType.Async:
+                    stmt = ParseFuncDecl();
+                    return true;
+                case TokenType.Class:
+                    stmt = ParseClassDecl();
+                    return true;
+                case TokenType.Interface:
+                    stmt = ParseInterfaceDecl();
+                    return true;
+                case TokenType.Enum:
+                    stmt = ParseEnumDecl();
+                    return true;
+                default:
+                    stmt = default!;
+                    return false;
+            }
+        }
+
+        /// <summary>
         /// The ParseStatementInMemberScope
         /// </summary>
         /// <returns>The <see cref="Stmt"/></returns>
@@ -114,6 +149,16 @@ namespace CFGS_VM.Analytic.Core
         {
             if (_current.Type == TokenType.Export)
                 return ParseExportDecl();
+
+            if (_topLevelMode == TopLevelMode.Module)
+            {
+                if (TryParseModuleScopeStatement(out Stmt moduleStmt))
+                    return moduleStmt;
+
+                throw new ParserException(
+                    $"invalid top-level statement {_current.Type}",
+                    _current.Line, _current.Column, _current.Filename);
+            }
 
             if (TryParseCommonStatement(out Stmt stmt))
                 return stmt;
