@@ -1,0 +1,5 @@
+class Box() {
+    func set_missing() {
+        this.missing = 2;
+    }
+}

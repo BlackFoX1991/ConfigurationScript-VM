@@ -156,19 +156,37 @@ namespace CFGS_VM.Analytic.Semantics
             bool hasInstance = currentClass.IsInstanceMember(memberName);
             bool hasStatic = currentClass.IsStaticMember(memberName);
 
-            if (expectInstance && !hasInstance && hasStatic)
+            if (expectInstance && !hasInstance)
             {
+                if (hasStatic)
+                {
+                    throw new CompilerException(
+                        $"invalid instance member access '{memberName}' in class '{currentClass.Name}': member is static",
+                        node.Line,
+                        node.Col,
+                        node.OriginFile);
+                }
+
                 throw new CompilerException(
-                    $"invalid instance member access '{memberName}' in class '{currentClass.Name}': member is static",
+                    $"unknown instance member '{memberName}' in class '{currentClass.Name}'",
                     node.Line,
                     node.Col,
                     node.OriginFile);
             }
 
-            if (!expectInstance && hasInstance && !hasStatic)
+            if (!expectInstance && !hasStatic)
             {
+                if (hasInstance)
+                {
+                    throw new CompilerException(
+                        $"invalid static member access '{memberName}' in class '{currentClass.Name}': member is instance",
+                        node.Line,
+                        node.Col,
+                        node.OriginFile);
+                }
+
                 throw new CompilerException(
-                    $"invalid static member access '{memberName}' in class '{currentClass.Name}': member is instance",
+                    $"unknown static member '{memberName}' in class '{currentClass.Name}'",
                     node.Line,
                     node.Col,
                     node.OriginFile);
@@ -189,19 +207,37 @@ namespace CFGS_VM.Analytic.Semantics
             bool hasInstance = instanceMembers.Contains(memberName);
             bool hasStatic = staticMembers.Contains(memberName);
 
-            if (expectInstance && !hasInstance && hasStatic)
+            if (expectInstance && !hasInstance)
             {
+                if (hasStatic)
+                {
+                    throw new CompilerException(
+                        $"invalid instance member access '{memberName}' in class '{decl.Name}': member is static",
+                        node.Line,
+                        node.Col,
+                        node.OriginFile);
+                }
+
                 throw new CompilerException(
-                    $"invalid instance member access '{memberName}' in class '{decl.Name}': member is static",
+                    $"unknown instance member '{memberName}' in class '{decl.Name}'",
                     node.Line,
                     node.Col,
                     node.OriginFile);
             }
 
-            if (!expectInstance && hasInstance && !hasStatic)
+            if (!expectInstance && !hasStatic)
             {
+                if (hasInstance)
+                {
+                    throw new CompilerException(
+                        $"invalid static member access '{memberName}' in class '{decl.Name}': member is instance",
+                        node.Line,
+                        node.Col,
+                        node.OriginFile);
+                }
+
                 throw new CompilerException(
-                    $"invalid static member access '{memberName}' in class '{decl.Name}': member is instance",
+                    $"unknown static member '{memberName}' in class '{decl.Name}'",
                     node.Line,
                     node.Col,
                     node.OriginFile);

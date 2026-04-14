@@ -872,6 +872,15 @@ namespace CFGS_VM.VMCore
                         }
 
                         if (!allowReservedRuntimeSlotWrites &&
+                            !TryResolveInstanceMemberInHierarchy(obj, key, out _, out _, out _))
+                        {
+                            throw new VMException(
+                                $"Runtime error: invalid instance member '{key}' in class '{obj.ClassName}'",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+                            );
+                        }
+
+                        if (!allowReservedRuntimeSlotWrites &&
                             TryGetStaticType(obj, out StaticInstance objType) &&
                             TryResolveDeclaredVisibilityInHierarchy(objType, expectInstance: true, key, out StaticInstance ownerType, out int visCode))
                         {
@@ -910,6 +919,15 @@ namespace CFGS_VM.VMCore
                         {
                             throw new VMException(
                                 "Runtime error: cannot assign to 'outer' on static type.",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+                            );
+                        }
+
+                        if (!allowReservedRuntimeSlotWrites &&
+                            !TryResolveStaticMemberInHierarchy(st, key, out _, out _))
+                        {
+                            throw new VMException(
+                                $"Runtime error: invalid static member '{key}' in class '{st.ClassName}'.",
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                             );
                         }

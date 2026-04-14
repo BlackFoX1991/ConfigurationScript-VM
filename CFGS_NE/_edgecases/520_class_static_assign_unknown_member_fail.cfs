@@ -1,0 +1,4 @@
+class Box() {
+}
+
+Box.missing = 2;
