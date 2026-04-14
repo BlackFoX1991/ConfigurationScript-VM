@@ -1,0 +1,13 @@
+import "edge_assert.cfs";
+import { get_entry_path } from "_imports/mod_script_path.cfs";
+
+edge_begin("521_script_path_returns_entry_script");
+
+var mainPath = ScriptPath();
+var importedPath = get_entry_path();
+
+edge_true("script_path_non_empty", mainPath != null && mainPath != "");
+edge_true("script_path_ends_with_entry", mainPath.endsWith("521_script_path_returns_entry_script.cfs"));
+edge_eq("script_path_imported_module_matches_main", importedPath, mainPath);
+
+edge_finish("521_script_path_returns_entry_script");

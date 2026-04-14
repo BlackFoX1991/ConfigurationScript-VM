@@ -502,6 +502,11 @@ namespace CFGS.StandardLibrary
                 return Directory.GetCurrentDirectory();
             }));
 
+            builtins.Register(new BuiltinDescriptor("ScriptPath", 0, 0, (args, instr) =>
+            {
+                return VM.CurrentVm?.EntryScriptPath ?? string.Empty;
+            }));
+
             builtins.Register(new BuiltinDescriptor("cmdArgs", 0, 0, (args, instr) =>
             {
                 if (!Environment.GetCommandLineArgs().Contains("-p") && !Environment.GetCommandLineArgs().Contains("-params"))

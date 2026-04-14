@@ -531,6 +531,7 @@ try {
     Run-ExpectContains -Name "512_invalid_push_target_fail" -ScriptArgs @((Edge-Path "_edgecases\512_invalid_push_target_fail.cfs")) -Expected "invalid use of 'push' []"
     Run-ExpectContains -Name "513_script_automain_sync" -ScriptArgs @((Edge-Path "_edgecases\513_script_automain_sync.cfs")) -Expected "EDGE_OK:513_script_automain_sync"
     Run-ExpectContains -Name "514_script_automain_async" -ScriptArgs @((Edge-Path "_edgecases\514_script_automain_async.cfs")) -Expected "EDGE_OK:514_script_automain_async"
+    Run-ExpectContains -Name "521_script_path_returns_entry_script" -ScriptArgs @((Edge-Path "_edgecases\521_script_path_returns_entry_script.cfs")) -Expected "EDGE_OK:521_script_path_returns_entry_script"
     Run-ExpectContains -Name "515_imported_module_imperative_top_level_fail" -ScriptArgs @((Edge-Path "_edgecases\515_imported_module_imperative_top_level_fail.cfs")) -Expected "invalid top-level statement Ident"
     Run-ExpectContains -Name "516_namespace_imperative_body_fail" -ScriptArgs @((Edge-Path "_edgecases\516_namespace_imperative_body_fail.cfs")) -Expected "invalid namespace statement Ident"
     Run-ExpectContains -Name "497_yield_outside_function_fail" -ScriptArgs @((Edge-Path "_edgecases\497_yield_outside_function_fail.cfs")) -Expected "invalid top-level statement Yield"
