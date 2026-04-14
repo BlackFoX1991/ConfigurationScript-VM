@@ -1,0 +1,3 @@
+export func get_entry_path() {
+    return ScriptPath();
+}

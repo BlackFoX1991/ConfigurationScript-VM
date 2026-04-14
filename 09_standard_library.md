@@ -67,6 +67,7 @@ destroy(r);
 
 - `set_workspace(path)` sets the current working directory.
 - `get_workspace()` returns the current working directory.
+- `ScriptPath()` returns the entry script path of the current run. In the REPL it returns `<repl>`.
 - `getDirectory(path)` returns the directory part of a path.
 - `fopen(path, mode)` opens a file and returns a `FileHandle`.
 - `fbopen(path, mode)` opens a file and returns a `BinaryFileHandle`.

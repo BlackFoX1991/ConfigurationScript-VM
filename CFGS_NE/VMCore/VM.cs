@@ -922,6 +922,12 @@ namespace CFGS_VM.VMCore
         public MemoryStream DebugOutput => _debugStream;
 
         /// <summary>
+        /// Gets or sets the entry script path for the current VM run.
+        /// Importing modules does not change this value.
+        /// </summary>
+        public string EntryScriptPath { get; set; } = string.Empty;
+
+        /// <summary>
         /// The RequireStack
         /// </summary>
         /// <param name="needed">The needed<see cref="int"/></param>

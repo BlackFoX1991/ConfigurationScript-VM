@@ -442,6 +442,9 @@ public class Program
         Compiler? compiler = null;
 
         VM vm = sharedVm ?? new VM();
+        vm.EntryScriptPath = string.Equals(name, "<repl>", StringComparison.Ordinal)
+            ? "<repl>"
+            : Path.GetFullPath(name);
 
         FrontendPipeline frontendPipeline = new(
             loadPluginDll: vm.LoadPlugin,
