@@ -1,0 +1,108 @@
+import "plugins/CFGS.StandardLibrary.dll";
+import { Util } from "common.cfs";
+
+export func repr(value) {
+    try {
+        return tojson(value);
+    } catch (e) {
+        return str(value);
+    }
+}
+
+export func assert_eq(name, actual, expected) {
+    var left = repr(actual);
+    var right = repr(expected);
+
+    if (left != right) {
+        throw "assert_eq failed: " + name + "\nactual: " + left + "\nexpected: " + right;
+    }
+
+    print("[ok] " + name);
+}
+
+export func assert_not_eq(name, actual, expected) {
+    var left = repr(actual);
+    var right = repr(expected);
+
+    if (left == right) {
+        throw "assert_not_eq failed: " + name + "\nactual: " + left + "\nexpected different from: " + right;
+    }
+
+    print("[ok] " + name);
+}
+
+export func assert_true(name, condition) {
+    assert_eq(name, condition, true);
+}
+
+export func assert_contains(name, actual_text, expected_part) {
+    var actual = actual_text == null ? "" : str(actual_text);
+    var wanted = expected_part == null ? "" : str(expected_part);
+
+    if (!actual.contains(wanted)) {
+        throw "assert_contains failed: " + name + "\nactual: " + actual + "\nexpected part: " + wanted;
+    }
+
+    print("[ok] " + name);
+}
+
+export func request(method, path, body = "", headers = null, remote = null) {
+    var actual_headers = headers == null ? {"Host":"localhost:8094"} : headers;
+    var actual_path = path;
+    var actual_query = "";
+    var text = path == null ? "" : str(path);
+    var qmark = text.indexOf("?");
+
+    if (qmark >= 0) {
+        actual_path = text.substr(0, qmark);
+        actual_query = text.substr(qmark + 1, len(text) - (qmark + 1));
+    }
+
+    return {
+        "method": method,
+        "path": actual_path,
+        "query": actual_query,
+        "headers": actual_headers,
+        "body": body,
+        "remote": remote
+    };
+}
+
+export func cookie_pair(set_cookie_header, name) {
+    if (set_cookie_header == null || name == null || name == "") {
+        return null;
+    }
+
+    var lines = str(set_cookie_header).split("\n");
+    var wanted = str(name) + "=";
+    var i = 0;
+    while (i < len(lines)) {
+        var line = lines[i].trim();
+        if (line != "") {
+            var semi = line.indexOf(";");
+            var pair = semi < 0 ? line : line.substr(0, semi);
+            if (Util.starts_with(pair, wanted)) {
+                return pair;
+            }
+        }
+        i = i + 1;
+    }
+
+    return null;
+}
+
+export func cookie_value(pair) {
+    if (pair == null) { return null; }
+
+    var text = str(pair);
+    var eq = text.indexOf("=");
+    if (eq < 0) { return null; }
+    return text.substr(eq + 1, len(text) - (eq + 1));
+}
+
+export func json_body(res) {
+    if (res == null || res["body"] == null) {
+        return null;
+    }
+    return fromjson(res["body"]);
+}

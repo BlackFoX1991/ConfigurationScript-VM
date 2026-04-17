@@ -1,0 +1,92 @@
+import "plugins/CFGS.StandardLibrary.dll";
+import { ServerApp } from "server.cfs";
+import {
+    assert_eq,
+    json_body,
+    request
+} from "phase17_smoke_helpers.cfs";
+
+func build_app() {
+    var app = new ServerApp(0);
+    var api = app.group("/api", "api");
+    var v1 = api.group("/v1", "v1");
+
+    v1.get_named("users.show", "/users/:id", func(ctx) {
+        return ctx.response.json({
+            "id": ctx.request.param("id", null)
+        });
+    });
+
+    app.get_named("files.show", "/files/*", func(ctx) {
+        return ctx.response.text(ctx.request.param("*", ""));
+    });
+
+    app.get("/hello/:name", func(ctx) {
+        return ctx.response.text("get", 200, {
+            "X-Route":"get"
+        });
+    });
+
+    app.head("/hello/:name", func(ctx) {
+        return ctx.response.text("head", 200, {
+            "X-Route":"head"
+        });
+    });
+
+    app.get("/fallback/:name", func(ctx) {
+        return ctx.response.text("fallback", 200, {
+            "X-Route":"get-fallback"
+        });
+    });
+
+    app.get("/method-only", func(ctx) {
+        return ctx.response.text("ok");
+    });
+
+    return app;
+}
+
+async func main() {
+    var app = build_app();
+
+    assert_eq("named_group_url", app.url("api.v1.users.show", {
+        "id":"42"
+    }), "/api/v1/users/42");
+    assert_eq("wildcard_url", app.url("files.show", {
+        "*":"a/b.txt"
+    }), "/files/a/b.txt");
+
+    var user = await app.handle(request("GET", "/api/v1/users/42"));
+    var user_body = json_body(user);
+    assert_eq("route_param_id", user_body["id"], "42");
+
+    var wild = await app.handle(request("GET", "/files/a/b.txt"));
+    assert_eq("wildcard_param_value", wild["body"], "a/b.txt");
+
+    var explicit_head = await app.handle(request("HEAD", "/hello/Ada"));
+    assert_eq("explicit_head_status", explicit_head["status"], 200);
+    assert_eq("explicit_head_header", explicit_head["headers"]["X-Route"], "head");
+    assert_eq("explicit_head_bodyless", explicit_head["body"], "");
+
+    var fallback_head = await app.handle(request("HEAD", "/fallback/Bob"));
+    assert_eq("fallback_head_status", fallback_head["status"], 200);
+    assert_eq("fallback_head_uses_get", fallback_head["headers"]["X-Route"], "get-fallback");
+    assert_eq("fallback_head_bodyless", fallback_head["body"], "");
+
+    var method_not_allowed = await app.handle(request("POST", "/method-only"));
+    assert_eq("method_not_allowed_status", method_not_allowed["status"], 405);
+    assert_eq("method_not_allowed_allow", method_not_allowed["headers"]["Allow"], "GET, HEAD, OPTIONS");
+
+    var options = await app.handle(request("OPTIONS", "/method-only"));
+    assert_eq("automatic_options_status", options["status"], 204);
+    assert_eq("automatic_options_allow", options["headers"]["Allow"], "GET, HEAD, OPTIONS");
+    assert_eq("automatic_options_bodyless", options["body"], "");
+
+    var missing = await app.handle(request("GET", "/missing"));
+    assert_eq("not_found_status", missing["status"], 404);
+    assert_eq("not_found_body", missing["body"], "Not Found");
+
+    print("[done] phase17_routing_semantics_smoke");
+}
+
+var _ = await main();

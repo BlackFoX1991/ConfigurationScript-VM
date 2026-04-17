@@ -1,0 +1,79 @@
+import "plugins/CFGS.StandardLibrary.dll";
+import { ServerApp } from "server.cfs";
+import {
+    assert_contains,
+    assert_eq,
+    assert_true,
+    request
+} from "phase17_smoke_helpers.cfs";
+
+func build_app() {
+    var app = new ServerApp(0);
+
+    app.serve_static_map("/assets/", {
+        "plain.txt": {
+            "data":"hello",
+            "content_type":"text/plain; charset=utf-8",
+            "last_modified":"Fri, 17 Apr 2026 10:00:00 GMT"
+        },
+        "custom.txt": {
+            "data":"v1",
+            "content_type":"text/plain; charset=utf-8",
+            "etag":"\"custom-etag\""
+        }
+    }, 123);
+
+    return app;
+}
+
+async func main() {
+    var app = build_app();
+
+    var plain = await app.handle(request("GET", "/assets/plain.txt"));
+    var plain_etag = plain["headers"]["ETag"];
+    var plain_last_modified = plain["headers"]["Last-Modified"];
+    assert_eq("plain_status", plain["status"], 200);
+    assert_eq("plain_body", plain["body"], "hello");
+    assert_contains("plain_cache_control", plain["headers"]["Cache-Control"], "max-age=123");
+    assert_true("plain_etag_present", plain_etag != null && plain_etag != "");
+    assert_true("plain_last_modified_present", plain_last_modified != null && plain_last_modified != "");
+
+    var plain_not_modified = await app.handle(request("GET", "/assets/plain.txt", "", {
+        "Host":"localhost:8094",
+        "If-None-Match": plain_etag
+    }));
+    assert_eq("plain_if_none_match_status", plain_not_modified["status"], 304);
+    assert_eq("plain_if_none_match_body", plain_not_modified["body"], "");
+
+    var plain_if_modified_since = await app.handle(request("GET", "/assets/plain.txt", "", {
+        "Host":"localhost:8094",
+        "If-Modified-Since": plain_last_modified
+    }));
+    assert_eq("plain_if_modified_since_status", plain_if_modified_since["status"], 304);
+    assert_eq("plain_if_modified_since_body", plain_if_modified_since["body"], "");
+
+    var plain_head = await app.handle(request("HEAD", "/assets/plain.txt"));
+    assert_eq("plain_head_status", plain_head["status"], 200);
+    assert_eq("plain_head_bodyless", plain_head["body"], "");
+    assert_eq("plain_head_etag", plain_head["headers"]["ETag"], plain_etag);
+
+    var custom = await app.handle(request("GET", "/assets/custom.txt"));
+    assert_eq("custom_status", custom["status"], 200);
+    assert_eq("custom_body", custom["body"], "v1");
+    assert_eq("custom_etag_preserved", custom["headers"]["ETag"], "\"custom-etag\"");
+
+    var custom_not_modified = await app.handle(request("GET", "/assets/custom.txt", "", {
+        "Host":"localhost:8094",
+        "If-None-Match":"W/\"custom-etag\""
+    }));
+    assert_eq("custom_weak_etag_matches", custom_not_modified["status"], 304);
+    assert_eq("custom_weak_etag_body", custom_not_modified["body"], "");
+
+    var static_options = await app.handle(request("OPTIONS", "/assets/plain.txt"));
+    assert_eq("static_options_status", static_options["status"], 204);
+    assert_eq("static_options_allow", static_options["headers"]["Allow"], "GET, HEAD, OPTIONS");
+
+    print("[done] phase17_static_caching_smoke");
+}
+
+var _ = await main();

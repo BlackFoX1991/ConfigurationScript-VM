@@ -1,0 +1,242 @@
+import "plugins/CFGS.StandardLibrary.dll";
+import { Middleware } from "middleware.cfs";
+import { ServerApp } from "server.cfs";
+import {
+    assert_contains,
+    assert_eq,
+    assert_true,
+    cookie_pair,
+    json_body,
+    request
+} from "phase17_smoke_helpers.cfs";
+
+func build_csrf_app() {
+    var app = new ServerApp(0);
+
+    app.get("/form", func(ctx) {
+        return ctx.response.json({
+            "token": ctx.request.csrf_token(),
+            "field": ctx.request.csrf_field_name()
+        });
+    });
+
+    app.post("/submit", func(ctx) {
+        return ctx.response.text("ok");
+    });
+
+    app.post("/json", func(ctx) {
+        return ctx.response.text("json ok");
+    });
+
+    app.post("/webhook", func(ctx) {
+        return ctx.response.text("webhook ok");
+    }, {
+        "csrf": false
+    });
+
+    return app;
+}
+
+func build_policy_app() {
+    var app = new ServerApp(0);
+    app.use_before(Middleware.host_policy(["app.test"]));
+    app.use_before(Middleware.origin_policy(["http://app.test"], {
+        "allow_missing": false
+    }));
+
+    app.get("/safe", func(ctx) {
+        return ctx.response.text("safe");
+    });
+
+    app.post("/unsafe", func(ctx) {
+        return ctx.response.text("unsafe ok");
+    }, {
+        "csrf": false
+    });
+
+    return app;
+}
+
+func build_rate_limit_app() {
+    var app = new ServerApp(0);
+    app.use_before(Middleware.rate_limit(2, 60, null, {
+        "now_func": func() {
+            return 1000;
+        }
+    }));
+    app.use_after(Middleware.rate_limit_headers());
+
+    app.get("/limited", func(ctx) {
+        return ctx.response.text("ok");
+    });
+
+    return app;
+}
+
+func build_security_headers_app() {
+    var app = new ServerApp(0);
+    app.use_after(Middleware.security_headers());
+
+    app.get("/default", func(ctx) {
+        return ctx.response.text("ok");
+    });
+
+    app.get("/custom", func(ctx) {
+        return ctx.response.text("ok", 200, {
+            "X-Frame-Options":"SAMEORIGIN",
+            "Referrer-Policy":"no-referrer"
+        });
+    });
+
+    return app;
+}
+
+async func smoke_csrf() {
+    var app = build_csrf_app();
+
+    var form = await app.handle(request("GET", "/form"));
+    var sid_pair = cookie_pair(form["headers"]["Set-Cookie"], "cfs_sid");
+    var form_body = json_body(form);
+    var token = form_body["token"];
+    var field = form_body["field"];
+
+    assert_true("csrf_session_cookie_present", sid_pair != null);
+    assert_eq("csrf_field_name", field, "__csrf");
+    assert_true("csrf_token_present", token != null && str(token) != "");
+
+    var missing = await app.handle(request("POST", "/submit", "title=hi", {
+        "Host":"localhost:8094",
+        "Cookie": sid_pair,
+        "Content-Type":"application/x-www-form-urlencoded"
+    }));
+    assert_eq("csrf_missing_status", missing["status"], 403);
+    assert_eq("csrf_missing_body", missing["body"], "Forbidden");
+    assert_contains("csrf_missing_no_store", missing["headers"]["Cache-Control"], "no-store");
+
+    var wrong = await app.handle(request("POST", "/submit", "__csrf=wrong&title=hi", {
+        "Host":"localhost:8094",
+        "Cookie": sid_pair,
+        "Content-Type":"application/x-www-form-urlencoded"
+    }));
+    assert_eq("csrf_wrong_status", wrong["status"], 403);
+
+    var ok = await app.handle(request("POST", "/submit", "__csrf=" + urlencode(token) + "&title=hi", {
+        "Host":"localhost:8094",
+        "Cookie": sid_pair,
+        "Content-Type":"application/x-www-form-urlencoded"
+    }));
+    assert_eq("csrf_valid_status", ok["status"], 200);
+    assert_eq("csrf_valid_body", ok["body"], "ok");
+
+    var json_ok = await app.handle(request("POST", "/json", "{\"ok\":true}", {
+        "Host":"localhost:8094",
+        "Cookie": sid_pair,
+        "Content-Type":"application/json"
+    }));
+    assert_eq("csrf_json_bypass_status", json_ok["status"], 200);
+    assert_eq("csrf_json_bypass_body", json_ok["body"], "json ok");
+
+    var webhook = await app.handle(request("POST", "/webhook", "ping=1", {
+        "Host":"localhost:8094",
+        "Cookie": sid_pair,
+        "Content-Type":"application/x-www-form-urlencoded"
+    }));
+    assert_eq("csrf_route_opt_out_status", webhook["status"], 200);
+    assert_eq("csrf_route_opt_out_body", webhook["body"], "webhook ok");
+}
+
+async func smoke_host_and_origin_policy() {
+    var app = build_policy_app();
+
+    var safe = await app.handle(request("GET", "/safe", "", {
+        "Host":"app.test"
+    }));
+    assert_eq("host_policy_valid_status", safe["status"], 200);
+    assert_eq("host_policy_valid_body", safe["body"], "safe");
+
+    var bad_host = await app.handle(request("GET", "/safe", "", {
+        "Host":"evil.test"
+    }));
+    assert_eq("host_policy_invalid_status", bad_host["status"], 400);
+    assert_eq("host_policy_invalid_body", bad_host["body"], "Invalid Host");
+
+    var missing_origin = await app.handle(request("POST", "/unsafe", "hello", {
+        "Host":"app.test",
+        "Content-Type":"text/plain"
+    }));
+    assert_eq("origin_policy_missing_status", missing_origin["status"], 403);
+    assert_eq("origin_policy_missing_body", missing_origin["body"], "Forbidden");
+
+    var origin_ok = await app.handle(request("POST", "/unsafe", "hello", {
+        "Host":"app.test",
+        "Origin":"http://app.test",
+        "Content-Type":"text/plain"
+    }));
+    assert_eq("origin_policy_valid_status", origin_ok["status"], 200);
+    assert_eq("origin_policy_valid_body", origin_ok["body"], "unsafe ok");
+
+    var referer_ok = await app.handle(request("POST", "/unsafe", "hello", {
+        "Host":"app.test",
+        "Referer":"http://app.test/form",
+        "Content-Type":"text/plain"
+    }));
+    assert_eq("origin_policy_referer_fallback_status", referer_ok["status"], 200);
+
+    var origin_bad = await app.handle(request("POST", "/unsafe", "hello", {
+        "Host":"app.test",
+        "Origin":"http://evil.test",
+        "Content-Type":"text/plain"
+    }));
+    assert_eq("origin_policy_invalid_status", origin_bad["status"], 403);
+    assert_eq("origin_policy_invalid_body", origin_bad["body"], "Forbidden");
+}
+
+async func smoke_rate_limit() {
+    var app = build_rate_limit_app();
+
+    var first = await app.handle(request("GET", "/limited"));
+    assert_eq("rate_limit_first_status", first["status"], 200);
+    assert_eq("rate_limit_first_limit", first["headers"]["X-RateLimit-Limit"], "2");
+    assert_eq("rate_limit_first_remaining", first["headers"]["X-RateLimit-Remaining"], "1");
+    assert_eq("rate_limit_first_reset", first["headers"]["X-RateLimit-Reset"], "1060");
+
+    var second = await app.handle(request("GET", "/limited"));
+    assert_eq("rate_limit_second_status", second["status"], 200);
+    assert_eq("rate_limit_second_remaining", second["headers"]["X-RateLimit-Remaining"], "0");
+
+    var third = await app.handle(request("GET", "/limited"));
+    assert_eq("rate_limit_third_status", third["status"], 429);
+    assert_eq("rate_limit_third_body", third["body"], "Too Many Requests");
+    assert_eq("rate_limit_third_remaining", third["headers"]["X-RateLimit-Remaining"], "0");
+    assert_eq("rate_limit_third_retry_after", third["headers"]["Retry-After"], "60");
+    assert_contains("rate_limit_third_no_store", third["headers"]["Cache-Control"], "no-store");
+}
+
+async func smoke_security_headers() {
+    var app = build_security_headers_app();
+
+    var defaults = await app.handle(request("GET", "/default"));
+    assert_eq("security_default_status", defaults["status"], 200);
+    assert_eq("security_default_nosniff", defaults["headers"]["X-Content-Type-Options"], "nosniff");
+    assert_eq("security_default_frame_options", defaults["headers"]["X-Frame-Options"], "DENY");
+    assert_eq("security_default_referrer_policy", defaults["headers"]["Referrer-Policy"], "strict-origin-when-cross-origin");
+    assert_contains("security_default_csp", defaults["headers"]["Content-Security-Policy"], "form-action 'self'");
+    assert_eq("security_default_permissions_policy", defaults["headers"]["Permissions-Policy"], "camera=(), microphone=(), geolocation=()");
+
+    var custom = await app.handle(request("GET", "/custom"));
+    assert_eq("security_custom_status", custom["status"], 200);
+    assert_eq("security_custom_frame_kept", custom["headers"]["X-Frame-Options"], "SAMEORIGIN");
+    assert_eq("security_custom_referrer_kept", custom["headers"]["Referrer-Policy"], "no-referrer");
+    assert_eq("security_custom_nosniff_added", custom["headers"]["X-Content-Type-Options"], "nosniff");
+    assert_contains("security_custom_csp_added", custom["headers"]["Content-Security-Policy"], "default-src 'self'");
+}
+
+async func main() {
+    await smoke_csrf();
+    await smoke_host_and_origin_policy();
+    await smoke_rate_limit();
+    await smoke_security_headers();
+    print("[done] phase17_security_middleware_smoke");
+}
+
+var _ = await main();
