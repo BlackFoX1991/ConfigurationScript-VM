@@ -1,0 +1,196 @@
+import "plugins/CFGS.StandardLibrary.dll";
+import { Util } from "common.cfs";
+import { ServerApp } from "server.cfs";
+import {
+    assert_contains,
+    assert_eq,
+    assert_not_eq,
+    assert_true,
+    cookie_pair,
+    cookie_value,
+    json_body,
+    request
+} from "phase17_smoke_helpers.cfs";
+
+func build_app() {
+    var app = new ServerApp(0);
+    app.set_session_timeouts(2, 3600);
+
+    app.get("/state", func(ctx) {
+        return ctx.response.json({
+            "sid": ctx.sid,
+            "visits": ctx.request.session("visits", 0),
+            "user_id": ctx.request.session("user_id", null),
+            "marker": ctx.request.session("marker", null)
+        });
+    });
+
+    app.post("/login", func(ctx) {
+        ctx.session["user_id"] = "usr_1";
+        return ctx.response.text("login");
+    }, {
+        "csrf": false
+    });
+
+    app.post("/remember", func(ctx) {
+        ctx.response.remember_session(3600);
+        return ctx.response.text("remember");
+    }, {
+        "csrf": false
+    });
+
+    app.post("/forget", func(ctx) {
+        ctx.response.forget_session();
+        return ctx.response.text("forget");
+    }, {
+        "csrf": false
+    });
+
+    app.post("/rotate", func(ctx) {
+        ctx.session["user_id"] = "usr_1";
+        ctx.session["marker"] = "kept";
+
+        var old_sid = ctx.sid;
+        var new_sid = ctx.response.rotate_session();
+        return ctx.response.json({
+            "old": old_sid,
+            "new": new_sid
+        });
+    }, {
+        "csrf": false
+    });
+
+    app.post("/logout", func(ctx) {
+        var old_sid = ctx.sid;
+        ctx.response.logout_session();
+        return ctx.response.json({
+            "old": old_sid,
+            "new": ctx.sid,
+            "user_id": ctx.request.session("user_id", null),
+            "visits": ctx.request.session("visits", 0)
+        });
+    }, {
+        "csrf": false
+    });
+
+    app.post("/logout-hard", func(ctx) {
+        var old_sid = ctx.sid;
+        ctx.response.logout_session(false);
+        return ctx.response.json({
+            "old": old_sid,
+            "new": ctx.sid
+        });
+    }, {
+        "csrf": false
+    });
+
+    return app;
+}
+
+async func main() {
+    var app = build_app();
+
+    var first = await app.handle(request("GET", "/state"));
+    var sid1_pair = cookie_pair(first["headers"]["Set-Cookie"], "cfs_sid");
+    var sid1 = cookie_value(sid1_pair);
+    var state1 = json_body(first);
+    assert_true("session_cookie_present", sid1_pair != null);
+    assert_eq("state1_sid_matches_cookie", state1["sid"], sid1);
+    assert_eq("state1_visits", state1["visits"], 1);
+    assert_eq("state1_user_id", state1["user_id"], null);
+
+    var second = await app.handle(request("GET", "/state", "", {
+        "Host":"localhost:8094",
+        "Cookie": sid1_pair
+    }));
+    var state2 = json_body(second);
+    assert_eq("state2_sid_same", state2["sid"], sid1);
+    assert_eq("state2_visits", state2["visits"], 2);
+
+    var remember = await app.handle(request("POST", "/remember", "", {
+        "Host":"localhost:8094",
+        "Cookie": sid1_pair
+    }));
+    assert_contains("remember_cookie_max_age", remember["headers"]["Set-Cookie"], "Max-Age=3600");
+
+    var forget = await app.handle(request("POST", "/forget", "", {
+        "Host":"localhost:8094",
+        "Cookie": sid1_pair
+    }));
+    assert_true("forget_cookie_drops_max_age", !str(forget["headers"]["Set-Cookie"]).contains("Max-Age="));
+
+    var rotate = await app.handle(request("POST", "/rotate", "", {
+        "Host":"localhost:8094",
+        "Cookie": sid1_pair
+    }));
+    var rotate_body = json_body(rotate);
+    var sid2_pair = cookie_pair(rotate["headers"]["Set-Cookie"], "cfs_sid");
+    var sid2 = cookie_value(sid2_pair);
+    assert_eq("rotate_old_sid", rotate_body["old"], sid1);
+    assert_eq("rotate_new_sid_cookie", rotate_body["new"], sid2);
+    assert_not_eq("rotate_sid_changed", sid2, sid1);
+    assert_eq("rotate_old_session_removed", app.sessions[sid1], null);
+    assert_eq("rotate_marker_preserved", app.sessions[sid2]["data"]["marker"], "kept");
+
+    var rotated_state = await app.handle(request("GET", "/state", "", {
+        "Host":"localhost:8094",
+        "Cookie": sid2_pair
+    }));
+    var rotated_state_body = json_body(rotated_state);
+    assert_eq("rotated_state_sid", rotated_state_body["sid"], sid2);
+    assert_eq("rotated_state_user_id", rotated_state_body["user_id"], "usr_1");
+    assert_eq("rotated_state_marker", rotated_state_body["marker"], "kept");
+
+    app.sessions[sid2]["last_seen_at"] = Util.now_utc_unix_seconds() - 10;
+    var expired = await app.handle(request("GET", "/state", "", {
+        "Host":"localhost:8094",
+        "Cookie": sid2_pair
+    }));
+    var sid3_pair = cookie_pair(expired["headers"]["Set-Cookie"], "cfs_sid");
+    var sid3 = cookie_value(sid3_pair);
+    var expired_body = json_body(expired);
+    assert_not_eq("expired_session_new_sid", sid3, sid2);
+    assert_eq("expired_session_visits_reset", expired_body["visits"], 1);
+    assert_eq("expired_session_user_reset", expired_body["user_id"], null);
+    assert_eq("expired_old_session_pruned", app.sessions[sid2], null);
+
+    var login = await app.handle(request("POST", "/login", "", {
+        "Host":"localhost:8094",
+        "Cookie": sid3_pair
+    }));
+    var sid3_active_pair = cookie_pair(login["headers"]["Set-Cookie"], "cfs_sid");
+
+    var logout = await app.handle(request("POST", "/logout", "", {
+        "Host":"localhost:8094",
+        "Cookie": sid3_active_pair
+    }));
+    var logout_body = json_body(logout);
+    var sid4_pair = cookie_pair(logout["headers"]["Set-Cookie"], "cfs_sid");
+    var sid4 = cookie_value(sid4_pair);
+    assert_eq("logout_old_sid", logout_body["old"], sid3);
+    assert_eq("logout_new_sid_cookie", logout_body["new"], sid4);
+    assert_not_eq("logout_rotates_to_fresh_session", sid4, sid3);
+    assert_eq("logout_clears_user_id", logout_body["user_id"], null);
+    assert_eq("logout_new_session_visits_zero", logout_body["visits"], 0);
+    assert_eq("logout_old_session_removed", app.sessions[sid3], null);
+
+    var relogin = await app.handle(request("POST", "/login", "", {
+        "Host":"localhost:8094",
+        "Cookie": sid4_pair
+    }));
+    var sid4_active_pair = cookie_pair(relogin["headers"]["Set-Cookie"], "cfs_sid");
+
+    var logout_hard = await app.handle(request("POST", "/logout-hard", "", {
+        "Host":"localhost:8094",
+        "Cookie": sid4_active_pair
+    }));
+    var logout_hard_body = json_body(logout_hard);
+    assert_eq("logout_hard_old_sid", logout_hard_body["old"], sid4);
+    assert_eq("logout_hard_new_null", logout_hard_body["new"], null);
+    assert_contains("logout_hard_expires_cookie", logout_hard["headers"]["Set-Cookie"], "Max-Age=0");
+    assert_eq("logout_hard_old_session_removed", app.sessions[sid4], null);
+
+    print("[done] phase17_session_lifecycle_smoke");
+}
+
+var _ = await main();

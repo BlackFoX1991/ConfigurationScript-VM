@@ -6,6 +6,7 @@ namespace CFGS_VM.VMCore.Plugin
     internal sealed class PluginLoadContext : AssemblyLoadContext
     {
         private readonly AssemblyDependencyResolver _resolver;
+        private readonly string _pluginDirectory;
 
         private static readonly HashSet<string> SharedAssemblyNames = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -16,6 +17,7 @@ namespace CFGS_VM.VMCore.Plugin
             : base(isCollectible: false)
         {
             _resolver = new AssemblyDependencyResolver(pluginPath);
+            _pluginDirectory = Path.GetDirectoryName(pluginPath) ?? AppContext.BaseDirectory;
         }
 
         protected override Assembly? Load(AssemblyName assemblyName)
@@ -30,6 +32,16 @@ namespace CFGS_VM.VMCore.Plugin
             string? path = _resolver.ResolveAssemblyToPath(assemblyName);
             if (path != null)
                 return LoadFromAssemblyPath(path);
+
+            // Some plugins ship additional runtime assemblies next to the DLL
+            // without listing them in deps.json. Fall back to local probing so
+            // plugin-private closures can still load in their own context.
+            if (!string.IsNullOrWhiteSpace(n))
+            {
+                string localCandidate = Path.Combine(_pluginDirectory, n + ".dll");
+                if (File.Exists(localCandidate))
+                    return LoadFromAssemblyPath(localCandidate);
+            }
 
             return null;
         }

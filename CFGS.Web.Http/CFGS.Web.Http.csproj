@@ -1,16 +1,33 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <_NetMajorMinor>$([System.String]::Copy('$(TargetFramework)').Replace('net', ''))</_NetMajorMinor>
   </PropertyGroup>
+
   <ItemGroup>
-    <ProjectReference Include="..\CFGS_NE\CFGS_VM.csproj" />
+    <Reference Include="CFGS_VM">
+      <HintPath>E:\CFGS\ConfigurationScript-VM\CFGS_NE\obj\Debug\net10.0\ref\CFGS_VM.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-  </PropertyGroup>
+  <Target Name="CopyPluginRuntimeDependencies" AfterTargets="Build">
+    <ItemGroup>
+      <_PluginRuntimeDeps Include="$(NetCoreRoot)shared\Microsoft.AspNetCore.App\$(_NetMajorMinor).*\*.dll" />
+      <_PluginRuntimeDeps Include="$(NetCoreRoot)shared\Microsoft.NETCore.App\$(_NetMajorMinor).*\System.IO.Pipelines.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_PluginRuntimeDeps)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 
+  <Target Name="CopyPluginRuntimeDependenciesToPublish" AfterTargets="Publish" Condition="'$(PublishDir)' != ''">
+    <ItemGroup>
+      <_PluginRuntimeDepsPublish Include="$(NetCoreRoot)shared\Microsoft.AspNetCore.App\$(_NetMajorMinor).*\*.dll" />
+      <_PluginRuntimeDepsPublish Include="$(NetCoreRoot)shared\Microsoft.NETCore.App\$(_NetMajorMinor).*\System.IO.Pipelines.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_PluginRuntimeDepsPublish)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

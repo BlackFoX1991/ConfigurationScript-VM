@@ -1,5 +1,9 @@
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Plugin;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
@@ -372,98 +376,49 @@ namespace CFGS.Web.Http
         /// </summary>
         public sealed class ServerHandle
         {
-            /// <summary>
-            /// Defines the _listener
-            /// </summary>
-            private readonly HttpListener _listener = new();
-
-            /// <summary>
-            /// Defines the _cts
-            /// </summary>
             private readonly CancellationTokenSource _cts = new();
-
-            /// <summary>
-            /// Defines the _inflight
-            /// </summary>
-            private readonly ConcurrentDictionary<string, HttpListenerContext> _inflight = new();
-
-            /// <summary>
-            /// Defines the _queue
-            /// </summary>
+            private readonly ConcurrentDictionary<string, PendingRequest> _inflight = new();
             private readonly ConcurrentQueue<string> _queue = new();
-
-            /// <summary>
-            /// Defines the _port
-            /// </summary>
             private readonly int _port;
-
-            /// <summary>
-            /// Defines the _loop
-            /// </summary>
-            private Task? _loop;
-
-            /// <summary>
-            /// Defines the _running
-            /// </summary>
             private volatile bool _running;
-
-            /// <summary>
-            /// Defines the ActiveByPort
-            /// </summary>
+            private WebApplication? _app;
             private static readonly ConcurrentDictionary<int, ServerHandle> ActiveByPort = new();
-
-            /// <summary>
-            /// Defines the _activeResponses
-            /// </summary>
             private int _activeResponses = 0;
-
-            /// <summary>
-            /// Defines the _noActiveResponses
-            /// </summary>
             private readonly ManualResetEventSlim _noActiveResponses = new(initialState: true);
 
-            /// <summary>
-            /// Initializes a new instance of the <see cref="ServerHandle"/> class.
-            /// </summary>
-            /// <param name="port">The port<see cref="int"/></param>
+            private sealed class PendingRequest(HttpContext context, Dictionary<string, object> request)
+            {
+                public HttpContext Context { get; } = context;
+                public Dictionary<string, object> Request { get; } = request;
+                public TaskCompletionSource<PendingResponse> ResponseSource { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            private sealed class PendingResponse(int status, string body, Dictionary<string, object>? headers)
+            {
+                public int Status { get; } = status;
+                public string Body { get; } = body;
+                public Dictionary<string, object>? Headers { get; } = headers;
+            }
+
             public ServerHandle(int port)
             {
                 if (port <= 0 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port));
                 _port = port;
-                _listener.Prefixes.Add($"http://localhost:{_port}/");
-                _listener.IgnoreWriteExceptions = true;
             }
 
-            /// <summary>
-            /// Gets a value indicating whether IsRunning
-            /// </summary>
             public bool IsRunning => _running;
-
-            /// <summary>
-            /// Gets the PendingCount
-            /// </summary>
             public int PendingCount => _queue.Count;
 
-            /// <summary>
-            /// The Start
-            /// </summary>
             public void Start()
             {
                 _ = StartAsync().GetAwaiter().GetResult();
             }
 
-            /// <summary>
-            /// The Stop
-            /// </summary>
             public void Stop()
             {
                 _ = StopAsync().GetAwaiter().GetResult();
             }
 
-            /// <summary>
-            /// The StartAsync
-            /// </summary>
-            /// <returns>The <see cref="Task{object?}"/></returns>
             public async Task<object?> StartAsync()
             {
                 if (_running) return this;
@@ -478,54 +433,47 @@ namespace CFGS.Web.Http
 
                 try
                 {
-                    _listener.Start();
+                    WebApplication app = BuildApplication();
+                    await app.StartAsync(_cts.Token).ConfigureAwait(false);
+                    _app = app;
                 }
-                catch (HttpListenerException ex)
+                catch (Exception ex)
                 {
                     ActiveByPort.TryRemove(_port, out _);
                     throw new VMException(
-                        $"Cannot start HTTP server on http://localhost:{_port}/: {ex.Message} (code {ex.ErrorCode})",
+                        $"Cannot start HTTP server on http://localhost:{_port}/: {FlattenMessage(ex)}",
                         0, 0, "", VM.IsDebugging, VM.DebugStream!
                     );
                 }
 
                 _running = true;
-                _loop = LoopAsync();
                 return this;
             }
 
-            /// <summary>
-            /// The StopAsync
-            /// </summary>
-            /// <returns>The <see cref="Task{object?}"/></returns>
             public async Task<object?> StopAsync()
             {
                 if (!_running) return this;
                 _running = false;
                 _cts.Cancel();
-                try { _listener.Stop(); } catch { }
-
-                Task? loop = _loop;
-                if (loop != null)
+                WebApplication? app = _app;
+                if (app != null)
                 {
-                    try { await Task.WhenAny(loop, Task.Delay(2000)).ConfigureAwait(false); } catch { }
+                    try
+                    {
+                        using CancellationTokenSource stopCts = new(TimeSpan.FromSeconds(2));
+                        await app.StopAsync(stopCts.Token).ConfigureAwait(false);
+                    }
+                    catch { }
                 }
 
                 return this;
             }
 
-            /// <summary>
-            /// The Close
-            /// </summary>
             public void Close()
             {
                 _ = CloseAsync().GetAwaiter().GetResult();
             }
 
-            /// <summary>
-            /// The CloseAsync
-            /// </summary>
-            /// <returns>The <see cref="Task{object?}"/></returns>
             public async Task<object?> CloseAsync()
             {
                 try { await StopAsync().ConfigureAwait(false); } catch { }
@@ -538,28 +486,23 @@ namespace CFGS.Web.Http
                 }
                 catch { }
 
-                try { _listener.Close(); } catch { }
+                WebApplication? app = _app;
+                _app = null;
+                if (app != null)
+                {
+                    try { await app.DisposeAsync().ConfigureAwait(false); } catch { }
+                }
                 _cts.Dispose();
                 ActiveByPort.TryRemove(_port, out _);
                 return 1;
             }
 
-            /// <summary>
-            /// The Poll
-            /// </summary>
-            /// <param name="timeoutMs">The timeoutMs<see cref="int?"/></param>
-            /// <returns>The <see cref="Dictionary{string, object}?"/></returns>
             public Dictionary<string, object>? Poll(int? timeoutMs = null)
             {
                 object? polled = PollAsync(timeoutMs).GetAwaiter().GetResult();
                 return polled as Dictionary<string, object>;
             }
 
-            /// <summary>
-            /// The PollAsync
-            /// </summary>
-            /// <param name="timeoutMs">The timeoutMs<see cref="int?"/></param>
-            /// <returns>The <see cref="Task{object?}"/></returns>
             public async Task<object?> PollAsync(int? timeoutMs = null)
             {
                 if (_queue.TryDequeue(out string? id))
@@ -582,232 +525,244 @@ namespace CFGS.Web.Http
                 return null;
             }
 
-            /// <summary>
-            /// The Respond
-            /// </summary>
-            /// <param name="id">The id<see cref="string"/></param>
-            /// <param name="status">The status<see cref="int"/></param>
-            /// <param name="body">The body<see cref="string"/></param>
-            /// <param name="headers">The headers<see cref="Dictionary{string, object}?"/></param>
-            /// <returns>The <see cref="int"/></returns>
             public int Respond(string id, int status, string body, Dictionary<string, object>? headers)
             {
                 object? response = RespondAsync(id, status, body, headers).GetAwaiter().GetResult();
                 return Convert.ToInt32(response ?? 0, CultureInfo.InvariantCulture);
             }
 
-            /// <summary>
-            /// The RespondAsync
-            /// </summary>
-            /// <param name="id">The id<see cref="string"/></param>
-            /// <param name="status">The status<see cref="int"/></param>
-            /// <param name="body">The body<see cref="string"/></param>
-            /// <param name="headers">The headers<see cref="Dictionary{string, object}?"/></param>
-            /// <returns>The <see cref="Task{object?}"/></returns>
             public async Task<object?> RespondAsync(string id, int status, string body, Dictionary<string, object>? headers)
             {
-                if (!_inflight.TryRemove(id, out HttpListenerContext? ctx))
+                if (!_inflight.TryGetValue(id, out PendingRequest? pending))
                     return 0;
 
-                _noActiveResponses.Reset();
-                Interlocked.Increment(ref _activeResponses);
+                return pending.ResponseSource.TrySetResult(new PendingResponse(status, body ?? "", headers)) ? 1 : 0;
+            }
 
-                HttpListenerResponse resp = ctx.Response;
-                resp.StatusCode = status;
-                resp.KeepAlive = false;
+            private Dictionary<string, object>? TryBuildRequestDict(string id)
+            {
+                return _inflight.TryGetValue(id, out PendingRequest? pending) ? pending.Request : null;
+            }
 
-                bool methodIsHead = string.Equals(ctx.Request.HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase);
-                bool noBody = methodIsHead || status == 204 || status == 304 || (status >= 100 && status < 200);
-
-                if (headers != null)
+            private WebApplication BuildApplication()
+            {
+                WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
+                builder.WebHost.UseKestrelCore();
+                builder.WebHost.ConfigureKestrel(options =>
                 {
-                    foreach (KeyValuePair<string, object> kv in headers)
-                    {
-                        string k = kv.Key;
-                        string v = kv.Value?.ToString() ?? "";
+                    options.AddServerHeader = false;
+                    options.ListenLocalhost(_port, listenOptions => listenOptions.Protocols = HttpProtocols.Http1);
+                });
 
-                        if (k.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)) continue;
-                        if (k.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
-                        if (k.Equals("Connection", StringComparison.OrdinalIgnoreCase)) continue;
-                        if (k.Equals("Keep-Alive", StringComparison.OrdinalIgnoreCase)) continue;
-                        if (k.Equals("Upgrade", StringComparison.OrdinalIgnoreCase)) continue;
+                WebApplication app = builder.Build();
+                app.Run(ctx => HandleIncomingRequestAsync(ctx));
+                return app;
+            }
 
-                        if (k.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
-                            resp.ContentType = v;
-                        else if (k.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
-                        {
-                            string[] cookieLines = v.Replace("\r", string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries);
-                            foreach (string cookieLine in cookieLines)
-                            {
-                                string actualCookie = cookieLine.Trim();
-                                if (actualCookie.Length > 0)
-                                    resp.AppendHeader("Set-Cookie", actualCookie);
-                            }
-                        }
-                        else
-                            resp.Headers[k] = v;
-                    }
-                }
-                if (string.IsNullOrWhiteSpace(resp.ContentType))
-                    resp.ContentType = "text/plain; charset=utf-8";
-
-                if (string.IsNullOrWhiteSpace(resp.Headers["X-Content-Type-Options"]))
-                    resp.Headers["X-Content-Type-Options"] = "nosniff";
-                if (string.IsNullOrWhiteSpace(resp.Headers["X-Frame-Options"]))
-                    resp.Headers["X-Frame-Options"] = "DENY";
-
-                byte[] payload = Array.Empty<byte>();
-                if (!noBody)
-                    payload = Encoding.UTF8.GetBytes(body ?? "");
-
-                resp.SendChunked = false;
-                resp.ContentLength64 = noBody ? 0 : payload.LongLength;
+            private async Task HandleIncomingRequestAsync(HttpContext ctx)
+            {
+                string id = Guid.NewGuid().ToString("N");
+                Dictionary<string, object> request = await BuildRequestDictAsync(id, ctx.Request, ctx.Connection, _cts.Token).ConfigureAwait(false);
+                PendingRequest pending = new(ctx, request);
+                _inflight[id] = pending;
+                _queue.Enqueue(id);
 
                 try
                 {
-                    if (!noBody && payload.Length > 0)
+                    PendingResponse response = await pending.ResponseSource.Task.WaitAsync(_cts.Token).ConfigureAwait(false);
+                    await ApplyResponseAsync(pending, response).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+                {
+                    if (!ctx.Response.HasStarted)
                     {
-                        Stream s = resp.OutputStream;
-                        int off = 0;
-                        while (off < payload.Length)
-                        {
-                            int n = Math.Min(64 * 1024, payload.Length - off);
-                            await s.WriteAsync(payload.AsMemory(off, n)).ConfigureAwait(false);
-                            off += n;
-                        }
-                        await s.FlushAsync().ConfigureAwait(false);
+                        ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                        ctx.Response.ContentLength = 0;
                     }
+                }
+                finally
+                {
+                    _inflight.TryRemove(id, out _);
+                }
+            }
+
+            private async Task ApplyResponseAsync(PendingRequest pending, PendingResponse response)
+            {
+                _noActiveResponses.Reset();
+                Interlocked.Increment(ref _activeResponses);
+
+                HttpContext ctx = pending.Context;
+                HttpResponse resp = ctx.Response;
+                resp.StatusCode = response.Status;
+
+                bool methodIsHead = string.Equals(ctx.Request.Method, "HEAD", StringComparison.OrdinalIgnoreCase);
+                bool noBody = methodIsHead || response.Status == 204 || response.Status == 304 || (response.Status >= 100 && response.Status < 200);
+
+                try
+                {
+                    if (response.Headers != null)
+                    {
+                        foreach (KeyValuePair<string, object> kv in response.Headers)
+                        {
+                            string k = kv.Key;
+                            string v = kv.Value?.ToString() ?? "";
+
+                            if (k.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)) continue;
+                            if (k.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
+                            if (k.Equals("Connection", StringComparison.OrdinalIgnoreCase)) continue;
+                            if (k.Equals("Keep-Alive", StringComparison.OrdinalIgnoreCase)) continue;
+                            if (k.Equals("Upgrade", StringComparison.OrdinalIgnoreCase)) continue;
+
+                            if (k.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
+                            {
+                                resp.ContentType = v;
+                            }
+                            else if (k.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
+                            {
+                                string[] cookieLines = v.Replace("\r", string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                                foreach (string cookieLine in cookieLines)
+                                {
+                                    string actualCookie = cookieLine.Trim();
+                                    if (actualCookie.Length > 0)
+                                        resp.Headers.Append("Set-Cookie", actualCookie);
+                                }
+                            }
+                            else
+                            {
+                                resp.Headers[k] = v;
+                            }
+                        }
+                    }
+
+                    if (string.IsNullOrWhiteSpace(resp.ContentType))
+                        resp.ContentType = "text/plain; charset=utf-8";
+
+                    if (string.IsNullOrWhiteSpace(resp.Headers["X-Content-Type-Options"]))
+                        resp.Headers["X-Content-Type-Options"] = "nosniff";
+                    if (string.IsNullOrWhiteSpace(resp.Headers["X-Frame-Options"]))
+                        resp.Headers["X-Frame-Options"] = "DENY";
+
+                    byte[] payload = noBody ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(response.Body ?? "");
+                    resp.ContentLength = noBody ? 0 : payload.LongLength;
+
+                    if (!noBody && payload.Length > 0)
+                        await resp.Body.WriteAsync(payload, _cts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+                {
+                }
+                catch (IOException)
+                {
                 }
                 catch (ObjectDisposedException)
                 {
                 }
-                catch (HttpListenerException ex)
-                {
-                    if (ex.ErrorCode != 64 && ex.ErrorCode != 1229) throw;
-                }
-                catch (IOException ioEx) when (ioEx.InnerException is HttpListenerException hlex
-                                               && (hlex.ErrorCode == 64 || hlex.ErrorCode == 1229))
-                {
-                }
                 finally
                 {
-                    try { resp.OutputStream.Close(); } catch { }
-                    try { resp.Close(); } catch { }
-
                     if (Interlocked.Decrement(ref _activeResponses) == 0)
                         _noActiveResponses.Set();
                 }
-
-                return 1;
             }
 
-            /// <summary>
-            /// The LoopAsync
-            /// </summary>
-            /// <returns>The <see cref="Task"/></returns>
-            private async Task LoopAsync()
+            private static async Task<Dictionary<string, object>> BuildRequestDictAsync(
+                string id,
+                HttpRequest req,
+                ConnectionInfo connection,
+                CancellationToken cancellationToken)
             {
-                while (!_cts.IsCancellationRequested)
-                {
-                    HttpListenerContext? ctx = null;
-                    try
-                    {
-                        ctx = await _listener.GetContextAsync().ConfigureAwait(false);
-                    }
-                    catch (HttpListenerException) when (_cts.IsCancellationRequested) { break; }
-                    catch (ObjectDisposedException) when (_cts.IsCancellationRequested) { break; }
-                    catch
-                    {
-                        if (!_running) break;
-                    }
-
-                    if (ctx == null) continue;
-
-                    string id = Guid.NewGuid().ToString("N");
-                    _inflight[id] = ctx;
-                    _queue.Enqueue(id);
-                }
-            }
-
-            /// <summary>
-            /// The TryBuildRequestDict
-            /// </summary>
-            /// <param name="id">The id<see cref="string"/></param>
-            /// <returns>The <see cref="Dictionary{string, object}?"/></returns>
-            private Dictionary<string, object>? TryBuildRequestDict(string id)
-            {
-                if (!_inflight.TryGetValue(id, out HttpListenerContext? ctx)) return null;
-
-                HttpListenerRequest req = ctx.Request;
-                string body = "";
-                try
-                {
-                    const int maxBodySize = 10 * 1024 * 1024; // 10 MB
-                    if (req.ContentLength64 > maxBodySize)
-                    {
-                        body = $"[body too large: {req.ContentLength64} bytes, limit {maxBodySize}]";
-                    }
-                    else
-                    {
-                        Encoding encoding = req.ContentEncoding ?? Encoding.UTF8;
-                        using MemoryStream ms = new();
-                        byte[] buffer = new byte[8192];
-                        long remaining = req.ContentLength64;
-
-                        while (remaining != 0)
-                        {
-                            int wanted = buffer.Length;
-                            if (remaining > 0 && remaining < wanted)
-                                wanted = (int)remaining;
-
-                            int read = req.InputStream.Read(buffer, 0, wanted);
-                            if (read <= 0)
-                                break;
-
-                            ms.Write(buffer, 0, read);
-
-                            if (remaining > 0)
-                                remaining -= read;
-
-                            if (ms.Length > maxBodySize)
-                            {
-                                body = $"[body too large: {ms.Length} bytes, limit {maxBodySize}]";
-                                ms.SetLength(0);
-                                break;
-                            }
-                        }
-
-                        if (body.Length == 0)
-                            body = encoding.GetString(ms.ToArray());
-                    }
-                }
-                catch { }
-
+                string body = await ReadRequestBodyAsync(req, cancellationToken).ConfigureAwait(false);
                 Dictionary<string, object> headers = new(StringComparer.OrdinalIgnoreCase);
-                foreach (string? key in req.Headers.AllKeys)
-                    headers[key!] = req.Headers[key] ?? "";
+                foreach (KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues> header in req.Headers)
+                    headers[header.Key] = string.Join(", ", header.Value.ToArray());
 
-                Dictionary<string, object> query = ParseQuery(req.Url?.Query);
-
-                Dictionary<string, object> dict = new()
+                return new Dictionary<string, object>
                 {
                     ["id"] = id,
-                    ["method"] = req.HttpMethod ?? "GET",
-                    ["path"] = req.Url?.AbsolutePath ?? "/",
-                    ["query"] = query,
+                    ["method"] = req.Method ?? "GET",
+                    ["path"] = req.Path.HasValue ? req.Path.Value! : "/",
+                    ["query"] = ParseQuery(req.QueryString.HasValue ? req.QueryString.Value : ""),
                     ["headers"] = headers,
                     ["body"] = body,
-                    ["remote"] = req.RemoteEndPoint?.ToString() ?? ""
+                    ["remote"] = BuildRemote(connection)
                 };
-                return dict;
+            }
+
+            private static async Task<string> ReadRequestBodyAsync(HttpRequest req, CancellationToken cancellationToken)
+            {
+                const int maxBodySize = 10 * 1024 * 1024;
+                long declaredLength = req.ContentLength ?? -1;
+                if (declaredLength > maxBodySize)
+                {
+                    await DrainAsync(req.Body, cancellationToken).ConfigureAwait(false);
+                    return $"[body too large: {declaredLength} bytes, limit {maxBodySize}]";
+                }
+
+                Encoding encoding = TryGetEncoding(req.ContentType) ?? Encoding.UTF8;
+                using MemoryStream ms = new();
+                byte[] buffer = new byte[8192];
+
+                while (true)
+                {
+                    int read = await req.Body.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
+                    if (read <= 0)
+                        break;
+
+                    if (ms.Length + read > maxBodySize)
+                    {
+                        long observed = ms.Length + read;
+                        await DrainAsync(req.Body, cancellationToken).ConfigureAwait(false);
+                        return $"[body too large: {observed} bytes, limit {maxBodySize}]";
+                    }
+
+                    ms.Write(buffer, 0, read);
+                }
+
+                return encoding.GetString(ms.ToArray());
+            }
+
+            private static async Task DrainAsync(Stream stream, CancellationToken cancellationToken)
+            {
+                byte[] buffer = new byte[8192];
+                while (await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false) > 0)
+                {
+                }
+            }
+
+            private static Encoding? TryGetEncoding(string? contentType)
+            {
+                if (string.IsNullOrWhiteSpace(contentType))
+                    return null;
+
+                try
+                {
+                    MediaTypeHeaderValue parsed = MediaTypeHeaderValue.Parse(contentType);
+                    if (!string.IsNullOrWhiteSpace(parsed.CharSet))
+                        return Encoding.GetEncoding(parsed.CharSet);
+                }
+                catch
+                {
+                }
+
+                return null;
+            }
+
+            private static string BuildRemote(ConnectionInfo connection)
+            {
+                if (connection.RemoteIpAddress == null)
+                    return "";
+                if (connection.RemotePort > 0)
+                    return connection.RemoteIpAddress + ":" + connection.RemotePort.ToString(CultureInfo.InvariantCulture);
+                return connection.RemoteIpAddress.ToString();
+            }
+
+            private static string FlattenMessage(Exception ex)
+            {
+                if (ex.InnerException == null)
+                    return ex.Message;
+                return ex.Message + " :: " + FlattenMessage(ex.InnerException);
             }
         }
 
-        /// <summary>
-        /// The ParseQuery
-        /// </summary>
-        /// <param name="queryString">The queryString<see cref="string?"/></param>
-        /// <returns>The <see cref="Dictionary{string, object}"/></returns>
         private static Dictionary<string, object> ParseQuery(string? queryString)
         {
             Dictionary<string, object> query = new(StringComparer.OrdinalIgnoreCase);
@@ -820,9 +775,26 @@ namespace CFGS.Web.Http
                 string? key = WebUtility.UrlDecode(kv[0]);
                 string val = kv.Length > 1 ? WebUtility.UrlDecode(kv[1]) : "";
                 if (key is null) continue;
-                query[key] = val ?? "";
+                PushQueryValue(query, key, val ?? "");
             }
             return query;
+        }
+
+        private static void PushQueryValue(Dictionary<string, object> query, string key, string value)
+        {
+            if (!query.TryGetValue(key, out object? existing) || existing == null)
+            {
+                query[key] = value;
+                return;
+            }
+
+            if (existing is List<object> list)
+            {
+                list.Add(value);
+                return;
+            }
+
+            query[key] = new List<object> { existing, value };
         }
     }
 }

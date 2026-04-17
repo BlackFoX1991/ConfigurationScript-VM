@@ -333,9 +333,9 @@ export class Util
                 if (eq >= 0) {
                     var key = urldecode(part.substr(0, eq));
                     var value = urldecode(part.substr(eq + 1, len(part) - (eq + 1)));
-                    result[key] = value;
+                    Util._push_value(result, key, value);
                 } else {
-                    result[urldecode(part)] = "";
+                    Util._push_value(result, urldecode(part), "");
                 }
             }
             i = i + 1;
@@ -464,7 +464,7 @@ export class Util
                     "original_filename": filename,
                     "content_type": headers["content-type"] == null ? "application/octet-stream" : headers["content-type"],
                     "body": value,
-                    "size": len(value),
+                    "size": Util.utf8_size(value),
                     "headers": headers
                 };
                 Util._push_value(result["files"], name, file);
@@ -509,6 +509,18 @@ export class Util
         var parts = [];
         foreach (var k, v in values) {
             if (v == null) { continue; }
+
+            if (typeof(v) == "Array") {
+                var i = 0;
+                while (i < len(v)) {
+                    if (v[i] != null) {
+                        parts[] = urlencode(str(k)) + "=" + urlencode(str(v[i]));
+                    }
+                    i = i + 1;
+                }
+                continue;
+            }
+
             parts[] = urlencode(str(k)) + "=" + urlencode(str(v));
         }
         return Util.join(parts, "&");

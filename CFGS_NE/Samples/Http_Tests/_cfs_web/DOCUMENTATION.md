@@ -168,6 +168,16 @@ app.get_named("hello.show", "/hello/:name", func(ctx) {
 print(app.url("hello.show", {"name":"Ada"}));
 ```
 
+Wenn du bei `app.url(...)` oder `ctx.request.url(...)` im `query`-Argument Arrays uebergibst, erzeugt das Framework wiederholte Query-Keys:
+
+```cfs
+print(app.url("search", null, {
+    "tag":["alpha", "beta"]
+}));
+```
+
+Das Ergebnis ist dann z. B. `/search?tag=alpha&tag=beta`.
+
 ### 5.3 Route-Optionen
 
 Aktuell sind vor allem diese Optionen wichtig:
@@ -254,8 +264,8 @@ Jeder Handler bekommt ein Dictionary `ctx`. Die wichtigsten direkten Felder sind
 | API | Bedeutung |
 | --- | --- |
 | `ctx.request.param(name, fallback = null)` | Route-Parameter |
-| `ctx.request.query(name, fallback = null)` | Query-Wert |
-| `ctx.request.form(name, fallback = null)` | Form-/Body-Wert |
+| `ctx.request.query(name, fallback = null)` | Query-Wert; bei mehrfachen Keys String oder Array |
+| `ctx.request.form(name, fallback = null)` | Form-/Body-Wert; bei mehrfachen Keys String oder Array |
 | `ctx.request.uploads(name = null, fallback = null)` | alle Uploads oder Uploads eines Felds |
 | `ctx.request.upload(name, fallback = null)` | erster Upload eines Felds |
 | `ctx.request.cookie(name, fallback = null)` | normaler Cookie-Wert |
@@ -335,6 +345,8 @@ app.get("/health", func(ctx) {
 | `ctx.response.with_signed_cookie(res, name, value, secret, attrs = null)` | fuegt signierten Cookie an |
 | `ctx.response.expire_cookie(res, name, attrs = null)` | setzt Cookie mit `Max-Age=0` ablaufend |
 
+Normale Cookies werden auf dem Draht URL-kodiert gespeichert und beim Lesen ueber `ctx.request.cookie(...)` wieder dekodiert. Dadurch funktionieren auch Werte mit Leerzeichen oder `;`, ohne die Cookie-Struktur zu zerstoeren.
+
 Typisches Pattern:
 
 ```cfs
@@ -405,6 +417,12 @@ Das Framework parst den Body automatisch anhand des `Content-Type`:
 | `text/plain` | Rohtext unter `ctx.form["_raw"]` und `ctx.form["_text"]` |
 | sonstige Typen | Rohtext unter `ctx.form["_raw"]` |
 
+Wiederholte Feldnamen bleiben erhalten:
+
+- bei Query-Strings und `application/x-www-form-urlencoded` werden Mehrfachwerte als Arrays gespeichert
+- bei `multipart/form-data` gilt dasselbe fuer normale Felder und Uploads
+- Einzeltreffer bleiben weiterhin einfache Strings bzw. Einzeleintraege
+
 ### 8.1 Upload-Modell
 
 Ein Upload-Eintrag aus `ctx.request.upload("attachment")` sieht so aus:
@@ -421,6 +439,8 @@ Ein Upload-Eintrag aus `ctx.request.upload("attachment")` sieht so aus:
     "headers":{ ... }
 }
 ```
+
+`size` ist die UTF-8-Bytelaenge des Upload-Bodys, nicht nur die Zeichenlaenge.
 
 Wenn ein Feld mehrfach vorkommt, wird der Dictionary-Eintrag zu einem Array erweitert. Deshalb gilt:
 
@@ -468,6 +488,12 @@ Das bedeutet:
 - der Browserinhalt bleibt lesbar
 - Manipulation wird ueber HMAC erkannt
 - fuer Geheimnisse ist das kein Ersatz fuer Verschluesselung
+
+Normale Cookies und signed Cookies unterscheiden sich auf dem Draht:
+
+- `with_cookie(...)` speichert normale Werte URL-kodiert
+- `with_signed_cookie(...)` speichert das signierte Wire-Format `s:<payload>.<mac>`
+- `read_signed(...)` liest deshalb bewusst den rohen Cookiewert und prueft dann Signatur und Payload
 
 Die zugrundeliegenden Helfer liegen in `cookies.cfs`:
 
@@ -1108,6 +1134,15 @@ Du kannst damit pruefen:
 
 Das ist die bevorzugte Teststrategie, solange der Live-Listener in der Runtime auf diesem System blockiert ist.
 
+Aktuelle Regression-Smokes in diesem Ordner:
+
+- `phase16_framework_regression_smoke.cfs` fuer Cookie-Encoding, wiederholte Query-/Form-Werte und UTF-8-Uploadgroessen
+- `phase17_session_lifecycle_smoke.cfs` fuer Session-Rotation, Remember-Me, Expiry und Logout
+- `phase17_redirect_flash_smoke.cfs` fuer Redirects, Flash, Session-Messages und Old Input
+- `phase17_routing_semantics_smoke.cfs` fuer Routing, HEAD-Fallback, 405 und OPTIONS
+- `phase17_static_caching_smoke.cfs` fuer Static Files, ETag, Last-Modified und 304
+- `phase17_security_middleware_smoke.cfs` fuer CSRF, Host-/Origin-Policy, Rate-Limit und Security-Header
+
 ## 20. Die Beispiel-App
 
 `example_app.cfs` ist die beste Referenz fuer einen realistischeren Einsatz.
@@ -1129,7 +1164,7 @@ Die wichtigsten Bestandteile:
 
 - `build_example_app(port = 8094)` baut die komplette App
 - `run_example_app.cfs` startet sie direkt
-- `phase15_example_app_smoke.cfs` prueft die App ohne echten Listener
+- die `phase16`- und `phase17`-Smokes pruefen den Framework-Kern aktuell ohne echten Listener
 
 Wenn du das Framework auf eine neue App uebertragen willst, ist das der beste Startpunkt.
 
