@@ -281,7 +281,7 @@ namespace CFGS_VM.VMCore.Plugin
                     {
                         if (!state.LoadedDllByPath.TryGetValue(full, out asm))
                         {
-                            LogInfo($"Loading dll: {full}");
+                            //LogInfo($"Loading dll: {full}");
                             var plc = new PluginLoadContext(full);
                             asm = plc.LoadFromAssemblyPath(full);
                             state.LoadedDllByPath[full] = asm;

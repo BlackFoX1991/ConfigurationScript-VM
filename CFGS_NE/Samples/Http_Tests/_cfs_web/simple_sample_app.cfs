@@ -1,0 +1,110 @@
+import { Dom, Ui } from "dom.cfs";
+import { Layout } from "layout.cfs";
+import { ViewModels, Templates } from "views.cfs";
+import { ServerApp } from "server.cfs";
+
+func _session_secret() {
+    return "simple-sample-session-secret";
+}
+
+# Diese Hilfsfunktion zeigt eine Flash-Meldung nur dann an,
+# wenn der vorherige Request etwas in die Session gelegt hat.
+func _notice_node(ctx) {
+    var notice = ctx.request.flash("notice", null);
+    if (notice == null || str(notice).trim() == "") {
+        return null;
+    }
+
+    return Dom.h("div", {"class":"flash"}, notice);
+}
+
+# Die Startseite zeigt:
+# - eine kurze Erklaerung
+# - ein einfaches Formular
+# - einen kleinen Session-Zaehler
+# - einen Link auf eine JSON-Route
+func home(ctx) {
+    var visits = ctx.request.session("visit_count", 0) + 1;
+    ctx.session["visit_count"] = visits;
+
+    var name_value = ctx.request.old("name", "");
+    var name_error = ctx.request.old_error("name", null);
+
+    var vm = ViewModels.page(
+        "Kleine Beispiel-App",
+        "Simple Sample",
+        "Diese App zeigt nur die wichtigsten Bausteine: Route, Formular, Flash und JSON."
+    );
+
+    return ctx.response.html(Templates.sections(vm, [
+        Templates.section("Formular", [
+            _notice_node(ctx),
+            Dom.h("p", null, "Gib einen Namen ein und sende das Formular ab."),
+            Ui.form(ctx.request.url("hello.send"), "POST", [
+                Dom.h("div", {"class":"field"}, [
+                    Ui.label("Dein Name", "sampleName"),
+                    Ui.text_input("name", name_value, "Ada Lovelace", "sampleName"),
+                    name_error == null ? null : Dom.h("div", {"class":"form-error"}, name_error)
+                ]),
+                Dom.h("div", {"class":"row"}, [
+                    Ui.submit("Hallo senden")
+                ])
+            ], {
+                "class":"stack"
+            })
+        ], "Hier verarbeitet die App einen normalen POST-Request."),
+        Templates.section("API", [
+            Dom.h("p", null, [
+                "Die JSON-Route liegt unter ",
+                Dom.h("a", {"href": ctx.request.url("api.ping")}, ctx.request.url("api.ping")),
+                "."
+            ]),
+            Dom.h("p", {"class":"session"}, "Besuche in dieser Session: " + str(visits))
+        ], "Diese Route ist praktisch fuer erste Tests mit `http_get(...)`.")
+    ]));
+}
+
+# Diese Route verarbeitet das Formular.
+# Bei leerem Namen geht es mit alter Eingabe und Fehlertext zurueck.
+# Bei Erfolg landet eine Flash-Meldung in der Session.
+func hello_send(ctx) {
+    var name = str(ctx.request.form("name", "")).trim();
+
+    if (name == "") {
+        return ctx.response.redirect_to_with_input("home", {
+            "name": ""
+        }, {
+            "name":"Bitte gib einen Namen ein."
+        });
+    }
+
+    ctx.response.flash("notice", "Hallo " + name + "!");
+    return ctx.response.redirect_to("home");
+}
+
+# Diese Route ist absichtlich klein.
+# Sie eignet sich gut fuer CLI-Tests oder kleine Integrations-Smokes.
+func api_ping(ctx) {
+    return ctx.response.json({
+        "ok": true,
+        "app": "simple-sample",
+        "path": ctx.request.path(),
+        "visit_count": ctx.request.session("visit_count", 0)
+    });
+}
+
+# Diese Funktion baut die App und registriert die Routen.
+# Das Session-Secret ist hier nur ein Lernbeispiel und sollte in echten Apps
+# nicht fest im Quelltext stehen.
+export func build_simple_sample_app(port = 8096) {
+    var app = new ServerApp(port);
+    app.set_session_cookie_signing_secret(_session_secret());
+
+    app.get_named("home", "/", home);
+    app.post_named("hello.send", "/hello", hello_send, {
+        "csrf": false
+    });
+    app.get_named("api.ping", "/api/ping", api_ping);
+
+    return app;
+}

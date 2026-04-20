@@ -1,0 +1,352 @@
+import { Dom, Ui } from "dom.cfs";
+import { Layout } from "layout.cfs";
+import { Components } from "components.cfs";
+import { Forms } from "forms.cfs";
+import { Guards } from "guards.cfs";
+import { ViewModels, Templates } from "views.cfs";
+import { ServerApp } from "server.cfs";
+
+func _roles() {
+    return {
+        "viewer":"Viewer",
+        "editor":"Editor",
+        "admin":"Admin"
+    };
+}
+
+# Auch diese Lern-App speichert alles nur in der Session.
+# So sieht man Guards und Rollenlogik ohne zusaetzliche Infrastruktur.
+func _ensure_defaults(session) {
+    if (session == null) { return session; }
+    if (!session.contains("user_id")) { session["user_id"] = null; }
+    if (!session.contains("user_name")) { session["user_name"] = null; }
+    if (!session.contains("role")) { session["role"] = null; }
+    if (!session.contains("visit_count") || typeof(session["visit_count"]) != "Int") { session["visit_count"] = 0; }
+    if (!session.contains("audit_log") || typeof(session["audit_log"]) != "Array") { session["audit_log"] = []; }
+    return session;
+}
+
+func _role_label(role) {
+    var roles = _roles();
+    var label = roles[role];
+    return label == null ? "Unbekannt" : label;
+}
+
+func _authenticated(ctx) {
+    return ctx.request.session("user_id", null) != null;
+}
+
+func _current_role(ctx) {
+    return ctx.request.session("role", "viewer");
+}
+
+func _current_user(ctx) {
+    return ctx.request.session("user_name", "Gast");
+}
+
+func _has_role(ctx, allowed_roles) {
+    var role = _current_role(ctx);
+    var i = 0;
+    while (i < len(allowed_roles)) {
+        if (role == allowed_roles[i]) {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+func _pick_errors(errors, names) {
+    var picked = {};
+    if (errors == null || typeof(errors) != "Dictionary") {
+        return picked;
+    }
+
+    var i = 0;
+    while (i < len(names)) {
+        var name = names[i];
+        if (errors[name] != null) {
+            picked[name] = errors[name];
+        }
+        i = i + 1;
+    }
+    return picked;
+}
+
+# Ein kleines Audit-Log macht sichtbar, was die geschuetzten Aktionen tun.
+func _push_log(session, text) {
+    _ensure_defaults(session);
+    session["audit_log"][] = text;
+
+    if (len(session["audit_log"]) > 6) {
+        var kept = [];
+        var i = len(session["audit_log"]) - 6;
+        while (i < len(session["audit_log"])) {
+            kept[] = session["audit_log"][i];
+            i = i + 1;
+        }
+        session["audit_log"] = kept;
+    }
+
+    return session["audit_log"];
+}
+
+func _log_nodes(session) {
+    _ensure_defaults(session);
+    if (len(session["audit_log"]) == 0) {
+        return [Dom.h("div", {"class":"session"}, "Noch keine Eintraege.")];
+    }
+
+    var items = [];
+    var i = len(session["audit_log"]) - 1;
+    while (i >= 0) {
+        items[] = Dom.h("li", null, session["audit_log"][i]);
+        i = i - 1;
+    }
+    return [Dom.h("ul", null, items)];
+}
+
+func _nav_panel(ctx) {
+    return Layout.panel([
+        Dom.h("div", {"class":"row"}, [
+            Dom.h("a", {"href": ctx.request.url("home")}, "Home"),
+            Dom.h("a", {"href": ctx.request.url("editor.home")}, "Editor"),
+            Dom.h("a", {"href": ctx.request.url("admin.home")}, "Admin"),
+            Dom.h("a", {"href": ctx.request.url("api.me")}, "API")
+        ])
+    ]);
+}
+
+func _guest_sections(ctx) {
+    return [
+        Templates.section("Login", [
+            Forms.flash_message(ctx, "notice"),
+            Forms.error_summary(_pick_errors(ctx.request.old_errors(), ["login_name", "login_role"])),
+            Ui.form(ctx.request.url("auth.login"), "POST", [
+                Forms.csrf_field(ctx),
+                Forms.text_field_from_ctx(ctx, "Name", "login_name", "", "Ada", "adminSampleLoginName"),
+                Forms.select_field_from_ctx(ctx, "Rolle", "login_role", _roles(), "viewer", "adminSampleLoginRole"),
+                Forms.button_row([
+                    Ui.submit("Einloggen")
+                ])
+            ], {"class":"stack"})
+        ], "Beim Login waehlt man die Rolle direkt im Formular."),
+        Templates.section("Warum diese App?", [
+            Dom.h("p", null, "Sie zeigt drei typische Guards: Gast, Authentifiziert und Rolle."),
+            Dom.h("p", null, "Die Links oben sind absichtlich immer sichtbar, damit man Redirects durch Guards leicht beobachten kann.")
+        ])
+    ];
+}
+
+func _auth_sections(ctx) {
+    return [
+        Templates.section("Angemeldet", [
+            Forms.flash_message(ctx, "notice"),
+            Forms.session_message(ctx, "admin_banner"),
+            Dom.h("p", null, "Benutzer: " + _current_user(ctx)),
+            Dom.h("p", null, "Rolle: " + _role_label(_current_role(ctx))),
+            Forms.button_row([
+                Forms.event_button(ctx.request.url("auth.logout"), "Abmelden", "btn secondary", null, ctx)
+            ])
+        ], "Die Session bestimmt, welche Bereiche erreichbar sind."),
+        Templates.section("Rollenmatrix", [
+            Dom.h("div", null, "Viewer: nur Startseite und API"),
+            Dom.h("div", null, "Editor: zusaetzlich Editor-Bereich"),
+            Dom.h("div", null, "Admin: zusaetzlich Admin-Bereich")
+        ], "Die echten Guards sitzen an den Routen, nicht nur im UI."),
+        Templates.section("Audit-Log", _log_nodes(ctx.session), "Jede geschuetzte Aktion hinterlaesst hier einen Eintrag.")
+    ];
+}
+
+func home(ctx) {
+    _ensure_defaults(ctx.session);
+    ctx.session["visit_count"] = ctx.request.session("visit_count", 0) + 1;
+
+    var vm = ViewModels.page(
+        "Kleines Admin-Panel",
+        "Rollen und Guards",
+        "Diese Lern-App zeigt, wie Rollen-Guards und Session-Login in deinem Framework aussehen koennen."
+    );
+
+    ViewModels.push_slot(vm, "top", _nav_panel(ctx));
+    ViewModels.push_slot(vm, "footer", Layout.panel([
+        Components.session_line("Besuche in dieser Session: " + str(ctx.request.session("visit_count", 0))),
+        Components.session_line("CSRF-Feldname: " + ctx.request.csrf_field_name()),
+        Components.session_line("Aktuelle Rolle: " + _role_label(_current_role(ctx)))
+    ]));
+
+    var sections = [
+        Templates.section("Status", [
+            Layout.row([
+                Components.metric("Besuche", str(ctx.request.session("visit_count", 0))),
+                Components.metric("Auth", _authenticated(ctx) ? "Ja" : "Nein"),
+                Components.metric("Rolle", _role_label(_current_role(ctx)))
+            ])
+        ], "Hier sieht man sofort, was aktuell in der Session liegt.")
+    ];
+
+    var extra = _authenticated(ctx) ? _auth_sections(ctx) : _guest_sections(ctx);
+    var i = 0;
+    while (i < len(extra)) {
+        sections[] = extra[i];
+        i = i + 1;
+    }
+
+    return ctx.response.html(Templates.sections(vm, sections));
+}
+
+# Login ist absichtlich einfach:
+# - Name und Rolle aus dem Formular lesen
+# - kurz validieren
+# - Werte in die Session schreiben
+func login(ctx) {
+    var name = str(ctx.request.form("login_name", "")).trim();
+    var role = str(ctx.request.form("login_role", "viewer")).trim().lower();
+    var roles = _roles();
+
+    var errors = {};
+    if (len(name) < 2) {
+        errors["login_name"] = "Name muss mindestens 2 Zeichen lang sein.";
+    }
+    if (roles[role] == null) {
+        errors["login_role"] = "Bitte waehle eine gueltige Rolle.";
+    }
+
+    if (len(errors.keys()) > 0) {
+        return ctx.response.redirect_to_with_input("home", {
+            "login_name": name,
+            "login_role": role
+        }, errors);
+    }
+
+    ctx.session["user_id"] = "user:" + name;
+    ctx.session["user_name"] = name;
+    ctx.session["role"] = role;
+    _push_log(ctx.session, "Login als " + name + " mit Rolle " + role + ".");
+
+    ctx.response.flash("notice", "Willkommen " + name + " (" + _role_label(role) + ")!");
+    return ctx.response.redirect_to("home");
+}
+
+func logout(ctx) {
+    var name = _current_user(ctx);
+    ctx.response.logout_session();
+    ctx.response.flash("notice", "Abgemeldet: " + name + ".");
+    return ctx.response.redirect_to("home");
+}
+
+func editor_home(ctx) {
+    var vm = ViewModels.page(
+        "Editor-Bereich",
+        "Role Guard",
+        "Diesen Bereich duerfen nur editor und admin oeffnen."
+    );
+
+    return ctx.response.html(Templates.sections(vm, [
+        Templates.section("Aktion", [
+            Forms.flash_message(ctx, "notice"),
+            Dom.h("p", null, "Hier koennte z. B. eine Redaktionsfreigabe oder Review-Aktion sitzen."),
+            Forms.button_row([
+                Forms.event_button(ctx.request.url("editor.review"), "Review-Eintrag anlegen", "btn", null, ctx)
+            ])
+        ]),
+        Templates.section("Audit-Log", _log_nodes(ctx.session)),
+        Templates.section("Navigation", [
+            Dom.h("p", null, [Dom.h("a", {"href": ctx.request.url("home")}, "Zurueck zur Startseite")])
+        ])
+    ]));
+}
+
+# Diese Aktion demonstriert einen geschuetzten POST-Request.
+func editor_review(ctx) {
+    _push_log(ctx.session, "Review-Aktion durch " + _current_user(ctx) + " (" + _current_role(ctx) + ").");
+    return ctx.response.redirect_to_with_flash("editor.home", "notice", "Review-Eintrag gespeichert.");
+}
+
+func admin_home(ctx) {
+    var vm = ViewModels.page(
+        "Admin-Bereich",
+        "Strenger Guard",
+        "Diesen Bereich darf nur admin oeffnen."
+    );
+
+    var banner_text = ctx.request.session_message("admin_banner", null);
+    var banner_info = banner_text == null ? "Kein Banner gesetzt." : "Aktueller Banner: " + str(banner_text);
+
+    return ctx.response.html(Templates.sections(vm, [
+        Templates.section("Banner", [
+            Forms.flash_message(ctx, "notice"),
+            Dom.h("p", null, banner_info),
+            Forms.error_summary(_pick_errors(ctx.request.old_errors(), ["banner_text"])),
+            Ui.form(ctx.request.url("admin.banner.set"), "POST", [
+                Forms.csrf_field(ctx),
+                Forms.text_field_from_ctx(ctx, "Banner-Text", "banner_text", "", "Deploy heute um 18:00", "adminBannerText"),
+                Forms.button_row([
+                    Ui.submit("Banner speichern"),
+                    Forms.event_button(ctx.request.url("admin.banner.clear"), "Banner entfernen", "btn ghost", null, ctx)
+                ])
+            ], {"class":"stack"})
+        ], "Der Banner wird als Session-Message gespeichert."),
+        Templates.section("Audit-Log", _log_nodes(ctx.session)),
+        Templates.section("Navigation", [
+            Dom.h("p", null, [Dom.h("a", {"href": ctx.request.url("home")}, "Zurueck zur Startseite")])
+        ])
+    ]));
+}
+
+func admin_banner_set(ctx) {
+    var text = str(ctx.request.form("banner_text", "")).trim();
+    if (text == "") {
+        return ctx.response.redirect_to_with_input("admin.home", {
+            "banner_text":""
+        }, {
+            "banner_text":"Bitte gib einen Banner-Text ein."
+        });
+    }
+
+    ctx.response.session_message("admin_banner", text);
+    _push_log(ctx.session, "Admin-Banner gesetzt: " + text);
+    return ctx.response.redirect_to_with_flash("admin.home", "notice", "Banner gespeichert.");
+}
+
+func admin_banner_clear(ctx) {
+    ctx.response.clear_session_message("admin_banner");
+    _push_log(ctx.session, "Admin-Banner entfernt.");
+    return ctx.response.redirect_to_with_flash("admin.home", "notice", "Banner entfernt.");
+}
+
+func api_me(ctx) {
+    _ensure_defaults(ctx.session);
+
+    return ctx.response.json({
+        "authenticated": _authenticated(ctx),
+        "user_name": ctx.request.session("user_name", null),
+        "role": ctx.request.session("role", null),
+        "visit_count": ctx.request.session("visit_count", 0),
+        "audit_count": len(ctx.session["audit_log"]),
+        "admin_banner": ctx.request.session_message("admin_banner", null)
+    });
+}
+
+# Einstiegspunkt fuer den Live-Start und fuer Smokes.
+export func build_admin_panel_sample_app(port = 8098) {
+    var app = new ServerApp(port);
+    var auth = app.group("/auth", "auth");
+    var editor = app.group("/editor", "editor");
+    var admin = app.group("/admin", "admin");
+
+    app.get_named("home", "/", home);
+    app.get_named("api.me", "/api/me", api_me);
+
+    auth.post_named("login", "/login", Guards.require_guest(login, "/", "user_id"));
+    auth.post_named("logout", "/logout", Guards.require_authenticated(logout, "/", "user_id"));
+
+    editor.get_named("home", "/", Guards.require_role(["editor", "admin"], editor_home, "/"));
+    editor.post_named("review", "/review", Guards.require_role(["editor", "admin"], editor_review, "/"));
+
+    admin.get_named("home", "/", Guards.require_role("admin", admin_home, "/"));
+    admin.post_named("banner.set", "/banner", Guards.require_role("admin", admin_banner_set, "/"));
+    admin.post_named("banner.clear", "/banner/clear", Guards.require_role("admin", admin_banner_clear, "/"));
+
+    return app;
+}
