@@ -1,0 +1,187 @@
+import { build_admin_panel_sample_app } from "admin_panel_sample_app.cfs";
+import {
+    assert_contains,
+    assert_eq,
+    assert_not_eq,
+    assert_true,
+    cookie_pair,
+    cookie_value,
+    json_body,
+    request
+} from "phase17_smoke_helpers.cfs";
+
+func form_headers(cookie = null) {
+    var headers = {
+        "Host":"localhost:8098",
+        "Content-Type":"application/x-www-form-urlencoded"
+    };
+    if (cookie != null) {
+        headers["Cookie"] = cookie;
+    }
+    return headers;
+}
+
+func csrf_body(token, extra = null) {
+    var body = "__csrf=" + urlencode(str(token));
+    if (extra != null && extra != "") {
+        body = body + "&" + extra;
+    }
+    return body;
+}
+
+func active_cookie(set_cookie_header, fallback) {
+    var pair = cookie_pair(set_cookie_header, "cfs_sid");
+    return pair == null ? fallback : pair;
+}
+
+async func main() {
+    var app = build_admin_panel_sample_app(0);
+
+    var first_home = await app.handle(request("GET", "/"));
+    var sid_pair = cookie_pair(first_home["headers"]["Set-Cookie"], "cfs_sid");
+    var sid = cookie_value(sid_pair);
+    assert_eq("home_status", first_home["status"], 200);
+    assert_contains("guest_login_visible", first_home["body"], "Login");
+    assert_true("session_cookie_present", sid_pair != null);
+
+    var invalid_login = await app.handle(request("POST", "/auth/login", csrf_body(app.sessions[sid]["data"]["__csrf_token"], "login_name=A&login_role=viewer"), form_headers(sid_pair)));
+    assert_eq("invalid_login_redirect", invalid_login["status"], 303);
+    assert_eq("invalid_login_location", invalid_login["headers"]["Location"], "/");
+
+    var after_invalid = await app.handle(request("GET", "/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_contains("invalid_login_error_visible", after_invalid["body"], "Name muss mindestens 2 Zeichen lang sein.");
+
+    var viewer_login = await app.handle(request("POST", "/auth/login", csrf_body(app.sessions[sid]["data"]["__csrf_token"], "login_name=Vera&login_role=viewer"), form_headers(sid_pair)));
+    sid_pair = active_cookie(viewer_login["headers"]["Set-Cookie"], sid_pair);
+    sid = cookie_value(sid_pair);
+    assert_eq("viewer_login_redirect", viewer_login["status"], 303);
+    assert_eq("viewer_login_location", viewer_login["headers"]["Location"], "/");
+
+    var viewer_home = await app.handle(request("GET", "/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_contains("viewer_flash_visible", viewer_home["body"], "Willkommen Vera (Viewer)!");
+    assert_contains("viewer_role_visible", viewer_home["body"], "Aktuelle Rolle: Viewer");
+
+    var viewer_editor = await app.handle(request("GET", "/editor/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_eq("viewer_editor_redirect", viewer_editor["status"], 302);
+    assert_eq("viewer_editor_location", viewer_editor["headers"]["Location"], "/");
+
+    var viewer_admin = await app.handle(request("GET", "/admin/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_eq("viewer_admin_redirect", viewer_admin["status"], 302);
+    assert_eq("viewer_admin_location", viewer_admin["headers"]["Location"], "/");
+
+    var viewer_api = await app.handle(request("GET", "/api/me", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    var viewer_api_body = json_body(viewer_api);
+    assert_eq("viewer_api_role", viewer_api_body["role"], "viewer");
+
+    var viewer_logout = await app.handle(request("POST", "/auth/logout", csrf_body(app.sessions[sid]["data"]["__csrf_token"]), form_headers(sid_pair)));
+    var viewer_logout_pair = active_cookie(viewer_logout["headers"]["Set-Cookie"], sid_pair);
+    var sid_after_viewer_logout = cookie_value(viewer_logout_pair);
+    assert_eq("viewer_logout_redirect", viewer_logout["status"], 303);
+    assert_not_eq("viewer_logout_rotates_session", sid_after_viewer_logout, sid);
+
+    sid_pair = viewer_logout_pair;
+    sid = sid_after_viewer_logout;
+
+    var editor_login = await app.handle(request("POST", "/auth/login", csrf_body(app.sessions[sid]["data"]["__csrf_token"], "login_name=Erik&login_role=editor"), form_headers(sid_pair)));
+    sid_pair = active_cookie(editor_login["headers"]["Set-Cookie"], sid_pair);
+    sid = cookie_value(sid_pair);
+    assert_eq("editor_login_redirect", editor_login["status"], 303);
+    assert_eq("editor_login_location", editor_login["headers"]["Location"], "/");
+
+    var editor_page = await app.handle(request("GET", "/editor/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_eq("editor_page_status", editor_page["status"], 200);
+    assert_contains("editor_page_title", editor_page["body"], "Editor-Bereich");
+
+    var editor_review = await app.handle(request("POST", "/editor/review", csrf_body(app.sessions[sid]["data"]["__csrf_token"]), form_headers(sid_pair)));
+    assert_eq("editor_review_redirect", editor_review["status"], 303);
+    assert_eq("editor_review_location", editor_review["headers"]["Location"], "/editor");
+
+    var editor_after_review = await app.handle(request("GET", "/editor/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_contains("editor_review_flash_visible", editor_after_review["body"], "Review-Eintrag gespeichert.");
+
+    var editor_admin = await app.handle(request("GET", "/admin/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_eq("editor_admin_redirect", editor_admin["status"], 302);
+    assert_eq("editor_admin_location", editor_admin["headers"]["Location"], "/");
+
+    var editor_logout = await app.handle(request("POST", "/auth/logout", csrf_body(app.sessions[sid]["data"]["__csrf_token"]), form_headers(sid_pair)));
+    sid_pair = active_cookie(editor_logout["headers"]["Set-Cookie"], sid_pair);
+    sid = cookie_value(sid_pair);
+
+    var admin_login = await app.handle(request("POST", "/auth/login", csrf_body(app.sessions[sid]["data"]["__csrf_token"], "login_name=Anna&login_role=admin"), form_headers(sid_pair)));
+    sid_pair = active_cookie(admin_login["headers"]["Set-Cookie"], sid_pair);
+    sid = cookie_value(sid_pair);
+    assert_eq("admin_login_redirect", admin_login["status"], 303);
+    assert_eq("admin_login_location", admin_login["headers"]["Location"], "/");
+
+    var admin_page = await app.handle(request("GET", "/admin/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_eq("admin_page_status", admin_page["status"], 200);
+    assert_contains("admin_page_title", admin_page["body"], "Admin-Bereich");
+    assert_contains("admin_page_empty_banner", admin_page["body"], "Kein Banner gesetzt.");
+
+    var banner_set = await app.handle(request("POST", "/admin/banner", csrf_body(app.sessions[sid]["data"]["__csrf_token"], "banner_text=Deploy+heute+um+18%3A00"), form_headers(sid_pair)));
+    assert_eq("banner_set_redirect", banner_set["status"], 303);
+    assert_eq("banner_set_location", banner_set["headers"]["Location"], "/admin");
+
+    var admin_after_banner = await app.handle(request("GET", "/admin/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_contains("banner_visible_in_admin", admin_after_banner["body"], "Aktueller Banner: Deploy heute um 18:00");
+
+    var home_after_banner = await app.handle(request("GET", "/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_contains("banner_visible_on_home", home_after_banner["body"], "Deploy heute um 18:00");
+
+    var admin_api = await app.handle(request("GET", "/api/me", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    var admin_api_body = json_body(admin_api);
+    assert_eq("admin_api_role", admin_api_body["role"], "admin");
+    assert_eq("admin_api_banner", admin_api_body["admin_banner"], "Deploy heute um 18:00");
+    assert_true("admin_api_audit_count_positive", admin_api_body["audit_count"] >= 1);
+
+    var banner_clear = await app.handle(request("POST", "/admin/banner/clear", csrf_body(app.sessions[sid]["data"]["__csrf_token"]), form_headers(sid_pair)));
+    assert_eq("banner_clear_redirect", banner_clear["status"], 303);
+    assert_eq("banner_clear_location", banner_clear["headers"]["Location"], "/admin");
+
+    var admin_after_clear = await app.handle(request("GET", "/admin/", "", {
+        "Host":"localhost:8098",
+        "Cookie": sid_pair
+    }));
+    assert_contains("banner_clear_text", admin_after_clear["body"], "Kein Banner gesetzt.");
+    assert_true("banner_removed_from_admin", !str(admin_after_clear["body"]).contains("Aktueller Banner: Deploy heute um 18:00"));
+
+    print("[done] admin_panel_sample_app_smoke");
+}
+
+var _ = await main();

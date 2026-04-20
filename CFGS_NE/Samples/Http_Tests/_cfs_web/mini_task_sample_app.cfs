@@ -1,0 +1,321 @@
+import { Dom, Ui } from "dom.cfs";
+import { Layout } from "layout.cfs";
+import { Components } from "components.cfs";
+import { Forms } from "forms.cfs";
+import { Guards } from "guards.cfs";
+import { ViewModels, Templates } from "views.cfs";
+import { ServerApp } from "server.cfs";
+
+# Alles in dieser Beispiel-App lebt nur in der Session.
+# Das macht den Code kurz und leicht lesbar, ersetzt aber keine Datenbank.
+func _ensure_defaults(session) {
+    if (session == null) { return session; }
+    if (!session.contains("tasks") || typeof(session["tasks"]) != "Array") { session["tasks"] = []; }
+    if (!session.contains("next_task_id") || typeof(session["next_task_id"]) != "Int") { session["next_task_id"] = 1; }
+    if (!session.contains("user_id")) { session["user_id"] = null; }
+    if (!session.contains("user_name")) { session["user_name"] = null; }
+    if (!session.contains("page_visits") || typeof(session["page_visits"]) != "Int") { session["page_visits"] = 0; }
+    return session;
+}
+
+func _tasks(session) {
+    _ensure_defaults(session);
+    return session["tasks"];
+}
+
+# Jede neue Aufgabe bekommt nur eine einfache aufsteigende Nummer.
+func _next_task_id(session) {
+    _ensure_defaults(session);
+    var next_id = session["next_task_id"];
+    session["next_task_id"] = next_id + 1;
+    return next_id;
+}
+
+func _authenticated(ctx) {
+    return ctx.request.session("user_id", null) != null;
+}
+
+func _pick_errors(errors, names) {
+    var picked = {};
+    if (errors == null || typeof(errors) != "Dictionary") {
+        return picked;
+    }
+
+    var i = 0;
+    while (i < len(names)) {
+        var name = names[i];
+        if (errors[name] != null) {
+            picked[name] = errors[name];
+        }
+        i = i + 1;
+    }
+    return picked;
+}
+
+func _open_count(session) {
+    var tasks = _tasks(session);
+    var count = 0;
+    var i = 0;
+    while (i < len(tasks)) {
+        if (tasks[i]["done"] != true) {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+func _find_task_index(session, wanted_id) {
+    var tasks = _tasks(session);
+    var i = 0;
+    while (i < len(tasks)) {
+        if (str(tasks[i]["id"]) == str(wanted_id)) {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+func _remove_task(session, wanted_id) {
+    var tasks = _tasks(session);
+    var kept = [];
+    var removed = false;
+    var i = 0;
+    while (i < len(tasks)) {
+        if (str(tasks[i]["id"]) == str(wanted_id)) {
+            removed = true;
+        } else {
+            kept[] = tasks[i];
+        }
+        i = i + 1;
+    }
+
+    session["tasks"] = kept;
+    return removed;
+}
+
+func _task_nodes(ctx) {
+    var tasks = _tasks(ctx.session);
+    if (len(tasks) == 0) {
+        return [
+            Components.log_box("Liste", "Noch keine Aufgabe gespeichert.")
+        ];
+    }
+
+    var nodes = [];
+    var i = len(tasks) - 1;
+    while (i >= 0) {
+        var task = tasks[i];
+        var done = task["done"] == true;
+        var toggle_label = done ? "Wieder oeffnen" : "Als erledigt markieren";
+
+        nodes[] = Layout.panel([
+            Dom.h("div", {"class":"row"}, [
+                Dom.h("strong", null, str(task["text"])),
+                Dom.h("span", {"class":"session"}, "#" + str(task["id"]))
+            ]),
+            Components.session_line("Erledigt: " + str(done)),
+            Forms.button_row([
+                Forms.event_button(ctx.request.url("tasks.toggle", {"id": task["id"]}), toggle_label, "btn secondary", null, ctx),
+                Forms.event_button(ctx.request.url("tasks.delete", {"id": task["id"]}), "Loeschen", "btn ghost", null, ctx)
+            ])
+        ]);
+        i = i - 1;
+    }
+
+    return nodes;
+}
+
+func _guest_sections(ctx) {
+    return [
+        Templates.section("Login", [
+            Forms.flash_message(ctx, "notice"),
+            Forms.error_summary(_pick_errors(ctx.request.old_errors(), ["login_name"])),
+            Ui.form(ctx.request.url("auth.login"), "POST", [
+                Forms.csrf_field(ctx),
+                Forms.text_field_from_ctx(ctx, "Dein Name", "login_name", "", "Ada", "miniLoginName"),
+                Forms.button_row([
+                    Ui.submit("Einloggen")
+                ])
+            ], {"class":"stack"})
+        ], "Nach dem Login werden alle Aufgaben in deiner Session gespeichert."),
+        Templates.section("Was zeigt dieses Beispiel?", [
+            Dom.h("p", null, "Diese App demonstriert benannte Routen, Guards, CSRF-Felder und eine kleine CRUD-Liste."),
+            Dom.h("p", null, [
+                "Die JSON-Route liegt unter ",
+                Dom.h("a", {"href": ctx.request.url("api.state")}, ctx.request.url("api.state")),
+                "."
+            ])
+        ])
+    ];
+}
+
+func _auth_sections(ctx) {
+    return [
+        Templates.section("Angemeldet", [
+            Forms.flash_message(ctx, "notice"),
+            Dom.h("p", null, "Aktiver Benutzer: " + str(ctx.request.session("user_name", "Gast"))),
+            Forms.button_row([
+                Forms.event_button(ctx.request.url("auth.logout"), "Abmelden", "btn secondary", null, ctx)
+            ])
+        ]),
+        Templates.section("Neue Aufgabe", [
+            Forms.error_summary(_pick_errors(ctx.request.old_errors(), ["task_text"])),
+            Ui.form(ctx.request.url("tasks.create"), "POST", [
+                Forms.csrf_field(ctx),
+                Forms.text_field_from_ctx(ctx, "Aufgabe", "task_text", "", "Release-Notizen schreiben", "miniTaskText"),
+                Forms.button_row([
+                    Ui.submit("Aufgabe speichern")
+                ])
+            ], {"class":"stack"})
+        ], "Alle Aenderungen laufen ueber normale POST-Requests mit CSRF."),
+        Templates.section("Aufgaben", _task_nodes(ctx), "Toggle und Delete sind hier ebenfalls normale Formulare.")
+    ];
+}
+
+# Die Startseite entscheidet nur, welche Bereiche angezeigt werden.
+func home(ctx) {
+    _ensure_defaults(ctx.session);
+    ctx.session["page_visits"] = ctx.request.session("page_visits", 0) + 1;
+
+    var vm = ViewModels.page(
+        "Mini Aufgaben-App",
+        "Login + CSRF + CRUD",
+        "Eine kleine Lern-App mit Session-Login und einer Aufgabenliste ohne Datenbank."
+    );
+
+    ViewModels.push_slot(vm, "top", Layout.panel([
+        Dom.h("div", {"class":"row"}, [
+            Dom.h("a", {"href": ctx.request.url("home")}, "Home"),
+            Dom.h("a", {"href": ctx.request.url("api.state")}, "API-State")
+        ])
+    ]));
+
+    ViewModels.push_slot(vm, "footer", Layout.panel([
+        Components.session_line("Diese App speichert alles nur in der Session."),
+        Components.session_line("Seitenaufrufe in dieser Session: " + str(ctx.request.session("page_visits", 0))),
+        Components.session_line("CSRF-Feldname: " + ctx.request.csrf_field_name())
+    ]));
+
+    var sections = [
+        Templates.section("Status", [
+            Layout.row([
+                Components.metric("Aufgaben", str(len(_tasks(ctx.session)))),
+                Components.metric("Offen", str(_open_count(ctx.session))),
+                Components.metric("Besuche", str(ctx.request.session("page_visits", 0)))
+            ])
+        ], "Der Status wird aus der aktuellen Session berechnet.")
+    ];
+
+    var extra = _authenticated(ctx) ? _auth_sections(ctx) : _guest_sections(ctx);
+    var i = 0;
+    while (i < len(extra)) {
+        sections[] = extra[i];
+        i = i + 1;
+    }
+
+    return ctx.response.html(Templates.sections(vm, sections));
+}
+
+# Ein absichtlich einfacher Login:
+# - Name lesen
+# - kurz validieren
+# - Benutzer in der Session ablegen
+func login(ctx) {
+    var name = str(ctx.request.form("login_name", "")).trim();
+    if (len(name) < 2) {
+        return ctx.response.redirect_to_with_input("home", {
+            "login_name": name
+        }, {
+            "login_name":"Name muss mindestens 2 Zeichen lang sein."
+        });
+    }
+
+    ctx.session["user_id"] = "user:" + name;
+    ctx.session["user_name"] = name;
+    ctx.response.flash("notice", "Willkommen " + name + "!");
+    return ctx.response.redirect_to("home");
+}
+
+func logout(ctx) {
+    var current = ctx.request.session("user_name", "Gast");
+    ctx.response.logout_session();
+    ctx.response.flash("notice", "Abgemeldet: " + current + ".");
+    return ctx.response.redirect_to("home");
+}
+
+func create_task(ctx) {
+    var text = str(ctx.request.form("task_text", "")).trim();
+    if (text == "") {
+        return ctx.response.redirect_to_with_input("home", {
+            "task_text":""
+        }, {
+            "task_text":"Bitte gib einen Text ein."
+        });
+    }
+
+    var tasks = _tasks(ctx.session);
+    tasks[] = {
+        "id": _next_task_id(ctx.session),
+        "text": text,
+        "done": false
+    };
+
+    ctx.response.flash("notice", "Aufgabe gespeichert.");
+    return ctx.response.redirect_to("home");
+}
+
+func toggle_task(ctx) {
+    var idx = _find_task_index(ctx.session, ctx.request.param("id", ""));
+    if (idx < 0) {
+        return ctx.response.redirect_to_with_flash("home", "notice", "Aufgabe nicht gefunden.");
+    }
+
+    var task = _tasks(ctx.session)[idx];
+    task["done"] = task["done"] == true ? false : true;
+
+    var notice = task["done"] == true ? "Aufgabe erledigt." : "Aufgabe wieder offen.";
+    return ctx.response.redirect_to_with_flash("home", "notice", notice);
+}
+
+func delete_task(ctx) {
+    var removed = _remove_task(ctx.session, ctx.request.param("id", ""));
+    if (!removed) {
+        return ctx.response.redirect_to_with_flash("home", "notice", "Aufgabe nicht gefunden.");
+    }
+
+    return ctx.response.redirect_to_with_flash("home", "notice", "Aufgabe geloescht.");
+}
+
+func api_state(ctx) {
+    _ensure_defaults(ctx.session);
+
+    return ctx.response.json({
+        "authenticated": _authenticated(ctx),
+        "user_name": ctx.request.session("user_name", null),
+        "task_count": len(_tasks(ctx.session)),
+        "open_count": _open_count(ctx.session),
+        "csrf_field": ctx.request.csrf_field_name(),
+        "path": ctx.request.path()
+    });
+}
+
+# Diese Funktion ist der eigentliche Einstieg fuer andere Dateien und Smokes.
+export func build_mini_task_sample_app(port = 8097) {
+    var app = new ServerApp(port);
+    var auth = app.group("/auth", "auth");
+    var tasks = app.group("/tasks", "tasks");
+
+    app.get_named("home", "/", home);
+    app.get_named("api.state", "/api/state", api_state);
+
+    auth.post_named("login", "/login", Guards.require_guest(login, "/", "user_id"));
+    auth.post_named("logout", "/logout", Guards.require_authenticated(logout, "/", "user_id"));
+
+    tasks.post_named("create", "/create", Guards.require_authenticated(create_task, "/", "user_id"));
+    tasks.post_named("toggle", "/:id/toggle", Guards.require_authenticated(toggle_task, "/", "user_id"));
+    tasks.post_named("delete", "/:id/delete", Guards.require_authenticated(delete_task, "/", "user_id"));
+
+    return app;
+}

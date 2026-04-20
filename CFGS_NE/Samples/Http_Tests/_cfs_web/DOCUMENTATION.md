@@ -1132,7 +1132,7 @@ Du kannst damit pruefen:
 - Uploads
 - Error Pages
 
-Das ist die bevorzugte Teststrategie, solange der Live-Listener in der Runtime auf diesem System blockiert ist.
+Das ist weiterhin die schnellste Basis-Teststrategie. Zusaetzlich deckt ein Live-Smoke jetzt auch den echten Runtime-Listener ab.
 
 Aktuelle Regression-Smokes in diesem Ordner:
 
@@ -1142,6 +1142,7 @@ Aktuelle Regression-Smokes in diesem Ordner:
 - `phase17_routing_semantics_smoke.cfs` fuer Routing, HEAD-Fallback, 405 und OPTIONS
 - `phase17_static_caching_smoke.cfs` fuer Static Files, ETag, Last-Modified und 304
 - `phase17_security_middleware_smoke.cfs` fuer CSRF, Host-/Origin-Policy, Rate-Limit und Security-Header
+- `phase18_live_listener_smoke.cfs` fuer echten `app.run()`-Start, HTTP-Requests, Static-HEAD und den Live-Run-Loop
 
 ## 20. Die Beispiel-App
 
@@ -1214,19 +1215,13 @@ Praktische Folge:
 
 ### 22.3 Live-Listener der Runtime
 
-Die direkte `app.run()`-Verifikation ist in dieser Umgebung weiterhin durch die Runtime blockiert.
-
-Der aktuell dokumentierte Fehler lautet:
-
-```text
-Cannot start HTTP server on http://localhost:5000/: Das Handle ist ungueltig. (code 6)
-```
+Die Runtime kann `app.run()` in dieser Umgebung jetzt wieder direkt starten.
 
 Wichtig:
 
-- das Problem liegt unterhalb von `_cfs_web`
-- die Direct-Handle-Smokes des Frameworks sind davon nicht betroffen
-- sobald die Runtime den Listener stabil starten kann, sollte `run_example_app.cfs` der erste Re-Check sein
+- `phase18_live_listener_smoke.cfs` startet `build_example_app(...)` auf einem Testport und prueft GET, JSON, Static-HEAD und den Live-Run-Loop ueber echte HTTP-Requests
+- `run_example_app.cfs` ist der manuelle Re-Check fuer die volle Beispiel-App
+- der installierte `plugins`-Ordner muss einen konsistenten `net10`-Satz der `Microsoft.*`-Assemblies enthalten, damit der Live-Listener sauber startet
 
 ## 23. Referenz nach Datei
 
