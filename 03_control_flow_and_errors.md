@@ -49,24 +49,24 @@ do {
 
 ## `for`
 
-The `for` loop in CFGS is slightly unusual if you come from C like languages. The initializer and increment sections are both parsed as statements. Because of that, the increment section also ends with a semicolon inside the parentheses.
+The `for` loop uses the familiar three-part shape.
 
 ```cfs
-for (var i = 0; i < 5; i = i + 1;) {
+for (var i = 0; i < 5; i = i + 1) {
     print(i);
 }
 ```
 
-It looks unusual at first, but it is correct and important. Without that final semicolon before `)` the loop is not syntactically complete.
+The initializer still ends with the first semicolon, and the condition still ends with the second semicolon. The increment section does not need a trailing semicolon before `)`.
 
 These forms are also valid.
 
 ```cfs
-for (; i < 10; i++;) {
+for (; i < 10; i++) {
     print(i);
 }
 
-for (var i = 0; ; i++;) {
+for (var i = 0; ; i++) {
     if (i == 3) {
         break;
     }
@@ -306,7 +306,7 @@ func main() {
     var total = 0;
 
     try {
-        for (var i = 1; i <= 5; i = i + 1;) {
+        for (var i = 1; i <= 5; i = i + 1) {
             if (i == 4) {
                 continue;
             }

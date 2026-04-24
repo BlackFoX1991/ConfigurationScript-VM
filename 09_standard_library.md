@@ -26,6 +26,8 @@ After that, its builtins and intrinsics are available globally.
 - `dictionary(value)` builds a dictionary. Dictionaries are copied. Single values produce an empty dictionary.
 - `isarray(value)` and `isdict(value)` check collection types.
 - `getfields(dict)` returns the keys of a dictionary as an array.
+- `textToBytes(text, encoding = "utf-8")` encodes text into an array of byte values.
+- `bytesToText(bytes, encoding = "utf-8")` decodes an array of byte values into text.
 
 Example.
 
@@ -33,6 +35,11 @@ Example.
 print(typeof(byte(255)));
 print(byte(0x41));
 print(byte(300));   # runtime error: value must be between 0 and 255
+```
+
+```cfs
+var bytes = textToBytes("Hi");
+print(bytesToText(bytes));
 ```
 
 Cleanup example.
@@ -73,7 +80,11 @@ destroy(r);
 - `fbopen(path, mode)` opens a file and returns a `BinaryFileHandle`.
 - `fexist(path)` checks whether a file exists.
 - `readAllBytes(path)` reads the full file into an array of byte values.
+- `readAllBytesAsync(path)` is the asynchronous version.
 - `writeAllBytes(path, bytes)` writes an array of byte values and returns the written byte count.
+- `fileSize(path)` returns the file size in bytes, or `-1` if the file does not exist.
+- `fileLastWriteTime(path)` returns the local last-write timestamp.
+- `fileLastWriteTimeUtc(path)` returns the UTC last-write timestamp.
 - `readTextAsync(path)`, `writeTextAsync(path, text)`, `appendTextAsync(path, text)` are asynchronous file helpers.
 
 `fopen` supports these modes.

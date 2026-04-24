@@ -1,0 +1,305 @@
+import "plugins/CFGS.Microsoft.SQL.dll";
+import { Dom, Ui } from "dom.cfs";
+import { Layout } from "layout.cfs";
+import { Components } from "components.cfs";
+import { Forms } from "forms.cfs";
+import { ViewModels, Templates } from "views.cfs";
+import { ServerApp } from "server.cfs";
+import { Util } from "common.cfs";
+
+class MssqlTodoStore(connection_string)
+{
+    var connection_string;
+    var conn = null;
+
+    func init(connection_string) {
+        this.connection_string = connection_string;
+    }
+
+    async func open() {
+        this.conn = await sql_connect(this.connection_string);
+        return this;
+    }
+
+    async func ensure_schema() {
+        var sql =
+            "IF OBJECT_ID(N'dbo.CfgsTodos', N'U') IS NULL " +
+            "BEGIN " +
+            "CREATE TABLE dbo.CfgsTodos (" +
+            "Id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_CfgsTodos PRIMARY KEY, " +
+            "Title NVARCHAR(200) NOT NULL, " +
+            "IsDone BIT NOT NULL CONSTRAINT DF_CfgsTodos_IsDone DEFAULT 0, " +
+            "CreatedAtUtc DATETIME2 NOT NULL CONSTRAINT DF_CfgsTodos_CreatedAtUtc DEFAULT SYSUTCDATETIME()" +
+            "); " +
+            "END";
+
+        await this.conn.execute_nonquery_async(sql);
+        return true;
+    }
+
+    async func list() {
+        return await this.conn.query_async(
+            "SELECT TOP (50) Id, Title, IsDone, CONVERT(varchar(19), CreatedAtUtc, 126) AS CreatedAtUtc " +
+            "FROM dbo.CfgsTodos ORDER BY Id DESC"
+        );
+    }
+
+    async func create(title) {
+        return await this.conn.execute_nonquery_async(
+            "INSERT INTO dbo.CfgsTodos (Title) VALUES (@title)",
+            {"title": title}
+        );
+    }
+
+    async func toggle(id) {
+        return await this.conn.execute_nonquery_async(
+            "UPDATE dbo.CfgsTodos SET IsDone = CASE WHEN IsDone = 1 THEN 0 ELSE 1 END WHERE Id = @id",
+            {"id": id}
+        );
+    }
+
+    async func delete_by_id(id) {
+        return await this.conn.execute_nonquery_async(
+            "DELETE FROM dbo.CfgsTodos WHERE Id = @id",
+            {"id": id}
+        );
+    }
+
+    async func stats() {
+        var total = await this.conn.execute_scalar_async("SELECT COUNT(*) FROM dbo.CfgsTodos");
+        var open = await this.conn.execute_scalar_async("SELECT COUNT(*) FROM dbo.CfgsTodos WHERE IsDone = 0");
+
+        return {
+            "todo_count": total == null ? 0 : total,
+            "open_count": open == null ? 0 : open
+        };
+    }
+}
+
+func _store(ctx) {
+    return ctx.shared["todo_store"];
+}
+
+func _connection_label(ctx) {
+    var value = ctx.shared["connection_label"];
+    return value == null ? "MS SQL" : value;
+}
+
+func _sql_connection_label(connection_string) {
+    if (connection_string == null) { return "MS SQL"; }
+
+    var server = null;
+    var database = null;
+    var parts = str(connection_string).split(";");
+    var i = 0;
+    while (i < len(parts)) {
+        var part = parts[i].trim();
+        var eq = part.indexOf("=");
+        if (eq > 0) {
+            var key = part.substr(0, eq).trim().lower();
+            var value = part.substr(eq + 1, len(part) - (eq + 1)).trim();
+            if (key == "server" || key == "data source") { server = value; }
+            if (key == "database" || key == "initial catalog") { database = value; }
+        }
+        i = i + 1;
+    }
+
+    if (server == null && database == null) { return "MS SQL"; }
+    if (server == null) { return "DB: " + database; }
+    if (database == null) { return "Server: " + server; }
+    return server + " / " + database;
+}
+
+func _default_connection_string() {
+    return "Server=localhost;Database=master;Trusted_Connection=True;Encrypt=False;TrustServerCertificate=True;";
+}
+
+func _is_done(row) {
+    var value = row["IsDone"];
+    return value == true || value == 1 || str(value).lower() == "true";
+}
+
+func _id_from_param(ctx) {
+    return Util.parse_int(ctx.request.param("id", null), null);
+}
+
+func _pick_errors(errors, names) {
+    var picked = {};
+    if (errors == null || typeof(errors) != "Dictionary") {
+        return picked;
+    }
+
+    var i = 0;
+    while (i < len(names)) {
+        var name = names[i];
+        if (errors[name] != null) {
+            picked[name] = errors[name];
+        }
+        i = i + 1;
+    }
+    return picked;
+}
+
+func _todo_nodes(ctx, rows) {
+    if (rows == null || len(rows) == 0) {
+        return [
+            Components.log_box("Liste", "Noch keine Aufgabe in dbo.CfgsTodos gespeichert.")
+        ];
+    }
+
+    var nodes = [];
+    var i = 0;
+    while (i < len(rows)) {
+        var row = rows[i];
+        var done = _is_done(row);
+        var toggle_label = done ? "Wieder oeffnen" : "Als erledigt markieren";
+
+        nodes[] = Layout.panel([
+            Dom.h("div", {"class":"row"}, [
+                Dom.h("strong", null, str(row["Title"])),
+                Dom.h("span", {"class":"session"}, "#" + str(row["Id"]))
+            ]),
+            Components.session_line("Erledigt: " + str(done)),
+            Components.session_line("Erstellt UTC: " + str(row["CreatedAtUtc"])),
+            Forms.button_row([
+                Forms.event_button(ctx.request.url("todos.toggle", {"id": row["Id"]}), toggle_label, "btn secondary", null, ctx),
+                Forms.event_button(ctx.request.url("todos.delete", {"id": row["Id"]}), "Loeschen", "btn ghost", null, ctx)
+            ])
+        ]);
+        i = i + 1;
+    }
+
+    return nodes;
+}
+
+async func home(ctx) {
+    var stats = await _store(ctx).stats();
+    var rows = await _store(ctx).list();
+
+    var vm = ViewModels.page(
+        "MS SQL Todo Sample",
+        "CFGS Web + Datenbank",
+        "Eine kleine Web-App mit Formularen, CSRF, Redirects, JSON-API und Persistenz in dbo.CfgsTodos."
+    );
+
+    ViewModels.push_slot(vm, "top", Layout.panel([
+        Dom.h("div", {"class":"row"}, [
+            Dom.h("a", {"href": ctx.request.url("home")}, "Home"),
+            Dom.h("a", {"href": ctx.request.url("api.todos")}, "API-Todos")
+        ])
+    ]));
+
+    ViewModels.push_slot(vm, "footer", Layout.panel([
+        Components.session_line("Verbindung: " + _connection_label(ctx)),
+        Components.session_line("Tabelle: dbo.CfgsTodos"),
+        Components.session_line("CSRF-Feldname: " + ctx.request.csrf_field_name())
+    ]));
+
+    return ctx.response.html(Templates.sections(vm, [
+        Templates.section("Status", [
+            Layout.row([
+                Components.metric("Aufgaben", str(stats["todo_count"])),
+                Components.metric("Offen", str(stats["open_count"])),
+                Components.metric("Quelle", "MS SQL")
+            ])
+        ], "Die Werte kommen live aus der Datenbank."),
+        Templates.section("Neue Aufgabe", [
+            Forms.flash_message(ctx, "notice"),
+            Forms.error_summary(_pick_errors(ctx.request.old_errors(), ["title"])),
+            Ui.form(ctx.request.url("todos.create"), "POST", [
+                Forms.csrf_field(ctx),
+                Forms.text_field_from_ctx(ctx, "Aufgabe", "title", "", "Deployment pruefen", "mssqlTodoTitle"),
+                Forms.button_row([
+                    Ui.submit("Aufgabe speichern")
+                ])
+            ], {"class":"stack"})
+        ], "Das Formular schreibt per SQL-Parameter in die Tabelle."),
+        Templates.section("Aufgaben", _todo_nodes(ctx, rows), "Toggle und Delete laufen ebenfalls ueber POST-Routen.")
+    ]));
+}
+
+async func create_todo(ctx) {
+    var title = str(ctx.request.form("title", "")).trim();
+    if (title == "") {
+        return ctx.response.redirect_to_with_input("home", {
+            "title": ""
+        }, {
+            "title":"Bitte gib eine Aufgabe ein."
+        });
+    }
+
+    if (len(title) > 200) {
+        return ctx.response.redirect_to_with_input("home", {
+            "title": title
+        }, {
+            "title":"Die Aufgabe darf maximal 200 Zeichen lang sein."
+        });
+    }
+
+    await _store(ctx).create(title);
+    return ctx.response.redirect_to_with_flash("home", "notice", "Aufgabe gespeichert.");
+}
+
+async func toggle_todo(ctx) {
+    var id = _id_from_param(ctx);
+    if (id == null) {
+        return ctx.response.redirect_to_with_flash("home", "notice", "Ungueltige Aufgaben-ID.");
+    }
+
+    var affected = await _store(ctx).toggle(id);
+    if (affected < 1) {
+        return ctx.response.redirect_to_with_flash("home", "notice", "Aufgabe nicht gefunden.");
+    }
+
+    return ctx.response.redirect_to_with_flash("home", "notice", "Aufgabe aktualisiert.");
+}
+
+async func delete_todo(ctx) {
+    var id = _id_from_param(ctx);
+    if (id == null) {
+        return ctx.response.redirect_to_with_flash("home", "notice", "Ungueltige Aufgaben-ID.");
+    }
+
+    var affected = await _store(ctx).delete_by_id(id);
+    if (affected < 1) {
+        return ctx.response.redirect_to_with_flash("home", "notice", "Aufgabe nicht gefunden.");
+    }
+
+    return ctx.response.redirect_to_with_flash("home", "notice", "Aufgabe geloescht.");
+}
+
+async func api_todos(ctx) {
+    var stats = await _store(ctx).stats();
+    var rows = await _store(ctx).list();
+
+    return ctx.response.json({
+        "ok": true,
+        "table": "dbo.CfgsTodos",
+        "stats": stats,
+        "items": rows
+    });
+}
+
+export async func build_mssql_todo_sample_app(port = 8099, connection_string = null) {
+    var actual_connection_string = connection_string == null || str(connection_string).trim() == ""
+        ? _default_connection_string()
+        : connection_string;
+
+    var store = new MssqlTodoStore(actual_connection_string);
+    await store.open();
+    await store.ensure_schema();
+
+    var app = new ServerApp(port);
+    app.set_session_cookie_signing_secret("mssql-todo-sample-session-secret");
+    app.set_runtime_max_body_bytes(1024 * 1024);
+    app.shared["todo_store"] = store;
+    app.shared["connection_label"] = _sql_connection_label(actual_connection_string);
+
+    app.get_named("home", "/", home);
+    app.post_named("todos.create", "/todos", create_todo);
+    app.post_named("todos.toggle", "/todos/:id/toggle", toggle_todo);
+    app.post_named("todos.delete", "/todos/:id/delete", delete_todo);
+    app.get_named("api.todos", "/api/todos", api_todos);
+
+    return app;
+}

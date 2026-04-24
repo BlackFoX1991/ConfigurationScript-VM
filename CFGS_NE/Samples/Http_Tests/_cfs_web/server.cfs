@@ -20,6 +20,31 @@ export class RequestView(ctx)
         return this.ctx.req.path;
     }
 
+    func body(fallback = "") {
+        var value = this.ctx.req.body;
+        return value == null ? fallback : value;
+    }
+
+    func body_bytes(fallback = null) {
+        var value = this.ctx.req["body_bytes"];
+        if (value != null) { return value; }
+        return fallback == null ? [] : fallback;
+    }
+
+    func body_length(fallback = 0) {
+        var value = this.ctx.req["body_length"];
+        return value == null ? fallback : value;
+    }
+
+    func body_stream(fallback = null) {
+        var value = this.ctx.req["body_stream"];
+        return value == null ? fallback : value;
+    }
+
+    func is_body_streaming() {
+        return this.ctx.req["body_streaming"] == true;
+    }
+
     func remote(fallback = null) {
         var value = this.ctx.remote;
         return value == null ? fallback : value;
@@ -378,6 +403,7 @@ export class ServerApp(port)
     var enforce_csrf = true;
     var debug_errors = false;
     var max_body_bytes = null;
+    var runtime_max_body_bytes = 10485760;
     var trusted_proxies = {};
 
     func init(port) {
@@ -525,22 +551,24 @@ export class ServerApp(port)
             }
 
             var content_type = Util.content_type_from_path(safe_rel);
-            if (!Util.is_textual_content_type(content_type)) {
+            var last_modified = fileLastWriteTimeUtc(full_path);
+
+            if (Util.is_textual_content_type(content_type)) {
+                var data = await readTextAsync(full_path);
                 return {
-                    "status": 415,
-                    "data": "Unsupported static asset type for text-only HTTP transport.",
-                    "content_type": "text/plain; charset=utf-8",
-                    "headers": {
-                        "Cache-Control": "no-store"
-                    }
+                    "data": data,
+                    "content_type": content_type,
+                    "etag": Util.etag_for(data),
+                    "last_modified": last_modified
                 };
             }
 
-            var data = await readTextAsync(full_path);
+            var size = fileSize(full_path);
             return {
-                "data": data,
+                "data": Util.file_body(full_path),
                 "content_type": content_type,
-                "etag": Util.etag_for(data)
+                "etag": Util.etag_for_file(size, last_modified),
+                "last_modified": last_modified
             };
         }, max_age);
     }
@@ -557,6 +585,12 @@ export class ServerApp(port)
 
     func set_max_body_bytes(limit = null) {
         this.max_body_bytes = this._positive_int_or_null(limit);
+        return this;
+    }
+
+    func set_runtime_max_body_bytes(limit = null) {
+        var parsed = this._positive_int_or_null(limit);
+        this.runtime_max_body_bytes = parsed == null ? 10485760 : parsed;
         return this;
     }
 
@@ -906,13 +940,17 @@ export class ServerApp(port)
         }
 
         var actual_type = content_type == null ? Util.content_type_from_path(actual_path) : content_type;
-        if (!Util.is_textual_content_type(actual_type)) {
-            return ServerApp.text("Unsupported file type for text-only HTTP transport.", 415, {"Cache-Control":"no-store"});
-        }
-
-        var body = await readTextAsync(actual_path);
+        var body = null;
         var hdr = headers == null ? {} : headers;
-        hdr["ETag"] = Util.etag_for(body);
+        var last_modified = fileLastWriteTimeUtc(actual_path);
+
+        if (Util.is_textual_content_type(actual_type)) {
+            body = await readTextAsync(actual_path);
+            hdr["ETag"] = Util.etag_for(body);
+        } else {
+            body = Util.file_body(actual_path);
+            hdr["ETag"] = Util.etag_for_file(fileSize(actual_path), last_modified);
+        }
 
         if (download_name != null) {
             var fallback_name = actual_path.replace("\\", "/");
@@ -928,6 +966,7 @@ export class ServerApp(port)
         return this._static_response({
             "data": body,
             "content_type": actual_type,
+            "last_modified": last_modified,
             "headers": hdr
         }, actual_path, null, ctx.req);
     }
@@ -1458,10 +1497,66 @@ export class ServerApp(port)
         return this.max_body_bytes;
     }
 
+    func _route_stream_body(route) {
+        if (route == null) { return false; }
+        var options = route["options"];
+        return options != null && options["stream_body"] == true;
+    }
+
+    async func _buffer_request_body(req) {
+        if (req == null) { return 0; }
+        if (req["body_stream"] == null) { return 0; }
+        if (req["body_buffered"] == true) { return 1; }
+        if (req["body_too_large"] == true) { return 0; }
+
+        var limit = Util.parse_int(req["body_limit"], this.runtime_max_body_bytes);
+        if (limit == null || limit <= 0) {
+            limit = this.runtime_max_body_bytes;
+        }
+
+        try {
+            var bytes = await req["body_stream"].read_all_bytes(limit);
+            var ct = Util.header(req.headers, "Content-Type");
+            var charset = Util.header_charset(ct, "utf-8");
+            var text = "";
+
+            try {
+                text = Util.bytes_to_text(bytes, charset);
+            } catch (decode_err) {
+                text = Util.bytes_to_text(bytes, "utf-8");
+            }
+
+            req["body_bytes"] = bytes;
+            req["body"] = text;
+            req["body_length"] = len(bytes);
+            req["body_buffered"] = true;
+            req["body_too_large"] = false;
+            req["body_bytes_truncated"] = false;
+            return 1;
+        } catch (e) {
+            req["body"] = str(e);
+            req["body_bytes"] = [];
+            req["body_length"] = req["body_stream"].bytes_read();
+            req["body_too_large"] = true;
+            req["body_bytes_truncated"] = true;
+            req["body_buffered"] = false;
+            return 0;
+        }
+    }
+
     func _request_body_bytes(req) {
         var raw = req == null || req.body == null ? "" : req.body;
-        var actual = Util.utf8_size(raw);
-        var declared = Util.parse_int(Util.header(req.headers, "Content-Length"), null);
+        var reported = req == null ? null : Util.parse_int(req["body_length"], null);
+        if (reported != null) {
+            return reported;
+        }
+
+        var body_bytes = req == null ? null : req["body_bytes"];
+        var actual = Util.byte_size(body_bytes);
+        if (actual <= 0) {
+            actual = Util.utf8_size(raw);
+        }
+        var declared = req == null ? null : Util.parse_int(Util.header(req.headers, "Content-Length"), null);
 
         if (declared != null && declared > actual) {
             return declared;
@@ -1544,9 +1639,19 @@ export class ServerApp(port)
 
     func _parse_request_payload(req) {
         var raw = req.body == null ? "" : req.body;
-        if (raw == "") {
+        var raw_bytes = req["body_bytes"];
+        var raw_byte_len = Util.byte_size(raw_bytes);
+
+        if (raw == "" && raw_byte_len == 0) {
             return {
                 "form": {},
+                "uploads": {}
+            };
+        }
+
+        if (req["body_too_large"] == true) {
+            return {
+                "form": {"_raw": raw, "_parse_error": "Request body too large."},
                 "uploads": {}
             };
         }
@@ -1565,7 +1670,12 @@ export class ServerApp(port)
         if (ct_lower.contains("multipart/form-data")) {
             var boundary = Util.header_param(ct, "boundary");
             if (boundary != null && boundary != "") {
-                var parsed = Util.parse_multipart(raw, boundary);
+                var parsed = null;
+                if (raw_byte_len > 0) {
+                    parsed = Util.parse_multipart_bytes(raw_bytes, boundary);
+                } else {
+                    parsed = Util.parse_multipart(raw, boundary);
+                }
                 return {
                     "form": this._dict_or_empty(parsed["fields"]),
                     "uploads": this._dict_or_empty(parsed["files"])
@@ -1599,7 +1709,7 @@ export class ServerApp(port)
         }
 
         return {
-            "form": {"_raw": raw},
+            "form": {"_raw": raw, "_bytes": raw_bytes == null ? [] : raw_bytes},
             "uploads": {}
         };
     }
@@ -1981,6 +2091,10 @@ export class ServerApp(port)
             detail =
                 "Configured limit: " + str(ctx["max_body_bytes"]) +
                 " bytes. Received: " + str(ctx["request_body_bytes"]) + " bytes.";
+        } else if (ctx != null && ctx["request_body_limit"] != null) {
+            detail =
+                "Runtime body limit: " + str(ctx["request_body_limit"]) +
+                " bytes. Received: " + str(ctx["request_body_bytes"]) + " bytes.";
         }
         return this._default_error_response(ctx, 413, "Payload Too Large", detail, {"Cache-Control":"no-store"});
     }
@@ -2076,8 +2190,12 @@ export class ServerApp(port)
             last_modified = headers["Last-Modified"];
         }
 
-        if (etag == null && typeof(body) == "String") {
-            etag = Util.etag_for(body);
+        if (etag == null) {
+            if (typeof(body) == "String") {
+                etag = Util.etag_for(body);
+            } else if (typeof(body) == "Array") {
+                etag = Util.etag_for_bytes(body);
+            }
         }
 
         if (etag != null && headers["ETag"] == null) {
@@ -2339,12 +2457,18 @@ export class ServerApp(port)
 
     async func handle(req) {
         var route_hit = this._match_request_route(req.method, req.path);
+        var stream_body = this._route_stream_body(route_hit == null ? null : route_hit["route"]);
+        if (!stream_body) {
+            var _buffered = await this._buffer_request_body(req);
+        }
+
         var request_body_bytes = this._request_body_bytes(req);
         var max_body_bytes = this._route_max_body_bytes(route_hit == null ? null : route_hit["route"]);
 
-        if (max_body_bytes != null && request_body_bytes > max_body_bytes) {
+        if (req["body_too_large"] == true || (max_body_bytes != null && request_body_bytes > max_body_bytes)) {
             var too_large_ctx = this._context(req, this._empty_request_data(), request_body_bytes);
             too_large_ctx["max_body_bytes"] = max_body_bytes;
+            too_large_ctx["request_body_limit"] = req["body_limit"];
             too_large_ctx["request_too_large"] = true;
 
             if (route_hit != null) {
@@ -2359,6 +2483,7 @@ export class ServerApp(port)
 
         var ctx = this._context(req, null, request_body_bytes);
         ctx["max_body_bytes"] = max_body_bytes;
+        ctx["request_stream_body"] = stream_body;
         try {
             var res = await this._run_befores_async(ctx);
             if (res == null) {
@@ -2422,7 +2547,7 @@ export class ServerApp(port)
     async func run() {
         this.stop_requested = false;
         this.pending_requests = {};
-        var srv = http_server(this.port).start();
+        var srv = http_server(this.port, this.runtime_max_body_bytes, "stream").start();
         var waiter = task();
 
         print("ServerApp running on http://localhost:" + str(this.port) + "/");

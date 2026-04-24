@@ -29,10 +29,16 @@ func run_control_flow_tests() {
     edge_eq("do_while_runs_once", do_count, 1);
 
     var for_prod = 1;
-    for (var j = 1; j <= 4; j = j + 1;) {
+    for (var j = 1; j <= 4; j = j + 1) {
         for_prod = for_prod * j;
     }
     edge_eq("for_product", for_prod, 24);
+
+    var prefix_sum = 0;
+    for (var p = 0; p < 3; ++p) {
+        prefix_sum = prefix_sum + p;
+    }
+    edge_eq("for_prefix_increment_no_semicolon", prefix_sum, 3);
 
     var arr = [2, 4, 6];
     var arr_sum = 0;

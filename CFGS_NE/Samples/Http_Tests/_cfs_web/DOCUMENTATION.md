@@ -186,6 +186,13 @@ Aktuell sind vor allem diese Optionen wichtig:
 | --- | --- |
 | `{"csrf": false}` | schaltet die Formular-CSRF-Pruefung fuer diese Route aus |
 | `{"max_body_bytes": 4096}` | setzt ein lokales Request-Body-Limit fuer diese Route |
+| `{"stream_body": true}` | uebergibt den Request-Body als Stream an den Handler und deaktiviert automatisches Body-Parsing |
+
+Der Live-Listener hat zusaetzlich ein Runtime-Limit gegen zu grosse Bodies, bevor Handler ausgefuehrt werden:
+
+```cfs
+app.set_runtime_max_body_bytes(10 * 1024 * 1024);
+```
 
 Beispiel:
 
@@ -266,6 +273,11 @@ Jeder Handler bekommt ein Dictionary `ctx`. Die wichtigsten direkten Felder sind
 | `ctx.request.param(name, fallback = null)` | Route-Parameter |
 | `ctx.request.query(name, fallback = null)` | Query-Wert; bei mehrfachen Keys String oder Array |
 | `ctx.request.form(name, fallback = null)` | Form-/Body-Wert; bei mehrfachen Keys String oder Array |
+| `ctx.request.body(fallback = "")` | Request-Body als dekodierter Text |
+| `ctx.request.body_bytes(fallback = null)` | Request-Body als Byte-Array |
+| `ctx.request.body_length(fallback = 0)` | rohe Request-Body-Laenge in Bytes |
+| `ctx.request.body_stream(fallback = null)` | Stream-Handle fuer Routen mit `stream_body` |
+| `ctx.request.is_body_streaming()` | true, wenn ein Stream-Handle vorhanden ist |
 | `ctx.request.uploads(name = null, fallback = null)` | alle Uploads oder Uploads eines Felds |
 | `ctx.request.upload(name, fallback = null)` | erster Upload eines Felds |
 | `ctx.request.cookie(name, fallback = null)` | normaler Cookie-Wert |
@@ -396,14 +408,14 @@ return ctx.response.redirect_to("home");
 
 | API | Bedeutung |
 | --- | --- |
-| `await ctx.response.file(path, content_type = null, headers = null)` | Textdatei inline ausliefern |
-| `await ctx.response.download(path, download_name = null, content_type = null, headers = null)` | Textdatei als Download ausliefern |
+| `await ctx.response.file(path, content_type = null, headers = null)` | Datei inline ausliefern |
+| `await ctx.response.download(path, download_name = null, content_type = null, headers = null)` | Datei als Download ausliefern |
 
 Wichtig:
 
-- der aktuelle HTTP-Plugin-Pfad transportiert Responses nur als Strings
-- deshalb funktionieren hier aktuell nur textartige Dateitypen sinnvoll
-- fuer echte binaere Assets braucht die Runtime Byte-Transport
+- Textdateien werden als Strings ausgeliefert
+- Binaerdateien werden als Byte-Arrays ausgeliefert
+- `ETag` und `Last-Modified` werden fuer beide Pfade gesetzt, sofern nicht explizit ueberschrieben
 
 ## 8. Request-Parsing
 
@@ -415,7 +427,7 @@ Das Framework parst den Body automatisch anhand des `Content-Type`:
 | `multipart/form-data` | normale Felder in `ctx.form`, Uploads in `ctx.uploads` |
 | `application/json` | JSON-Wert in `ctx.form` |
 | `text/plain` | Rohtext unter `ctx.form["_raw"]` und `ctx.form["_text"]` |
-| sonstige Typen | Rohtext unter `ctx.form["_raw"]` |
+| sonstige Typen | Rohtext unter `ctx.form["_raw"]`, rohe Bytes unter `ctx.form["_bytes"]` |
 
 Wiederholte Feldnamen bleiben erhalten:
 
@@ -435,12 +447,15 @@ Ein Upload-Eintrag aus `ctx.request.upload("attachment")` sieht so aus:
     "original_filename":"spec.txt",
     "content_type":"text/plain",
     "body":"release spec",
+    "bytes":[114,101,108,101,97,115,101,32,115,112,101,99],
     "size":12,
     "headers":{ ... }
 }
 ```
 
-`size` ist die UTF-8-Bytelaenge des Upload-Bodys, nicht nur die Zeichenlaenge.
+`bytes` ist der unveraenderte Upload-Inhalt. `body` bleibt als UTF-8-dekodierter Kompatibilitaetswert vorhanden. `size` ist die rohe Bytelaenge des Upload-Bodys, nicht nur die Zeichenlaenge.
+
+Multipart-Header duerfen gefaltet sein. `filename*=` nach RFC 5987 wird bevorzugt, wenn vorhanden; normale `filename=`-Header bleiben als Fallback erhalten. Text-Parts nutzen den `charset` aus dem jeweiligen Part-`Content-Type`, sonst UTF-8.
 
 Wenn ein Feld mehrfach vorkommt, wird der Dictionary-Eintrag zu einem Array erweitert. Deshalb gilt:
 
@@ -876,11 +891,12 @@ Es gibt drei Static-Varianten:
 | --- | --- |
 | `app.serve_static_with(prefix, loader_func, max_age = 3600)` | generischer Loader |
 | `app.serve_static_map(prefix, files, max_age = 3600)` | In-Memory-Map |
-| `app.serve_static_dir(prefix, root_dir, max_age = 3600)` | Verzeichnis fuer textartige Assets |
+| `app.serve_static_dir(prefix, root_dir, max_age = 3600)` | Verzeichnis fuer Text- und Binaerassets |
 
 Der Loader fuer `serve_static_with(...)` kann entweder:
 
 - direkt einen String zurueckgeben
+- ein Byte-Array zurueckgeben
 - oder ein Dictionary mit Metadaten
 
 Unterstuetzte Loader-Felder:
@@ -911,10 +927,11 @@ Fuer statische Responses und Datei-Responses gilt:
 
 - `ETag` wird automatisch erzeugt, wenn keiner gesetzt ist
 - `If-None-Match` wird ausgewertet
-- `Last-Modified` wird ausgewertet, wenn explizite Metadaten oder Header vorhanden sind
+- `serve_static_dir(...)` und `ctx.response.file(...)` setzen `Last-Modified` automatisch aus dem Dateisystem
+- `Last-Modified` wird auch ausgewertet, wenn explizite Metadaten oder Header vorhanden sind
 - `If-Modified-Since` wird dann ebenfalls ausgewertet
 
-Die automatische Dateitimestamp-Ermittlung aus dem Dateisystem ist aktuell noch nicht moeglich, weil die Standardbibliothek diese Information hier nicht direkt bereitstellt.
+Nicht-textuelle Dateien werden als Byte-Arrays gelesen und vom HTTP-Plugin als echte Bytes geschrieben.
 
 ### 15.3 Asset-URLs
 
@@ -1192,28 +1209,48 @@ Empfehlungen:
 - verwende `host_policy(...)` und `origin_policy(...)` am Deployment-Rand
 - nutze `handle(...)` fuer schnelle Tests und `run()` nur dort, wo die Runtime den Listener sauber oeffnen kann
 
-## 22. Bekannte Grenzen
+## 22. Runtime- und Deployment-Hinweise
 
-### 22.1 String-only HTTP-Transport
+### 22.1 Binaere Response-Bodies
 
-Der installierte HTTP-Plugin-Pfad transportiert Response-Bodies aktuell als Strings.
+Der HTTP-Serverpfad kann Response-Bodies als Strings oder als Byte-Arrays transportieren. Requests behalten ebenfalls beide Spuren: `body` als Text und `body_bytes` als rohe Bytes.
 
 Praktische Folgen:
 
-- `serve_static_dir(...)` ist fuer textartige Assets geeignet
-- `ctx.response.file(...)` und `ctx.response.download(...)` sind fuer Textdateien geeignet
-- echte binaere Dateien wie reale `png`, `jpg`, `pdf` oder beliebige Byte-Streams brauchen Runtime-/Plugin-Support
+- `serve_static_dir(...)` kann auch nicht-textuelle Assets wie `png`, `jpg`, `gif`, `pdf` oder beliebige Byte-Streams ausliefern
+- `ctx.response.file(...)`, `ctx.response.download(...)` und nicht-textuelle Static-Files streamen Dateiantworten im Live-Listener direkt aus der Datei
+- direkte `app.handle(...)`-Tests sehen fuer gestreamte Dateiantworten einen internen File-Body-Marker im Feld `body`; Live-HTTP-Clients erhalten normale Bytes
+- Multipart-Uploads speichern den unveraenderten Dateiinhalt unter `upload["bytes"]`; `upload["body"]` ist nur die dekodierte Textsicht
 
-### 22.2 Keine automatischen Dateitimestamps
+### 22.2 Request-Body-Limits
 
-Die aktuelle Standardbibliothek liefert hier keine bequeme Dateitimestamp-API fuer das Framework.
+Der Live-Listener spiegelt akzeptierte Request-Bodies als `body` und `body_bytes` in die VM. Damit grosse Requests nicht unbegrenzt Speicher belegen, gilt standardmaessig ein Runtime-Limit von `10485760` Bytes.
 
-Praktische Folge:
+Wenn diese Grenze ueberschritten wird, antwortet das Framework direkt mit `413 Payload Too Large`; der Route-Handler wird nicht ausgefuehrt.
 
-- `Last-Modified` funktioniert fuer explizite Metadaten oder Header
-- `serve_static_dir(...)` und `ctx.response.file(...)` koennen Dateitimestamps nicht automatisch aus dem Dateisystem ableiten
+Fuer echte grosse Uploads registrierst du die Route mit `{"stream_body": true}`. Dann bleiben `ctx.form` und `ctx.uploads` leer, bis der Handler den Stream selbst liest:
 
-### 22.3 Live-Listener der Runtime
+```cfs
+async func upload(ctx) {
+    var bytes = await ctx.request.body_stream().copy_to("uploads/raw.bin", 500 * 1024 * 1024);
+    return ctx.response.json({"bytes": bytes});
+}
+
+app.post("/upload/raw", upload, {
+    "csrf": false,
+    "stream_body": true
+});
+```
+
+Das Stream-Handle unterstuetzt `read_bytes(count)`, `read_all_bytes(maxBytes)`, `read_text(maxBytes, encoding)`, `copy_to(path, maxBytes)`, `bytes_read()` und `is_consumed()`.
+
+### 22.3 Dateitimestamps
+
+`serve_static_dir(...)` und `ctx.response.file(...)` setzen `Last-Modified` automatisch ueber `fileLastWriteTimeUtc(path)`.
+
+Explizite `last_modified`-Metadaten oder vorhandene `Last-Modified`-Header werden weiterhin respektiert.
+
+### 22.4 Live-Listener der Runtime
 
 Die Runtime kann `app.run()` in dieser Umgebung jetzt wieder direkt starten.
 

@@ -53,6 +53,40 @@ export class Util
         return str(value).to_blob().len();
     }
 
+    static func byte_size(value) {
+        if (value == null) { return 0; }
+        if (typeof(value) == "Array") { return len(value); }
+        return Util.utf8_size(value);
+    }
+
+    static func text_to_bytes(value, encoding = "utf-8") {
+        if (value == null) { value = ""; }
+        return textToBytes(str(value), encoding);
+    }
+
+    static func bytes_to_text(bytes, encoding = "utf-8") {
+        if (bytes == null) { return ""; }
+        return bytesToText(bytes, encoding);
+    }
+
+    static func ascii_bytes(value) {
+        var s = value == null ? "" : str(value);
+        var result = [];
+        var i = 0;
+        while (i < len(s)) {
+            result[] = s.substr(i, 1)[0] & 0xFF;
+            i = i + 1;
+        }
+        return result;
+    }
+
+    static func file_body(path) {
+        return {
+            "__cfgs_http_body": "file",
+            "path": path == null ? "" : str(path)
+        };
+    }
+
     static func remote_host(remote, fallback = null) {
         if (remote == null) { return fallback; }
 
@@ -348,6 +382,8 @@ export class Util
 
         var parts = str(header_value).split(";");
         var wanted = str(name).trim().lower();
+        var plain_value = null;
+        var extended_value = null;
         var i = 1;
         while (i < len(parts)) {
             var part = parts[i].trim();
@@ -357,19 +393,89 @@ export class Util
                     var key = part.substr(0, eq).trim().lower();
                     var value = part.substr(eq + 1, len(part) - (eq + 1)).trim();
 
-                    if (len(value) >= 2 && value.substr(0, 1) == "\"" && value.substr(len(value) - 1, 1) == "\"") {
-                        value = value.substr(1, len(value) - 2);
+                    if (key == wanted + "*") {
+                        extended_value = Util.decode_rfc5987(value);
                     }
 
                     if (key == wanted) {
-                        return value;
+                        plain_value = Util.unquote_header_value(value);
                     }
                 }
             }
             i = i + 1;
         }
 
-        return null;
+        return extended_value == null ? plain_value : extended_value;
+    }
+
+    static func unquote_header_value(value) {
+        if (value == null) { return null; }
+        var s = str(value).trim();
+        if (len(s) >= 2 && s.substr(0, 1) == "\"" && s.substr(len(s) - 1, 1) == "\"") {
+            s = s.substr(1, len(s) - 2);
+        }
+        return s;
+    }
+
+    static func _percent_encoded_bytes(value) {
+        var s = value == null ? "" : str(value);
+        var result = [];
+        var i = 0;
+        while (i < len(s)) {
+            var ch = s.substr(i, 1);
+            if (ch == "%" && i + 2 < len(s)) {
+                var h1 = Util._hex_val(s.substr(i + 1, 1));
+                var h2 = Util._hex_val(s.substr(i + 2, 1));
+                result[] = h1 * 16 + h2;
+                i = i + 3;
+            } else {
+                result[] = ch[0] & 0xFF;
+                i = i + 1;
+            }
+        }
+        return result;
+    }
+
+    static func decode_rfc5987(value) {
+        var s = Util.unquote_header_value(value);
+        if (s == null || s == "") { return s; }
+
+        var first = s.indexOf("'");
+        if (first < 0) {
+            return Util.bytes_to_text(Util._percent_encoded_bytes(s), "utf-8");
+        }
+
+        var rest = s.substr(first + 1, len(s) - (first + 1));
+        var second_rel = rest.indexOf("'");
+        if (second_rel < 0) {
+            return Util.bytes_to_text(Util._percent_encoded_bytes(s), "utf-8");
+        }
+
+        var charset = s.substr(0, first).trim();
+        if (charset == "") { charset = "utf-8"; }
+        var encoded = rest.substr(second_rel + 1, len(rest) - (second_rel + 1));
+        var bytes = Util._percent_encoded_bytes(encoded);
+
+        try {
+            return Util.bytes_to_text(bytes, charset);
+        } catch (e) {
+            return Util.bytes_to_text(bytes, "utf-8");
+        }
+    }
+
+    static func header_charset(content_type, fallback = "utf-8") {
+        var charset = Util.header_param(content_type, "charset");
+        if (charset == null || charset == "") { return fallback; }
+        return charset;
+    }
+
+    static func _decode_part_bytes(bytes, content_type) {
+        var charset = Util.header_charset(content_type, "utf-8");
+        try {
+            return Util.bytes_to_text(bytes, charset);
+        } catch (e) {
+            return Util.bytes_to_text(bytes, "utf-8");
+        }
     }
 
     static func _push_value(values, key, value) {
@@ -432,20 +538,7 @@ export class Util
                 value = value.substr(0, len(value) - 2);
             }
 
-            var headers = {};
-            var lines = header_block.split("\r\n");
-            var j = 0;
-            while (j < len(lines)) {
-                var line = lines[j].trim();
-                if (line != "") {
-                    var colon = line.indexOf(":");
-                    if (colon >= 0) {
-                        var key = line.substr(0, colon).trim().lower();
-                        headers[key] = line.substr(colon + 1, len(line) - (colon + 1)).trim();
-                    }
-                }
-                j = j + 1;
-            }
+            var headers = Util._multipart_headers(header_block);
 
             var disposition = headers["content-disposition"];
             var name = Util.header_param(disposition, "name");
@@ -457,6 +550,7 @@ export class Util
             var filename = Util.header_param(disposition, "filename");
             if (filename != null && filename != "") {
                 var safe_filename = Util.sanitize_download_name(filename, "upload.txt");
+                var value_bytes = Util.text_to_bytes(value);
                 var file = {
                     "name": name,
                     "field_name": name,
@@ -464,7 +558,8 @@ export class Util
                     "original_filename": filename,
                     "content_type": headers["content-type"] == null ? "application/octet-stream" : headers["content-type"],
                     "body": value,
-                    "size": Util.utf8_size(value),
+                    "bytes": value_bytes,
+                    "size": len(value_bytes),
                     "headers": headers
                 };
                 Util._push_value(result["files"], name, file);
@@ -478,8 +573,158 @@ export class Util
         return result;
     }
 
+    static func _byte_value(bytes, index) {
+        return int(bytes[index]) & 0xFF;
+    }
+
+    static func _bytes_equal_at(bytes, needle, index) {
+        if (bytes == null || needle == null) { return false; }
+        if (index < 0 || index + len(needle) > len(bytes)) { return false; }
+
+        var i = 0;
+        while (i < len(needle)) {
+            if (Util._byte_value(bytes, index + i) != Util._byte_value(needle, i)) {
+                return false;
+            }
+            i = i + 1;
+        }
+
+        return true;
+    }
+
+    static func _find_bytes(bytes, needle, start = 0) {
+        if (bytes == null || needle == null || len(needle) == 0) { return -1; }
+        var i = start < 0 ? 0 : start;
+        var last = len(bytes) - len(needle);
+
+        while (i <= last) {
+            if (Util._bytes_equal_at(bytes, needle, i)) {
+                return i;
+            }
+            i = i + 1;
+        }
+
+        return -1;
+    }
+
+    static func _slice_bytes(bytes, start, end_exclusive) {
+        var result = [];
+        if (bytes == null) { return result; }
+
+        var s = start < 0 ? 0 : start;
+        var e = end_exclusive > len(bytes) ? len(bytes) : end_exclusive;
+        if (e < s) { e = s; }
+
+        var i = s;
+        while (i < e) {
+            result[] = Util._byte_value(bytes, i);
+            i = i + 1;
+        }
+
+        return result;
+    }
+
+    static func _multipart_headers(header_block) {
+        var headers = {};
+        var lines = str(header_block).split("\r\n");
+        var current_key = null;
+        var j = 0;
+        while (j < len(lines)) {
+            var raw_line = lines[j];
+            var trimmed = raw_line.trim();
+            if (trimmed != "") {
+                var first = raw_line.substr(0, 1);
+                if ((first == " " || first == "\t") && current_key != null) {
+                    headers[current_key] = headers[current_key] + " " + trimmed;
+                    j = j + 1;
+                    continue;
+                }
+
+                var colon = raw_line.indexOf(":");
+                if (colon >= 0) {
+                    var key = raw_line.substr(0, colon).trim().lower();
+                    headers[key] = raw_line.substr(colon + 1, len(raw_line) - (colon + 1)).trim();
+                    current_key = key;
+                }
+            }
+            j = j + 1;
+        }
+        return headers;
+    }
+
+    static func parse_multipart_bytes(bytes, boundary) {
+        var result = {
+            "fields": {},
+            "files": {}
+        };
+        if (bytes == null || len(bytes) == 0) { return result; }
+        if (boundary == null || boundary == "") { return result; }
+
+        var marker = Util.ascii_bytes("--" + str(boundary));
+        var next_marker_prefix = Util.ascii_bytes("\r\n--" + str(boundary));
+        var header_sep = [13, 10, 13, 10];
+        var pos = 0;
+
+        while (true) {
+            var marker_at = Util._find_bytes(bytes, marker, pos);
+            if (marker_at < 0) { break; }
+
+            var after_marker = marker_at + len(marker);
+            if (after_marker + 1 < len(bytes) && Util._byte_value(bytes, after_marker) == 45 && Util._byte_value(bytes, after_marker + 1) == 45) {
+                break;
+            }
+
+            if (after_marker + 1 < len(bytes) && Util._byte_value(bytes, after_marker) == 13 && Util._byte_value(bytes, after_marker + 1) == 10) {
+                after_marker = after_marker + 2;
+            }
+
+            var headers_end = Util._find_bytes(bytes, header_sep, after_marker);
+            if (headers_end < 0) { break; }
+
+            var body_start = headers_end + len(header_sep);
+            var next_marker = Util._find_bytes(bytes, next_marker_prefix, body_start);
+            if (next_marker < 0) { break; }
+
+            var header_block = Util.bytes_to_text(Util._slice_bytes(bytes, after_marker, headers_end), "utf-8");
+            var headers = Util._multipart_headers(header_block);
+            var body_bytes = Util._slice_bytes(bytes, body_start, next_marker);
+
+            var disposition = headers["content-disposition"];
+            var name = Util.header_param(disposition, "name");
+            if (name != null && name != "") {
+                var value = Util._decode_part_bytes(body_bytes, headers["content-type"]);
+                var filename = Util.header_param(disposition, "filename");
+                if (filename != null && filename != "") {
+                    var safe_filename = Util.sanitize_download_name(filename, "upload.txt");
+                    var file = {
+                        "name": name,
+                        "field_name": name,
+                        "filename": safe_filename,
+                        "original_filename": filename,
+                        "content_type": headers["content-type"] == null ? "application/octet-stream" : headers["content-type"],
+                        "body": value,
+                        "bytes": body_bytes,
+                        "size": len(body_bytes),
+                        "headers": headers
+                    };
+                    Util._push_value(result["files"], name, file);
+                } else {
+                    Util._push_value(result["fields"], name, value);
+                }
+            }
+
+            pos = next_marker + 2;
+        }
+
+        return result;
+    }
+
     static func parse_multipart_form(text, boundary) {
         return Util.parse_multipart(text, boundary)["fields"];
+    }
+
+    static func parse_multipart_form_bytes(bytes, boundary) {
+        return Util.parse_multipart_bytes(bytes, boundary)["fields"];
     }
 
     static func parse_cookies(raw) {
@@ -669,6 +914,12 @@ export class Util
         if (Util.ends_with(p, ".png")) { return "image/png"; }
         if (Util.ends_with(p, ".jpg") || Util.ends_with(p, ".jpeg")) { return "image/jpeg"; }
         if (Util.ends_with(p, ".gif")) { return "image/gif"; }
+        if (Util.ends_with(p, ".webp")) { return "image/webp"; }
+        if (Util.ends_with(p, ".ico")) { return "image/x-icon"; }
+        if (Util.ends_with(p, ".pdf")) { return "application/pdf"; }
+        if (Util.ends_with(p, ".wasm")) { return "application/wasm"; }
+        if (Util.ends_with(p, ".woff")) { return "font/woff"; }
+        if (Util.ends_with(p, ".woff2")) { return "font/woff2"; }
 
         return "application/octet-stream";
     }
@@ -727,8 +978,22 @@ export class Util
         return h;
     }
 
-    static func etag_for(s) {
-        var h = Util.hash32(s);
+    static func hash32_bytes(bytes) {
+        if (bytes == null) { return 0; }
+
+        var h = 5381;
+        var i = 0;
+        while (i < len(bytes)) {
+            var b = int(bytes[i]) & 0xFF;
+            h = ((h << 5) + h) + b;
+            h = h & 0xFFFFFFFF;
+            i = i + 1;
+        }
+
+        return h;
+    }
+
+    static func _hex32(h) {
         var digits = "0123456789abcdef";
         var hex = "";
         var i = 0;
@@ -739,7 +1004,25 @@ export class Util
             i = i + 1;
         }
 
-        return "\"" + str(len(str(s))) + "-" + hex + "\"";
+        return hex;
+    }
+
+    static func etag_for(s) {
+        var h = Util.hash32(s);
+        return "\"" + str(len(str(s))) + "-" + Util._hex32(h) + "\"";
+    }
+
+    static func etag_for_bytes(bytes) {
+        if (bytes == null) { bytes = []; }
+        var h = Util.hash32_bytes(bytes);
+        return "\"" + str(len(bytes)) + "-" + Util._hex32(h) + "\"";
+    }
+
+    static func etag_for_file(size, last_modified) {
+        var actual_size = size == null ? 0 : size;
+        var fingerprint = str(actual_size) + "|" + str(last_modified);
+        var h = Util.hash32(fingerprint);
+        return "\"" + str(actual_size) + "-" + Util._hex32(h) + "\"";
     }
 
     static func etag_matches(header_value, etag) {
