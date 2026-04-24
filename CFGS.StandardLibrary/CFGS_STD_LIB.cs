@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Numerics;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -160,6 +161,21 @@ namespace CFGS.StandardLibrary
             foreach (byte b in bytes)
                 result.Add((int)b);
             return result;
+        }
+
+        private static Encoding ResolveTextEncoding(string? encodingName, Instruction instr, string opName)
+        {
+            string actualName = string.IsNullOrWhiteSpace(encodingName) ? Encoding.UTF8.WebName : encodingName.Trim();
+            try
+            {
+                return Encoding.GetEncoding(actualName);
+            }
+            catch (Exception ex)
+            {
+                throw new VMException(
+                    $"Runtime error: {opName} encoding '{actualName}' is not supported ({ex.GetType().Name}: {ex.Message})",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
         }
 
         private static (string Path, int Mode) ParseFileOpenArgs(List<object> args, Instruction instr, string opName)
@@ -748,6 +764,26 @@ namespace CFGS.StandardLibrary
                 }
             }));
 
+            builtins.Register(new BuiltinDescriptor("readAllBytesAsync", 1, 1, (args, instr) =>
+            {
+                EnsureFileIo(instr);
+                string path = args[0]?.ToString() ?? "";
+                return Task.Run<object?>(async () =>
+                {
+                    try
+                    {
+                        byte[] bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
+                        return ToVmByteArray(bytes);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new VMException(
+                            $"Runtime error: readAllBytesAsync('{path}') failed: {ex.GetType().Name}: {ex.Message}",
+                            instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                    }
+                });
+            }, smartAwait: true));
+
             builtins.Register(new BuiltinDescriptor("writeAllBytes", 2, 2, (args, instr) =>
             {
                 EnsureFileIo(instr);
@@ -764,6 +800,20 @@ namespace CFGS.StandardLibrary
                         $"Runtime error: writeAllBytes('{path}', data) failed: {ex.GetType().Name}: {ex.Message}",
                         instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 }
+            }));
+
+            builtins.Register(new BuiltinDescriptor("textToBytes", 1, 2, (args, instr) =>
+            {
+                string text = args[0]?.ToString() ?? "";
+                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1]?.ToString() : null, instr, "textToBytes");
+                return ToVmByteArray(encoding.GetBytes(text));
+            }));
+
+            builtins.Register(new BuiltinDescriptor("bytesToText", 1, 2, (args, instr) =>
+            {
+                byte[] bytes = ConvertVmValueToBytes(args[0], instr, "bytes");
+                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1]?.ToString() : null, instr, "bytesToText");
+                return encoding.GetString(bytes);
             }));
 
             builtins.Register(new BuiltinDescriptor("sleep", 1, 1, (args, instr) =>
@@ -817,6 +867,27 @@ namespace CFGS.StandardLibrary
                 string text = args[1]?.ToString() ?? "";
                 return Task.Run<object?>(async () => { await File.AppendAllTextAsync(path, text).ConfigureAwait(false); return 1; });
             }, smartAwait: true));
+
+            builtins.Register(new BuiltinDescriptor("fileSize", 1, 1, (args, instr) =>
+            {
+                EnsureFileIo(instr);
+                string path = args[0]?.ToString() ?? "";
+                return File.Exists(path) ? new FileInfo(path).Length : -1L;
+            }));
+
+            builtins.Register(new BuiltinDescriptor("fileLastWriteTime", 1, 1, (args, instr) =>
+            {
+                EnsureFileIo(instr);
+                string path = args[0]?.ToString() ?? "";
+                return File.GetLastWriteTime(path);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("fileLastWriteTimeUtc", 1, 1, (args, instr) =>
+            {
+                EnsureFileIo(instr);
+                string path = args[0]?.ToString() ?? "";
+                return File.GetLastWriteTimeUtc(path);
+            }));
 
             builtins.Register(new BuiltinDescriptor("fexist", 1, 1, (args, instr) =>
             {

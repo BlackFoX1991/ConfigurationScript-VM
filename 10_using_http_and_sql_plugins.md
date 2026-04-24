@@ -25,9 +25,9 @@ After that, their builtins and intrinsics are available globally.
 - `http_download(url, path, timeoutMs = optional)`
 - `urlencode(text)`
 - `urldecode(text)`
-- `http_server(port)`
+- `http_server(port, maxRequestBodyBytes = optional, mode = optional)`
 
-`http_post`, `http_put`, and `http_patch` accept an optional `contentType` parameter. The default is `text/plain`.
+`http_post`, `http_put`, and `http_patch` accept an optional `contentType` parameter. The default is `text/plain`. Their `body` argument may be a string or a byte array such as `[0x00, 0xFF, 0x41]`.
 
 ### Return Shape of `http_get`, `http_post`, and Others
 
@@ -36,7 +36,9 @@ All HTTP request builtins are async. The response is a dictionary with these key
 - `status`
 - `reason`
 - `headers`
-- `body`
+- `body`, decoded as text
+- `body_bytes`, the raw response bytes
+- `body_length`, the raw response byte count
 
 Example.
 
@@ -51,20 +53,37 @@ async func ping() {
 
 ### Downloads
 
-`http_download` writes bytes to disk and returns the number of written bytes. File I O must be allowed for this to work.
+`http_download` streams bytes to disk and returns the number of written bytes. File I O must be allowed for this to work.
 
 ```cfs
 var bytes = await http_download("https://example.com/file.txt", "downloads/file.txt");
 print(bytes);
 ```
 
-### `http_server(port)`
+### `http_server(port, maxRequestBodyBytes = optional, mode = optional)`
 
 This builtin returns a `ServerHandle`.
 
 ```cfs
-var srv = http_server(19081);
+var srv = http_server(19081, 10 * 1024 * 1024);
 ```
+
+`maxRequestBodyBytes` defaults to `10 MiB`. Requests above this limit are marked with `body_too_large` and do not expose partial bytes.
+
+Pass `"stream"` as the second or third argument to defer request body reads to the VM:
+
+```cfs
+var srv = http_server(19081, 10 * 1024 * 1024, "stream");
+```
+
+In stream mode the request dictionary includes `body_stream`, a handle with:
+
+- `read_bytes(count)`
+- `read_all_bytes(maxBytes = optional)`
+- `read_text(maxBytes = optional, encoding = optional)`
+- `copy_to(path, maxBytes = optional)`
+- `bytes_read()`
+- `is_consumed()`
 
 The handle supports these intrinsics.
 
@@ -81,6 +100,8 @@ The handle supports these intrinsics.
 - `close()`
 - `close_async()`
 
+The response `body` may be a string or a byte array such as `[0x89, 0x50, 0x4E, 0x47]`. Strings are written as UTF-8. Byte arrays are written as raw response bytes.
+
 ### Return Shape of `poll`
 
 `poll` and `poll_async` return either `null` or a request dictionary with these keys.
@@ -90,10 +111,17 @@ The handle supports these intrinsics.
 - `path`
 - `query`
 - `headers`
-- `body`
+- `body`, decoded as text
+- `body_bytes`, the raw request bytes
+- `body_length`
+- `body_too_large`
+- `body_bytes_truncated`
+- `body_limit`
+- `body_stream`, only in stream mode
+- `body_streaming`
 - `remote`
 
-That is intentionally enough information to run simple local HTTP workflows directly in CFGS.
+Use `body` for normal text, JSON, and form workflows. Use `body_bytes` when the request may contain binary data, for example multipart uploads or custom binary protocols.
 
 ### Minimal HTTP Server Example
 

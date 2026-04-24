@@ -314,7 +314,7 @@ namespace CFGS_VM.Analytic.Core
         /// The ParseAssignOrIndexAssignOrPushOrExpr
         /// </summary>
         /// <returns>The <see cref="Stmt"/></returns>
-        private Stmt ParseAssignOrIndexAssignOrPushOrExpr()
+        private Stmt ParseAssignOrIndexAssignOrPushOrExpr(bool requireSemicolon = true)
         {
             int line = _current.Line;
             int col = _current.Column;
@@ -349,7 +349,7 @@ namespace CFGS_VM.Analytic.Core
                         Eat(TokenType.RBracket);
                         Eat(TokenType.Assign);
                         Expr val = Expr();
-                        Eat(TokenType.Semi);
+                        EatStatementTerminator(requireSemicolon);
                         return new PushStmt(target, val, line, col, fsname);
                     }
 
@@ -376,7 +376,7 @@ namespace CFGS_VM.Analytic.Core
                     {
                         Eat(TokenType.Assign);
                         Expr val = Expr();
-                        Eat(TokenType.Semi);
+                        EatStatementTerminator(requireSemicolon);
 
                         if (target is SliceExpr slice)
                             return new SliceSetStmt(slice, val, line, col, fsname);
@@ -411,7 +411,7 @@ namespace CFGS_VM.Analytic.Core
                 TokenType op = _current.Type;
                 Eat(op);
                 Expr val = Expr();
-                Eat(TokenType.Semi);
+                EatStatementTerminator(requireSemicolon);
 
                 if (op == TokenType.Assign)
                 {
@@ -430,12 +430,18 @@ namespace CFGS_VM.Analytic.Core
             {
                 TokenType op = _current.Type;
                 Eat(op);
-                Eat(TokenType.Semi);
+                EatStatementTerminator(requireSemicolon);
                 return new ExprStmt(new PostfixExpr(target, op, line, col, fsname), line, col, fsname);
             }
 
-            Eat(TokenType.Semi);
+            EatStatementTerminator(requireSemicolon);
             return new ExprStmt(target, line, col, fsname);
+        }
+
+        private void EatStatementTerminator(bool requireSemicolon)
+        {
+            if (requireSemicolon || _current.Type == TokenType.Semi)
+                Eat(TokenType.Semi);
         }
 
         /// <summary>

@@ -1,0 +1,28 @@
+import { build_mssql_todo_sample_app } from "mssql_todo_sample_app.cfs";
+import { Util } from "common.cfs";
+
+func _args_or_empty() {
+    try {
+        return cmdArgs();
+    } catch (e) {
+        return [];
+    }
+}
+
+func _arg(args, index, fallback = null) {
+    if (args == null || len(args) <= index) {
+        return fallback;
+    }
+    return args[index];
+}
+
+async func main() {
+    var args = _args_or_empty();
+    var connection_string = _arg(args, 0, null);
+    var port = Util.parse_int(_arg(args, 1, 8099), 8099);
+
+    var app = await build_mssql_todo_sample_app(port, connection_string);
+    return await app.run();
+}
+
+var _ = await main();

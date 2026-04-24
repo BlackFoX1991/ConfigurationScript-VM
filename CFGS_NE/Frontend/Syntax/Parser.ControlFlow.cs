@@ -500,7 +500,7 @@ namespace CFGS_VM.Analytic.Core
                         throw new ParserException("invalid expression in for statement", _current.Line, _current.Column, _current.Filename);
                 }
 
-                inc = Statement();
+                inc = ParseForIncrement();
             }
 
             Eat(TokenType.RParen);
@@ -508,6 +508,30 @@ namespace CFGS_VM.Analytic.Core
             BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
             ExitLoopContext();
             return new ForStmt(init, cond, inc, body, line, col, file);
+        }
+
+        private Stmt ParseForIncrement()
+        {
+            switch (_current.Type)
+            {
+                case TokenType.Ident:
+                    return ParseAssignOrIndexAssignOrPushOrExpr(requireSemicolon: false);
+
+                case TokenType.PlusPlus:
+                case TokenType.MinusMinus:
+                    {
+                        int line = _current.Line;
+                        int col = _current.Column;
+                        string file = _current.Filename;
+                        Expr expr = Expr();
+                        if (_current.Type == TokenType.Semi)
+                            Eat(TokenType.Semi);
+                        return new ExprStmt(expr, line, col, file);
+                    }
+
+                default:
+                    throw new ParserException("invalid expression in for statement", _current.Line, _current.Column, _current.Filename);
+            }
         }
     }
 }
