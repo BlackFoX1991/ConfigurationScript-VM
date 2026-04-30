@@ -8,11 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="CFGS_VM">
-      <HintPath>E:\CFGS\ConfigurationScript-VM\CFGS_NE\obj\Debug\net10.0\ref\CFGS_VM.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CFGS_NE\CFGS_VM.csproj" />
   </ItemGroup>
 
   <Target Name="CopyPluginRuntimeDependencies" AfterTargets="Build">

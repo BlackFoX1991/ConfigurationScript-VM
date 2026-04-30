@@ -111,7 +111,7 @@ func _sql_connection_label(connection_string) {
 }
 
 func _default_connection_string() {
-    return "Server=localhost;Database=master;Trusted_Connection=True;Encrypt=False;TrustServerCertificate=True;";
+    return "Your Default Connectionstring";
 }
 
 func _is_done(row) {
