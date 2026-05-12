@@ -363,6 +363,53 @@ namespace CFGS.StandardLibrary
                 return 1;
             }));
 
+            builtins.Register(new BuiltinDescriptor("fdelete", 1, 1, (args, instr) =>
+            {
+                var path = args[0]?.ToString() ?? string.Empty;
+                if (path.Length == 0)
+                    throw new ArgumentException("fdelete requires a file path.");
+
+                if (!File.Exists(path))
+                    return 0;
+
+                File.Delete(path);
+                return 1;
+            }));
+
+            builtins.Register(new BuiltinDescriptor("fmove", 2, 3, (args, instr) =>
+            {
+                var source = args[0]?.ToString() ?? string.Empty;
+                var destination = args[1]?.ToString() ?? string.Empty;
+                var overwrite = args.Count >= 3 && Convert.ToBoolean(args[2]);
+
+                if (source.Length == 0 || destination.Length == 0)
+                    throw new ArgumentException("fmove requires source and destination paths.");
+
+                var parent = Path.GetDirectoryName(Path.GetFullPath(destination));
+                if (!string.IsNullOrWhiteSpace(parent))
+                    Directory.CreateDirectory(parent);
+
+                File.Move(source, destination, overwrite);
+                return destination;
+            }));
+
+            builtins.Register(new BuiltinDescriptor("fcopy", 2, 3, (args, instr) =>
+            {
+                var source = args[0]?.ToString() ?? string.Empty;
+                var destination = args[1]?.ToString() ?? string.Empty;
+                var overwrite = args.Count >= 3 && Convert.ToBoolean(args[2]);
+
+                if (source.Length == 0 || destination.Length == 0)
+                    throw new ArgumentException("fcopy requires source and destination paths.");
+
+                var parent = Path.GetDirectoryName(Path.GetFullPath(destination));
+                if (!string.IsNullOrWhiteSpace(parent))
+                    Directory.CreateDirectory(parent);
+
+                File.Copy(source, destination, overwrite);
+                return destination;
+            }));
+
             builtins.Register(new BuiltinDescriptor("clear", 0, 0, (args, instr) =>
             {
                 Console.Clear();
