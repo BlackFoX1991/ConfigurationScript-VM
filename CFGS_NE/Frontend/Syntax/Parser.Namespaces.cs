@@ -78,6 +78,11 @@ namespace CFGS_VM.Analytic.Core
                     "imports are not allowed inside namespace body",
                     _current.Line, _current.Column, _current.Filename);
 
+            if (_current.Type == TokenType.Use)
+                throw new ParserException(
+                    "use directives are not allowed inside namespace body",
+                    _current.Line, _current.Column, _current.Filename);
+
             if (_current.Type == TokenType.Namespace)
                 throw new ParserException(
                     "nested namespace declarations are not supported. Use a qualified namespace name (for example: namespace A.B { ... }).",
@@ -95,7 +100,7 @@ namespace CFGS_VM.Analytic.Core
         /// The ParseNamespaceDeclStatements
         /// </summary>
         /// <returns>The <see cref="NamespaceDeclStmt"/></returns>
-        private NamespaceDeclStmt ParseNamespaceDeclStatement()
+        private NamespaceDeclStmt ParseNamespaceDeclStatement(bool allowFileScoped = true)
         {
             int line = _current.Line;
             int col = _current.Column;
@@ -112,6 +117,31 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException(
                     $"namespace root '{root}' conflicts with existing {label} '{root}'",
                     line, col, file);
+            }
+
+            if (_current.Type == TokenType.Semi)
+            {
+                if (!allowFileScoped)
+                {
+                    throw new ParserException(
+                        "file-scoped namespace must be the first declaration after the import header",
+                        line,
+                        col,
+                        file);
+                }
+
+                Eat(TokenType.Semi);
+
+                List<Stmt> fileScopedBodyStatements = new();
+                while (_current.Type != TokenType.EOF)
+                {
+                    Stmt bodyStmt = ParseNamespaceBodyStatement();
+                    fileScopedBodyStatements.Add(bodyStmt);
+                }
+
+                ValidateTopLevelSymbolUniqueness(fileScopedBodyStatements);
+                _knownNamespaceRoots.Add(root);
+                return new NamespaceDeclStmt(parts, fileScopedBodyStatements, line, col, file, isFileScoped: true);
             }
 
             Eat(TokenType.LBrace);

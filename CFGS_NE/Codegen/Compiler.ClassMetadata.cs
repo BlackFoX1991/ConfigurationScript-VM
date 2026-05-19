@@ -15,6 +15,8 @@ namespace CFGS_VM.VMCore
             "__base",
             "__interfaces",
             "__is_interface",
+            "__props_inst",
+            "__props_static",
             "__outer",
             "new"
         };
@@ -62,6 +64,35 @@ namespace CFGS_VM.VMCore
             };
         }
 
+        private static int GetVisibilityRank(MemberVisibility visibility)
+        {
+            return visibility switch
+            {
+                MemberVisibility.Private => 0,
+                MemberVisibility.Protected => 1,
+                _ => 2
+            };
+        }
+
+        /// <summary>
+        /// The GetPropertyOverallVisibility
+        /// </summary>
+        private static MemberVisibility GetPropertyOverallVisibility(PropertyDeclStmt property)
+        {
+            MemberVisibility best = MemberVisibility.Private;
+            foreach (PropertyAccessorDecl accessor in property.Accessors)
+            {
+                MemberVisibility accessorVisibility = accessor.HasExplicitVisibility
+                    ? accessor.Visibility
+                    : property.Visibility;
+
+                if (GetVisibilityRank(accessorVisibility) > GetVisibilityRank(best))
+                    best = accessorVisibility;
+            }
+
+            return best;
+        }
+
         /// <summary>
         /// The EnumerateDeclaredInstanceVisibilityEntries
         /// </summary>
@@ -74,6 +105,9 @@ namespace CFGS_VM.VMCore
 
             foreach (FuncDeclStmt method in decl.Methods)
                 entries.Add((method.Name, ToVisibilityCode(GetOrDefaultVisibility(decl.MethodVisibility, method.Name))));
+
+            foreach (PropertyDeclStmt property in decl.Properties)
+                entries.Add((property.Name, ToVisibilityCode(GetPropertyOverallVisibility(property))));
 
             return entries;
         }
@@ -93,6 +127,9 @@ namespace CFGS_VM.VMCore
 
             foreach (FuncDeclStmt method in decl.StaticMethods)
                 entries.Add((method.Name, ToVisibilityCode(GetOrDefaultVisibility(decl.StaticMethodVisibility, method.Name))));
+
+            foreach (PropertyDeclStmt property in decl.StaticProperties)
+                entries.Add((property.Name, ToVisibilityCode(GetPropertyOverallVisibility(property))));
 
             foreach (EnumDeclStmt enumDecl in decl.Enums)
                 entries.Add((enumDecl.Name, ToVisibilityCode(GetOrDefaultVisibility(decl.EnumVisibility, enumDecl.Name))));
@@ -120,6 +157,13 @@ namespace CFGS_VM.VMCore
                 classInfo.InstanceVisibility[method.Name] = GetOrDefaultVisibility(decl.MethodVisibility, method.Name);
             }
 
+            foreach (PropertyDeclStmt property in decl.Properties)
+            {
+                classInfo.InstanceMembers.Add(property.Name);
+                classInfo.InstanceProperties.Add(property.Name);
+                classInfo.InstanceVisibility[property.Name] = GetPropertyOverallVisibility(property);
+            }
+
             foreach (KeyValuePair<string, Expr?> field in decl.StaticFields)
             {
                 classInfo.StaticMembers.Add(field.Key);
@@ -130,6 +174,13 @@ namespace CFGS_VM.VMCore
             {
                 classInfo.StaticMembers.Add(method.Name);
                 classInfo.StaticVisibility[method.Name] = GetOrDefaultVisibility(decl.StaticMethodVisibility, method.Name);
+            }
+
+            foreach (PropertyDeclStmt property in decl.StaticProperties)
+            {
+                classInfo.StaticMembers.Add(property.Name);
+                classInfo.StaticProperties.Add(property.Name);
+                classInfo.StaticVisibility[property.Name] = GetPropertyOverallVisibility(property);
             }
 
             classInfo.StaticMembers.Add("new");
@@ -160,6 +211,8 @@ namespace CFGS_VM.VMCore
 
                 target.InstanceMembers.Add(entry.Key);
                 target.InstanceVisibility[entry.Key] = entry.Value;
+                if (baseInfo.InstanceProperties.Contains(entry.Key))
+                    target.InstanceProperties.Add(entry.Key);
             }
 
             foreach (KeyValuePair<string, MemberVisibility> entry in baseInfo.StaticVisibility)
@@ -169,6 +222,8 @@ namespace CFGS_VM.VMCore
 
                 target.StaticMembers.Add(entry.Key);
                 target.StaticVisibility[entry.Key] = entry.Value;
+                if (baseInfo.StaticProperties.Contains(entry.Key))
+                    target.StaticProperties.Add(entry.Key);
             }
         }
 

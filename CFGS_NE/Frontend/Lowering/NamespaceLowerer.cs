@@ -27,6 +27,7 @@ namespace CFGS_VM.Analytic.Lowering
             return stmt switch
             {
                 NamespaceDeclStmt ns => LowerNamespaceDecl(ns, knownTopLevelNames),
+                UseNamespaceStmt => new List<Stmt> { stmt },
                 NamespaceImportAliasStmt nsAlias => BuildNamespaceAliasStmts(nsAlias.Alias, nsAlias.ImportedNames, nsAlias.Line, nsAlias.Col, nsAlias.OriginFile),
                 ImportAliasDeclStmt aliasDecl => new List<Stmt>
                 {
@@ -163,12 +164,16 @@ namespace CFGS_VM.Analytic.Lowering
 
             if (declareRoot)
             {
-                statements.Add(new VarDecl(
+                VarDecl rootDecl = new(
                     parts[0],
                     new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file),
                     line,
                     col,
-                    file));
+                    file)
+                {
+                    IsSyntheticNamespaceRoot = true
+                };
+                statements.Add(rootDecl);
             }
 
             Expr current = new VarExpr(parts[0], line, col, file);

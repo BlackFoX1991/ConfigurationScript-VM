@@ -63,6 +63,11 @@ namespace CFGS_VM.VMCore
         private Dictionary<InterfaceDeclStmt, Dictionary<string, InterfaceMethodDecl>> _interfaceContractCache => _context.InterfaceContractCache;
 
         /// <summary>
+        /// Defines the _interfacePropertyContractCache
+        /// </summary>
+        private Dictionary<InterfaceDeclStmt, Dictionary<string, InterfacePropertyDecl>> _interfacePropertyContractCache => _context.InterfacePropertyContractCache;
+
+        /// <summary>
         /// Defines the _currentClass
         /// </summary>
         private ClassInfo? _currentClass
@@ -119,6 +124,24 @@ namespace CFGS_VM.VMCore
         {
             get => _emission.AsyncFunctionDepth;
             set => _emission.AsyncFunctionDepth = value;
+        }
+
+        /// <summary>
+        /// Defines the current property backing slot name for accessor compilation.
+        /// </summary>
+        private string? _currentPropertyBackingSlotName
+        {
+            get => _emission.CurrentPropertyBackingSlotName;
+            set => _emission.CurrentPropertyBackingSlotName = value;
+        }
+
+        /// <summary>
+        /// Defines the current property backing receiver variable name for accessor compilation.
+        /// </summary>
+        private string? _currentPropertyBackingReceiverName
+        {
+            get => _emission.CurrentPropertyBackingReceiverName;
+            set => _emission.CurrentPropertyBackingReceiverName = value;
         }
 
         /// <summary>

@@ -33,6 +33,16 @@ namespace CFGS_VM.VMCore.Extensions.Core
         public HashSet<string> StaticMembers { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
+        /// Gets the InstanceProperties
+        /// </summary>
+        public HashSet<string> InstanceProperties { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Gets the StaticProperties
+        /// </summary>
+        public HashSet<string> StaticProperties { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
         /// Gets the InstanceVisibility
         /// </summary>
         public Dictionary<string, MemberVisibility> InstanceVisibility { get; } = new(StringComparer.Ordinal);
@@ -68,6 +78,16 @@ namespace CFGS_VM.VMCore.Extensions.Core
         /// <param name="name">The name<see cref="string"/></param>
         /// <returns>The <see cref="bool"/></returns>
         public bool IsStaticMember(string name) => StaticMembers.Contains(name);
+
+        /// <summary>
+        /// The IsInstanceProperty
+        /// </summary>
+        public bool IsInstanceProperty(string name) => InstanceProperties.Contains(name);
+
+        /// <summary>
+        /// The IsStaticProperty
+        /// </summary>
+        public bool IsStaticProperty(string name) => StaticProperties.Contains(name);
 
         /// <summary>
         /// The TryGetInstanceVisibility

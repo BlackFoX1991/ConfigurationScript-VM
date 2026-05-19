@@ -1,0 +1,6 @@
+class ManualOnly() {
+    property value {
+        get { return field; }
+        set(value) { }
+    }
+}

@@ -1,0 +1,7 @@
+interface ISecret {
+    property token { get; }
+}
+
+class Hidden() : ISecret {
+    private property token { get; } = "x";
+}

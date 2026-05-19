@@ -1,0 +1,5 @@
+namespace Ambig.One {
+    func same() {
+        return 1;
+    }
+}

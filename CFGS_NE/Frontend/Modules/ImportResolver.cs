@@ -49,33 +49,33 @@ namespace CFGS_VM.Analytic.Modules
                 switch (stmt)
                 {
                     case BareImportSyntaxStmt bareImport:
-                        ResolveBareImport(bareImport, resolved, seenImportedTopLevelSymbols, knownTopLevelKinds);
+                        ResolveBareImport(bareImport, resolved, seenImportedTopLevelSymbols, knownTopLevelKinds, knownNamespaceRoots);
                         break;
 
                     case NamespaceImportSyntaxStmt namespaceImport:
-                        ResolveNamespaceImport(namespaceImport, resolved, seenImportedTopLevelSymbols, knownTopLevelKinds);
+                        ResolveNamespaceImport(namespaceImport, resolved, seenImportedTopLevelSymbols, knownTopLevelKinds, knownNamespaceRoots);
                         break;
 
                     case NamedImportSyntaxStmt namedImport:
-                        ResolveNamedImport(namedImport, resolved, seenImportedTopLevelSymbols, knownTopLevelKinds);
+                        ResolveNamedImport(namedImport, resolved, seenImportedTopLevelSymbols, knownTopLevelKinds, knownNamespaceRoots);
                         break;
 
                     case DefaultImportSyntaxStmt defaultImport:
-                        ResolveDefaultImport(defaultImport, resolved, seenImportedTopLevelSymbols, knownTopLevelKinds);
+                        ResolveDefaultImport(defaultImport, resolved, seenImportedTopLevelSymbols, knownTopLevelKinds, knownNamespaceRoots);
                         break;
 
                     default:
                         ValidateCurrentTopLevelStatement(stmt, knownTopLevelKinds, knownNamespaceRoots);
                         resolved.Add(stmt);
                         TrackKnownTopLevelSymbols([stmt], knownTopLevelKinds);
-                        if (stmt is NamespaceDeclStmt ns && ns.Parts.Count > 0)
-                            knownNamespaceRoots.Add(ns.Parts[0]);
+                        TrackKnownNamespaceRoots([stmt], knownNamespaceRoots);
                         break;
                 }
             }
 
-            TopLevelSymbolFacts.ValidateTopLevelSymbolUniqueness(resolved);
-            return resolved;
+            List<Stmt> useResolved = new UseNamespaceResolver().Resolve(statements, resolved);
+            TopLevelSymbolFacts.ValidateTopLevelSymbolUniqueness(useResolved);
+            return useResolved;
         }
 
         public bool TryHandleDllImport(string rawPath, int line, int col, string sourceFileName)
@@ -122,7 +122,8 @@ namespace CFGS_VM.Analytic.Modules
             BareImportSyntaxStmt bareImport,
             List<Stmt> resolved,
             Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols,
-            Dictionary<string, string> knownTopLevelKinds)
+            Dictionary<string, string> knownTopLevelKinds,
+            HashSet<string> knownNamespaceRoots)
         {
             if (TryHandleDllImport(bareImport.Path, bareImport.Line, bareImport.Col, bareImport.OriginFile))
                 return;
@@ -141,13 +142,15 @@ namespace CFGS_VM.Analytic.Modules
             resolved.AddRange(materialized);
             IndexImportedTopLevelSymbols(materialized, seenImportedTopLevelSymbols);
             TrackKnownTopLevelSymbols(materialized, knownTopLevelKinds);
+            TrackKnownNamespaceRoots(materialized, knownNamespaceRoots);
         }
 
         private void ResolveNamespaceImport(
             NamespaceImportSyntaxStmt namespaceImport,
             List<Stmt> resolved,
             Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols,
-            Dictionary<string, string> knownTopLevelKinds)
+            Dictionary<string, string> knownTopLevelKinds,
+            HashSet<string> knownNamespaceRoots)
         {
             if (namespaceImport.Path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
@@ -165,6 +168,7 @@ namespace CFGS_VM.Analytic.Modules
             resolved.AddRange(materialized);
             IndexImportedTopLevelSymbols(materialized, seenImportedTopLevelSymbols);
             TrackKnownTopLevelSymbols(materialized, knownTopLevelKinds);
+            TrackKnownNamespaceRoots(materialized, knownNamespaceRoots);
 
             List<Stmt> aliasStatements =
             [
@@ -186,7 +190,8 @@ namespace CFGS_VM.Analytic.Modules
             NamedImportSyntaxStmt namedImport,
             List<Stmt> resolved,
             Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols,
-            Dictionary<string, string> knownTopLevelKinds)
+            Dictionary<string, string> knownTopLevelKinds,
+            HashSet<string> knownNamespaceRoots)
         {
             if (namedImport.Path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
@@ -216,6 +221,7 @@ namespace CFGS_VM.Analytic.Modules
             resolved.AddRange(materialized);
             IndexImportedTopLevelSymbols(materialized, seenImportedTopLevelSymbols);
             TrackKnownTopLevelSymbols(materialized, knownTopLevelKinds);
+            TrackKnownNamespaceRoots(materialized, knownNamespaceRoots);
 
             List<Stmt> aliasStatements = new();
             foreach (ImportBindingSpec binding in namedImport.Imports)
@@ -244,7 +250,8 @@ namespace CFGS_VM.Analytic.Modules
             DefaultImportSyntaxStmt defaultImport,
             List<Stmt> resolved,
             Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols,
-            Dictionary<string, string> knownTopLevelKinds)
+            Dictionary<string, string> knownTopLevelKinds,
+            HashSet<string> knownNamespaceRoots)
         {
             if (defaultImport.Path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
@@ -270,13 +277,11 @@ namespace CFGS_VM.Analytic.Modules
             resolved.AddRange(materialized);
             IndexImportedTopLevelSymbols(materialized, seenImportedTopLevelSymbols);
             TrackKnownTopLevelSymbols(materialized, knownTopLevelKinds);
+            TrackKnownNamespaceRoots(materialized, knownNamespaceRoots);
         }
 
         private List<Stmt> ResolveImportedSyntaxTree(List<Stmt> statements)
-        {
-            List<Stmt> resolved = ResolveImports(statements);
-            return new SyntaxLowerer().Lower(resolved);
-        }
+            => ResolveImports(statements);
 
         private static void ValidateCurrentTopLevelStatement(
             Stmt stmt,
@@ -325,6 +330,23 @@ namespace CFGS_VM.Analytic.Modules
             }
         }
 
+        private static void TrackKnownNamespaceRoots(IEnumerable<Stmt> stmts, HashSet<string> knownNamespaceRoots)
+        {
+            foreach (Stmt stmt in stmts)
+            {
+                if (stmt is ExportStmt ex)
+                {
+                    TrackKnownNamespaceRoots([ex.Inner], knownNamespaceRoots);
+                    continue;
+                }
+
+                if (stmt is NamespaceDeclStmt ns && ns.Parts.Count > 0)
+                    knownNamespaceRoots.Add(ns.Parts[0]);
+                else if (stmt is VarDecl v && v.IsSyntheticNamespaceRoot)
+                    knownNamespaceRoots.Add(v.Name);
+            }
+        }
+
         private static void IndexImportedTopLevelSymbols(
             IEnumerable<Stmt> stmts,
             Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols)
@@ -361,6 +383,12 @@ namespace CFGS_VM.Analytic.Modules
 
                 if (localSeen.TryGetValue(name, out (string Kind, string Origin) localPrevious))
                 {
+                    if (TopLevelSymbolFacts.CanMergeTopLevelSymbols(currentKind, localPrevious.Kind))
+                    {
+                        filtered.Add(stmt);
+                        continue;
+                    }
+
                     throw new ParserException(
                         TopLevelSymbolFacts.DuplicateTopLevelMessage(name, currentKind, localPrevious.Kind),
                         stmt.Line,
@@ -374,6 +402,12 @@ namespace CFGS_VM.Analytic.Modules
                 {
                     if (allowIdempotentSameOrigin && string.Equals(previous.Origin, currentOrigin, StringComparison.Ordinal))
                         continue;
+
+                    if (TopLevelSymbolFacts.CanMergeTopLevelSymbols(currentKind, previous.Kind))
+                    {
+                        filtered.Add(stmt);
+                        continue;
+                    }
 
                     throw new ParserException(
                         TopLevelSymbolFacts.DuplicateTopLevelMessage(name, currentKind, previous.Kind),

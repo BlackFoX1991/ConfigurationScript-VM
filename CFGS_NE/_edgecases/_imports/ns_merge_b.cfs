@@ -1,0 +1,11 @@
+namespace Shared.Core {
+    func fromB() {
+        return "B";
+    }
+}
+
+namespace Shared.Tools {
+    func toolB() {
+        return 20;
+    }
+}

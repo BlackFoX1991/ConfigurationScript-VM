@@ -256,6 +256,15 @@ namespace CFGS_VM.VMCore
         private const int VisibilityProtected = 2;
 
         /// <summary>
+        /// Defines property write modes.
+        /// </summary>
+        private enum PropertyWriteMode
+        {
+            Normal,
+            Init
+        }
+
+        /// <summary>
         /// The TryGetStaticType
         /// </summary>
         private static bool TryGetStaticType(ClassInstance inst, out StaticInstance type)
@@ -459,6 +468,91 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// The TryGetDeclaredPropertyDescriptor
+        /// </summary>
+        private static bool TryGetDeclaredPropertyDescriptor(
+            StaticInstance ownerType,
+            bool isStatic,
+            string memberName,
+            out RuntimePropertyDescriptor descriptor)
+        {
+            string mapName = isStatic ? "__props_static" : "__props_inst";
+            if (TryGetStaticField(ownerType, mapName, out object? mapObj) &&
+                mapObj is Dictionary<string, object> map &&
+                TryGetDictionaryValue(map, memberName, out object? raw) &&
+                raw is RuntimePropertyDescriptor runtimePropertyDescriptor)
+            {
+                descriptor = runtimePropertyDescriptor;
+                return true;
+            }
+
+            descriptor = null!;
+            return false;
+        }
+
+        /// <summary>
+        /// The TryResolveInstancePropertyInHierarchy
+        /// </summary>
+        private static bool TryResolveInstancePropertyInHierarchy(
+            ClassInstance start,
+            string memberName,
+            out ClassInstance ownerInst,
+            out StaticInstance ownerType,
+            out RuntimePropertyDescriptor descriptor)
+        {
+            ClassInstance current = start;
+            while (true)
+            {
+                if (TryGetStaticType(current, out StaticInstance currentType) &&
+                    TryGetDeclaredPropertyDescriptor(currentType, isStatic: false, memberName, out descriptor))
+                {
+                    ownerInst = current;
+                    ownerType = currentType;
+                    return true;
+                }
+
+                if (!TryGetInstanceField(current, "__base", out object? bObj) || bObj is not ClassInstance baseInst)
+                    break;
+
+                current = baseInst;
+            }
+
+            ownerInst = null!;
+            ownerType = null!;
+            descriptor = null!;
+            return false;
+        }
+
+        /// <summary>
+        /// The TryResolveStaticPropertyInHierarchy
+        /// </summary>
+        private static bool TryResolveStaticPropertyInHierarchy(
+            StaticInstance start,
+            string memberName,
+            out StaticInstance ownerType,
+            out RuntimePropertyDescriptor descriptor)
+        {
+            StaticInstance current = start;
+            while (true)
+            {
+                if (TryGetDeclaredPropertyDescriptor(current, isStatic: true, memberName, out descriptor))
+                {
+                    ownerType = current;
+                    return true;
+                }
+
+                if (!TryGetStaticField(current, "__base", out object? bObj) || bObj is not StaticInstance baseType)
+                    break;
+
+                current = baseType;
+            }
+
+            ownerType = null!;
+            descriptor = null!;
+            return false;
+        }
+
+        /// <summary>
         /// The TryResolveInstanceMemberInHierarchy
         /// </summary>
         private static bool TryResolveInstanceMemberInHierarchy(
@@ -604,6 +698,222 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// The EnforcePropertyAccessorVisibility
+        /// </summary>
+        private void EnforcePropertyAccessorVisibility(
+            StaticInstance ownerType,
+            int visibilityCode,
+            string propertyName,
+            bool isStatic,
+            string accessorLabel,
+            Instruction instr)
+        {
+            if (visibilityCode == VisibilityPublic)
+                return;
+
+            if (IsRuntimeAccessAllowed(ownerType, visibilityCode))
+                return;
+
+            string kind = isStatic ? "static" : "instance";
+            throw new VMException(
+                $"Runtime error: inaccessible {accessorLabel} for {kind} property '{propertyName}' in class '{ownerType.ClassName}': '{VisibilityLabel(visibilityCode)}' access",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+            );
+        }
+
+        /// <summary>
+        /// The GetPropertyAccessorClosure
+        /// </summary>
+        private Closure GetPropertyAccessorClosure(object owner, string slotName, string propertyName, string accessorLabel, Instruction instr)
+        {
+            bool found = owner switch
+            {
+                ClassInstance inst => TryGetInstanceField(inst, slotName, out object? _),
+                StaticInstance st => TryGetStaticField(st, slotName, out object? _),
+                _ => false
+            };
+
+            object? raw = owner switch
+            {
+                ClassInstance inst when TryGetInstanceField(inst, slotName, out object? value) => value,
+                StaticInstance st when TryGetStaticField(st, slotName, out object? value) => value,
+                _ => null
+            };
+
+            if (found && raw is Closure closure)
+                return closure;
+
+            throw new VMException(
+                $"Runtime error: missing {accessorLabel} implementation for property '{propertyName}'.",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+        }
+
+        /// <summary>
+        /// The ReadInstanceProperty
+        /// </summary>
+        private object? ReadInstanceProperty(ClassInstance ownerInst, StaticInstance ownerType, RuntimePropertyDescriptor descriptor, Instruction instr)
+        {
+            if (!descriptor.HasGetter)
+            {
+                throw new VMException(
+                    $"Runtime error: property '{descriptor.Name}' in class '{ownerType.ClassName}' has no getter.",
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            }
+
+            EnforcePropertyAccessorVisibility(ownerType, descriptor.GetterVisibilityCode, descriptor.Name, isStatic: false, "getter", instr);
+
+            if (descriptor.GetterSlotName != null)
+            {
+                Closure closure = GetPropertyAccessorClosure(ownerInst, descriptor.GetterSlotName, descriptor.Name, "getter", instr);
+                return InvokeClosureSync(closure, [], instr, ownerInst, ownerType);
+            }
+
+            if (descriptor.HasAutoStorage && descriptor.BackingFieldName != null)
+            {
+                TryGetInstanceField(ownerInst, descriptor.BackingFieldName, out object? value);
+                return value;
+            }
+
+            throw new VMException(
+                $"Runtime error: property '{descriptor.Name}' in class '{ownerType.ClassName}' has no runtime getter implementation.",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+        }
+
+        /// <summary>
+        /// The ReadStaticProperty
+        /// </summary>
+        private object? ReadStaticProperty(StaticInstance ownerType, RuntimePropertyDescriptor descriptor, Instruction instr)
+        {
+            if (!descriptor.HasGetter)
+            {
+                throw new VMException(
+                    $"Runtime error: property '{descriptor.Name}' in class '{ownerType.ClassName}' has no getter.",
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            }
+
+            EnforcePropertyAccessorVisibility(ownerType, descriptor.GetterVisibilityCode, descriptor.Name, isStatic: true, "getter", instr);
+
+            if (descriptor.GetterSlotName != null)
+            {
+                Closure closure = GetPropertyAccessorClosure(ownerType, descriptor.GetterSlotName, descriptor.Name, "getter", instr);
+                return InvokeClosureSync(closure, [], instr, ownerType, ownerType);
+            }
+
+            if (descriptor.HasAutoStorage && descriptor.BackingFieldName != null)
+            {
+                TryGetStaticField(ownerType, descriptor.BackingFieldName, out object? value);
+                return value;
+            }
+
+            throw new VMException(
+                $"Runtime error: property '{descriptor.Name}' in class '{ownerType.ClassName}' has no runtime getter implementation.",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+        }
+
+        /// <summary>
+        /// The WriteInstanceProperty
+        /// </summary>
+        private void WriteInstanceProperty(
+            ClassInstance ownerInst,
+            StaticInstance ownerType,
+            RuntimePropertyDescriptor descriptor,
+            object value,
+            Instruction instr,
+            PropertyWriteMode writeMode)
+        {
+            bool useInit = writeMode == PropertyWriteMode.Init && descriptor.HasInit;
+            if (!useInit && !descriptor.HasSetter)
+            {
+                string reason = writeMode == PropertyWriteMode.Init ? "has no init or set accessor" : "has no setter";
+                throw new VMException(
+                    $"Runtime error: property '{descriptor.Name}' in class '{ownerType.ClassName}' {reason}.",
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            }
+
+            if (useInit)
+            {
+                EnforcePropertyAccessorVisibility(ownerType, descriptor.InitVisibilityCode, descriptor.Name, isStatic: false, "init accessor", instr);
+                if (descriptor.InitSlotName != null)
+                {
+                    Closure closure = GetPropertyAccessorClosure(ownerInst, descriptor.InitSlotName, descriptor.Name, "init accessor", instr);
+                    InvokeClosureSync(closure, [value], instr, ownerInst, ownerType);
+                    return;
+                }
+            }
+            else
+            {
+                EnforcePropertyAccessorVisibility(ownerType, descriptor.SetterVisibilityCode, descriptor.Name, isStatic: false, "setter", instr);
+                if (descriptor.SetterSlotName != null)
+                {
+                    Closure closure = GetPropertyAccessorClosure(ownerInst, descriptor.SetterSlotName, descriptor.Name, "setter", instr);
+                    InvokeClosureSync(closure, [value], instr, ownerInst, ownerType);
+                    return;
+                }
+            }
+
+            if (descriptor.HasAutoStorage && descriptor.BackingFieldName != null)
+            {
+                SetInstanceField(ownerInst, descriptor.BackingFieldName, value);
+                return;
+            }
+
+            throw new VMException(
+                $"Runtime error: property '{descriptor.Name}' in class '{ownerType.ClassName}' has no runtime write implementation.",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+        }
+
+        /// <summary>
+        /// The WriteStaticProperty
+        /// </summary>
+        private void WriteStaticProperty(
+            StaticInstance ownerType,
+            RuntimePropertyDescriptor descriptor,
+            object value,
+            Instruction instr,
+            PropertyWriteMode writeMode)
+        {
+            bool useInit = writeMode == PropertyWriteMode.Init && descriptor.HasInit;
+            if (!useInit && !descriptor.HasSetter)
+            {
+                string reason = writeMode == PropertyWriteMode.Init ? "has no init or set accessor" : "has no setter";
+                throw new VMException(
+                    $"Runtime error: property '{descriptor.Name}' in class '{ownerType.ClassName}' {reason}.",
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            }
+
+            if (useInit)
+            {
+                EnforcePropertyAccessorVisibility(ownerType, descriptor.InitVisibilityCode, descriptor.Name, isStatic: true, "init accessor", instr);
+                if (descriptor.InitSlotName != null)
+                {
+                    Closure closure = GetPropertyAccessorClosure(ownerType, descriptor.InitSlotName, descriptor.Name, "init accessor", instr);
+                    InvokeClosureSync(closure, [value], instr, ownerType, ownerType);
+                    return;
+                }
+            }
+            else
+            {
+                EnforcePropertyAccessorVisibility(ownerType, descriptor.SetterVisibilityCode, descriptor.Name, isStatic: true, "setter", instr);
+                if (descriptor.SetterSlotName != null)
+                {
+                    Closure closure = GetPropertyAccessorClosure(ownerType, descriptor.SetterSlotName, descriptor.Name, "setter", instr);
+                    InvokeClosureSync(closure, [value], instr, ownerType, ownerType);
+                    return;
+                }
+            }
+
+            if (descriptor.HasAutoStorage && descriptor.BackingFieldName != null)
+            {
+                SetStaticField(ownerType, descriptor.BackingFieldName, value);
+                return;
+            }
+
+            throw new VMException(
+                $"Runtime error: property '{descriptor.Name}' in class '{ownerType.ClassName}' has no runtime write implementation.",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+        }
+
+        /// <summary>
         /// The GetIndexedValue
         /// </summary>
         private object GetIndexedValue(object target, object idxObj, Instruction instr)
@@ -697,6 +1007,10 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                             );
                         }
+
+                        if (TryResolveInstancePropertyInHierarchy(obj, key, out ClassInstance ownerPropertyInst, out StaticInstance ownerPropertyType, out RuntimePropertyDescriptor propertyDescriptor))
+                            return ReadInstanceProperty(ownerPropertyInst, ownerPropertyType, propertyDescriptor, instr)!;
+
                         if (TryResolveInstanceMemberInHierarchy(obj, key, out _, out StaticInstance? ownerInstanceType, out object? instanceValue))
                         {
                             if (ownerInstanceType != null &&
@@ -752,6 +1066,10 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                             );
                         }
+
+                        if (TryResolveStaticPropertyInHierarchy(st, key, out StaticInstance ownerPropertyType, out RuntimePropertyDescriptor propertyDescriptor))
+                            return ReadStaticProperty(ownerPropertyType, propertyDescriptor, instr)!;
+
                         if (TryResolveStaticMemberInHierarchy(st, key, out StaticInstance ownerStaticType, out object? staticValue))
                         {
                             if (TryGetDeclaredVisibilityCode(ownerStaticType, expectInstance: false, key, out int visCode))
@@ -808,7 +1126,13 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// The SetIndexedValue
         /// </summary>
-        private void SetIndexedValue(ref object target, object idxObj, object value, Instruction instr, bool allowReservedRuntimeSlotWrites = false)
+        private void SetIndexedValue(
+            ref object target,
+            object idxObj,
+            object value,
+            Instruction instr,
+            PropertyWriteMode writeMode,
+            bool allowReservedRuntimeSlotWrites = false)
         {
             switch (target)
             {
@@ -872,6 +1196,13 @@ namespace CFGS_VM.VMCore
                         }
 
                         if (!allowReservedRuntimeSlotWrites &&
+                            TryResolveInstancePropertyInHierarchy(obj, key, out ClassInstance ownerPropertyInst, out StaticInstance ownerPropertyType, out RuntimePropertyDescriptor propertyDescriptor))
+                        {
+                            WriteInstanceProperty(ownerPropertyInst, ownerPropertyType, propertyDescriptor, value, instr, writeMode);
+                            break;
+                        }
+
+                        if (!allowReservedRuntimeSlotWrites &&
                             !TryResolveInstanceMemberInHierarchy(obj, key, out _, out _, out _))
                         {
                             throw new VMException(
@@ -921,6 +1252,13 @@ namespace CFGS_VM.VMCore
                                 "Runtime error: cannot assign to 'outer' on static type.",
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
                             );
+                        }
+
+                        if (!allowReservedRuntimeSlotWrites &&
+                            TryResolveStaticPropertyInHierarchy(st, key, out StaticInstance ownerPropertyType, out RuntimePropertyDescriptor propertyDescriptor))
+                        {
+                            WriteStaticProperty(ownerPropertyType, propertyDescriptor, value, instr, writeMode);
+                            break;
                         }
 
                         if (!allowReservedRuntimeSlotWrites &&
@@ -1000,11 +1338,12 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// Handles the INDEX_SET and INDEX_SET_INTERNAL opcodes.
+        /// Handles the INDEX_SET, INDEX_SET_INTERNAL and INDEX_INIT opcodes.
         /// </summary>
         private StepResult HandleIndexSetInstruction(Instruction instr)
         {
             bool allowReservedRuntimeSlotWrites = instr.Code == OpCode.INDEX_SET_INTERNAL;
+            PropertyWriteMode writeMode = instr.Code == OpCode.INDEX_INIT ? PropertyWriteMode.Init : PropertyWriteMode.Normal;
             if (instr.Operand is string)
                 RequireStack(2, instr, "INDEX_SET");
             else
@@ -1021,13 +1360,13 @@ namespace CFGS_VM.VMCore
 
                 MarkAsyncHazardForEnvAccess(env);
                 target = GetLocalVar(env, nameFromEnv)!;
-                SetIndexedValue(ref target, idxObj, value, instr, allowReservedRuntimeSlotWrites);
+                SetIndexedValue(ref target, idxObj, value, instr, writeMode, allowReservedRuntimeSlotWrites);
                 SetLocalVar(env, nameFromEnv, target);
             }
             else
             {
                 target = _stack.Pop();
-                SetIndexedValue(ref target, idxObj, value, instr, allowReservedRuntimeSlotWrites);
+                SetIndexedValue(ref target, idxObj, value, instr, writeMode, allowReservedRuntimeSlotWrites);
             }
 
             return StepResult.Next;

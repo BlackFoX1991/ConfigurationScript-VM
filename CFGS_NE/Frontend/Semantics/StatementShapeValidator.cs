@@ -223,6 +223,12 @@ namespace CFGS_VM.Analytic.Semantics
                     ValidateExpr(staticFieldValue, insideFunction, insideAsyncFunction);
             }
 
+            foreach (PropertyDeclStmt property in classDecl.Properties)
+                ValidatePropertyDecl(property, insideFunction, insideAsyncFunction);
+
+            foreach (PropertyDeclStmt property in classDecl.StaticProperties)
+                ValidatePropertyDecl(property, insideFunction, insideAsyncFunction);
+
             foreach (FuncDeclStmt method in classDecl.Methods)
                 ValidateFunctionDecl(method);
 
@@ -231,6 +237,18 @@ namespace CFGS_VM.Analytic.Semantics
 
             foreach (ClassDeclStmt nestedClass in classDecl.NestedClasses)
                 ValidateClassDecl(nestedClass, insideFunction, insideAsyncFunction);
+        }
+
+        private void ValidatePropertyDecl(PropertyDeclStmt propertyDecl, bool insideFunction, bool insideAsyncFunction)
+        {
+            if (propertyDecl.Initializer is not null)
+                ValidateExpr(propertyDecl.Initializer, insideFunction, insideAsyncFunction);
+
+            foreach (PropertyAccessorDecl accessor in propertyDecl.Accessors)
+            {
+                if (accessor.Body is not null)
+                    ValidateStatement(accessor.Body, insideFunction: true, insideAsyncFunction: false);
+            }
         }
 
         private void ValidateFunctionDecl(FuncDeclStmt funcDecl)

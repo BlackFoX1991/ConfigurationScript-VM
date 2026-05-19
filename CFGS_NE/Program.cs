@@ -520,6 +520,7 @@ public class Program
             NamespaceImportSyntaxStmt => true,
             NamedImportSyntaxStmt => true,
             DefaultImportSyntaxStmt => true,
+            UseNamespaceStmt => true,
             VarDecl => true,
             ConstDecl => true,
             FuncDeclStmt => true,

@@ -1,0 +1,72 @@
+import "edge_assert.cfs";
+
+edge_begin("523_properties_valid");
+
+interface INamed {
+    property name { get; }
+}
+
+interface IConfigurable {
+    property host { get; set; }
+    property port { get; init; }
+}
+
+class Person(seed) : INamed {
+    var _name = "";
+
+    property name {
+        get { return this._name; }
+        private set(value) { this._name = value; }
+    }
+
+    func init(seed) {
+        this.name = seed;
+    }
+
+    func renameLocal(next) {
+        this.name = next;
+        return this.name;
+    }
+}
+
+class Settings() : IConfigurable {
+    property host { get; set; } = "localhost";
+    property port { get; init; } = 80;
+    static property version { get; set; } = 1;
+    property endpoint {
+        get;
+        set(value) { field = value.trim(); }
+    } = "https://localhost";
+}
+
+class Counter() {
+    var _value = 0;
+
+    property value {
+        get { return this._value; }
+        set(value) { this._value = value; }
+    }
+}
+
+var person = new Person("Ada");
+edge_eq("person_name_get", person.name, "Ada");
+edge_eq("person_name_local_set", person.renameLocal("Lovelace"), "Lovelace");
+
+var settings = new Settings() { host: "api.local", port: 443 };
+edge_eq("settings_host", settings.host, "api.local");
+edge_eq("settings_port_init", settings.port, 443);
+edge_eq("static_property_initial", Settings.version, 1);
+Settings.version = 2;
+edge_eq("static_property_write", Settings.version, 2);
+settings.endpoint = " https://api.local ";
+edge_eq("mixed_property_backing_field", settings.endpoint, "https://api.local");
+
+var counter = new Counter();
+counter.value = 12;
+edge_eq("manual_property_set", counter.value, 12);
+
+edge_true("iface_named", person is INamed);
+edge_true("iface_configurable", settings is IConfigurable);
+edge_eq("iface_property_read", person.name, "Lovelace");
+
+edge_finish("523_properties_valid");

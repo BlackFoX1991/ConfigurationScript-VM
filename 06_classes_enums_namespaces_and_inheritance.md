@@ -2,7 +2,7 @@
 
 ## Class Overview
 
-A class in CFGS has a name, a constructor signature in the header, and a body that can contain fields, methods, static members, enums, and even nested classes.
+A class in CFGS has a name, a constructor signature in the header, and a body that can contain fields, properties, methods, static members, enums, and even nested classes.
 
 ```cfs
 class Point(x, y) {
@@ -37,6 +37,73 @@ class Meter(v) {
 
 - `var` inside a class creates instance fields.
 - `static var` creates static fields on the type.
+
+## Properties
+
+CFGS supports instance and static properties with explicit accessor metadata. A property may declare `get`, `set`, and `init` accessors.
+
+```cfs
+class Person(seed) {
+    property name { get; private set; } = "";
+    property normalized {
+        get;
+        set(value) { field = value.trim(); }
+    } = "";
+
+    func init(seed) {
+        this.name = seed;
+        this.normalized = seed;
+    }
+}
+```
+
+Important rules.
+
+- `property x { get; set; }` creates an auto-property with hidden backing storage.
+- `property x { get { ... } set(value) { ... } }` creates a fully manual property.
+- Mixed forms are allowed. Example: auto `get` with manual `set`, or manual `get` with auto `set`.
+- `init` is write-only and is intended for object initialization.
+- A property initializer such as `= expr` is allowed when at least one accessor is auto-implemented.
+- `static property` works the same way, but the property lives on the type instead of the instance.
+
+### Auto-Properties and the `field` Backing Symbol
+
+If a property has hidden backing storage, accessor bodies may use the special identifier `field`.
+
+```cfs
+class Settings() {
+    property endpoint {
+        get;
+        set(value) { field = value.trim(); }
+    } = "https://localhost";
+}
+```
+
+Important details.
+
+- `field` is only available inside property accessors that actually have hidden backing storage.
+- Hidden backing storage exists when at least one accessor is auto-implemented.
+- In purely manual properties, `field` is rejected.
+- Inside such accessors, `field` is reserved. Do not use it as an accessor parameter or local variable name.
+
+### Accessor Visibility
+
+Accessor visibility may be narrower than the property visibility, but never wider.
+
+```cfs
+class Secret(seed) {
+    public property value {
+        get;
+        private set;
+    } = "";
+
+    func init(seed) {
+        this.value = seed;
+    }
+}
+```
+
+This means outside callers can read `value`, while only code with access to the private setter may assign to it.
 
 ## Methods and Static Methods
 
@@ -88,6 +155,17 @@ var cfg = new Config("localhost", 80) { host: "api.local", port: 443 };
 ```
 
 This is especially practical for data objects and configuration holders.
+
+Object initializers also work with properties. CFGS first tries a matching `init` accessor, and if none exists it falls back to `set`.
+
+```cfs
+class Settings() {
+    property host { get; set; } = "localhost";
+    property port { get; init; } = 80;
+}
+
+var settings = new Settings() { host: "api.local", port: 443 };
+```
 
 ## Explicit Destruction
 
@@ -229,7 +307,7 @@ The runtime and compiler validate these calls strictly. Unknown named arguments,
 
 ## Interfaces
 
-CFGS also supports interface declarations with method signatures only.
+CFGS also supports interface declarations with method signatures and property signatures.
 
 ```cfs
 interface IAnimal {
@@ -243,14 +321,20 @@ interface IWalker {
 interface IPet : IAnimal {
     func pet_name();
 }
+
+interface INamed {
+    property name { get; }
+}
 ```
 
 Important rules.
 
 - Interfaces may inherit from one or more interfaces with `:`.
-- Interface bodies may contain only `func ...;` or `async func ...;` signatures.
-- Interface members are instance methods only. No fields, no static members, no default bodies.
+- Interface bodies may contain `func ...;`, `async func ...;`, and `property ... { ... }` signatures.
+- Interface members are instance methods and instance properties only. No fields, no static members, no default bodies.
+- Interface properties declare accessor shape only. Example: `property x { get; }` or `property x { get; set; }`.
 - Signature compatibility checks include arity, optional/default parameter shape, rest-parameter usage, and `async`.
+- Property compatibility checks include the required accessor set and public accessor visibility where the interface requires it.
 - CFGS does not use a separate `implements` keyword. Interface names go directly into the class header after `:`.
 
 Classes implement interfaces in the class header. The base class, if present, comes first, followed by interfaces.
@@ -263,7 +347,7 @@ class Dog(name) : Animal(name), IPet, IWalker {
 }
 ```
 
-An inherited public instance method may satisfy an interface contract.
+An inherited public instance method or property may satisfy an interface contract.
 
 ```cfs
 class Creature(name) {
@@ -390,7 +474,16 @@ interface IBadBody {
     }
 }
 
-# invalid: interface members are instance methods only
+# invalid: interface property accessors cannot have bodies
+interface IBadProperty {
+    property name {
+        get {
+            return "x";
+        }
+    }
+}
+
+# invalid: interface members are instance methods and instance properties only
 interface IBadStatic {
     static func make();
 }
@@ -424,6 +517,7 @@ class WrongOrder() : IClosable, Base() {
 Why they fail.
 
 - `HiddenCloser` fails because interface methods must be implemented as public instance methods.
+- Interface properties likewise require public instance accessors where the contract requires them.
 - `IWrong` fails because interfaces may only inherit from interfaces, never from classes.
 - `WrongOrder` fails because a base class must appear before interfaces in the class header.
 
@@ -497,11 +591,15 @@ This applies to these member categories.
 
 - instance fields
 - static fields
+- instance properties
+- static properties
 - methods
 - static methods
 - constructors through `init`
 - enums inside classes
 - nested classes
+
+For properties, the property declaration has its own visibility, and each accessor may optionally declare a narrower visibility.
 
 Example.
 
@@ -609,7 +707,9 @@ Overriding is implicit by redeclaring a member with the same name in a derived c
 - Member kind must match. Instance against instance. Static against static.
 - Parameter shape and arity must be compatible.
 - Visibility must not become narrower.
-- Field against method, or method against field, is not a valid override.
+- Property accessor shape must match across overrides.
+- Property accessor visibility must not become narrower.
+- Field against method, method against property, or field against property is not a valid override.
 
 This leads to a predictable and stable OOP layer.
 
@@ -671,12 +771,62 @@ App.Tools.clamp(99, 0, 10)
 new App.Tools.Box(7)
 ```
 
+If you want shorter lookup syntax in a file, you can add header-only `use` directives.
+
+```cfs
+import "CFGS.StandardLibrary.dll";
+import "_imports/use_feature_valid.cfs";
+
+use App.Core.Tools;
+use App.Core;
+
+print(ping());
+
+var box = new Box(7);
+print(box.get());
+print(Math.plus(2, 3));
+print(box is Box);
+```
+
+`use App.Core.Tools;` brings the direct members of that namespace into unqualified lookup.
+`use App.Core;` also makes direct child namespaces of `App.Core` available, so `Math.plus(...)` works without writing `App.Core.Math.plus(...)`.
+
+File-scoped namespace syntax is also supported.
+
+```cfs
+namespace App.Tools;
+
+func clamp(x, lo, hi) {
+    if (x < lo) { return lo; }
+    if (x > hi) { return hi; }
+    return x;
+}
+
+class Box(v) {
+    var value = 0;
+    func init(v) { this.value = v; }
+    func get() { return this.value; }
+}
+```
+
+This is equivalent to putting the same declarations into `namespace App.Tools { ... }`.
+
 Important practical notes.
 
 - Qualified namespace names such as `A.B.C` are allowed.
 - Multiple `namespace App.Tools { ... }` declarations can extend the same namespace.
+- File-scoped syntax `namespace App.Tools;` is allowed and applies to the remaining declarations in that file.
+- A file-scoped namespace must be the first declaration after the import header.
+- `use A.B.C;` is allowed in the file header after `import` directives and before the first declaration.
+- Multiple `use` directives can be combined.
+- `use` is a lookup shortcut, not a second import system.
+- Ambiguous names from multiple `use` directives fail on first actual reference.
+- `use` currently shortens expression-side lookup such as calls, `new`, `is`, and child-namespace access.
 - Namespace bodies may contain functions, classes, interfaces, enums, variables, and constants.
+- In file-scoped namespaces, the same declaration-only rule applies to the rest of the file.
 - `import` is not allowed inside a namespace body.
+- `use` is not allowed inside a namespace body.
+- `import` stays in the file header and is not part of namespace syntax.
 - `export` is not allowed inside a namespace body.
 - A namespace root must not collide with an already declared top level symbol.
 
@@ -761,6 +911,8 @@ These names are semantically reserved and should not be used as normal bindings.
 - `outer`
 
 Internal runtime slots such as `__type`, `__base`, `__interfaces`, `__is_interface`, and `__outer` also belong to the VM, not to your application model.
+
+Inside property accessors with hidden backing storage, `field` is also reserved for the property's backing value.
 
 ## Combined Example
 

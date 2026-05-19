@@ -18,6 +18,7 @@ namespace CFGS_VM.Analytic.Semantics
             foreach (InterfaceDeclStmt iface in interfaceDecls)
             {
                 HashSet<string> seenMethods = new(StringComparer.Ordinal);
+                HashSet<string> seenProperties = new(StringComparer.Ordinal);
                 HashSet<string> seenBases = new(StringComparer.Ordinal);
 
                 foreach (string baseName in iface.BaseInterfaces)
@@ -34,7 +35,7 @@ namespace CFGS_VM.Analytic.Semantics
 
                 foreach (InterfaceMethodDecl method in iface.Methods)
                 {
-                    if (!seenMethods.Add(method.Name))
+                    if (!seenMethods.Add(method.Name) || seenProperties.Contains(method.Name))
                     {
                         throw new CompilerException(
                             $"duplicate method '{method.Name}' in interface '{iface.Name}'",
@@ -50,6 +51,27 @@ namespace CFGS_VM.Analytic.Semantics
                             method.Line,
                             method.Col,
                             method.OriginFile);
+                    }
+                }
+
+                foreach (InterfacePropertyDecl property in iface.Properties)
+                {
+                    if (!seenProperties.Add(property.Name) || seenMethods.Contains(property.Name))
+                    {
+                        throw new CompilerException(
+                            $"duplicate property '{property.Name}' in interface '{iface.Name}'",
+                            property.Line,
+                            property.Col,
+                            property.OriginFile);
+                    }
+
+                    if (Compiler.IsReservedRuntimeMemberName(property.Name) || Compiler.IsReservedInternalMemberName(property.Name))
+                    {
+                        throw new CompilerException(
+                            $"invalid member declaration '{property.Name}' in interface '{iface.Name}': reserved member name",
+                            property.Line,
+                            property.Col,
+                            property.OriginFile);
                     }
                 }
             }
@@ -107,6 +129,18 @@ namespace CFGS_VM.Analytic.Semantics
                     }
                 }
 
+                foreach (PropertyDeclStmt property in cls.Properties)
+                {
+                    if (Compiler.IsReservedRuntimeMemberName(property.Name) || Compiler.IsReservedInternalMemberName(property.Name))
+                    {
+                        throw new CompilerException(
+                            $"invalid member declaration '{property.Name}' in class '{cls.Name}': reserved member name",
+                            property.Line,
+                            property.Col,
+                            property.OriginFile);
+                    }
+                }
+
                 foreach (FuncDeclStmt method in cls.StaticMethods)
                 {
                     if (Compiler.IsReservedRuntimeMemberName(method.Name) || Compiler.IsReservedInternalMemberName(method.Name))
@@ -116,6 +150,18 @@ namespace CFGS_VM.Analytic.Semantics
                             method.Line,
                             method.Col,
                             method.OriginFile);
+                    }
+                }
+
+                foreach (PropertyDeclStmt property in cls.StaticProperties)
+                {
+                    if (Compiler.IsReservedRuntimeMemberName(property.Name) || Compiler.IsReservedInternalMemberName(property.Name))
+                    {
+                        throw new CompilerException(
+                            $"invalid member declaration '{property.Name}' in class '{cls.Name}': reserved member name",
+                            property.Line,
+                            property.Col,
+                            property.OriginFile);
                     }
                 }
             }

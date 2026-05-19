@@ -10,6 +10,130 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
+        private static string GetPropertyBackingSlotName(PropertyDeclStmt property)
+            => property.IsStatic
+                ? $"__prop_back_static_{property.Name}"
+                : $"__prop_back_{property.Name}";
+
+        private static string GetPropertyAccessorSlotName(PropertyDeclStmt property, PropertyAccessorKind kind)
+        {
+            string accessorName = kind switch
+            {
+                PropertyAccessorKind.Get => "get",
+                PropertyAccessorKind.Set => "set",
+                PropertyAccessorKind.Init => "init",
+                _ => "acc"
+            };
+
+            return property.IsStatic
+                ? $"__prop_static_{accessorName}_{property.Name}"
+                : $"__prop_{accessorName}_{property.Name}";
+        }
+
+        private static PropertyAccessorDecl? GetPropertyAccessor(PropertyDeclStmt property, PropertyAccessorKind kind)
+            => property.Accessors.FirstOrDefault(a => a.Kind == kind);
+
+        private static MemberVisibility GetEffectiveAccessorVisibility(PropertyDeclStmt property, PropertyAccessorDecl accessor)
+            => accessor.HasExplicitVisibility ? accessor.Visibility : property.Visibility;
+
+        private static RuntimePropertyDescriptor CreateRuntimePropertyDescriptor(PropertyDeclStmt property)
+        {
+            PropertyAccessorDecl? getter = GetPropertyAccessor(property, PropertyAccessorKind.Get);
+            PropertyAccessorDecl? setter = GetPropertyAccessor(property, PropertyAccessorKind.Set);
+            PropertyAccessorDecl? initAccessor = GetPropertyAccessor(property, PropertyAccessorKind.Init);
+
+            return new RuntimePropertyDescriptor(
+                property.Name,
+                property.IsStatic,
+                getter != null,
+                setter != null,
+                initAccessor != null,
+                getter != null ? ToVisibilityCode(GetEffectiveAccessorVisibility(property, getter)) : 0,
+                setter != null ? ToVisibilityCode(GetEffectiveAccessorVisibility(property, setter)) : 0,
+                initAccessor != null ? ToVisibilityCode(GetEffectiveAccessorVisibility(property, initAccessor)) : 0,
+                getter is { IsAuto: false } ? GetPropertyAccessorSlotName(property, PropertyAccessorKind.Get) : null,
+                setter is { IsAuto: false } ? GetPropertyAccessorSlotName(property, PropertyAccessorKind.Set) : null,
+                initAccessor is { IsAuto: false } ? GetPropertyAccessorSlotName(property, PropertyAccessorKind.Init) : null,
+                property.HasAutoStorage ? GetPropertyBackingSlotName(property) : null,
+                property.HasAutoStorage);
+        }
+
+        private FuncExpr BuildPropertyAccessorFuncExpr(PropertyDeclStmt property, PropertyAccessorDecl accessor)
+        {
+            List<string> parameters = new()
+            {
+                property.IsStatic ? "type" : "this"
+            };
+
+            if (!string.IsNullOrWhiteSpace(accessor.ValueParameterName))
+                parameters.Add(accessor.ValueParameterName);
+
+            return new FuncExpr(
+                parameters,
+                accessor.Body ?? new BlockStmt(new List<Stmt>(), accessor.Line, accessor.Col, accessor.OriginFile),
+                parameters.Count,
+                restParameter: null,
+                accessor.Line,
+                accessor.Col,
+                accessor.OriginFile,
+                isAsync: false);
+        }
+
+        private void EmitPropertyDescriptorMap(string slotName, IEnumerable<PropertyDeclStmt> properties, Node node)
+        {
+            List<PropertyDeclStmt> propertyList = properties.ToList();
+            if (propertyList.Count == 0)
+                return;
+
+            _insns.Add(new Instruction(OpCode.DUP, null, node.Line, node.Col, node.OriginFile));
+            _insns.Add(new Instruction(OpCode.PUSH_STR, slotName, node.Line, node.Col, node.OriginFile));
+            foreach (PropertyDeclStmt property in propertyList)
+            {
+                _insns.Add(new Instruction(OpCode.PUSH_STR, property.Name, property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_CONST, CreateRuntimePropertyDescriptor(property), property.Line, property.Col, property.OriginFile));
+            }
+            _insns.Add(new Instruction(OpCode.NEW_DICT, propertyList.Count, node.Line, node.Col, node.OriginFile));
+            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, node.Line, node.Col, node.OriginFile));
+        }
+
+        private void CompilePropertyAccessorClosure(PropertyDeclStmt property, PropertyAccessorDecl accessor, ClassDeclStmt classDecl)
+        {
+            if (accessor.IsAuto || accessor.Body == null)
+                return;
+
+            if (property.IsStatic)
+                _insns.Add(new Instruction(OpCode.DUP, null, accessor.Line, accessor.Col, accessor.OriginFile));
+            else
+                _insns.Add(new Instruction(OpCode.LOAD_VAR, "__obj", accessor.Line, accessor.Col, accessor.OriginFile));
+            _insns.Add(new Instruction(OpCode.PUSH_STR, GetPropertyAccessorSlotName(property, accessor.Kind), accessor.Line, accessor.Col, accessor.OriginFile));
+
+            ClassInfo? prevClass = _currentClass;
+            ClassDeclStmt? prevClassDecl = _currentClassDecl;
+            bool prevIsStatic = _currentMethodIsStatic;
+            string? prevPropertyBackingSlotName = _currentPropertyBackingSlotName;
+            string? prevPropertyBackingReceiverName = _currentPropertyBackingReceiverName;
+
+            if (!_classInfos.TryGetValue(classDecl, out ClassInfo? currentClass))
+                currentClass = BuildAdHocClassInfo(classDecl);
+            _currentClass = currentClass;
+            _currentClassDecl = classDecl;
+            _currentMethodIsStatic = property.IsStatic;
+            _currentPropertyBackingSlotName = property.HasAutoStorage ? GetPropertyBackingSlotName(property) : null;
+            _currentPropertyBackingReceiverName = property.HasAutoStorage
+                ? (property.IsStatic ? "type" : "this")
+                : null;
+
+            CompileExpr(BuildPropertyAccessorFuncExpr(property, accessor));
+
+            _currentClass = prevClass;
+            _currentClassDecl = prevClassDecl;
+            _currentMethodIsStatic = prevIsStatic;
+            _currentPropertyBackingSlotName = prevPropertyBackingSlotName;
+            _currentPropertyBackingReceiverName = prevPropertyBackingReceiverName;
+
+            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, accessor.Line, accessor.Col, accessor.OriginFile));
+        }
+
         /// <summary>
         /// The CompileClassDeclaration
         /// </summary>
@@ -98,6 +222,17 @@ namespace CFGS_VM.VMCore
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
                 }
 
+                foreach (PropertyDeclStmt property in cds.Properties.Where(p => p.HasAutoStorage))
+                {
+                    _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, property.Line, property.Col, property.OriginFile));
+                    _insns.Add(new Instruction(OpCode.PUSH_STR, GetPropertyBackingSlotName(property), property.Line, property.Col, property.OriginFile));
+                    if (property.Initializer != null)
+                        CompileExpr(property.Initializer);
+                    else
+                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, property.Line, property.Col, property.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, property.Line, property.Col, property.OriginFile));
+                }
+
                 foreach (string p in ctorParams)
                 {
                     if (p == "__outer" || IsReservedInternalMemberName(p))
@@ -138,6 +273,12 @@ namespace CFGS_VM.VMCore
                     _currentMethodIsStatic = prevIsStatic;
 
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, func.Line, func.Col, cds.OriginFile));
+                }
+
+                foreach (PropertyDeclStmt property in cds.Properties)
+                {
+                    foreach (PropertyAccessorDecl accessor in property.Accessors)
+                        CompilePropertyAccessorClosure(property, accessor, cds);
                 }
 
                 if (initMethod != null)
@@ -190,6 +331,9 @@ namespace CFGS_VM.VMCore
                 }
                 _insns.Add(new Instruction(OpCode.NEW_DICT, staticVisibilityEntries.Count, cds.Line, cds.Col, cds.OriginFile));
                 _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
+
+                EmitPropertyDescriptorMap("__props_inst", cds.Properties, cds);
+                EmitPropertyDescriptorMap("__props_static", cds.StaticProperties, cds);
 
                 if (cds.ConstFields.Count > 0)
                 {
@@ -254,6 +398,17 @@ namespace CFGS_VM.VMCore
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
                 }
 
+                foreach (PropertyDeclStmt property in cds.StaticProperties.Where(p => p.HasAutoStorage))
+                {
+                    _insns.Add(new Instruction(OpCode.DUP, null, property.Line, property.Col, property.OriginFile));
+                    _insns.Add(new Instruction(OpCode.PUSH_STR, GetPropertyBackingSlotName(property), property.Line, property.Col, property.OriginFile));
+                    if (property.Initializer != null)
+                        CompileExpr(property.Initializer);
+                    else
+                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, property.Line, property.Col, property.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, property.Line, property.Col, property.OriginFile));
+                }
+
                 foreach (FuncDeclStmt func in cds.StaticMethods)
                 {
                     _insns.Add(new Instruction(OpCode.DUP, null, func.Line, func.Col, cds.OriginFile));
@@ -282,6 +437,12 @@ namespace CFGS_VM.VMCore
                     _currentMethodIsStatic = prevIsStatic;
 
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, func.Line, func.Col, cds.OriginFile));
+                }
+
+                foreach (PropertyDeclStmt property in cds.StaticProperties)
+                {
+                    foreach (PropertyAccessorDecl accessor in property.Accessors)
+                        CompilePropertyAccessorClosure(property, accessor, cds);
                 }
 
                 foreach (EnumDeclStmt en in cds.Enums)
@@ -374,7 +535,7 @@ namespace CFGS_VM.VMCore
                     _insns.Add(new Instruction(OpCode.DUP, null, ne.Line, ne.Col, ne.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_STR, name, ne.Line, ne.Col, ne.OriginFile));
                     CompileExpr(valueExpr);
-                    _insns.Add(new Instruction(OpCode.INDEX_SET, null, ne.Line, ne.Col, ne.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_INIT, null, ne.Line, ne.Col, ne.OriginFile));
                 }
             }
         }
@@ -414,14 +575,14 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
                 _insns.Add(new Instruction(OpCode.PUSH_STR, keyStr.Value, oi.Line, oi.Col, oi.OriginFile));
                 _insns.Add(new Instruction(OpCode.ROT, null, oi.Line, oi.Col, oi.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_SET, null, oi.Line, oi.Col, oi.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_INIT, null, oi.Line, oi.Col, oi.OriginFile));
 
                 foreach ((string fieldName, Expr fieldExpr) in oi.Inits)
                 {
                     _insns.Add(new Instruction(OpCode.DUP, null, oi.Line, oi.Col, oi.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, oi.Line, oi.Col, oi.OriginFile));
                     CompileExpr(fieldExpr);
-                    _insns.Add(new Instruction(OpCode.INDEX_SET, null, oi.Line, oi.Col, oi.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_INIT, null, oi.Line, oi.Col, oi.OriginFile));
                 }
 
                 return;
@@ -433,7 +594,7 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.DUP, null, oi.Line, oi.Col, oi.OriginFile));
                 _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, oi.Line, oi.Col, oi.OriginFile));
                 CompileExpr(fieldExpr);
-                _insns.Add(new Instruction(OpCode.INDEX_SET, null, oi.Line, oi.Col, oi.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_INIT, null, oi.Line, oi.Col, oi.OriginFile));
             }
         }
     }

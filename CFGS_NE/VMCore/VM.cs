@@ -351,6 +351,10 @@ namespace CFGS_VM.VMCore
                     _stack.Push(null!);
                     break;
 
+                case OpCode.PUSH_CONST:
+                    _stack.Push(instr.Operand!);
+                    break;
+
                 case OpCode.PUSH_SCOPE:
                     {
                         _scopes.Add(new Env(_scopes[^1]));
@@ -436,6 +440,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.INDEX_SET:
                 case OpCode.INDEX_SET_INTERNAL:
+                case OpCode.INDEX_INIT:
                     return HandleIndexSetInstruction(instr);
 
                 case OpCode.NEW_DICT:

@@ -1,0 +1,7 @@
+import "_imports/use_ambig_a.cfs";
+import "_imports/use_ambig_b.cfs";
+
+use Ambig.One;
+use Ambig.Two;
+
+same();

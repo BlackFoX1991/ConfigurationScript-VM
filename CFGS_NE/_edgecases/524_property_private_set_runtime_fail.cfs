@@ -1,0 +1,15 @@
+class Vault(seed) {
+    var _secret = "";
+
+    property secret {
+        get { return this._secret; }
+        private set(value) { this._secret = value; }
+    }
+
+    func init(seed) {
+        this.secret = seed;
+    }
+}
+
+var v = new Vault("a");
+v.secret = "b";
