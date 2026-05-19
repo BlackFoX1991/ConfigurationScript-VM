@@ -1,0 +1,7 @@
+var seed = 1;
+
+namespace Bad.Scope;
+
+func x() {
+    return seed;
+}

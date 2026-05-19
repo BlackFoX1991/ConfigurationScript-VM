@@ -1,0 +1,8 @@
+class Invalid() {
+    property value {
+        get;
+        set(value) {
+            var field = value;
+        }
+    }
+}

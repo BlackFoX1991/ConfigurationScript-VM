@@ -1,0 +1,7 @@
+namespace FileScoped.Merge;
+
+func fromB() {
+    return "B";
+}
+
+const scale = 4;

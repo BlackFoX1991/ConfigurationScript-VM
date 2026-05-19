@@ -1,0 +1,20 @@
+import "edge_assert.cfs";
+import "_imports/fs_ns_a.cfs";
+import "_imports/fs_ns_b.cfs";
+
+edge_begin("530_file_scoped_namespace_merge");
+
+namespace FileScoped.Merge {
+    func local() {
+        return "L";
+    }
+}
+
+var box = new FileScoped.Merge.Box(9);
+edge_eq("file_scoped_func_a", FileScoped.Merge.fromA(), "A");
+edge_eq("file_scoped_func_b", FileScoped.Merge.fromB(), "B");
+edge_eq("file_scoped_const", FileScoped.Merge.scale, 4);
+edge_eq("file_scoped_class", box.get(), 9);
+edge_eq("file_scoped_block_merge", FileScoped.Merge.local(), "L");
+
+edge_finish("530_file_scoped_namespace_merge");

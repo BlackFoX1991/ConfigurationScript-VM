@@ -182,5 +182,60 @@ namespace CFGS_VM.VMCore
             _interfaceContractCache[iface] = contract;
             return contract;
         }
+
+        /// <summary>
+        /// The GetOrBuildInterfacePropertyContract
+        /// </summary>
+        internal Dictionary<string, InterfacePropertyDecl> GetOrBuildInterfacePropertyContract(InterfaceDeclStmt iface)
+        {
+            if (_interfacePropertyContractCache.TryGetValue(iface, out Dictionary<string, InterfacePropertyDecl>? cached))
+                return cached;
+
+            Dictionary<string, InterfacePropertyDecl> contract = new(StringComparer.Ordinal);
+
+            foreach (string baseName in iface.BaseInterfaces)
+            {
+                if (!TryResolveBaseInterfaceDecl(iface, baseName, out InterfaceDeclStmt baseIface))
+                    continue;
+
+                Dictionary<string, InterfacePropertyDecl> baseContract = GetOrBuildInterfacePropertyContract(baseIface);
+                foreach (KeyValuePair<string, InterfacePropertyDecl> kv in baseContract)
+                {
+                    if (contract.TryGetValue(kv.Key, out InterfacePropertyDecl? existing))
+                    {
+                        contract[kv.Key] = MergeInterfacePropertyRequirements(existing, kv.Value);
+                        continue;
+                    }
+
+                    contract[kv.Key] = kv.Value;
+                }
+            }
+
+            foreach (InterfacePropertyDecl property in iface.Properties)
+            {
+                if (contract.TryGetValue(property.Name, out InterfacePropertyDecl? inherited))
+                {
+                    contract[property.Name] = MergeInterfacePropertyRequirements(inherited, property);
+                    continue;
+                }
+
+                contract[property.Name] = property;
+            }
+
+            _interfacePropertyContractCache[iface] = contract;
+            return contract;
+        }
+
+        private static InterfacePropertyDecl MergeInterfacePropertyRequirements(InterfacePropertyDecl left, InterfacePropertyDecl right)
+        {
+            return new InterfacePropertyDecl(
+                left.Name,
+                left.HasGetter || right.HasGetter,
+                left.HasSetter || right.HasSetter,
+                left.HasInit || right.HasInit,
+                left.Line,
+                left.Col,
+                left.OriginFile);
+        }
     }
 }

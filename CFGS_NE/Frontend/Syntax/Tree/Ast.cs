@@ -13,6 +13,16 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
+    /// Defines property accessor kinds.
+    /// </summary>
+    public enum PropertyAccessorKind
+    {
+        Get,
+        Set,
+        Init
+    }
+
+    /// <summary>
     /// Defines the <see cref="Node" />
     /// </summary>
     public abstract class Node(int line, int col, string originFile)
@@ -487,6 +497,11 @@ namespace CFGS_VM.Analytic.Tree
         public Expr? Value;
 
         /// <summary>
+        /// Gets or sets a value indicating whether this declaration is a synthetic namespace root created during lowering.
+        /// </summary>
+        public bool IsSyntheticNamespaceRoot { get; set; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="VarDecl"/> class.
         /// </summary>
         /// <param name="n">The n<see cref="string"/></param>
@@ -918,6 +933,16 @@ namespace CFGS_VM.Analytic.Tree
         public List<FuncDeclStmt> Methods;
 
         /// <summary>
+        /// Defines the Properties
+        /// </summary>
+        public List<PropertyDeclStmt> Properties;
+
+        /// <summary>
+        /// Defines the StaticProperties
+        /// </summary>
+        public List<PropertyDeclStmt> StaticProperties;
+
+        /// <summary>
         /// Defines the Enums
         /// </summary>
         public List<EnumDeclStmt> Enums;
@@ -1012,10 +1037,12 @@ namespace CFGS_VM.Analytic.Tree
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>
         /// <param name="methods">The methods<see cref="List{FuncDeclStmt}"/></param>
+        /// <param name="properties">The properties<see cref="List{PropertyDeclStmt}"/></param>
         /// <param name="enums">The enums<see cref="List{EnumDeclStmt}"/></param>
         /// <param name="fields">The fields<see cref="Dictionary{string, Expr?}"/></param>
         /// <param name="staticFields">The staticFields<see cref="Dictionary{string, Expr?}"/></param>
         /// <param name="staticMethods">The staticMethods<see cref="List{FuncDeclStmt}"/></param>
+        /// <param name="staticProperties">The staticProperties<see cref="List{PropertyDeclStmt}"/></param>
         /// <param name="parameters">The parameters<see cref="List{string}"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
@@ -1028,10 +1055,12 @@ namespace CFGS_VM.Analytic.Tree
         public ClassDeclStmt(
             string name,
             List<FuncDeclStmt> methods,
+            List<PropertyDeclStmt> properties,
             List<EnumDeclStmt> enums,
             Dictionary<string, Expr?> fields,
             Dictionary<string, Expr?> staticFields,
             List<FuncDeclStmt> staticMethods,
+            List<PropertyDeclStmt> staticProperties,
             List<string> parameters,
             int line,
             int col,
@@ -1053,11 +1082,13 @@ namespace CFGS_VM.Analytic.Tree
         {
             Name = name;
             Methods = methods;
+            Properties = properties;
             Enums = enums;
             Fields = fields;
             Parameters = parameters;
             StaticFields = staticFields;
             StaticMethods = staticMethods;
+            StaticProperties = staticProperties;
             BaseName = baseName;
             if (baseArgs != null) BaseCtorArgs = baseArgs;
             ImplementedInterfaces = implementedInterfaces ?? new List<string>();
@@ -1071,6 +1102,124 @@ namespace CFGS_VM.Analytic.Tree
             NestedClassVisibility = nestedClassVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
             ConstFields = constFields ?? new HashSet<string>(StringComparer.Ordinal);
             StaticConstFields = staticConstFields ?? new HashSet<string>(StringComparer.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="PropertyAccessorDecl" />
+    /// </summary>
+    public sealed class PropertyAccessorDecl : Node
+    {
+        /// <summary>
+        /// Gets the Kind.
+        /// </summary>
+        public PropertyAccessorKind Kind { get; }
+
+        /// <summary>
+        /// Gets the Visibility.
+        /// </summary>
+        public MemberVisibility Visibility { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the accessor has an explicit visibility modifier.
+        /// </summary>
+        public bool HasExplicitVisibility { get; }
+
+        /// <summary>
+        /// Gets the ValueParameterName.
+        /// </summary>
+        public string? ValueParameterName { get; }
+
+        /// <summary>
+        /// Gets the Body.
+        /// </summary>
+        public BlockStmt? Body { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the accessor is auto-implemented.
+        /// </summary>
+        public bool IsAuto { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="PropertyAccessorDecl"/> class.
+        /// </summary>
+        public PropertyAccessorDecl(
+            PropertyAccessorKind kind,
+            MemberVisibility visibility,
+            bool hasExplicitVisibility,
+            string? valueParameterName,
+            BlockStmt? body,
+            bool isAuto,
+            int line,
+            int col,
+            string file)
+            : base(line, col, file)
+        {
+            Kind = kind;
+            Visibility = visibility;
+            HasExplicitVisibility = hasExplicitVisibility;
+            ValueParameterName = valueParameterName;
+            Body = body;
+            IsAuto = isAuto;
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="PropertyDeclStmt" />
+    /// </summary>
+    public sealed class PropertyDeclStmt : Node
+    {
+        /// <summary>
+        /// Gets the Name.
+        /// </summary>
+        public string Name { get; }
+
+        /// <summary>
+        /// Gets the Visibility.
+        /// </summary>
+        public MemberVisibility Visibility { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the property is static.
+        /// </summary>
+        public bool IsStatic { get; }
+
+        /// <summary>
+        /// Gets the Accessors.
+        /// </summary>
+        public List<PropertyAccessorDecl> Accessors { get; }
+
+        /// <summary>
+        /// Gets the Initializer.
+        /// </summary>
+        public Expr? Initializer { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the property uses hidden backing storage.
+        /// </summary>
+        public bool HasAutoStorage { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="PropertyDeclStmt"/> class.
+        /// </summary>
+        public PropertyDeclStmt(
+            string name,
+            MemberVisibility visibility,
+            bool isStatic,
+            List<PropertyAccessorDecl> accessors,
+            Expr? initializer,
+            bool hasAutoStorage,
+            int line,
+            int col,
+            string file)
+            : base(line, col, file)
+        {
+            Name = name;
+            Visibility = visibility;
+            IsStatic = isStatic;
+            Accessors = accessors;
+            Initializer = initializer;
+            HasAutoStorage = hasAutoStorage;
         }
     }
 
@@ -1090,6 +1239,11 @@ namespace CFGS_VM.Analytic.Tree
         public List<Stmt> BodyStatements { get; }
 
         /// <summary>
+        /// Gets a value indicating whether this namespace used file-scoped syntax.
+        /// </summary>
+        public bool IsFileScoped { get; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="NamespaceDeclStmt"/> class.
         /// </summary>
         /// <param name="parts">The namespace parts.</param>
@@ -1097,11 +1251,12 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="line">The line.</param>
         /// <param name="col">The column.</param>
         /// <param name="file">The source file.</param>
-        public NamespaceDeclStmt(List<string> parts, List<Stmt> bodyStatements, int line, int col, string file)
+        public NamespaceDeclStmt(List<string> parts, List<Stmt> bodyStatements, int line, int col, string file, bool isFileScoped = false)
             : base(line, col, file)
         {
             Parts = parts;
             BodyStatements = bodyStatements;
+            IsFileScoped = isFileScoped;
         }
     }
 
@@ -1250,6 +1405,36 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
+    /// Defines a syntax-only namespace-lookup import before use resolution.
+    /// </summary>
+    public sealed class UseNamespaceStmt : Stmt
+    {
+        /// <summary>
+        /// Gets the namespace parts.
+        /// </summary>
+        public List<string> Parts { get; }
+
+        /// <summary>
+        /// Gets the fully qualified namespace path.
+        /// </summary>
+        public string QualifiedPath { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="UseNamespaceStmt"/> class.
+        /// </summary>
+        /// <param name="parts">The namespace parts.</param>
+        /// <param name="line">The line.</param>
+        /// <param name="col">The column.</param>
+        /// <param name="file">The source file.</param>
+        public UseNamespaceStmt(List<string> parts, int line, int col, string file)
+            : base(line, col, file)
+        {
+            Parts = parts;
+            QualifiedPath = string.Join(".", parts);
+        }
+    }
+
+    /// <summary>
     /// Defines a raw namespace import alias before lowering.
     /// </summary>
     public sealed class NamespaceImportAliasStmt : Stmt
@@ -1379,6 +1564,11 @@ namespace CFGS_VM.Analytic.Tree
         public List<InterfaceMethodDecl> Methods { get; }
 
         /// <summary>
+        /// Gets the Properties.
+        /// </summary>
+        public List<InterfacePropertyDecl> Properties { get; }
+
+        /// <summary>
         /// Gets the BaseInterfaces.
         /// </summary>
         public List<string> BaseInterfaces { get; }
@@ -1388,16 +1578,56 @@ namespace CFGS_VM.Analytic.Tree
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>
         /// <param name="methods">The methods<see cref="List{InterfaceMethodDecl}"/></param>
+        /// <param name="properties">The properties<see cref="List{InterfacePropertyDecl}"/></param>
         /// <param name="baseInterfaces">The baseInterfaces<see cref="List{string}?"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="file">The file<see cref="string"/></param>
-        public InterfaceDeclStmt(string name, List<InterfaceMethodDecl> methods, List<string>? baseInterfaces, int line, int col, string file)
+        public InterfaceDeclStmt(string name, List<InterfaceMethodDecl> methods, List<InterfacePropertyDecl> properties, List<string>? baseInterfaces, int line, int col, string file)
             : base(line, col, file)
         {
             Name = name;
             Methods = methods;
+            Properties = properties;
             BaseInterfaces = baseInterfaces ?? new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// Defines the <see cref="InterfacePropertyDecl" />
+    /// </summary>
+    public sealed class InterfacePropertyDecl : Node
+    {
+        /// <summary>
+        /// Gets the Name.
+        /// </summary>
+        public string Name { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the property has a getter.
+        /// </summary>
+        public bool HasGetter { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the property has a setter.
+        /// </summary>
+        public bool HasSetter { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the property has an init accessor.
+        /// </summary>
+        public bool HasInit { get; }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="InterfacePropertyDecl"/> class.
+        /// </summary>
+        public InterfacePropertyDecl(string name, bool hasGetter, bool hasSetter, bool hasInit, int line, int col, string file)
+            : base(line, col, file)
+        {
+            Name = name;
+            HasGetter = hasGetter;
+            HasSetter = hasSetter;
+            HasInit = hasInit;
         }
     }
 

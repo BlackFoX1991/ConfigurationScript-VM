@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "CFGS.StandardLibrary/1.0.0": {
+        "dependencies": {
+          "CFGS_VM": "1.0.0"
+        },
+        "runtime": {
+          "CFGS.StandardLibrary.dll": {}
+        }
+      },
+      "CFGS_VM/1.0.0": {
+        "runtime": {
+          "CFGS_VM.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "CFGS.StandardLibrary/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "CFGS_VM/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

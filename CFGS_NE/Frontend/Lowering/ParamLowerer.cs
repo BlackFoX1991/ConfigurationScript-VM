@@ -16,7 +16,10 @@ namespace CFGS_VM.Analytic.Lowering
             return stmt switch
             {
                 EmptyStmt => stmt,
-                VarDecl v => new VarDecl(v.Name, LowerNullableExpr(v.Value), v.Line, v.Col, v.OriginFile),
+                VarDecl v => new VarDecl(v.Name, LowerNullableExpr(v.Value), v.Line, v.Col, v.OriginFile)
+                {
+                    IsSyntheticNamespaceRoot = v.IsSyntheticNamespaceRoot
+                },
                 ConstDecl c => new ConstDecl(c.Name, LowerExpr(c.Value), c.Line, c.Col, c.OriginFile),
                 DestructureDeclStmt d => new DestructureDeclStmt(LowerPattern(d.Pattern), LowerExpr(d.Value), d.IsConst, d.Line, d.Col, d.OriginFile),
                 DestructureAssignStmt d => new DestructureAssignStmt(LowerPattern(d.Pattern), LowerExpr(d.Value), d.Line, d.Col, d.OriginFile),
@@ -80,7 +83,8 @@ namespace CFGS_VM.Analytic.Lowering
                 ClassDeclStmt c => LowerClassDecl(c),
                 InterfaceDeclStmt => stmt,
                 EnumDeclStmt => stmt,
-                NamespaceDeclStmt n => new NamespaceDeclStmt(n.Parts, LowerStatementList(n.BodyStatements), n.Line, n.Col, n.OriginFile),
+                NamespaceDeclStmt n => new NamespaceDeclStmt(n.Parts, LowerStatementList(n.BodyStatements), n.Line, n.Col, n.OriginFile, n.IsFileScoped),
+                UseNamespaceStmt => stmt,
                 NamespaceImportAliasStmt => stmt,
                 ImportAliasDeclStmt => stmt,
                 _ => stmt
@@ -151,10 +155,12 @@ namespace CFGS_VM.Analytic.Lowering
             return new ClassDeclStmt(
                 stmt.Name,
                 stmt.Methods.Select(LowerFunctionDecl).ToList(),
+                stmt.Properties.Select(LowerPropertyDecl).ToList(),
                 stmt.Enums,
                 fields,
                 staticFields,
                 stmt.StaticMethods.Select(LowerFunctionDecl).ToList(),
+                stmt.StaticProperties.Select(LowerPropertyDecl).ToList(),
                 stmt.Parameters,
                 stmt.Line,
                 stmt.Col,
@@ -172,6 +178,33 @@ namespace CFGS_VM.Analytic.Lowering
                 new Dictionary<string, MemberVisibility>(stmt.NestedClassVisibility, StringComparer.Ordinal),
                 new HashSet<string>(stmt.ConstFields, StringComparer.Ordinal),
                 new HashSet<string>(stmt.StaticConstFields, StringComparer.Ordinal));
+        }
+
+        private PropertyDeclStmt LowerPropertyDecl(PropertyDeclStmt stmt)
+        {
+            List<PropertyAccessorDecl> accessors = stmt.Accessors
+                .Select(accessor => new PropertyAccessorDecl(
+                    accessor.Kind,
+                    accessor.Visibility,
+                    accessor.HasExplicitVisibility,
+                    accessor.ValueParameterName,
+                    accessor.Body == null ? null : LowerBlock(accessor.Body),
+                    accessor.IsAuto,
+                    accessor.Line,
+                    accessor.Col,
+                    accessor.OriginFile))
+                .ToList();
+
+            return new PropertyDeclStmt(
+                stmt.Name,
+                stmt.Visibility,
+                stmt.IsStatic,
+                accessors,
+                LowerNullableExpr(stmt.Initializer),
+                stmt.HasAutoStorage,
+                stmt.Line,
+                stmt.Col,
+                stmt.OriginFile);
         }
 
         private BlockStmt LowerBlock(BlockStmt block)

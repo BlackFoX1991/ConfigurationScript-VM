@@ -1,0 +1,41 @@
+namespace App.Core.Tools {
+    func ping() {
+        return "P";
+    }
+
+    class Box(v) {
+        var value = 0;
+
+        func init(v) {
+            this.value = v;
+        }
+
+        func get() {
+            return this.value;
+        }
+
+        static func kind() {
+            return "box";
+        }
+    }
+}
+
+namespace App.Core.Math {
+    func plus(a, b) {
+        return a + b;
+    }
+}
+
+namespace App.Model {
+    class Base() {
+        func kind() {
+            return "base";
+        }
+    }
+}
+
+namespace App.Contracts {
+    interface Named {
+        property name { get; }
+    }
+}

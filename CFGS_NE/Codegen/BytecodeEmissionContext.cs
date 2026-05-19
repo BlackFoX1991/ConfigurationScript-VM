@@ -34,6 +34,10 @@ namespace CFGS_VM.VMCore.Codegen
 
         public int AsyncFunctionDepth { get; set; }
 
+        public string? CurrentPropertyBackingSlotName { get; set; }
+
+        public string? CurrentPropertyBackingReceiverName { get; set; }
+
         public void Reset()
         {
             AnonymousCounter = 0;
@@ -46,6 +50,8 @@ namespace CFGS_VM.VMCore.Codegen
             LocalVarsStack.Clear();
             ScopeDepth = 0;
             AsyncFunctionDepth = 0;
+            CurrentPropertyBackingSlotName = null;
+            CurrentPropertyBackingReceiverName = null;
         }
     }
 }

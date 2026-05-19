@@ -1,0 +1,5 @@
+class Box() {
+    property value { get; }
+}
+
+var box = new Box() { value: 1 };

@@ -14,6 +14,8 @@ namespace CFGS_VM.Analytic.Semantics
         private ClassDeclStmt? _currentClassDecl;
         private bool _currentMethodIsStatic;
         private ReceiverContextKind _receiverContext;
+        private bool _insidePropertyAccessor;
+        private bool _currentPropertyHasBackingField;
 
         private ISet<string> CurrentLocals => _localVarsStack.Count > 0 ? _localVarsStack.Peek() : EmptyLocals;
 
@@ -46,12 +48,12 @@ namespace CFGS_VM.Analytic.Semantics
                 case VarDecl varDecl:
                     if (varDecl.Value is not null)
                         ValidateExpr(varDecl.Value);
-                    AddLocal(varDecl.Name);
+                    AddLocal(varDecl.Name, varDecl);
                     return;
 
                 case ConstDecl constDecl:
                     ValidateExpr(constDecl.Value);
-                    AddLocal(constDecl.Name);
+                    AddLocal(constDecl.Name, constDecl);
                     return;
 
                 case DestructureDeclStmt destructureDecl:
@@ -66,6 +68,13 @@ namespace CFGS_VM.Analytic.Semantics
                     return;
 
                 case AssignStmt assignStmt:
+                    if (_insidePropertyAccessor && IsPropertyBackingFieldIdentifier(assignStmt.Name))
+                    {
+                        ValidatePropertyBackingFieldUsage(assignStmt.Name, assignStmt);
+                        ValidateExpr(assignStmt.Value);
+                        return;
+                    }
+
                     ValidateReceiverAssignment(assignStmt.Name, assignStmt);
                     ValidateImplicitMemberReference(assignStmt.Name, assignStmt);
                     ValidateExpr(assignStmt.Value);
@@ -114,7 +123,7 @@ namespace CFGS_VM.Analytic.Semantics
 
                 case FuncDeclStmt funcDecl:
                     ValidateFunctionDecl(funcDecl);
-                    AddLocal(funcDecl.Name);
+                    AddLocal(funcDecl.Name, funcDecl);
                     return;
 
                 case IfStmt ifStmt:
@@ -146,7 +155,7 @@ namespace CFGS_VM.Analytic.Semantics
 
                 case ForeachStmt foreachStmt:
                     ValidateExpr(foreachStmt.Iterable);
-                    AddLocal(foreachStmt.VarName);
+                    AddLocal(foreachStmt.VarName, foreachStmt);
                     if (foreachStmt.DeclareLocal && foreachStmt.TargetPattern is not null)
                         AddPatternBindings(foreachStmt.TargetPattern);
                     ValidateStatement(foreachStmt.Body);
@@ -197,7 +206,7 @@ namespace CFGS_VM.Analytic.Semantics
                 case UsingStmt usingStmt:
                     ValidateExpr(usingStmt.Resource);
                     if (!string.IsNullOrWhiteSpace(usingStmt.BindingName))
-                        AddLocal(usingStmt.BindingName);
+                        AddLocal(usingStmt.BindingName, usingStmt);
                     ValidateStatement(usingStmt.Body);
                     return;
 
@@ -235,6 +244,12 @@ namespace CFGS_VM.Analytic.Semantics
                         ValidateExpr(staticFieldValue);
                 }
 
+                foreach (PropertyDeclStmt property in classDecl.Properties)
+                    ValidateClassProperty(property, classDecl, isStaticProperty: false);
+
+                foreach (PropertyDeclStmt staticProperty in classDecl.StaticProperties)
+                    ValidateClassProperty(staticProperty, classDecl, isStaticProperty: true);
+
                 foreach (FuncDeclStmt method in classDecl.Methods)
                     ValidateClassMethod(method, classDecl, isStaticMethod: false);
 
@@ -249,6 +264,63 @@ namespace CFGS_VM.Analytic.Semantics
                 _currentClassDecl = previousClassDecl;
                 _currentMethodIsStatic = previousMethodIsStatic;
                 _receiverContext = previousReceiverContext;
+            }
+        }
+
+        private void ValidateClassProperty(PropertyDeclStmt propertyDecl, ClassDeclStmt classDecl, bool isStaticProperty)
+        {
+            ClassDeclStmt? previousClassDecl = _currentClassDecl;
+            bool previousMethodIsStatic = _currentMethodIsStatic;
+            ReceiverContextKind previousReceiverContext = _receiverContext;
+            bool previousInsidePropertyAccessor = _insidePropertyAccessor;
+            bool previousPropertyHasBackingField = _currentPropertyHasBackingField;
+
+            _currentClassDecl = classDecl;
+            _currentMethodIsStatic = isStaticProperty;
+            _receiverContext = isStaticProperty ? ReceiverContextKind.StaticMethod : ReceiverContextKind.InstanceMethod;
+            _currentPropertyHasBackingField = propertyDecl.HasAutoStorage;
+
+            try
+            {
+                if (propertyDecl.Initializer is not null)
+                    ValidateExpr(propertyDecl.Initializer);
+
+                foreach (PropertyAccessorDecl accessor in propertyDecl.Accessors)
+                {
+                    if (accessor.Body == null)
+                        continue;
+
+                    _insidePropertyAccessor = true;
+                    HashSet<string> locals = new(StringComparer.Ordinal)
+                    {
+                        isStaticProperty ? "type" : "this"
+                    };
+
+                    if (!string.IsNullOrWhiteSpace(accessor.ValueParameterName))
+                    {
+                        ValidatePropertyFieldBindingName(accessor.ValueParameterName, accessor);
+                        locals.Add(accessor.ValueParameterName);
+                    }
+
+                    _localVarsStack.Push(locals);
+                    try
+                    {
+                        ValidateStatement(accessor.Body);
+                    }
+                    finally
+                    {
+                        _localVarsStack.Pop();
+                        _insidePropertyAccessor = previousInsidePropertyAccessor;
+                    }
+                }
+            }
+            finally
+            {
+                _currentClassDecl = previousClassDecl;
+                _currentMethodIsStatic = previousMethodIsStatic;
+                _receiverContext = previousReceiverContext;
+                _insidePropertyAccessor = previousInsidePropertyAccessor;
+                _currentPropertyHasBackingField = previousPropertyHasBackingField;
             }
         }
 
@@ -292,6 +364,9 @@ namespace CFGS_VM.Analytic.Semantics
             ReceiverContextKind previousReceiverContext = _receiverContext;
             _receiverContext = ReceiverContextKind.None;
 
+            foreach (string parameterName in funcDecl.Parameters)
+                ValidatePropertyFieldBindingName(parameterName, funcDecl);
+
             _localVarsStack.Push(new HashSet<string>(funcDecl.Parameters, StringComparer.Ordinal));
             try
             {
@@ -324,6 +399,12 @@ namespace CFGS_VM.Analytic.Semantics
                     return;
 
                 case VarExpr variableExpr:
+                    if (_insidePropertyAccessor && IsPropertyBackingFieldIdentifier(variableExpr.Name))
+                    {
+                        ValidatePropertyBackingFieldUsage(variableExpr.Name, variableExpr);
+                        return;
+                    }
+
                     ValidateReceiverUsage(variableExpr.Name, variableExpr);
                     ValidateImplicitMemberReference(variableExpr.Name, variableExpr);
                     return;
@@ -461,6 +542,9 @@ namespace CFGS_VM.Analytic.Semantics
             ReceiverContextKind previousReceiverContext = _receiverContext;
             _receiverContext = DetermineReceiverContext(funcExpr);
 
+            foreach (string parameterName in funcExpr.Parameters)
+                ValidatePropertyFieldBindingName(parameterName, funcExpr);
+
             _localVarsStack.Push(new HashSet<string>(funcExpr.Parameters, StringComparer.Ordinal));
             try
             {
@@ -510,6 +594,12 @@ namespace CFGS_VM.Analytic.Semantics
             switch (target)
             {
                 case VarExpr variableExpr:
+                    if (_insidePropertyAccessor && IsPropertyBackingFieldIdentifier(variableExpr.Name))
+                    {
+                        ValidatePropertyBackingFieldUsage(variableExpr.Name, variableExpr);
+                        return;
+                    }
+
                     ValidateReceiverAssignment(variableExpr.Name, variableExpr);
                     ValidateImplicitMemberReference(variableExpr.Name, variableExpr);
                     return;
@@ -575,7 +665,8 @@ namespace CFGS_VM.Analytic.Semantics
                             memberName,
                             expectInstance: true,
                             _currentClassDecl,
-                            indexExpr);
+                            indexExpr,
+                            isStore ? MemberAccessRules.MemberAccessKind.Write : MemberAccessRules.MemberAccessKind.Read);
                         return;
 
                     case "type":
@@ -585,7 +676,8 @@ namespace CFGS_VM.Analytic.Semantics
                             memberName,
                             expectInstance: false,
                             _currentClassDecl,
-                            indexExpr);
+                            indexExpr,
+                            isStore ? MemberAccessRules.MemberAccessKind.Write : MemberAccessRules.MemberAccessKind.Read);
                         return;
 
                     case "super":
@@ -601,7 +693,8 @@ namespace CFGS_VM.Analytic.Semantics
                                 memberName,
                                 expectInstance,
                                 _currentClassDecl,
-                                indexExpr);
+                                indexExpr,
+                                isStore ? MemberAccessRules.MemberAccessKind.Write : MemberAccessRules.MemberAccessKind.Read);
                         }
 
                         return;
@@ -626,13 +719,15 @@ namespace CFGS_VM.Analytic.Semantics
                     memberName,
                     expectInstance: false,
                     _currentClassDecl,
-                    indexExpr);
+                    indexExpr,
+                    isStore ? MemberAccessRules.MemberAccessKind.Write : MemberAccessRules.MemberAccessKind.Read);
             }
         }
 
         private void ValidateImplicitMemberReference(string name, Node node)
         {
-            if (_currentClassDecl == null || IsReceiverIdentifier(name))
+            if (_currentClassDecl == null || IsReceiverIdentifier(name) ||
+                (_currentPropertyHasBackingField && IsPropertyBackingFieldIdentifier(name)))
                 return;
 
             if (CurrentLocals.Contains(name))
@@ -738,6 +833,24 @@ namespace CFGS_VM.Analytic.Semantics
         private static bool IsReceiverIdentifier(string name)
             => name == "this" || name == "type" || name == "super" || name == "outer";
 
+        private static bool IsPropertyBackingFieldIdentifier(string name)
+            => name == "field";
+
+        private void ValidatePropertyBackingFieldUsage(string name, Node node)
+        {
+            if (!IsPropertyBackingFieldIdentifier(name))
+                return;
+
+            if (_currentPropertyHasBackingField)
+                return;
+
+            throw new CompilerException(
+                "invalid backing-field access 'field': current property has no hidden backing storage",
+                node.Line,
+                node.Col,
+                node.OriginFile);
+        }
+
         private ReceiverContextKind DetermineReceiverContext(FuncExpr funcExpr)
         {
             if (_currentClassDecl == null || funcExpr.Parameters.Count == 0)
@@ -769,15 +882,28 @@ namespace CFGS_VM.Analytic.Semantics
         private void AddPatternBindings(MatchPattern pattern)
         {
             foreach (string binding in CollectPatternBindingNames(pattern))
-                AddLocal(binding);
+                AddLocal(binding, pattern);
         }
 
-        private void AddLocal(string? name)
+        private void AddLocal(string? name, Node? node = null)
         {
             if (_localVarsStack.Count == 0 || string.IsNullOrWhiteSpace(name))
                 return;
 
+            ValidatePropertyFieldBindingName(name, node);
             _localVarsStack.Peek().Add(name);
+        }
+
+        private void ValidatePropertyFieldBindingName(string? name, Node? node)
+        {
+            if (!_currentPropertyHasBackingField || name != "field")
+                return;
+
+            throw new CompilerException(
+                "invalid local binding 'field': reserved backing-field identifier inside property accessors with hidden storage",
+                node?.Line ?? -1,
+                node?.Col ?? -1,
+                node?.OriginFile ?? string.Empty);
         }
 
         private static IEnumerable<string> CollectPatternBindingNames(MatchPattern pattern)

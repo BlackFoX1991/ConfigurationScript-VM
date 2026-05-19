@@ -10,8 +10,10 @@ namespace CFGS_VM.Analytic.Semantics
         {
             InstanceField,
             InstanceMethod,
+            InstanceProperty,
             StaticField,
             StaticMethod,
+            StaticProperty,
             StaticEnum,
             StaticClass
         }
@@ -53,6 +55,16 @@ namespace CFGS_VM.Analytic.Semantics
                     ValidateMethodOverrideShape(cls, method, inherited);
                 }
 
+                foreach (PropertyDeclStmt property in cls.Properties)
+                {
+                    if (!TryFindInheritedMember(compiler, cls, property.Name, out InheritedMemberInfo inherited))
+                        continue;
+
+                    ValidateMemberKindCompatibility(cls, property.Name, InheritedMemberKind.InstanceProperty, inherited, property.Line, property.Col, property.OriginFile);
+                    ValidateMemberVisibilityCompatibility(cls, property.Name, InheritedMemberKind.InstanceProperty, inherited, property.Line, property.Col, property.OriginFile);
+                    ValidatePropertyOverrideShape(cls, property, inherited);
+                }
+
                 foreach (KeyValuePair<string, Expr?> staticField in cls.StaticFields)
                 {
                     if (!TryFindInheritedMember(compiler, cls, staticField.Key, out InheritedMemberInfo inherited))
@@ -70,6 +82,16 @@ namespace CFGS_VM.Analytic.Semantics
                     ValidateMemberKindCompatibility(cls, staticMethod.Name, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
                     ValidateMemberVisibilityCompatibility(cls, staticMethod.Name, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
                     ValidateMethodOverrideShape(cls, staticMethod, inherited);
+                }
+
+                foreach (PropertyDeclStmt property in cls.StaticProperties)
+                {
+                    if (!TryFindInheritedMember(compiler, cls, property.Name, out InheritedMemberInfo inherited))
+                        continue;
+
+                    ValidateMemberKindCompatibility(cls, property.Name, InheritedMemberKind.StaticProperty, inherited, property.Line, property.Col, property.OriginFile);
+                    ValidateMemberVisibilityCompatibility(cls, property.Name, InheritedMemberKind.StaticProperty, inherited, property.Line, property.Col, property.OriginFile);
+                    ValidatePropertyOverrideShape(cls, property, inherited);
                 }
 
                 foreach (EnumDeclStmt en in cls.Enums)
@@ -177,6 +199,21 @@ namespace CFGS_VM.Analytic.Semantics
                                 methodDecl.OriginFile);
                         }
                     }
+
+                    Dictionary<string, InterfacePropertyDecl> propertyContract = compiler.GetOrBuildInterfacePropertyContract(iface);
+                    foreach (KeyValuePair<string, InterfacePropertyDecl> kv in propertyContract)
+                    {
+                        if (!TryFindInstancePropertyInHierarchy(compiler, cls, kv.Key, out ClassDeclStmt ownerDecl, out PropertyDeclStmt propertyDecl))
+                        {
+                            throw new CompilerException(
+                                $"class '{cls.Name}' does not implement interface property '{kv.Key}' from interface '{iface.Name}'",
+                                cls.Line,
+                                cls.Col,
+                                cls.OriginFile);
+                        }
+
+                        ValidateInterfacePropertyImplementation(cls, iface, kv.Value, ownerDecl, propertyDecl);
+                    }
                 }
             }
         }
@@ -187,8 +224,10 @@ namespace CFGS_VM.Analytic.Semantics
             {
                 InheritedMemberKind.InstanceField => "instance field",
                 InheritedMemberKind.InstanceMethod => "instance method",
+                InheritedMemberKind.InstanceProperty => "instance property",
                 InheritedMemberKind.StaticField => "static field",
                 InheritedMemberKind.StaticMethod => "static method",
+                InheritedMemberKind.StaticProperty => "static property",
                 InheritedMemberKind.StaticEnum => "static enum",
                 InheritedMemberKind.StaticClass => "static nested class",
                 _ => "member"
@@ -210,6 +249,12 @@ namespace CFGS_VM.Analytic.Semantics
                 return true;
             }
 
+            if (cls.Properties.Any(p => string.Equals(p.Name, name, StringComparison.Ordinal)))
+            {
+                member = new InheritedMemberInfo(InheritedMemberKind.InstanceProperty, cls);
+                return true;
+            }
+
             if (cls.StaticFields.ContainsKey(name))
             {
                 member = new InheritedMemberInfo(InheritedMemberKind.StaticField, cls);
@@ -220,6 +265,12 @@ namespace CFGS_VM.Analytic.Semantics
             if (staticMethod != null)
             {
                 member = new InheritedMemberInfo(InheritedMemberKind.StaticMethod, cls, staticMethod);
+                return true;
+            }
+
+            if (cls.StaticProperties.Any(p => string.Equals(p.Name, name, StringComparison.Ordinal)))
+            {
+                member = new InheritedMemberInfo(InheritedMemberKind.StaticProperty, cls);
                 return true;
             }
 
@@ -281,6 +332,51 @@ namespace CFGS_VM.Analytic.Semantics
             }
         }
 
+        private static void ValidatePropertyOverrideShape(
+            ClassDeclStmt derivedClass,
+            PropertyDeclStmt derivedProperty,
+            InheritedMemberInfo baseMember)
+        {
+            PropertyDeclStmt? baseProperty = GetPropertyByKind(baseMember.OwnerDecl, derivedProperty.Name, baseMember.Kind);
+            if (baseProperty == null)
+            {
+                throw new CompilerException(
+                    $"internal compiler error: missing base property metadata for '{derivedProperty.Name}'",
+                    derivedProperty.Line,
+                    derivedProperty.Col,
+                    derivedProperty.OriginFile);
+            }
+
+            foreach (PropertyAccessorKind kind in Enum.GetValues<PropertyAccessorKind>())
+            {
+                PropertyAccessorDecl? baseAccessor = GetPropertyAccessor(baseProperty, kind);
+                PropertyAccessorDecl? derivedAccessor = GetPropertyAccessor(derivedProperty, kind);
+
+                if ((baseAccessor == null) != (derivedAccessor == null))
+                {
+                    throw new CompilerException(
+                        $"incompatible override for property '{derivedProperty.Name}' in class '{derivedClass.Name}': accessor set differs from base class '{baseMember.OwnerDecl.Name}'",
+                        derivedProperty.Line,
+                        derivedProperty.Col,
+                        derivedProperty.OriginFile);
+                }
+
+                if (baseAccessor == null || derivedAccessor == null)
+                    continue;
+
+                MemberVisibility baseVisibility = GetEffectiveAccessorVisibility(baseProperty, baseAccessor);
+                MemberVisibility derivedVisibility = GetEffectiveAccessorVisibility(derivedProperty, derivedAccessor);
+                if (VisibilityRank(derivedVisibility) < VisibilityRank(baseVisibility))
+                {
+                    throw new CompilerException(
+                        $"incompatible visibility override for property '{derivedProperty.Name}' accessor '{kind.ToString().ToLowerInvariant()}' in class '{derivedClass.Name}': inherited accessor in base class '{baseMember.OwnerDecl.Name}' is '{VisibilityLabel(baseVisibility)}', override is '{VisibilityLabel(derivedVisibility)}'",
+                        derivedProperty.Line,
+                        derivedProperty.Col,
+                        derivedProperty.OriginFile);
+                }
+            }
+        }
+
         private static int VisibilityRank(MemberVisibility visibility)
         {
             return visibility switch
@@ -305,6 +401,35 @@ namespace CFGS_VM.Analytic.Semantics
         private static MemberVisibility GetOrDefaultVisibility(Dictionary<string, MemberVisibility> map, string name)
             => map.TryGetValue(name, out MemberVisibility visibility) ? visibility : MemberVisibility.Public;
 
+        private static PropertyDeclStmt? GetPropertyByKind(ClassDeclStmt decl, string memberName, InheritedMemberKind kind)
+        {
+            return kind switch
+            {
+                InheritedMemberKind.InstanceProperty => decl.Properties.FirstOrDefault(p => string.Equals(p.Name, memberName, StringComparison.Ordinal)),
+                InheritedMemberKind.StaticProperty => decl.StaticProperties.FirstOrDefault(p => string.Equals(p.Name, memberName, StringComparison.Ordinal)),
+                _ => null
+            };
+        }
+
+        private static PropertyAccessorDecl? GetPropertyAccessor(PropertyDeclStmt property, PropertyAccessorKind kind)
+            => property.Accessors.FirstOrDefault(a => a.Kind == kind);
+
+        private static MemberVisibility GetEffectiveAccessorVisibility(PropertyDeclStmt property, PropertyAccessorDecl accessor)
+            => accessor.HasExplicitVisibility ? accessor.Visibility : property.Visibility;
+
+        private static MemberVisibility GetPropertyOverallVisibility(PropertyDeclStmt property)
+        {
+            MemberVisibility best = MemberVisibility.Private;
+            foreach (PropertyAccessorDecl accessor in property.Accessors)
+            {
+                MemberVisibility effective = GetEffectiveAccessorVisibility(property, accessor);
+                if (VisibilityRank(effective) > VisibilityRank(best))
+                    best = effective;
+            }
+
+            return best;
+        }
+
         private static MemberVisibility GetDeclaredMemberVisibilityByKind(
             ClassDeclStmt decl,
             string memberName,
@@ -314,8 +439,12 @@ namespace CFGS_VM.Analytic.Semantics
             {
                 InheritedMemberKind.InstanceField => GetOrDefaultVisibility(decl.FieldVisibility, memberName),
                 InheritedMemberKind.InstanceMethod => GetOrDefaultVisibility(decl.MethodVisibility, memberName),
+                InheritedMemberKind.InstanceProperty => GetPropertyOverallVisibility(
+                    decl.Properties.First(p => string.Equals(p.Name, memberName, StringComparison.Ordinal))),
                 InheritedMemberKind.StaticField => GetOrDefaultVisibility(decl.StaticFieldVisibility, memberName),
                 InheritedMemberKind.StaticMethod => GetOrDefaultVisibility(decl.StaticMethodVisibility, memberName),
+                InheritedMemberKind.StaticProperty => GetPropertyOverallVisibility(
+                    decl.StaticProperties.First(p => string.Equals(p.Name, memberName, StringComparison.Ordinal))),
                 InheritedMemberKind.StaticEnum => GetOrDefaultVisibility(decl.EnumVisibility, memberName),
                 InheritedMemberKind.StaticClass => GetOrDefaultVisibility(decl.NestedClassVisibility, memberName),
                 _ => MemberVisibility.Public
@@ -361,6 +490,60 @@ namespace CFGS_VM.Analytic.Semantics
                 line,
                 col,
                 file);
+        }
+
+        private static void ValidateInterfacePropertyImplementation(
+            ClassDeclStmt cls,
+            InterfaceDeclStmt iface,
+            InterfacePropertyDecl contractProperty,
+            ClassDeclStmt ownerDecl,
+            PropertyDeclStmt propertyDecl)
+        {
+            ValidateRequiredInterfaceAccessor(cls, iface, contractProperty, ownerDecl, propertyDecl, PropertyAccessorKind.Get, contractProperty.HasGetter);
+            ValidateRequiredInterfaceAccessor(cls, iface, contractProperty, ownerDecl, propertyDecl, PropertyAccessorKind.Set, contractProperty.HasSetter);
+            ValidateRequiredInterfaceAccessor(cls, iface, contractProperty, ownerDecl, propertyDecl, PropertyAccessorKind.Init, contractProperty.HasInit);
+        }
+
+        private static void ValidateRequiredInterfaceAccessor(
+            ClassDeclStmt cls,
+            InterfaceDeclStmt iface,
+            InterfacePropertyDecl contractProperty,
+            ClassDeclStmt ownerDecl,
+            PropertyDeclStmt propertyDecl,
+            PropertyAccessorKind kind,
+            bool required)
+        {
+            if (!required)
+                return;
+
+            PropertyAccessorDecl? accessor = GetPropertyAccessor(propertyDecl, kind);
+            if (accessor == null)
+            {
+                throw new CompilerException(
+                    $"class '{cls.Name}' does not implement interface property '{contractProperty.Name}' accessor '{kind.ToString().ToLowerInvariant()}' from interface '{iface.Name}'",
+                    propertyDecl.Line,
+                    propertyDecl.Col,
+                    propertyDecl.OriginFile);
+            }
+
+            MemberVisibility visibility = GetEffectiveAccessorVisibility(propertyDecl, accessor);
+            if (visibility != MemberVisibility.Public)
+            {
+                throw new CompilerException(
+                    $"class '{cls.Name}' cannot implement interface property '{contractProperty.Name}' accessor '{kind.ToString().ToLowerInvariant()}' from interface '{iface.Name}' with non-public visibility",
+                    accessor.Line,
+                    accessor.Col,
+                    accessor.OriginFile);
+            }
+
+            if (!ReferenceEquals(ownerDecl, cls) && visibility != MemberVisibility.Public)
+            {
+                throw new CompilerException(
+                    $"class '{cls.Name}' inherits interface property '{contractProperty.Name}' accessor '{kind.ToString().ToLowerInvariant()}' from class '{ownerDecl.Name}' with non-public visibility",
+                    accessor.Line,
+                    accessor.Col,
+                    accessor.OriginFile);
+            }
         }
 
         private static ConstructorSignature GetConstructorSignature(ClassDeclStmt cls)
@@ -538,6 +721,35 @@ namespace CFGS_VM.Analytic.Semantics
             ownerDecl = null!;
             methodDecl = null!;
             visibility = MemberVisibility.Public;
+            return false;
+        }
+
+        private static bool TryFindInstancePropertyInHierarchy(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            string propertyName,
+            out ClassDeclStmt ownerDecl,
+            out PropertyDeclStmt propertyDecl)
+        {
+            ClassDeclStmt current = decl;
+            while (true)
+            {
+                PropertyDeclStmt? property = current.Properties.FirstOrDefault(p => string.Equals(p.Name, propertyName, StringComparison.Ordinal));
+                if (property != null)
+                {
+                    ownerDecl = current;
+                    propertyDecl = property;
+                    return true;
+                }
+
+                if (!compiler.TryResolveBaseClassDecl(current, out ClassDeclStmt baseDecl))
+                    break;
+
+                current = baseDecl;
+            }
+
+            ownerDecl = null!;
+            propertyDecl = null!;
             return false;
         }
     }

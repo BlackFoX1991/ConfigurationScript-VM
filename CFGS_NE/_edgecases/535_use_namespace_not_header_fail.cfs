@@ -1,0 +1,7 @@
+namespace Late.Use {
+    func ping() {
+        return 1;
+    }
+}
+
+use Late.Use;

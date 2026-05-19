@@ -8,6 +8,12 @@ namespace CFGS_VM.Analytic.Semantics
     internal sealed class MemberAccessRules
     {
         private readonly record struct ConstructorSignature(List<string> Parameters, int MinArgs, string? RestParameter);
+        internal enum MemberAccessKind
+        {
+            Read,
+            Write,
+            Init
+        }
 
         public bool TryResolveKnownClassDeclFromPath(Compiler compiler, string classPath, out ClassDeclStmt decl)
         {
@@ -93,6 +99,8 @@ namespace CFGS_VM.Analytic.Semantics
                     instanceMembers.Add(name);
                 foreach (FuncDeclStmt method in current.Methods)
                     instanceMembers.Add(method.Name);
+                foreach (PropertyDeclStmt property in current.Properties)
+                    instanceMembers.Add(property.Name);
 
                 ConstructorSignature constructor = GetConstructorSignature(current);
                 foreach (string parameter in constructor.Parameters)
@@ -105,6 +113,8 @@ namespace CFGS_VM.Analytic.Semantics
                     staticMembers.Add(name);
                 foreach (FuncDeclStmt method in current.StaticMethods)
                     staticMembers.Add(method.Name);
+                foreach (PropertyDeclStmt property in current.StaticProperties)
+                    staticMembers.Add(property.Name);
                 foreach (EnumDeclStmt enumDecl in current.Enums)
                     staticMembers.Add(enumDecl.Name);
                 foreach (ClassDeclStmt nested in current.NestedClasses)
@@ -127,8 +137,30 @@ namespace CFGS_VM.Analytic.Semantics
             string memberName,
             bool expectInstance,
             ClassDeclStmt? currentClassDecl,
-            Node node)
+            Node node,
+            MemberAccessKind accessKind = MemberAccessKind.Read)
         {
+            if (TryFindPropertyInHierarchy(compiler, decl, memberName, expectInstance, out ClassDeclStmt propertyOwnerDecl, out PropertyDeclStmt propertyDecl))
+            {
+                if (!TryGetPropertyAccessorVisibility(propertyDecl, accessKind, out MemberVisibility propertyVisibility, out string accessorLabel))
+                {
+                    throw new CompilerException(
+                        DescribeMissingPropertyAccessor(propertyOwnerDecl, propertyDecl, accessKind),
+                        node.Line,
+                        node.Col,
+                        node.OriginFile);
+                }
+
+                if (IsMemberAccessAllowed(compiler, currentClassDecl, propertyOwnerDecl, propertyVisibility))
+                    return;
+
+                throw new CompilerException(
+                    $"inaccessible {accessorLabel} for property '{memberName}' in class '{propertyOwnerDecl.Name}': '{VisibilityLabel(propertyVisibility)}' access",
+                    node.Line,
+                    node.Col,
+                    node.OriginFile);
+            }
+
             if (!TryFindMemberVisibilityInHierarchy(compiler, decl, memberName, expectInstance, out ClassDeclStmt ownerDecl, out MemberVisibility visibility))
                 return;
 
@@ -148,7 +180,8 @@ namespace CFGS_VM.Analytic.Semantics
             ClassDeclStmt? currentClassDecl,
             string memberName,
             bool expectInstance,
-            Node node)
+            Node node,
+            MemberAccessKind accessKind = MemberAccessKind.Read)
         {
             if (currentClass == null || currentClassDecl == null)
                 return;
@@ -192,7 +225,7 @@ namespace CFGS_VM.Analytic.Semantics
                     node.OriginFile);
             }
 
-            ValidateMemberVisibilityAgainstKnownClass(compiler, currentClassDecl, memberName, expectInstance, currentClassDecl, node);
+            ValidateMemberVisibilityAgainstKnownClass(compiler, currentClassDecl, memberName, expectInstance, currentClassDecl, node, accessKind);
         }
 
         public void ValidateMemberAccessAgainstKnownClass(
@@ -201,7 +234,8 @@ namespace CFGS_VM.Analytic.Semantics
             string memberName,
             bool expectInstance,
             ClassDeclStmt? currentClassDecl,
-            Node node)
+            Node node,
+            MemberAccessKind accessKind = MemberAccessKind.Read)
         {
             (HashSet<string> instanceMembers, HashSet<string> staticMembers) = GetOrBuildClassMemberSets(compiler, decl);
             bool hasInstance = instanceMembers.Contains(memberName);
@@ -243,7 +277,7 @@ namespace CFGS_VM.Analytic.Semantics
                     node.OriginFile);
             }
 
-            ValidateMemberVisibilityAgainstKnownClass(compiler, decl, memberName, expectInstance, currentClassDecl, node);
+            ValidateMemberVisibilityAgainstKnownClass(compiler, decl, memberName, expectInstance, currentClassDecl, node, accessKind);
         }
 
         public void ValidateNewObjectInitializers(
@@ -253,7 +287,7 @@ namespace CFGS_VM.Analytic.Semantics
         {
             bool hasKnownDecl = TryResolveKnownClassDeclFromPath(compiler, newExpr.ClassName, out ClassDeclStmt decl);
             if (hasKnownDecl)
-                ValidateMemberVisibilityAgainstKnownClass(compiler, decl, "new", expectInstance: false, currentClassDecl, newExpr);
+                ValidateMemberVisibilityAgainstKnownClass(compiler, decl, "new", expectInstance: false, currentClassDecl, newExpr, MemberAccessKind.Read);
 
             if (newExpr.Initializers == null || newExpr.Initializers.Count == 0)
                 return;
@@ -285,7 +319,7 @@ namespace CFGS_VM.Analytic.Semantics
                         valueExpr.OriginFile);
                 }
 
-                ValidateMemberVisibilityAgainstKnownClass(compiler, decl, name, expectInstance: true, currentClassDecl, valueExpr);
+                ValidateMemberVisibilityAgainstKnownClass(compiler, decl, name, expectInstance: true, currentClassDecl, valueExpr, MemberAccessKind.Init);
             }
         }
 
@@ -358,6 +392,89 @@ namespace CFGS_VM.Analytic.Semantics
                 MemberVisibility.Protected => "protected",
                 _ => "public"
             };
+        }
+
+        private static string DescribeMissingPropertyAccessor(ClassDeclStmt ownerDecl, PropertyDeclStmt propertyDecl, MemberAccessKind accessKind)
+        {
+            return accessKind switch
+            {
+                MemberAccessKind.Read => $"property '{propertyDecl.Name}' in class '{ownerDecl.Name}' has no getter",
+                MemberAccessKind.Write => $"property '{propertyDecl.Name}' in class '{ownerDecl.Name}' has no setter",
+                MemberAccessKind.Init => $"property '{propertyDecl.Name}' in class '{ownerDecl.Name}' has no init or set accessor",
+                _ => $"property '{propertyDecl.Name}' in class '{ownerDecl.Name}' cannot be accessed"
+            };
+        }
+
+        private static bool TryGetPropertyAccessorVisibility(
+            PropertyDeclStmt propertyDecl,
+            MemberAccessKind accessKind,
+            out MemberVisibility visibility,
+            out string accessorLabel)
+        {
+            PropertyAccessorDecl? accessor = accessKind switch
+            {
+                MemberAccessKind.Read => propertyDecl.Accessors.FirstOrDefault(a => a.Kind == PropertyAccessorKind.Get),
+                MemberAccessKind.Write => propertyDecl.Accessors.FirstOrDefault(a => a.Kind == PropertyAccessorKind.Set),
+                MemberAccessKind.Init => propertyDecl.Accessors.FirstOrDefault(a => a.Kind == PropertyAccessorKind.Init)
+                    ?? propertyDecl.Accessors.FirstOrDefault(a => a.Kind == PropertyAccessorKind.Set),
+                _ => null
+            };
+
+            if (accessor == null)
+            {
+                visibility = MemberVisibility.Public;
+                accessorLabel = accessKind switch
+                {
+                    MemberAccessKind.Read => "getter",
+                    MemberAccessKind.Write => "setter",
+                    MemberAccessKind.Init => "init accessor",
+                    _ => "accessor"
+                };
+                return false;
+            }
+
+            visibility = accessor.HasExplicitVisibility ? accessor.Visibility : propertyDecl.Visibility;
+            accessorLabel = accessor.Kind switch
+            {
+                PropertyAccessorKind.Get => "getter",
+                PropertyAccessorKind.Set => "setter",
+                PropertyAccessorKind.Init => "init accessor",
+                _ => "accessor"
+            };
+            return true;
+        }
+
+        private static bool TryFindPropertyInHierarchy(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            string memberName,
+            bool expectInstance,
+            out ClassDeclStmt ownerDecl,
+            out PropertyDeclStmt propertyDecl)
+        {
+            ClassDeclStmt current = decl;
+            while (true)
+            {
+                PropertyDeclStmt? declared = expectInstance
+                    ? current.Properties.FirstOrDefault(p => string.Equals(p.Name, memberName, StringComparison.Ordinal))
+                    : current.StaticProperties.FirstOrDefault(p => string.Equals(p.Name, memberName, StringComparison.Ordinal));
+
+                if (declared != null)
+                {
+                    ownerDecl = current;
+                    propertyDecl = declared;
+                    return true;
+                }
+
+                if (!compiler.TryResolveBaseClassDecl(current, out ClassDeclStmt baseDecl))
+                    break;
+
+                current = baseDecl;
+            }
+
+            ownerDecl = null!;
+            propertyDecl = null!;
+            return false;
         }
 
         private static bool TryGetDeclaredMemberVisibility(

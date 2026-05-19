@@ -1,0 +1,34 @@
+import "CFGS.StandardLibrary.dll";
+import "_imports/use_feature_valid.cfs";
+
+use App.Core.Tools;
+use App.Core;
+
+func ensure(label, cond) {
+    if (!cond) {
+        throw "ensure failed: " + label;
+    }
+}
+
+ensure("use_func", ping() == "P");
+
+var box = new Box(7);
+ensure("use_new_class", box.get() == 7);
+ensure("use_static_call", Box.kind() == "box");
+ensure("use_child_namespace", Math.plus(2, 3) == 5);
+ensure("use_type_in_is", box is Box);
+
+namespace Demo.Scope {
+    func localPing() {
+        return ping();
+    }
+
+    func localMath() {
+        return Math.plus(4, 5);
+    }
+}
+
+ensure("use_inside_namespace", Demo.Scope.localPing() == "P");
+ensure("use_child_namespace_inside_namespace", Demo.Scope.localMath() == 9);
+
+print("EDGE_OK:532_use_namespace_valid");

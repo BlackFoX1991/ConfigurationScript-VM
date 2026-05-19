@@ -45,14 +45,19 @@ namespace CFGS_VM.VMCore
             ClassDeclStmt decl,
             string memberName,
             bool expectInstance,
-            Node node)
-            => new MemberAccessRules().ValidateMemberVisibilityAgainstKnownClass(this, decl, memberName, expectInstance, _currentClassDecl, node);
+            Node node,
+            MemberAccessRules.MemberAccessKind accessKind = MemberAccessRules.MemberAccessKind.Read)
+            => new MemberAccessRules().ValidateMemberVisibilityAgainstKnownClass(this, decl, memberName, expectInstance, _currentClassDecl, node, accessKind);
 
         /// <summary>
         /// The ValidateMemberAccessAgainstCurrentClass
         /// </summary>
-        private void ValidateMemberAccessAgainstCurrentClass(string memberName, bool expectInstance, Node node)
-            => new MemberAccessRules().ValidateMemberAccessAgainstCurrentClass(this, _currentClass, _currentClassDecl, memberName, expectInstance, node);
+        private void ValidateMemberAccessAgainstCurrentClass(
+            string memberName,
+            bool expectInstance,
+            Node node,
+            MemberAccessRules.MemberAccessKind accessKind = MemberAccessRules.MemberAccessKind.Read)
+            => new MemberAccessRules().ValidateMemberAccessAgainstCurrentClass(this, _currentClass, _currentClassDecl, memberName, expectInstance, node, accessKind);
 
         /// <summary>
         /// The ValidateMemberAccessAgainstKnownClass
@@ -61,8 +66,9 @@ namespace CFGS_VM.VMCore
             ClassDeclStmt decl,
             string memberName,
             bool expectInstance,
-            Node node)
-            => new MemberAccessRules().ValidateMemberAccessAgainstKnownClass(this, decl, memberName, expectInstance, _currentClassDecl, node);
+            Node node,
+            MemberAccessRules.MemberAccessKind accessKind = MemberAccessRules.MemberAccessKind.Read)
+            => new MemberAccessRules().ValidateMemberAccessAgainstKnownClass(this, decl, memberName, expectInstance, _currentClassDecl, node, accessKind);
 
         /// <summary>
         /// The ValidateExplicitMemberAccess
@@ -92,10 +98,10 @@ namespace CFGS_VM.VMCore
                 switch (receiverVar.Name)
                 {
                     case "this":
-                        ValidateMemberAccessAgainstCurrentClass(memberName, expectInstance: true, idx);
+                        ValidateMemberAccessAgainstCurrentClass(memberName, expectInstance: true, idx, isStore ? MemberAccessRules.MemberAccessKind.Write : MemberAccessRules.MemberAccessKind.Read);
                         return;
                     case "type":
-                        ValidateMemberAccessAgainstCurrentClass(memberName, expectInstance: false, idx);
+                        ValidateMemberAccessAgainstCurrentClass(memberName, expectInstance: false, idx, isStore ? MemberAccessRules.MemberAccessKind.Write : MemberAccessRules.MemberAccessKind.Read);
                         return;
                     case "super":
                         if (string.IsNullOrWhiteSpace(_currentClass.BaseName))
@@ -103,7 +109,7 @@ namespace CFGS_VM.VMCore
                         if (_currentClassDecl != null && TryResolveBaseClassDecl(_currentClassDecl, out ClassDeclStmt baseDecl))
                         {
                             bool expectInstance = _receiverContext == ReceiverContextKind.InstanceMethod;
-                            ValidateMemberAccessAgainstKnownClass(baseDecl, memberName, expectInstance, idx);
+                            ValidateMemberAccessAgainstKnownClass(baseDecl, memberName, expectInstance, idx, isStore ? MemberAccessRules.MemberAccessKind.Write : MemberAccessRules.MemberAccessKind.Read);
                         }
                         return;
                     default:
@@ -120,7 +126,7 @@ namespace CFGS_VM.VMCore
                         idx.Line, idx.Col, idx.OriginFile);
                 }
 
-                ValidateMemberAccessAgainstKnownClass(decl, memberName, expectInstance: false, idx);
+                ValidateMemberAccessAgainstKnownClass(decl, memberName, expectInstance: false, idx, isStore ? MemberAccessRules.MemberAccessKind.Write : MemberAccessRules.MemberAccessKind.Read);
             }
         }
 
@@ -135,6 +141,12 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private static bool IsReceiverIdentifier(string name)
             => name == "this" || name == "type" || name == "super" || name == "outer";
+
+        /// <summary>
+        /// Defines the reserved property backing field identifier.
+        /// </summary>
+        private static bool IsPropertyBackingFieldIdentifier(string name)
+            => name == "field";
 
         /// <summary>
         /// The DetermineReceiverContext
@@ -211,6 +223,53 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// Emits the current property's hidden backing slot target.
+        /// </summary>
+        private bool TryEmitCurrentPropertyBackingSlotTarget(Node node)
+        {
+            if (string.IsNullOrWhiteSpace(_currentPropertyBackingSlotName) ||
+                string.IsNullOrWhiteSpace(_currentPropertyBackingReceiverName))
+            {
+                return false;
+            }
+
+            _insns.Add(new Instruction(OpCode.LOAD_VAR, _currentPropertyBackingReceiverName, node.Line, node.Col, node.OriginFile));
+            _insns.Add(new Instruction(OpCode.PUSH_STR, _currentPropertyBackingSlotName, node.Line, node.Col, node.OriginFile));
+            return true;
+        }
+
+        /// <summary>
+        /// Tries to emit a read from the current property's hidden backing field.
+        /// </summary>
+        private bool TryEmitPropertyBackingFieldLoad(string name, Node node)
+        {
+            if (!IsPropertyBackingFieldIdentifier(name))
+                return false;
+
+            if (!TryEmitCurrentPropertyBackingSlotTarget(node))
+                return false;
+
+            _insns.Add(new Instruction(OpCode.INDEX_GET, null, node.Line, node.Col, node.OriginFile));
+            return true;
+        }
+
+        /// <summary>
+        /// Tries to emit a write to the current property's hidden backing field.
+        /// </summary>
+        private bool TryEmitPropertyBackingFieldStore(string name, Node node)
+        {
+            if (!IsPropertyBackingFieldIdentifier(name))
+                return false;
+
+            if (!TryEmitCurrentPropertyBackingSlotTarget(node))
+                return false;
+
+            _insns.Add(new Instruction(OpCode.ROT, null, node.Line, node.Col, node.OriginFile));
+            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, node.Line, node.Col, node.OriginFile));
+            return true;
+        }
+
+        /// <summary>
         /// The ResolveImplicitMemberResolution
         /// </summary>
         private ImplicitMemberResolutionKind ResolveImplicitMemberResolution(string name)
@@ -218,7 +277,8 @@ namespace CFGS_VM.VMCore
             if (_currentClass == null)
                 return ImplicitMemberResolutionKind.None;
 
-            if (name == "this" || name == "type" || name == "super" || name == "outer")
+            if (name == "this" || name == "type" || name == "super" || name == "outer" ||
+                (IsPropertyBackingFieldIdentifier(name) && !string.IsNullOrWhiteSpace(_currentPropertyBackingSlotName)))
                 return ImplicitMemberResolutionKind.None;
 
             if (CurrentLocals.Contains(name))
@@ -244,6 +304,9 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private bool TryEmitImplicitMemberLoad(string name, Node node)
         {
+            if (TryEmitPropertyBackingFieldLoad(name, node))
+                return true;
+
             ImplicitMemberResolutionKind resolution = ResolveImplicitMemberResolution(name);
             if (resolution == ImplicitMemberResolutionKind.Ambiguous)
                 throw new CompilerException(
@@ -276,6 +339,9 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private bool TryEmitImplicitMemberStore(string name, Node node)
         {
+            if (TryEmitPropertyBackingFieldStore(name, node))
+                return true;
+
             ImplicitMemberResolutionKind resolution = ResolveImplicitMemberResolution(name);
             if (resolution == ImplicitMemberResolutionKind.Ambiguous)
                 throw new CompilerException(

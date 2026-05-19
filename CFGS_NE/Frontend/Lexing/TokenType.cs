@@ -201,6 +201,11 @@
         Static,
 
         /// <summary>
+        /// Defines the Property
+        /// </summary>
+        Property,
+
+        /// <summary>
         /// Defines the Public
         /// </summary>
         Public,
@@ -350,6 +355,11 @@
         /// Defines the Import
         /// </summary>
         Import,
+
+        /// <summary>
+        /// Defines the Use
+        /// </summary>
+        Use,
 
         /// <summary>
         /// Defines the Export

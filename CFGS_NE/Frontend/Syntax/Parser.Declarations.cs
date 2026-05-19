@@ -103,6 +103,284 @@ namespace CFGS_VM.Analytic.Core
             return new EnumDeclStmt(name, members, declLine, declCol, _current.Filename);
         }
 
+        private static MemberVisibility ParseMemberVisibility(TokenType type)
+        {
+            return type switch
+            {
+                TokenType.Public => MemberVisibility.Public,
+                TokenType.Private => MemberVisibility.Private,
+                TokenType.Protected => MemberVisibility.Protected,
+                _ => MemberVisibility.Public,
+            };
+        }
+
+        private static int VisibilityRank(MemberVisibility visibility)
+        {
+            return visibility switch
+            {
+                MemberVisibility.Private => 0,
+                MemberVisibility.Protected => 1,
+                _ => 2
+            };
+        }
+
+        private static bool TryParsePropertyAccessorKind(Token token, out PropertyAccessorKind kind)
+        {
+            string? raw = token.Value?.ToString();
+            if (token.Type != TokenType.Ident || string.IsNullOrWhiteSpace(raw))
+            {
+                kind = default;
+                return false;
+            }
+
+            switch (raw)
+            {
+                case "get":
+                    kind = PropertyAccessorKind.Get;
+                    return true;
+                case "set":
+                    kind = PropertyAccessorKind.Set;
+                    return true;
+                case "init":
+                    kind = PropertyAccessorKind.Init;
+                    return true;
+                default:
+                    kind = default;
+                    return false;
+            }
+        }
+
+        private PropertyDeclStmt ParseClassPropertyDecl(bool isStatic, MemberVisibility visibility, string className)
+        {
+            int line = _current.Line;
+            int col = _current.Column;
+            string file = _current.Filename;
+
+            Eat(TokenType.Property);
+
+            if (_current.Type != TokenType.Ident)
+                throw new ParserException("expected property name", _current.Line, _current.Column, _current.Filename);
+
+            string name = _current.Value?.ToString() ?? string.Empty;
+            if (Lexer.Keywords.ContainsKey(name))
+                throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
+            Eat(TokenType.Ident);
+
+            Eat(TokenType.LBrace);
+
+            List<PropertyAccessorDecl> accessors = new();
+            HashSet<PropertyAccessorKind> seenKinds = new();
+            bool sawAutoAccessor = false;
+
+            while (_current.Type != TokenType.RBrace)
+            {
+                MemberVisibility accessorVisibility = visibility;
+                bool hasExplicitVisibility = false;
+
+                if (_current.Type == TokenType.Public || _current.Type == TokenType.Private || _current.Type == TokenType.Protected)
+                {
+                    accessorVisibility = ParseMemberVisibility(_current.Type);
+                    hasExplicitVisibility = true;
+                    Advance();
+                }
+
+                if (!TryParsePropertyAccessorKind(_current, out PropertyAccessorKind kind))
+                {
+                    throw new ParserException(
+                        $"expected property accessor in property '{name}' of class '{className}'",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+                }
+
+                if (!seenKinds.Add(kind))
+                {
+                    throw new ParserException(
+                        $"duplicate '{_current.Value}' accessor in property '{name}' of class '{className}'",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+                }
+
+                Eat(TokenType.Ident);
+
+                if (hasExplicitVisibility && VisibilityRank(accessorVisibility) > VisibilityRank(visibility))
+                {
+                    throw new ParserException(
+                        $"accessor visibility for property '{name}' cannot be wider than the property visibility",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+                }
+
+                string? valueParameterName = null;
+                if (kind != PropertyAccessorKind.Get && _current.Type == TokenType.LParen)
+                {
+                    Eat(TokenType.LParen);
+                    if (_current.Type != TokenType.Ident)
+                        throw new ParserException("expected accessor parameter name", _current.Line, _current.Column, _current.Filename);
+
+                    valueParameterName = _current.Value?.ToString() ?? string.Empty;
+                    if (Lexer.Keywords.ContainsKey(valueParameterName))
+                        throw new ParserException($"invalid accessor parameter name '{valueParameterName}'", _current.Line, _current.Column, _current.Filename);
+                    Eat(TokenType.Ident);
+                    Eat(TokenType.RParen);
+                }
+
+                if (kind == PropertyAccessorKind.Get && _current.Type == TokenType.LParen)
+                {
+                    throw new ParserException(
+                        "get accessor cannot declare a parameter",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+                }
+
+                BlockStmt? body = null;
+                bool isAuto;
+                if (_current.Type == TokenType.Semi)
+                {
+                    Eat(TokenType.Semi);
+                    isAuto = true;
+                    sawAutoAccessor = true;
+                }
+                else
+                {
+                    EnterFunctionContext(isAsync: false);
+                    body = ParseBlock();
+                    ExitFunctionContext(isAsync: false);
+                    isAuto = false;
+                }
+
+                if (kind != PropertyAccessorKind.Get && !isAuto && string.IsNullOrWhiteSpace(valueParameterName))
+                    valueParameterName = "value";
+
+                accessors.Add(new PropertyAccessorDecl(
+                    kind,
+                    accessorVisibility,
+                    hasExplicitVisibility,
+                    valueParameterName,
+                    body,
+                    isAuto,
+                    line,
+                    col,
+                    file));
+            }
+
+            Eat(TokenType.RBrace);
+
+            Expr? initializer = null;
+            if (_current.Type == TokenType.Assign)
+            {
+                Eat(TokenType.Assign);
+                initializer = Expr();
+            }
+
+            if (initializer != null || _current.Type == TokenType.Semi)
+                Eat(TokenType.Semi);
+
+            if (accessors.Count == 0)
+            {
+                throw new ParserException(
+                    $"property '{name}' in class '{className}' must declare at least one accessor",
+                    line,
+                    col,
+                    file);
+            }
+
+            bool hasAutoStorage = sawAutoAccessor || initializer != null;
+
+            if (hasAutoStorage)
+            {
+                foreach (PropertyAccessorDecl accessor in accessors)
+                {
+                    if (accessor.ValueParameterName == "field")
+                    {
+                        throw new ParserException(
+                            $"invalid accessor parameter name 'field' in property '{name}' of class '{className}': reserved backing-field identifier",
+                            accessor.Line,
+                            accessor.Col,
+                            accessor.OriginFile);
+                    }
+                }
+            }
+
+            if (initializer != null && !sawAutoAccessor)
+            {
+                throw new ParserException(
+                    $"property initializer is only allowed when at least one accessor is auto-implemented ('{name}' in class '{className}')",
+                    line,
+                    col,
+                    file);
+            }
+
+            return new PropertyDeclStmt(name, visibility, isStatic, accessors, initializer, hasAutoStorage, line, col, file);
+        }
+
+        private InterfacePropertyDecl ParseInterfacePropertyDecl()
+        {
+            int line = _current.Line;
+            int col = _current.Column;
+            string file = _current.Filename;
+
+            Eat(TokenType.Property);
+
+            if (_current.Type != TokenType.Ident)
+                throw new ParserException("expected property name", _current.Line, _current.Column, _current.Filename);
+
+            string name = _current.Value?.ToString() ?? string.Empty;
+            if (Lexer.Keywords.ContainsKey(name))
+                throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
+            Eat(TokenType.Ident);
+
+            Eat(TokenType.LBrace);
+
+            bool hasGetter = false;
+            bool hasSetter = false;
+            bool hasInit = false;
+
+            while (_current.Type != TokenType.RBrace)
+            {
+                if (!TryParsePropertyAccessorKind(_current, out PropertyAccessorKind kind))
+                {
+                    throw new ParserException(
+                        "interfaces support only 'get', 'set' and 'init' property accessors",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+                }
+
+                Eat(TokenType.Ident);
+                Eat(TokenType.Semi);
+
+                switch (kind)
+                {
+                    case PropertyAccessorKind.Get:
+                        if (hasGetter)
+                            throw new ParserException($"duplicate 'get' accessor in interface property '{name}'", line, col, file);
+                        hasGetter = true;
+                        break;
+                    case PropertyAccessorKind.Set:
+                        if (hasSetter)
+                            throw new ParserException($"duplicate 'set' accessor in interface property '{name}'", line, col, file);
+                        hasSetter = true;
+                        break;
+                    case PropertyAccessorKind.Init:
+                        if (hasInit)
+                            throw new ParserException($"duplicate 'init' accessor in interface property '{name}'", line, col, file);
+                        hasInit = true;
+                        break;
+                }
+            }
+
+            Eat(TokenType.RBrace);
+
+            if (!hasGetter && !hasSetter && !hasInit)
+                throw new ParserException($"interface property '{name}' must declare at least one accessor", line, col, file);
+
+            return new InterfacePropertyDecl(name, hasGetter, hasSetter, hasInit, line, col, file);
+        }
+
         /// <summary>
         /// The ParseInterfaceMethodDecl
         /// </summary>
@@ -179,12 +457,19 @@ namespace CFGS_VM.Analytic.Core
             Eat(TokenType.LBrace);
 
             List<InterfaceMethodDecl> methods = new();
+            List<InterfacePropertyDecl> properties = new();
             while (_current.Type != TokenType.RBrace)
             {
+                if (_current.Type == TokenType.Property)
+                {
+                    properties.Add(ParseInterfacePropertyDecl());
+                    continue;
+                }
+
                 if (_current.Type != TokenType.Func && _current.Type != TokenType.Async)
                 {
                     throw new ParserException(
-                        "interfaces support only method signatures declared with 'func' or 'async func'",
+                        "interfaces support only method signatures and property signatures",
                         _current.Line,
                         _current.Column,
                         _current.Filename);
@@ -194,7 +479,7 @@ namespace CFGS_VM.Analytic.Core
             }
 
             Eat(TokenType.RBrace);
-            return new InterfaceDeclStmt(name, methods, baseInterfaces, line, col, file);
+            return new InterfaceDeclStmt(name, methods, properties, baseInterfaces, line, col, file);
         }
 
         /// <summary>
@@ -251,9 +536,11 @@ namespace CFGS_VM.Analytic.Core
             Eat(TokenType.LBrace);
 
             List<FuncDeclStmt> methods = new();
+            List<PropertyDeclStmt> properties = new();
             Dictionary<string, Expr?> fields = new();
 
             List<FuncDeclStmt> staticMethods = new();
+            List<PropertyDeclStmt> staticProperties = new();
             Dictionary<string, Expr?> staticFields = new();
             List<EnumDeclStmt> staticEnums = new();
             List<ClassDeclStmt> nestedClasses = new();
@@ -268,22 +555,13 @@ namespace CFGS_VM.Analytic.Core
 
             bool CheckFieldNames(string nm) =>
                 (from sm in staticMethods where sm.Name == nm select sm).Any() ||
+                (from sp in staticProperties where sp.Name == nm select sp).Any() ||
                 (from en in staticEnums where en.Name == nm select en).Any() ||
                 (from sf in staticFields where sf.Key == nm select sf).Any() ||
                 (from mt in methods where mt.Name == nm select mt).Any() ||
+                (from prop in properties where prop.Name == nm select prop).Any() ||
                 (from fld in fields where fld.Key == nm select fld).Any() ||
                 (from nsc in nestedClasses where nsc.Name == nm select nsc).Any();
-
-            static MemberVisibility ParseVisibility(TokenType type)
-            {
-                return type switch
-                {
-                    TokenType.Public => MemberVisibility.Public,
-                    TokenType.Private => MemberVisibility.Private,
-                    TokenType.Protected => MemberVisibility.Protected,
-                    _ => MemberVisibility.Public,
-                };
-            }
 
             while (_current.Type != TokenType.RBrace)
             {
@@ -312,7 +590,7 @@ namespace CFGS_VM.Analytic.Core
                         if (seenVisibility)
                             throw new ParserException("duplicate access modifier in class member declaration", _current.Line, _current.Column, _current.Filename);
 
-                        visibility = ParseVisibility(_current.Type);
+                        visibility = ParseMemberVisibility(_current.Type);
                         seenVisibility = true;
                         Advance();
                         continue;
@@ -376,10 +654,12 @@ namespace CFGS_VM.Analytic.Core
                     inner = new ClassDeclStmt(
                         inner.Name,
                         inner.Methods,
+                        inner.Properties,
                         inner.Enums,
                         inner.Fields,
                         inner.StaticFields,
                         inner.StaticMethods,
+                        inner.StaticProperties,
                         inner.Parameters,
                         inner.Line,
                         inner.Col,
@@ -424,6 +704,26 @@ namespace CFGS_VM.Analytic.Core
                         methodVisibility[func.Name] = visibility;
                     }
                 }
+                else if (_current.Type == TokenType.Property)
+                {
+                    if (constSet)
+                    {
+                        throw new ParserException(
+                            "properties cannot be declared with 'const'",
+                            _current.Line,
+                            _current.Column,
+                            _current.Filename);
+                    }
+
+                    PropertyDeclStmt property = ParseClassPropertyDecl(staticSet, visibility, name);
+                    if (CheckFieldNames(property.Name))
+                        throw new ParserException($"Field '{property.Name}' already declared in class '{name}'", property.Line, property.Col, property.OriginFile);
+
+                    if (staticSet)
+                        staticProperties.Add(property);
+                    else
+                        properties.Add(property);
+                }
                 else
                 {
                     throw new ParserException(
@@ -439,10 +739,12 @@ namespace CFGS_VM.Analytic.Core
             return new ClassDeclStmt(
                 name,
                 methods,
+                properties,
                 staticEnums,
                 fields,
                 staticFields,
                 staticMethods,
+                staticProperties,
                 ctorParams,
                 line,
                 col,

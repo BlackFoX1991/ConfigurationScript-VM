@@ -82,7 +82,7 @@ namespace CFGS_VM.Analytic.Semantics
                     return true;
                 case VarDecl v:
                     name = v.Name;
-                    kind = "variable";
+                    kind = v.IsSyntheticNamespaceRoot ? "namespace" : "variable";
                     return true;
                 case ConstDecl cst:
                     name = cst.Name;
@@ -150,6 +150,9 @@ namespace CFGS_VM.Analytic.Semantics
             };
         }
 
+        public static bool CanMergeTopLevelSymbols(string currentKind, string existingKind)
+            => currentKind == "namespace" && existingKind == "namespace";
+
         public static void ValidateTopLevelSymbolUniqueness(IEnumerable<Stmt> stmts)
         {
             Dictionary<string, string> seenKinds = new(StringComparer.Ordinal);
@@ -161,7 +164,7 @@ namespace CFGS_VM.Analytic.Semantics
                 string currentKind = kind ?? "symbol";
                 if (seenKinds.TryGetValue(name, out string? previousKind))
                 {
-                    if (currentKind == "namespace" && previousKind == "namespace")
+                    if (CanMergeTopLevelSymbols(currentKind, previousKind))
                         continue;
 
                     throw new ParserException(DuplicateTopLevelMessage(name, currentKind, previousKind), stmt.Line, stmt.Col, stmt.OriginFile);

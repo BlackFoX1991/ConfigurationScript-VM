@@ -1,0 +1,20 @@
+import "edge_assert.cfs";
+import "_imports/ns_merge_a.cfs";
+import "_imports/ns_merge_b.cfs";
+
+edge_begin("529_namespace_merge_across_imports");
+
+namespace Shared.Core {
+    func local() {
+        return "L";
+    }
+}
+
+edge_eq("ns_import_merge_a", Shared.Core.fromA(), "A");
+edge_eq("ns_import_merge_a2", Shared.Core.fromA2(), "A2");
+edge_eq("ns_import_merge_b", Shared.Core.fromB(), "B");
+edge_eq("ns_import_merge_local", Shared.Core.local(), "L");
+edge_eq("ns_import_merge_tool_a", Shared.Tools.toolA(), 10);
+edge_eq("ns_import_merge_tool_b", Shared.Tools.toolB(), 20);
+
+edge_finish("529_namespace_merge_across_imports");

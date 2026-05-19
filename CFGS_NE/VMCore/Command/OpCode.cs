@@ -61,6 +61,11 @@
         PUSH_NULL,
 
         /// <summary>
+        /// Defines the PUSH_CONST
+        /// </summary>
+        PUSH_CONST,
+
+        /// <summary>
         /// Defines the POP_SCOPE
         /// </summary>
         POP_SCOPE,
@@ -129,6 +134,11 @@
         /// Defines the INDEX_SET_INTERNAL
         /// </summary>
         INDEX_SET_INTERNAL,
+
+        /// <summary>
+        /// Defines the INDEX_INIT
+        /// </summary>
+        INDEX_INIT,
 
         /// <summary>
         /// Defines the NEW_DICT

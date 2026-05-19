@@ -41,7 +41,22 @@ namespace CFGS_VM.Analytic.Core
             List<Stmt> stmts = new();
 
             ParseImportHeader(stmts);
+            ParseUseHeader(stmts);
             ResetKnownTopLevelStateFromSeenSymbols();
+
+            if (_current.Type == TokenType.Namespace)
+            {
+                NamespaceDeclStmt firstNamespace = ParseNamespaceDeclStatement(allowFileScoped: true);
+                stmts.Add(firstNamespace);
+                TrackKnownTopLevelSymbols(new[] { firstNamespace });
+
+                if (firstNamespace.IsFileScoped)
+                {
+                    ValidateTopLevelSymbolUniqueness(stmts);
+                    IndexTopLevelSymbols(stmts);
+                    return stmts;
+                }
+            }
 
             while (_current.Type != TokenType.EOF)
             {
@@ -54,9 +69,18 @@ namespace CFGS_VM.Analytic.Core
                         _current.Filename);
                 }
 
+                if (_current.Type == TokenType.Use)
+                {
+                    throw new ParserException(
+                        "Invalid use statement. Use directives are only allowed in the header of the script",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+                }
+
                 if (_current.Type == TokenType.Namespace)
                 {
-                    NamespaceDeclStmt nsStmt = ParseNamespaceDeclStatement();
+                    NamespaceDeclStmt nsStmt = ParseNamespaceDeclStatement(allowFileScoped: false);
                     stmts.Add(nsStmt);
                     TrackKnownTopLevelSymbols(new[] { nsStmt });
                     continue;
