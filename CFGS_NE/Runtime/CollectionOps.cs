@@ -576,6 +576,21 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// Handles the DICT_KEYS opcode.
+        /// </summary>
+        private StepResult HandleDictionaryKeysInstruction(Instruction instr)
+        {
+            RequireStack(1, instr, "DICT_KEYS");
+            object v = _stack.Pop();
+            if (v is not Dictionary<string, object> dict)
+                throw new VMException("Runtime error: DICT_KEYS target must be dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            List<object> keys = CaptureMutableCollectionOwnership(SnapshotDictionaryKeys(dict).Cast<object>().ToList());
+            _stack.Push(keys);
+            return StepResult.Next;
+        }
+
+        /// <summary>
         /// Handles the LEN opcode.
         /// </summary>
         private StepResult HandleLengthInstruction(Instruction instr)

@@ -366,6 +366,11 @@
         IS_ARRAY,
 
         /// <summary>
+        /// Defines the DICT_KEYS
+        /// </summary>
+        DICT_KEYS,
+
+        /// <summary>
         /// Defines the LEN
         /// </summary>
         LEN,
