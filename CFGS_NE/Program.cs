@@ -1,5 +1,6 @@
 ﻿using CFGS_VM.Analytic.Core;
 using CFGS_VM.Analytic;
+using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.Analytic.Lowering;
 using CFGS_VM.Analytic.Modules;
@@ -125,7 +126,7 @@ public class Program
   ########        #####+++++++++........::##    [            -s(et) buffer  maxlen                  ]
       #####        ####++++++++*.......::-##    [                   ansi    1 or 0 to en/dis-able   ]   
       ######        *##++++++**........::##     [--------------REPL INFO----------------------------]
-    ##########        #******........:::##      [ Use Ctrl+Enter to run the entered code            ]
+    ##########        #******........:::##      [ Enter runs complete code, Ctrl+Enter forces run   ]
      ############     #.:...........::###       [ Use Ctrl+Backspace to clear the code              ]
            ############..........:::###         [ Enter $L <Line> <Content> to edit a specific Line ]
             ###########......::::####           [ Use Arrow Up/Down to trigger $L command           ]
@@ -751,6 +752,57 @@ public class Program
     }
 
     /// <summary>
+    /// Returns whether the current REPL buffer should be submitted.
+    /// Clearly incomplete input stays buffered; complete or invalid input
+    /// is submitted so the user gets immediate feedback.
+    /// </summary>
+    private static bool ShouldSubmitReplInput(string source)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+            return false;
+
+        try
+        {
+            Lexer lexer = new("<repl>", source);
+            Parser parser = new(lexer, Parser.TopLevelMode.Script);
+            _ = parser.Parse();
+            return true;
+        }
+        catch (ParserException ex) when (IsIncompleteReplParse(ex))
+        {
+            return false;
+        }
+        catch (LexerException ex) when (IsIncompleteReplLex(ex))
+        {
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Returns whether the parser exception points to unfinished REPL input.
+    /// </summary>
+    private static bool IsIncompleteReplParse(ParserException ex)
+    {
+        string msg = ex.RawMessage ?? ex.Message ?? string.Empty;
+        return msg.Contains("before end of file", StringComparison.OrdinalIgnoreCase) ||
+               msg.Contains("end of file in namespace body", StringComparison.OrdinalIgnoreCase) ||
+               msg.Contains("got EOF", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Returns whether the lexer exception points to unfinished REPL input.
+    /// </summary>
+    private static bool IsIncompleteReplLex(LexerException ex)
+    {
+        string msg = ex.RawMessage ?? ex.Message ?? string.Empty;
+        return msg.Contains("unterminated", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The ReadMultilineInput
     /// </summary>
     /// <returns>The <see cref="string?"/></returns>
@@ -1041,6 +1093,17 @@ public class Program
                         StartNewInputLine();
                         continue;
                     }
+                }
+
+                List<string> pendingLines = new(buffer);
+                if (current.Length > 0)
+                    pendingLines.Add(current);
+
+                string pendingCode = string.Join("\n", pendingLines);
+                if (ShouldSubmitReplInput(pendingCode))
+                {
+                    Console.WriteLine();
+                    return pendingCode;
                 }
 
                 buffer.Add(current);

@@ -500,6 +500,9 @@ namespace CFGS_VM.VMCore
                 case OpCode.IS_ARRAY:
                     return HandleIsArrayInstruction(instr);
 
+                case OpCode.DICT_KEYS:
+                    return HandleDictionaryKeysInstruction(instr);
+
                 case OpCode.LEN:
                     return HandleLengthInstruction(instr);
 

@@ -1,0 +1,36 @@
+enum Locales
+{
+    DE,
+    EN,
+    ES,
+    PL
+}
+
+var globalSymbols = {
+    "Deutsch": Locales.DE,
+    "Englisch": Locales.EN,
+    "Spanisch": Locales.ES,
+    "Polnisch": Locales.PL
+};
+
+func main() {
+    var count = 0;
+    var total = 0;
+    var sawGerman = false;
+
+    foreach (var key, value in globalSymbols) {
+        count = count + 1;
+        total = total + value;
+        if (key == "Deutsch" && value == Locales.DE) {
+            sawGerman = true;
+        }
+    }
+
+    if (count == 4 && total == 6 && sawGerman) {
+        throw "EDGE_OK:522_foreach_global_dict_without_stdlib";
+    } else {
+        throw "EDGE_FAIL:522_foreach_global_dict_without_stdlib";
+    }
+}
+
+main();
