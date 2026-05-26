@@ -549,6 +549,7 @@ try {
     Run-ExpectContains -Name "535_use_namespace_not_header_fail" -ScriptArgs @((Edge-Path "_edgecases\535_use_namespace_not_header_fail.cfs")) -Expected "Use directives are only allowed in the header of the script"
     Run-ExpectContains -Name "536_default_param_await_sync_fail" -ScriptArgs @((Edge-Path "_edgecases\536_default_param_await_sync_fail.cfs")) -Expected "await can only be used in async function statements"
     Run-ExpectContains -Name "537_module_initializer_call_fail" -ScriptArgs @((Edge-Path "_edgecases\537_module_initializer_call_fail.cfs")) -Expected "module-scope declaration initializers cannot execute code"
+    Run-ExpectContains -Name "538_property_setter_throw_outer_catch" -ScriptArgs @((Edge-Path "_edgecases\538_property_setter_throw_outer_catch.cfs")) -Expected "EDGE_OK:538_property_setter_throw_outer_catch"
     Run-ExpectContains -Name "515_imported_module_imperative_top_level_fail" -ScriptArgs @((Edge-Path "_edgecases\515_imported_module_imperative_top_level_fail.cfs")) -Expected "invalid top-level statement Ident"
     Run-ExpectContains -Name "516_namespace_imperative_body_fail" -ScriptArgs @((Edge-Path "_edgecases\516_namespace_imperative_body_fail.cfs")) -Expected "invalid namespace statement Ident"
     Run-ExpectContains -Name "497_yield_outside_function_fail" -ScriptArgs @((Edge-Path "_edgecases\497_yield_outside_function_fail.cfs")) -Expected "invalid top-level statement Yield"

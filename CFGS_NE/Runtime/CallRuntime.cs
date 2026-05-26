@@ -63,7 +63,7 @@ namespace CFGS_VM.VMCore
             _scopes.Add(callEnv);
             _callStack.Push(new CallFrame(_program.Count, callerDepth, receiver, accessType, false));
 
-            RunStopReason reason = RunUntilAwaitOrHalt(false, closure.Address);
+            RunStopReason reason = RunUntilAwaitOrHalt(false, closure.Address, _callStack.Count);
 
             if (reason == RunStopReason.AwaitPending)
                 throw new VMException("Runtime error: callback function must not use await.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
