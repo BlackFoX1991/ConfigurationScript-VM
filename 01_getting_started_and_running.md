@@ -119,7 +119,7 @@ Then run the compiled artifact directly.
 dotnet run --project CFGS_NE -- .\my_script.cfb
 ```
 
-The `.cfb` format stores bytecode, function metadata, source hash, compiler version, auto-main metadata, and plugin DLL references discovered during compilation.
+The `.cfb` format stores bytecode, function metadata, source hash, compiler version, auto-main metadata, and plugin DLL names discovered during compilation. It does not store local source or plugin file paths.
 
 ## The Smallest Reasonable Starting Point
 
