@@ -611,6 +611,7 @@ namespace CFGS_VM.VMCore
                     NumKind.Double => (double)A < (double)B,
                     NumKind.UInt64 => (ulong)A < (ulong)B,
                     NumKind.Int64 => (long)A < (long)B,
+                    NumKind.Maximal => (BigInteger)A < (BigInteger)B,
                     _ => (int)A < (int)B,
                 });
                 return StepResult.Next;
@@ -634,6 +635,7 @@ namespace CFGS_VM.VMCore
                     NumKind.Double => (double)A > (double)B,
                     NumKind.UInt64 => (ulong)A > (ulong)B,
                     NumKind.Int64 => (long)A > (long)B,
+                    NumKind.Maximal => (BigInteger)A > (BigInteger)B,
                     _ => (int)A > (int)B,
                 });
                 return StepResult.Next;
@@ -657,6 +659,7 @@ namespace CFGS_VM.VMCore
                     NumKind.Double => (double)A <= (double)B,
                     NumKind.UInt64 => (ulong)A <= (ulong)B,
                     NumKind.Int64 => (long)A <= (long)B,
+                    NumKind.Maximal => (BigInteger)A <= (BigInteger)B,
                     _ => (int)A <= (int)B,
                 });
                 return StepResult.Next;
@@ -680,6 +683,7 @@ namespace CFGS_VM.VMCore
                     NumKind.Double => (double)A >= (double)B,
                     NumKind.UInt64 => (ulong)A >= (ulong)B,
                     NumKind.Int64 => (long)A >= (long)B,
+                    NumKind.Maximal => (BigInteger)A >= (BigInteger)B,
                     _ => (int)A >= (int)B,
                 });
                 return StepResult.Next;

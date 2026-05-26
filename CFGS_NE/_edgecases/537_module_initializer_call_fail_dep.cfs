@@ -1,0 +1,5 @@
+func side_effect() {
+    return 1;
+}
+
+var value = side_effect();

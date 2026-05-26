@@ -410,6 +410,7 @@ try {
     Run-ExpectContains -Name "241_async_return_flattening" -ScriptArgs @((Edge-Path "_edgecases\241_async_return_flattening.cfs")) -Expected "EDGE_OK:241_async_return_flattening"
     Run-ExpectContains -Name "242_async_pure_io_parallelism" -ScriptArgs @((Edge-Path "_edgecases\242_async_pure_io_parallelism.cfs")) -Expected "EDGE_OK:242_async_pure_io_parallelism"
     Run-ExpectContains -Name "243_async_shared_collection_aliases" -ScriptArgs @((Edge-Path "_edgecases\243_async_shared_collection_aliases.cfs")) -Expected "EDGE_OK:243_async_shared_collection_aliases"
+    Run-ExpectContains -Name "245_async_default_param_await" -ScriptArgs @((Edge-Path "_edgecases\245_async_default_param_await.cfs")) -Expected "EDGE_OK:245_async_default_param_await"
     Run-ExpectContains -Name "301_try_throw_finally" -ScriptArgs @((Edge-Path "_edgecases\301_try_throw_finally.cfs")) -Expected "EDGE_OK:301_try_throw_finally"
     Run-ExpectContains -Name "402_import_named_and_file" -ScriptArgs @((Edge-Path "_edgecases\402_import_named_and_file.cfs")) -Expected "EDGE_OK:402_import_named_and_file"
     if ("495_plugin_multifile_reload" -like $NameFilter) {
@@ -546,6 +547,8 @@ try {
     Run-ExpectContains -Name "533_use_namespace_ambiguous_fail" -ScriptArgs @((Edge-Path "_edgecases\533_use_namespace_ambiguous_fail.cfs")) -Expected "ambiguous use reference 'same'"
     Run-ExpectContains -Name "534_use_namespace_unknown_fail" -ScriptArgs @((Edge-Path "_edgecases\534_use_namespace_unknown_fail.cfs")) -Expected "unknown namespace 'Missing.Core' in use directive"
     Run-ExpectContains -Name "535_use_namespace_not_header_fail" -ScriptArgs @((Edge-Path "_edgecases\535_use_namespace_not_header_fail.cfs")) -Expected "Use directives are only allowed in the header of the script"
+    Run-ExpectContains -Name "536_default_param_await_sync_fail" -ScriptArgs @((Edge-Path "_edgecases\536_default_param_await_sync_fail.cfs")) -Expected "await can only be used in async function statements"
+    Run-ExpectContains -Name "537_module_initializer_call_fail" -ScriptArgs @((Edge-Path "_edgecases\537_module_initializer_call_fail.cfs")) -Expected "module-scope declaration initializers cannot execute code"
     Run-ExpectContains -Name "515_imported_module_imperative_top_level_fail" -ScriptArgs @((Edge-Path "_edgecases\515_imported_module_imperative_top_level_fail.cfs")) -Expected "invalid top-level statement Ident"
     Run-ExpectContains -Name "516_namespace_imperative_body_fail" -ScriptArgs @((Edge-Path "_edgecases\516_namespace_imperative_body_fail.cfs")) -Expected "invalid namespace statement Ident"
     Run-ExpectContains -Name "497_yield_outside_function_fail" -ScriptArgs @((Edge-Path "_edgecases\497_yield_outside_function_fail.cfs")) -Expected "invalid top-level statement Yield"

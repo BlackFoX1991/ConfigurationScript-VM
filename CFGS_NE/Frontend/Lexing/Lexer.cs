@@ -381,12 +381,7 @@ public class Lexer
 
                         try
                         {
-                            long l = Convert.ToInt64(hex, 16);
-                            return MakeToken(TokenType.Number, l <= int.MaxValue ? (object)(int)l : l);
-                        }
-                        catch (OverflowException)
-                        {
-                            BigInteger bi = BigInteger.Parse(hex, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
+                            BigInteger bi = ParseBaseBigInteger(hex, 16);
                             return MakeToken(TokenType.Number, NarrowIntOrBig(bi));
                         }
                         catch (FormatException)

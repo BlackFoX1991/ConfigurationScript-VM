@@ -13,6 +13,8 @@ For `.cfs`, the focus is exported language symbols. For `.dll`, the focus is run
 
 Imports must live in the script header. For imported `.cfs` modules, the rest of the file is declaration-oriented: declarations belong there, but free executable statements such as `main();`, assignment statements, or naked blocks do not.
 
+Module-scope `var` and `const` initializers must not execute code. Use literals, variable references, indexing/member access, collection literals, and pure operators there. Put calls, object construction, `await`, `out`, or function expressions into a function such as `main`.
+
 Clean.
 
 ```cfs
@@ -131,7 +133,7 @@ Repeated imports of the same file are handled idempotently. This matters for tra
 
 ## URL Imports
 
-The parser can also import HTTP or HTTPS resources as long as the path is an absolute URL.
+The parser can also import HTTPS resources as long as the path is an absolute URL.
 
 ```cfs
 import "https://example.com/module.cfs";
@@ -140,8 +142,10 @@ import "https://example.com/module.cfs";
 Important notes.
 
 - The resource is treated as a source module.
-- There is protection through timeout and size limits.
-- Relevant environment variables are `CFGS_IMPORT_HTTP_TIMEOUT_MS` and `CFGS_IMPORT_HTTP_MAX_BYTES`.
+- There is protection through timeout, redirect, and size limits.
+- Redirects are followed only by the importer, so scheme checks apply after every redirect.
+- Plain `http://` imports are disabled by default. Set `CFGS_IMPORT_ALLOW_INSECURE_HTTP=1` only for controlled local or test environments.
+- Relevant environment variables are `CFGS_IMPORT_HTTP_TIMEOUT_MS`, `CFGS_IMPORT_HTTP_MAX_BYTES`, and `CFGS_IMPORT_HTTP_MAX_REDIRECTS`.
 
 This form is useful in controlled environments. For most production scripts, local dependencies are easier to audit.
 

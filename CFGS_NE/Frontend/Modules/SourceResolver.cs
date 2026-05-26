@@ -6,6 +6,7 @@ namespace CFGS_VM.Analytic.Modules
     {
         private static readonly HttpClient Http = CreateImportHttpClient();
         private static readonly int HttpImportMaxBytes = ParsePositiveEnvInt("CFGS_IMPORT_HTTP_MAX_BYTES", 4 * 1024 * 1024);
+        private static readonly int HttpImportMaxRedirects = ParsePositiveEnvInt("CFGS_IMPORT_HTTP_MAX_REDIRECTS", 5);
         private readonly string? _workingDirectory;
 
         public SourceResolver(string? workingDirectory = null)
@@ -27,20 +28,41 @@ namespace CFGS_VM.Analytic.Modules
 
         public byte[] DownloadHttpImportBytes(Uri uri)
         {
-            using HttpRequestMessage request = new(HttpMethod.Get, uri);
-            using HttpResponseMessage response = Http.Send(request, HttpCompletionOption.ResponseHeadersRead);
-
-            if (!response.IsSuccessStatusCode)
-                throw new IOException($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
-
-            long? contentLength = response.Content.Headers.ContentLength;
-            if (contentLength.HasValue && contentLength.Value > HttpImportMaxBytes)
+            Uri current = uri;
+            for (int redirect = 0; redirect <= HttpImportMaxRedirects; redirect++)
             {
-                throw new IOException($"import exceeds size limit ({contentLength.Value} > {HttpImportMaxBytes} bytes)");
+                ValidateRemoteImportUri(current);
+
+                using HttpRequestMessage request = new(HttpMethod.Get, current);
+                using HttpResponseMessage response = Http.Send(request, HttpCompletionOption.ResponseHeadersRead);
+
+                if (IsRedirect(response))
+                {
+                    if (redirect == HttpImportMaxRedirects)
+                        throw new IOException($"import redirect limit exceeded ({HttpImportMaxRedirects})");
+
+                    Uri? location = response.Headers.Location;
+                    if (location is null)
+                        throw new IOException($"HTTP {(int)response.StatusCode} redirect without Location header");
+
+                    current = location.IsAbsoluteUri ? location : new Uri(current, location);
+                    continue;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                    throw new IOException($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+
+                long? contentLength = response.Content.Headers.ContentLength;
+                if (contentLength.HasValue && contentLength.Value > HttpImportMaxBytes)
+                {
+                    throw new IOException($"import exceeds size limit ({contentLength.Value} > {HttpImportMaxBytes} bytes)");
+                }
+
+                using Stream stream = response.Content.ReadAsStream();
+                return ReadAllBytesWithLimit(stream, HttpImportMaxBytes);
             }
 
-            using Stream stream = response.Content.ReadAsStream();
-            return ReadAllBytesWithLimit(stream, HttpImportMaxBytes);
+            throw new IOException($"import redirect limit exceeded ({HttpImportMaxRedirects})");
         }
 
         public string? ResolveImportPath(string rawPath, string sourceFileName)
@@ -90,12 +112,39 @@ namespace CFGS_VM.Analytic.Modules
             return fallback;
         }
 
+        private static bool IsEnabledEnv(string name)
+        {
+            string? raw = Environment.GetEnvironmentVariable(name);
+            return string.Equals(raw, "1", StringComparison.Ordinal) ||
+                   string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(raw, "yes", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void ValidateRemoteImportUri(Uri uri)
+        {
+            if (uri.Scheme == Uri.UriSchemeHttps)
+                return;
+
+            if (uri.Scheme == Uri.UriSchemeHttp && IsEnabledEnv("CFGS_IMPORT_ALLOW_INSECURE_HTTP"))
+                return;
+
+            throw new IOException(
+                uri.Scheme == Uri.UriSchemeHttp
+                    ? "insecure http imports are disabled; use https or set CFGS_IMPORT_ALLOW_INSECURE_HTTP=1"
+                    : $"unsupported import URI scheme '{uri.Scheme}'");
+        }
+
+        private static bool IsRedirect(HttpResponseMessage response)
+        {
+            int status = (int)response.StatusCode;
+            return status is >= 300 and <= 399;
+        }
+
         private static HttpClient CreateImportHttpClient()
         {
             HttpClient client = new(new HttpClientHandler
             {
-                AllowAutoRedirect = true,
-                MaxAutomaticRedirections = 5
+                AllowAutoRedirect = false
             });
 
             client.Timeout = TimeSpan.FromMilliseconds(ParsePositiveEnvInt("CFGS_IMPORT_HTTP_TIMEOUT_MS", 15000));

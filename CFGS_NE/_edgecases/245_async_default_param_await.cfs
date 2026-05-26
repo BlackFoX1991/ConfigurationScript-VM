@@ -1,0 +1,12 @@
+import "edge_assert.cfs";
+
+edge_begin("245_async_default_param_await");
+
+async func with_default(value = await 5) {
+    return value;
+}
+
+edge_eq("async_default_param_await", await with_default(), 5);
+edge_eq("async_default_param_explicit", await with_default(9), 9);
+
+edge_finish("245_async_default_param_await");

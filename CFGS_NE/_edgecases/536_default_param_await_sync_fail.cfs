@@ -1,0 +1,7 @@
+import "edge_assert.cfs";
+
+func bad(value = await 1) {
+    return value;
+}
+
+bad();
