@@ -1,2 +1,5 @@
+import "CFGS.StandardLibrary.dll";
+
 var bin_smoke = 1 + 2;
 bin_smoke = bin_smoke + 3;
+print("EDGE_OK:601_compile_binary_smoke:" + str(bin_smoke));
