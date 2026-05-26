@@ -1,0 +1,44 @@
+import "edge_assert.cfs";
+
+edge_begin("538_property_setter_throw_outer_catch");
+
+class Person() {
+    var _first = "";
+    var _last = "";
+
+    property first {
+        get { return this._first; }
+        set(value) {
+            throw {"message": "bad first"};
+        }
+    }
+
+    property last {
+        get { return this._last; }
+        set(value) {
+            this._last = value;
+        }
+    }
+}
+
+func main() {
+    var caught = "";
+    var reached_after_throw = false;
+    var prs = new Person();
+
+    try {
+        prs.first = "x";
+        prs.last = "must-not-run";
+        reached_after_throw = true;
+    } catch(ex) {
+        caught = ex.message;
+    }
+
+    edge_eq("setter_throw_caught_message", caught, "bad first");
+    edge_eq("try_body_stopped_after_setter_throw", reached_after_throw, false);
+    edge_eq("outer_scope_survives_setter_throw", prs.last, "");
+
+    return edge_finish("538_property_setter_throw_outer_catch");
+}
+
+main();

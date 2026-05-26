@@ -75,6 +75,15 @@ namespace CFGS_VM.VMCore
 
         private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef, StaticInstance? AccessType, bool IsAsync);
 
+        private sealed class ScriptExceptionSignal(object payload, Instruction instr) : Exception
+        {
+            public object Payload { get; } = payload;
+
+            public Instruction Instruction { get; } = instr;
+        }
+
+        private int _minRouteCallDepth;
+
         /// <summary>
         /// The PopScopesToBase
         /// </summary>

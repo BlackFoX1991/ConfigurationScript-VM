@@ -158,17 +158,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Routed;
             }
 
-            ExceptionObject uncaught = exPayload as ExceptionObject
-                ?? new ExceptionObject(
-                    type: "UserError",
-                    message: exPayload.ToString() ?? "throw",
-                    file: instr.OriginFile,
-                    line: instr.Line,
-                    col: instr.Col,
-                    stack: BuildStackString(_insns, instr)
-                );
-
-            throw new VMException(uncaught.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, uncaught.Stack);
+            throw new ScriptExceptionSignal(exPayload, instr);
         }
 
         private bool RouteExceptionToTryHandlers(object exPayload, Instruction instr, out int newIp)
@@ -176,6 +166,12 @@ namespace CFGS_VM.VMCore
             while (_tryHandlers.Count > 0)
             {
                 TryHandler h = _tryHandlers.Peek();
+                if (h.CallDepth < _minRouteCallDepth)
+                {
+                    newIp = -1;
+                    return false;
+                }
+
                 if (h.InFinally)
                 {
                     _tryHandlers.Pop();
@@ -227,6 +223,21 @@ namespace CFGS_VM.VMCore
 
             newIp = -1;
             return false;
+        }
+
+        private VMException CreateUncaughtScriptException(object exPayload, Instruction instr, List<Instruction> insns)
+        {
+            ExceptionObject uncaught = exPayload as ExceptionObject
+                ?? new ExceptionObject(
+                    type: "UserError",
+                    message: exPayload.ToString() ?? "throw",
+                    file: instr.OriginFile,
+                    line: instr.Line,
+                    col: instr.Col,
+                    stack: BuildStackString(insns, instr)
+                );
+
+            return new VMException(uncaught.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, uncaught.Stack);
         }
 
         private VMException AttachLanguageStack(VMException ex, List<Instruction> insns, Instruction current)

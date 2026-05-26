@@ -45,13 +45,15 @@ namespace CFGS_VM.VMCore
         /// <param name="debugging">The debugging<see cref="bool"/></param>
         /// <param name="lastPos">The lastPos<see cref="int"/></param>
         /// <returns>The <see cref="RunStopReason"/></returns>
-        private RunStopReason RunUntilAwaitOrHalt(bool debugging = false, int lastPos = 0)
+        private RunStopReason RunUntilAwaitOrHalt(bool debugging = false, int lastPos = 0, int minRouteCallDepth = 0)
         {
             if (_program is null || _program.Count == 0)
                 return RunStopReason.Halted;
 
             VM? prevVm = CurrentVm;
+            int previousMinRouteCallDepth = _minRouteCallDepth;
             CurrentVm = this;
+            _minRouteCallDepth = Math.Max(_minRouteCallDepth, minRouteCallDepth);
             try
             {
                 bool routed = false;
@@ -81,6 +83,22 @@ namespace CFGS_VM.VMCore
 
                         if (res == StepResult.Routed)
                             routed = true;
+                    }
+                    catch (ScriptExceptionSignal signal)
+                    {
+                        if (RouteExceptionToTryHandlers(signal.Payload, signal.Instruction, out int nip))
+                        {
+                            _ip = nip;
+                            routed = true;
+                        }
+                        else if (_minRouteCallDepth > 0)
+                        {
+                            throw;
+                        }
+                        else
+                        {
+                            throw CreateUncaughtScriptException(signal.Payload, signal.Instruction, _program);
+                        }
                     }
                     catch (VMException ex)
                     {
@@ -124,6 +142,9 @@ namespace CFGS_VM.VMCore
                         }
                         else
                         {
+                            if (_minRouteCallDepth > 0)
+                                throw;
+
                             throw new VMException(
                                 $"Uncaught system exception : {sysEx.Message}\n{sysEx.Source}",
                                 _program[safeIp].Line,
@@ -180,6 +201,7 @@ namespace CFGS_VM.VMCore
             }
             finally
             {
+                _minRouteCallDepth = previousMinRouteCallDepth;
                 CurrentVm = prevVm;
             }
         }
