@@ -683,8 +683,18 @@ try {
             "-o",
             $cfbPath
         )
-        $okCompile = $resCompile.Output.Contains("[CFB] compiled") -and (Test-Path -LiteralPath $cfbPath)
-        Write-Result -Name "601_compile_cfb" -Ok $okCompile -Details "Expected '-c' to create a .cfb file."
+        $containsPath = $false
+        if (Test-Path -LiteralPath $cfbPath) {
+            $cfbText = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($cfbPath))
+            $containsPath = $cfbText.Contains($runtimeRoot) -or
+                            $cfbText.Contains($runtimeRepoRoot) -or
+                            $cfbText.Contains("_edgecases\") -or
+                            $cfbText.Contains("_edgecases/")
+        }
+        $okCompile = $resCompile.Output.Contains("[CFB] compiled") -and
+                     (Test-Path -LiteralPath $cfbPath) -and
+                     -not $containsPath
+        Write-Result -Name "601_compile_cfb" -Ok $okCompile -Details "Expected '-c' to create a path-free .cfb file."
         if (-not $okCompile) { Write-Host $resCompile.Output }
     }
 
@@ -696,7 +706,7 @@ try {
     }
 
     if ("603_cfb_file_runs" -like $NameFilter) {
-        $cfbPath = Join-Path $runtimeRoot "compile_binary_smoke_run.cfb"
+        $cfbPath = Join-Path $runtimeEdgeDir "compile_binary_smoke_run.cfb"
         $resCompile = Invoke-Cfgs -CfgsArgs @(
             "-c",
             (Edge-Path "_edgecases\601_compile_binary_smoke.cfs"),

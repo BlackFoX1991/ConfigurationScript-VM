@@ -32,14 +32,14 @@ namespace CFGS_VM.VMCore
 
             writer.Write(Magic);
             writer.Write(script.BytecodeVersion);
-            writer.Write(script.Name);
+            writer.Write(SanitizeSourceName(script.Name));
             writer.Write(script.SourceHash);
             writer.Write(script.CompilerVersion);
             writer.Write(script.ShouldAutoInvokeMain);
 
             writer.Write(script.RequiredPlugins.Count);
             foreach (string plugin in script.RequiredPlugins)
-                writer.Write(plugin);
+                writer.Write(SanitizePluginReference(plugin));
 
             writer.Write(script.Functions.Count);
             foreach (KeyValuePair<string, FunctionInfo> kv in script.Functions.OrderBy(static x => x.Key, StringComparer.Ordinal))
@@ -64,7 +64,7 @@ namespace CFGS_VM.VMCore
                 WriteOperand(writer, instruction.Operand);
                 writer.Write(instruction.Line);
                 writer.Write(instruction.Col);
-                writer.Write(instruction.OriginFile);
+                writer.Write(SanitizeSourceName(instruction.OriginFile));
             }
         }
 
@@ -239,6 +239,34 @@ namespace CFGS_VM.VMCore
 
         private static string? ReadNullableString(BinaryReader reader)
             => reader.ReadBoolean() ? reader.ReadString() : null;
+
+        private static string SanitizePluginReference(string plugin)
+        {
+            string fileName = Path.GetFileName(plugin);
+            return string.IsNullOrWhiteSpace(fileName) ? plugin : fileName;
+        }
+
+        private static string SanitizeSourceName(string sourceName)
+        {
+            if (string.IsNullOrWhiteSpace(sourceName))
+                return "<source>";
+
+            if (sourceName.StartsWith("<", StringComparison.Ordinal) &&
+                sourceName.EndsWith(">", StringComparison.Ordinal))
+            {
+                return sourceName;
+            }
+
+            if (Uri.TryCreate(sourceName, UriKind.Absolute, out Uri? uri) &&
+                !string.IsNullOrWhiteSpace(uri.LocalPath))
+            {
+                string uriFileName = Path.GetFileName(uri.LocalPath);
+                return string.IsNullOrWhiteSpace(uriFileName) ? uri.Host : uriFileName;
+            }
+
+            string fileName = Path.GetFileName(sourceName);
+            return string.IsNullOrWhiteSpace(fileName) ? "<source>" : fileName;
+        }
 
         private static void WriteRuntimePropertyDescriptor(BinaryWriter writer, RuntimePropertyDescriptor descriptor)
         {

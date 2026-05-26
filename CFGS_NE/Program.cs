@@ -92,7 +92,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v5.2.6";
+    public const string Version = "v5.2.7";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -665,7 +665,7 @@ public class Program
         vm.EntryScriptPath = Path.GetFullPath(file);
 
         foreach (string plugin in compiled.RequiredPlugins)
-            vm.LoadPlugin(plugin);
+            vm.LoadPlugin(ResolveCompiledPluginPath(plugin, workingDirectory));
 
         vm.LoadCompiledScript(compiled);
 
@@ -686,6 +686,39 @@ public class Program
             vm.DebugOutput.CopyTo(debugFile);
             Console.WriteLine($"[DEBUG] log-file created : {lpath}");
         }
+    }
+
+    private static string ResolveCompiledPluginPath(string pluginReference, string? workingDirectory)
+    {
+        string plugin = Environment.ExpandEnvironmentVariables(pluginReference.Trim());
+        if (Path.IsPathFullyQualified(plugin))
+            return plugin;
+
+        bool hasDirectoryPart =
+            plugin.Contains(Path.DirectorySeparatorChar) ||
+            plugin.Contains(Path.AltDirectorySeparatorChar);
+
+        string baseDirectory = workingDirectory ?? Environment.CurrentDirectory;
+        string[] candidates = hasDirectoryPart
+            ? [
+                Path.Combine(baseDirectory, plugin),
+                Path.Combine(AppContext.BaseDirectory, plugin)
+              ]
+            : [
+                Path.Combine(baseDirectory, "plugins", plugin),
+                Path.Combine(AppContext.BaseDirectory, "plugins", plugin),
+                Path.Combine(baseDirectory, plugin),
+                Path.Combine(AppContext.BaseDirectory, plugin)
+              ];
+
+        foreach (string candidate in candidates)
+        {
+            string fullCandidate = Path.GetFullPath(candidate);
+            if (File.Exists(fullCandidate))
+                return fullCandidate;
+        }
+
+        return Path.GetFullPath(Path.Combine(baseDirectory, hasDirectoryPart ? plugin : Path.Combine("plugins", plugin)));
     }
 
     private static bool ShouldAutoInvokeMain(IReadOnlyList<Stmt> syntaxAst)
