@@ -384,11 +384,22 @@ namespace CFGS_VM.Analytic.Core
                 }
 
                 Eat(TokenType.Func);
-                (List<string> parameters, int minArgs, string? restParameter, List<FunctionParameterSpec> parameterSpecs) = ParseFunctionParamsWithDefaults();
 
                 EnterFunctionContext(isAsync);
-                BlockStmt body = ParseBlock();
-                ExitFunctionContext(isAsync);
+                List<string> parameters;
+                int minArgs;
+                string? restParameter;
+                List<FunctionParameterSpec> parameterSpecs;
+                BlockStmt body;
+                try
+                {
+                    (parameters, minArgs, restParameter, parameterSpecs) = ParseFunctionParamsWithDefaults();
+                    body = ParseBlock();
+                }
+                finally
+                {
+                    ExitFunctionContext(isAsync);
+                }
 
                 node = new FuncExpr(parameters, body, minArgs, restParameter, line, col, file, isAsync, parameterSpecs);
             }
@@ -643,11 +654,21 @@ namespace CFGS_VM.Analytic.Core
             string name = _current.Value.ToString() ?? "";
             Eat(TokenType.Ident);
 
-            (List<string> parameters, int minArgs, string? restParameter, List<FunctionParameterSpec> parameterSpecs) = ParseFunctionParamsWithDefaults();
-
             EnterFunctionContext(isAsync);
-            BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
-            ExitFunctionContext(isAsync);
+            List<string> parameters;
+            int minArgs;
+            string? restParameter;
+            List<FunctionParameterSpec> parameterSpecs;
+            BlockStmt body;
+            try
+            {
+                (parameters, minArgs, restParameter, parameterSpecs) = ParseFunctionParamsWithDefaults();
+                body = ParseEmbeddedBlockOrSingleStatement();
+            }
+            finally
+            {
+                ExitFunctionContext(isAsync);
+            }
 
             return new FuncDeclStmt(name, parameters, body, minArgs, restParameter, line, col, file, isAsync, parameterSpecs);
         }

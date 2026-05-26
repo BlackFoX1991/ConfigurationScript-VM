@@ -84,31 +84,97 @@ namespace CFGS_VM.Analytic.Core
             {
                 case TokenType.Semi:
                     stmt = ParseEmptyStmt;
-                    return true;
+                    break;
                 case TokenType.Var:
                     stmt = ParseVarDecl;
-                    return true;
+                    break;
                 case TokenType.Const:
                     stmt = ParseConstDecl;
-                    return true;
+                    break;
                 case TokenType.Func:
                 case TokenType.Async:
                     stmt = ParseFuncDecl();
-                    return true;
+                    break;
                 case TokenType.Class:
                     stmt = ParseClassDecl();
-                    return true;
+                    break;
                 case TokenType.Interface:
                     stmt = ParseInterfaceDecl();
-                    return true;
+                    break;
                 case TokenType.Enum:
                     stmt = ParseEnumDecl();
-                    return true;
+                    break;
                 default:
                     stmt = default!;
                     return false;
             }
+
+            ValidateModuleScopeInitializer(stmt);
+            return true;
         }
+
+        private static void ValidateModuleScopeInitializer(Stmt stmt)
+        {
+            switch (stmt)
+            {
+                case VarDecl { Value: not null } varDecl:
+                    ValidatePureModuleInitializer(varDecl.Value, varDecl.Line, varDecl.Col, varDecl.OriginFile);
+                    return;
+
+                case ConstDecl constDecl:
+                    ValidatePureModuleInitializer(constDecl.Value, constDecl.Line, constDecl.Col, constDecl.OriginFile);
+                    return;
+
+                case DestructureDeclStmt destructureDecl:
+                    ValidatePureModuleInitializer(destructureDecl.Value, destructureDecl.Line, destructureDecl.Col, destructureDecl.OriginFile);
+                    return;
+
+                case ExportStmt exportStmt:
+                    ValidateModuleScopeInitializer(exportStmt.Inner);
+                    return;
+            }
+        }
+
+        private static void ValidatePureModuleInitializer(Expr expr, int line, int col, string file)
+        {
+            if (IsPureModuleInitializer(expr))
+                return;
+
+            throw new ParserException(
+                "module-scope declaration initializers cannot execute code; use literals, variable references, and pure operators only",
+                line,
+                col,
+                file);
+        }
+
+        private static bool IsPureModuleInitializer(Expr expr)
+            => expr switch
+            {
+                NullExpr or NumberExpr or StringExpr or CharExpr or BoolExpr or VarExpr => true,
+                UnaryExpr unaryExpr => IsPureModuleInitializer(unaryExpr.Right),
+                BinaryExpr binaryExpr => IsPureModuleInitializer(binaryExpr.Left) && IsPureModuleInitializer(binaryExpr.Right),
+                ConditionalExpr conditionalExpr => IsPureModuleInitializer(conditionalExpr.Condition) &&
+                                                   IsPureModuleInitializer(conditionalExpr.ThenExpr) &&
+                                                   IsPureModuleInitializer(conditionalExpr.ElseExpr),
+                ArrayExpr arrayExpr => arrayExpr.Elements.All(IsPureModuleInitializer),
+                DictExpr dictExpr => dictExpr.Pairs.All(pair => IsPureModuleInitializer(pair.Item1) && IsPureModuleInitializer(pair.Item2)),
+                IndexExpr indexExpr => indexExpr.Target is not null &&
+                                       indexExpr.Index is not null &&
+                                       IsPureModuleInitializer(indexExpr.Target) &&
+                                       IsPureModuleInitializer(indexExpr.Index),
+                SliceExpr sliceExpr => sliceExpr.Target is not null &&
+                                       IsPureModuleInitializer(sliceExpr.Target) &&
+                                       (sliceExpr.Start is null || IsPureModuleInitializer(sliceExpr.Start)) &&
+                                       (sliceExpr.End is null || IsPureModuleInitializer(sliceExpr.End)),
+                GetFieldExpr getFieldExpr => IsPureModuleInitializer(getFieldExpr.Target),
+                MatchExpr matchExpr => IsPureModuleInitializer(matchExpr.Scrutinee) &&
+                                       matchExpr.Arms.All(arm =>
+                                           (arm.Guard is null || IsPureModuleInitializer(arm.Guard)) &&
+                                           IsPureModuleInitializer(arm.Body)) &&
+                                       (matchExpr.DefaultArm is null || IsPureModuleInitializer(matchExpr.DefaultArm)),
+                TryUnwrapExpr tryUnwrapExpr => tryUnwrapExpr.Inner is null || IsPureModuleInitializer(tryUnwrapExpr.Inner),
+                _ => false
+            };
 
         /// <summary>
         /// The ParseStatementInMemberScope
@@ -148,7 +214,12 @@ namespace CFGS_VM.Analytic.Core
         private Stmt ParseStatementTopLevel()
         {
             if (_current.Type == TokenType.Export)
-                return ParseExportDecl();
+            {
+                Stmt exportStmt = ParseExportDecl();
+                if (_topLevelMode == TopLevelMode.Module)
+                    ValidateModuleScopeInitializer(exportStmt);
+                return exportStmt;
+            }
 
             if (_topLevelMode == TopLevelMode.Module)
             {

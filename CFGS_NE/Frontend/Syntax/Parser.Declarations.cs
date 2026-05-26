@@ -771,8 +771,17 @@ namespace CFGS_VM.Analytic.Core
         {
             get
             {
+                int declLine = _current.Line;
+                int declCol = _current.Column;
+                string declFile = _current.Filename;
+
                 if (!_context.IsInMultipleVarDeclaration)
+                {
                     Eat(TokenType.Var);
+                    declLine = _current.Line;
+                    declCol = _current.Column;
+                    declFile = _current.Filename;
+                }
 
                 if (_current.Type == TokenType.LBracket || _current.Type == TokenType.LBrace)
                 {
@@ -801,9 +810,12 @@ namespace CFGS_VM.Analytic.Core
                     Expr destructValue = Expr();
                     Eat(TokenType.Semi);
 
-                    return new DestructureDeclStmt(pattern, destructValue, isConst: false, _current.Line, _current.Column, _current.Filename);
+                    return new DestructureDeclStmt(pattern, destructValue, isConst: false, declLine, declCol, declFile);
                 }
 
+                declLine = _current.Line;
+                declCol = _current.Column;
+                declFile = _current.Filename;
                 string name = _current.Value.ToString() ?? "";
                 if (Lexer.Keywords.ContainsKey(name))
                     throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
@@ -826,7 +838,7 @@ namespace CFGS_VM.Analytic.Core
                     Eat(TokenType.Semi);
                 }
 
-                return new VarDecl(name, value, _current.Line, _current.Column, _current.Filename);
+                return new VarDecl(name, value, declLine, declCol, declFile);
             }
         }
 
@@ -837,7 +849,14 @@ namespace CFGS_VM.Analytic.Core
         {
             get
             {
+                int declLine = _current.Line;
+                int declCol = _current.Column;
+                string declFile = _current.Filename;
+
                 Eat(TokenType.Const);
+                declLine = _current.Line;
+                declCol = _current.Column;
+                declFile = _current.Filename;
 
                 if (_current.Type == TokenType.LBracket || _current.Type == TokenType.LBrace)
                 {
@@ -857,9 +876,12 @@ namespace CFGS_VM.Analytic.Core
                     Expr destructValue = Expr();
                     Eat(TokenType.Semi);
 
-                    return new DestructureDeclStmt(pattern, destructValue, isConst: true, _current.Line, _current.Column, _current.Filename);
+                    return new DestructureDeclStmt(pattern, destructValue, isConst: true, declLine, declCol, declFile);
                 }
 
+                declLine = _current.Line;
+                declCol = _current.Column;
+                declFile = _current.Filename;
                 string name = _current.Value?.ToString() ?? "";
                 if (Lexer.Keywords.ContainsKey(name))
                     throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
@@ -872,7 +894,7 @@ namespace CFGS_VM.Analytic.Core
                 Expr value = Expr();
                 Eat(TokenType.Semi);
 
-                return new ConstDecl(name, value, _current.Line, _current.Column, _current.Filename);
+                return new ConstDecl(name, value, declLine, declCol, declFile);
             }
         }
 
@@ -913,10 +935,16 @@ namespace CFGS_VM.Analytic.Core
         private Stmt ParseSingleVarDecl()
         {
             Eat(TokenType.Var);
+            int declLine = _current.Line;
+            int declCol = _current.Column;
+            string declFile = _current.Filename;
 
             if (_current.Type == TokenType.LBracket || _current.Type == TokenType.LBrace)
                 throw new ParserException("export var destructuring is not supported", _current.Line, _current.Column, _current.Filename);
 
+            declLine = _current.Line;
+            declCol = _current.Column;
+            declFile = _current.Filename;
             string name = _current.Value?.ToString() ?? "";
             if (Lexer.Keywords.ContainsKey(name))
                 throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
@@ -933,7 +961,7 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException("export var only supports a single declaration", _current.Line, _current.Column, _current.Filename);
 
             Eat(TokenType.Semi);
-            return new VarDecl(name, value, _current.Line, _current.Column, _current.Filename);
+            return new VarDecl(name, value, declLine, declCol, declFile);
         }
     }
 }

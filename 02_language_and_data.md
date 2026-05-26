@@ -29,6 +29,8 @@ At top level these forms are the declaration-oriented set used by imported modul
 - `class` and `enum`
 Direct control flow statements such as `if`, `for`, `foreach`, `while`, `match`, `try`, `throw`, `break`, `continue`, and `delete` are not allowed at declaration-oriented top level. Free executable statements such as `main();` or `x = 1;` are also rejected there.
 
+In imported modules and namespace bodies, `var` and `const` initializers are also restricted to non-executing expressions: literals, variable references, indexing/member access, collection literals, and pure operators. Calls, object construction, `await`, `out`, and function expressions belong inside functions.
+
 Directly executed root scripts still accept the older script-style top level for compatibility. If a direct script is purely declarative and defines `main`, the CLI invokes `main` automatically.
 
 ## Literals
