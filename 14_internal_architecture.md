@@ -17,6 +17,8 @@ The productive execution path is now:
 
 The language server uses the same frontend and compiler path. There is no separate editor-only parser or semantic model.
 
+The compiler can also hand this bytecode off as an in-memory `CompiledScript`. The CLI can persist that representation as a `.cfb` file and later load it without re-running the lexer, parser, lowering, semantic passes, or bytecode emitter.
+
 ## Folder Ownership
 
 ### `CFGS_NE/Frontend`

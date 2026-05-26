@@ -91,7 +91,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v5.1.4";
+    public const string Version = "v5.2.5";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -122,16 +122,16 @@ public class Program
     ##########        #...............::##      [ debug to enable/disable the debug mode            ]
       ######         %#+++.............::##     [ ansi to enable or disable Ansi-Console-Mode       ]
       #####        ####+++++++.........:::##    =====================================================
-  ########        #####++++++++.........::##    [ Commands : -d(ebug) -p(arams)]
+  ########        #####++++++++.........::##    [ Commands : -d(ebug) -p(arams) -c(ompile)]
   ########        #####+++++++++........::##    [            -s(et) buffer  maxlen                  ]
-      #####        ####++++++++*.......::-##    [                   ansi    1 or 0 to en/dis-able   ]   
-      ######        *##++++++**........::##     [--------------REPL INFO----------------------------]
-    ##########        #******........:::##      [ Enter runs complete code, Ctrl+Enter forces run   ]
-     ############     #.:...........::###       [ Use Ctrl+Backspace to clear the code              ]
-           ############..........:::###         [ Enter $L <Line> <Content> to edit a specific Line ]
-            ###########......::::####           [ Use Arrow Up/Down to trigger $L command           ]
-            *###     ##:::::#####               [---------------------------------------------------]
-                      #####                  
+      #####        ####++++++++*.......::-##    [                   ansi    1 or 0 to en/dis-able   ]
+      ######        *##++++++**........::##     [ Compile  : -c file.cfs [-o file.cfb]              ]   
+    ##########        #******........:::##      [--------------REPL INFO----------------------------]
+     ############     #.:...........::###       [ Enter runs complete code, Ctrl+Enter forces run   ]
+           ############..........:::###         [ Use Ctrl+Backspace to clear the code              ]
+            ###########......::::####           [ Enter $L <Line> <Content> to edit a specific Line ]
+            *###     ##:::::#####               [ Use Arrow Up/Down to trigger $L command           ]
+                      #####                    [---------------------------------------------------]
 =====================================================================================================";
 
     /// <summary>
@@ -151,6 +151,29 @@ public class Program
 
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
+
+        if (TryGetCompileArguments(args, out string? compileInput, out string? compileOutput, out bool compileDebug))
+        {
+            IsDebug = compileDebug;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(compileInput))
+                {
+                    Console.Error.WriteLine("missing input script for -c/-compile");
+                    Environment.ExitCode = 1;
+                    return;
+                }
+
+                CompileFileToCfb(compileInput, compileOutput);
+            }
+            catch (Exception ex)
+            {
+                PrintTrackedException(ex, "compile", compileInput ?? "<compile>");
+                Environment.ExitCode = 1;
+            }
+
+            return;
+        }
 
         List<string> files = new();
         string? currentSourceForError = null;
@@ -251,21 +274,21 @@ public class Program
                 {
                     currentSourceForError = file;
 
-                    if (file.EndsWith(".cfb", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Console.WriteLine($"Could not load the script-file : '{file}'. Binary .cfb support has been removed.");
-                        currentSourceForError = null;
-                        continue;
-                    }
-
-                    string input = File.ReadAllText(file);
-
                     string workingDirectory =
                         FrontendPipeline.TryGetWorkingDirectory(file)
                         ?? Path.GetDirectoryName(Environment.ProcessPath)
                         ?? AppContext.BaseDirectory;
 
-                    await RunSourceAsync(input, file, IsDebug, workingDirectory: workingDirectory);
+                    if (file.EndsWith(".cfb", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await RunCompiledFileAsync(file, IsDebug, workingDirectory: workingDirectory);
+                    }
+                    else
+                    {
+                        string input = File.ReadAllText(file);
+                        await RunSourceAsync(input, file, IsDebug, workingDirectory: workingDirectory);
+                    }
+
                     currentSourceForError = null;
                 }
             }
@@ -274,6 +297,7 @@ public class Program
                 Console.WriteLine(header_text);
 
                 VM replVm = new();
+                LoadReplPluginsFromApplicationPath(replVm);
 
                 while (true)
                 {
@@ -297,6 +321,79 @@ public class Program
             string phase = currentSourceForError is null && files.Count == 0 ? "startup" : "script-run";
             PrintTrackedException(ex, phase, currentSourceForError);
         }
+    }
+
+    private static bool TryGetCompileArguments(string[] args, out string? input, out string? output, out bool debug)
+    {
+        input = null;
+        output = null;
+        debug = false;
+        bool compileMode = false;
+        bool outputMode = false;
+
+        foreach (string rawArg in args)
+        {
+            string arg = rawArg.Trim();
+            if (outputMode)
+            {
+                output = rawArg;
+                outputMode = false;
+                continue;
+            }
+
+            switch (arg)
+            {
+                case "-c":
+                case "-compile":
+                    compileMode = true;
+                    continue;
+
+                case "-o":
+                case "-out":
+                    outputMode = true;
+                    continue;
+
+                case "-d":
+                case "-debug":
+                    debug = true;
+                    continue;
+            }
+
+            if (compileMode && !arg.StartsWith("-", StringComparison.Ordinal) && input is null)
+                input = rawArg;
+        }
+
+        return compileMode;
+    }
+
+    private static void LoadReplPluginsFromApplicationPath(VM replVm)
+    {
+        string pluginsDirectory = Path.Combine(AppContext.BaseDirectory, "plugins");
+        if (!Directory.Exists(pluginsDirectory))
+            return;
+
+        string[] pluginFiles = Directory.GetFiles(pluginsDirectory, "*.dll", SearchOption.TopDirectoryOnly);
+        Array.Sort(pluginFiles, StringComparer.OrdinalIgnoreCase);
+
+        int loaded = 0;
+        int skipped = 0;
+
+        foreach (string pluginFile in pluginFiles)
+        {
+            try
+            {
+                replVm.LoadPlugin(pluginFile);
+                loaded++;
+            }
+            catch (Exception ex)
+            {
+                skipped++;
+                Console.Error.WriteLine($"[REPL] skipped plugin '{Path.GetFileName(pluginFile)}': {ex.Message}");
+            }
+        }
+
+        if (loaded > 0 || skipped > 0)
+            Console.WriteLine($"[REPL] plugins loaded: {loaded}, skipped: {skipped}");
     }
 
     /// <summary>
@@ -438,34 +535,20 @@ public class Program
         VM? sharedVm = null,
         string? workingDirectory = null)
     {
-        List<Stmt> ast = new();
-        List<Instruction> bytecode = new();
-        Compiler? compiler = null;
-
         VM vm = sharedVm ?? new VM();
         vm.EntryScriptPath = string.Equals(name, "<repl>", StringComparison.Ordinal)
             ? "<repl>"
             : Path.GetFullPath(name);
 
-        FrontendPipeline frontendPipeline = new(
-            loadPluginDll: vm.LoadPlugin,
-            workingDirectory: workingDirectory);
-        FrontendBuildResult frontendBuild = frontendPipeline.BuildLoweredAstWithSyntax(name, source);
-        ast = frontendBuild.LoweredAst;
-        bool shouldAutoInvokeMain = sharedVm is null && ShouldAutoInvokeMain(frontendBuild.SyntaxAst);
-
-        compiler = new(name);
-        bytecode = compiler.Compile(ast);
-
-        vm.LoadFunctions(compiler.Functions);
-        vm.LoadInstructions(bytecode);
+        CompiledScript compiled = CfgsCompiler.CompileSource(name, source, vm.LoadPlugin, workingDirectory, Version);
+        vm.LoadCompiledScript(compiled);
 
         if (debug)
-            PrintInstructions(name, bytecode, compiler.Functions);
+            PrintInstructions(name, compiled.Instructions, compiled.Functions);
 
         await vm.RunAsync(debug, 0, ct);
 
-        if (shouldAutoInvokeMain)
+        if (sharedVm is null && compiled.ShouldAutoInvokeMain)
             _ = await vm.InvokeGlobalFunctionAsync("main", originFile: name);
 
         if (debug)
@@ -475,6 +558,55 @@ public class Program
             string lpath = Path.Combine(logDirectory, "log_file.log");
             using FileStream file = File.Create(lpath);
             vm.DebugOutput.CopyTo(file);
+            Console.WriteLine($"[DEBUG] log-file created : {lpath}");
+        }
+    }
+
+    private static void CompileFileToCfb(string inputPath, string? outputPath)
+    {
+        if (!File.Exists(inputPath))
+            throw new FileNotFoundException($"Could not load the script-file : '{inputPath}'", inputPath);
+
+        string output = string.IsNullOrWhiteSpace(outputPath)
+            ? Path.ChangeExtension(inputPath, ".cfb")
+            : outputPath!;
+
+        VM compileVm = new();
+        CompiledScript compiled = CfgsCompiler.CompileFile(inputPath, compileVm.LoadPlugin, Version);
+        CfbFile.Save(compiled, output);
+        Console.WriteLine($"[CFB] compiled '{inputPath}' -> '{output}'");
+    }
+
+    private static async Task RunCompiledFileAsync(
+        string file,
+        bool debug = false,
+        CancellationToken ct = default,
+        string? workingDirectory = null)
+    {
+        CompiledScript compiled = CfbFile.Load(file);
+        VM vm = new();
+        vm.EntryScriptPath = Path.GetFullPath(file);
+
+        foreach (string plugin in compiled.RequiredPlugins)
+            vm.LoadPlugin(plugin);
+
+        vm.LoadCompiledScript(compiled);
+
+        if (debug)
+            PrintInstructions(file, compiled.Instructions, compiled.Functions);
+
+        await vm.RunAsync(debug, 0, ct);
+
+        if (compiled.ShouldAutoInvokeMain)
+            _ = await vm.InvokeGlobalFunctionAsync("main", originFile: file);
+
+        if (debug)
+        {
+            vm.DebugOutput.Position = 0;
+            string logDirectory = workingDirectory ?? Environment.CurrentDirectory;
+            string lpath = Path.Combine(logDirectory, "log_file.log");
+            using FileStream debugFile = File.Create(lpath);
+            vm.DebugOutput.CopyTo(debugFile);
             Console.WriteLine($"[DEBUG] log-file created : {lpath}");
         }
     }

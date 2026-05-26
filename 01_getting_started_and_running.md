@@ -53,6 +53,8 @@ If you start the CLI without a script file, it opens the interactive mode.
 dotnet run --project CFGS_NE
 ```
 
+On startup, the REPL automatically loads valid plugin DLLs from the `plugins` directory next to the application. Invalid DLLs are skipped with a warning. This autoload behavior is only active in REPL mode.
+
 The REPL supports these commands.
 
 - `help` shows the help screen.
@@ -72,6 +74,8 @@ The built in REPL help also describes these interactions.
 ## Important CLI Options
 
 - `-d` or `-debug` enables debug mode before execution starts.
+- `-c <file.cfs>` or `-compile <file.cfs>` compiles a source script to `.cfb`.
+- `-o <file.cfb>` or `-out <file.cfb>` sets the output path for `-c` or `-compile`.
 - `-s buffer <number>` sets the debug buffer size.
 - `-s ansi 0` or `-s ansi 1` disables or enables ANSI output.
 - `-p` or `-params` separates script arguments from CLI arguments.
@@ -92,7 +96,21 @@ Import resolution then searches in this order.
 
 - `.cfs` is the normal source format.
 - `.dll` can be imported as a plugin.
-- `.cfb` is no longer supported. Binary support has been removed.
+- `.cfb` is a compiled CFGS bytecode artifact that can be executed directly by the CLI.
+
+You can compile a script like this.
+
+```powershell
+dotnet run --project CFGS_NE -- -c .\my_script.cfs -o .\my_script.cfb
+```
+
+Then run the compiled artifact directly.
+
+```powershell
+dotnet run --project CFGS_NE -- .\my_script.cfb
+```
+
+The `.cfb` format stores bytecode, function metadata, source hash, compiler version, auto-main metadata, and plugin DLL references discovered during compilation.
 
 ## The Smallest Reasonable Starting Point
 

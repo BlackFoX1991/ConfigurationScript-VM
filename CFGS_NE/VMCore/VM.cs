@@ -906,6 +906,12 @@ namespace CFGS_VM.VMCore
             _program = inst;
         }
 
+        public void LoadCompiledScript(CompiledScript script)
+        {
+            LoadFunctions(script.Functions);
+            LoadInstructions(script.Instructions);
+        }
+
         /// <summary>
         private MemoryStream _debugStream;
 

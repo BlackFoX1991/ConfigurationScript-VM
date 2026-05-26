@@ -674,26 +674,43 @@ try {
         if (-not $okTrackOff) { Write-Host $resTrackOff.Output }
     }
 
-    # Removed binary/compile CLI checks
-    if ("601_compile_flag_removed" -like $NameFilter) {
-        $resNoCompile = Invoke-Cfgs -CfgsArgs @("-c", (Edge-Path "_edgecases\601_compile_binary_smoke.cfs"))
-        $okNoCompile = $resNoCompile.Output.Contains("Invalid command -c.")
-        Write-Result -Name "601_compile_flag_removed" -Ok $okNoCompile -Details "Expected '-c' to be rejected as invalid command."
-        if (-not $okNoCompile) { Write-Host $resNoCompile.Output }
+    # CFB compile/run checks
+    if ("601_compile_cfb" -like $NameFilter) {
+        $cfbPath = Join-Path $runtimeRoot "compile_binary_smoke.cfb"
+        $resCompile = Invoke-Cfgs -CfgsArgs @(
+            "-c",
+            (Edge-Path "_edgecases\601_compile_binary_smoke.cfs"),
+            "-o",
+            $cfbPath
+        )
+        $okCompile = $resCompile.Output.Contains("[CFB] compiled") -and (Test-Path -LiteralPath $cfbPath)
+        Write-Result -Name "601_compile_cfb" -Ok $okCompile -Details "Expected '-c' to create a .cfb file."
+        if (-not $okCompile) { Write-Host $resCompile.Output }
     }
 
-    if ("602_binary_flag_removed" -like $NameFilter) {
+    if ("602_binary_flag_invalid" -like $NameFilter) {
         $resNoBinary = Invoke-Cfgs -CfgsArgs @("-b", (Edge-Path "_edgecases\601_compile_binary_smoke.cfs"))
         $okNoBinary = $resNoBinary.Output.Contains("Invalid command -b.")
-        Write-Result -Name "602_binary_flag_removed" -Ok $okNoBinary -Details "Expected '-b' to be rejected as invalid command."
+        Write-Result -Name "602_binary_flag_invalid" -Ok $okNoBinary -Details "Expected '-b' to be rejected as invalid command."
         if (-not $okNoBinary) { Write-Host $resNoBinary.Output }
     }
 
-    if ("603_cfb_file_rejected" -like $NameFilter) {
-        $resCfb = Invoke-Cfgs -CfgsArgs @((Edge-Path "_edgecases\603_removed_binary_placeholder.cfb"))
-        $okCfb = $resCfb.Output.Contains("Binary .cfb support has been removed.")
-        Write-Result -Name "603_cfb_file_rejected" -Ok $okCfb -Details "Expected '.cfb' files to be rejected."
-        if (-not $okCfb) { Write-Host $resCfb.Output }
+    if ("603_cfb_file_runs" -like $NameFilter) {
+        $cfbPath = Join-Path $runtimeRoot "compile_binary_smoke_run.cfb"
+        $resCompile = Invoke-Cfgs -CfgsArgs @(
+            "-c",
+            (Edge-Path "_edgecases\601_compile_binary_smoke.cfs"),
+            "-o",
+            $cfbPath
+        )
+        $resCfb = Invoke-Cfgs -CfgsArgs @($cfbPath)
+        $okCfb = $resCompile.Output.Contains("[CFB] compiled") -and
+                  $resCfb.Output.Contains("EDGE_OK:601_compile_binary_smoke:6")
+        Write-Result -Name "603_cfb_file_runs" -Ok $okCfb -Details "Expected compiled .cfb file to execute."
+        if (-not $okCfb) {
+            Write-Host $resCompile.Output
+            Write-Host $resCfb.Output
+        }
     }
 }
 catch {
