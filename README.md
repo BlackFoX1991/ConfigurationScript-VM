@@ -1,4 +1,11 @@
-![CFGS_LOGO](https://github.com/BlackFoX1991/ConfigurationScript-VM/blob/9a2513faafe07da740c249968eefc178b3e2d686/CFGS_NE/assets/cfgs_logo_v2.png)
+
+
+<p align="center" width="100%">
+    <img 
+    src="https://raw.githubusercontent.com/BlackFoX1991/ConfigurationScript-VM/fcdee09eda6c54a4faa2f6f3e0ca402cd0339a3d/CFGS_NE/assets/CFGS_LOGO.png"
+    alt="CFGS Logo"
+    style="width: 640px; height: auto;">
+</p>
 
 # ConfigurationScript Documentation
 
