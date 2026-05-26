@@ -678,7 +678,17 @@ namespace CFGS_VM.VMCore.Plugin
         {
             try
             {
-                return string.IsNullOrWhiteSpace(asm.Location) ? "(dynamic)" : asm.Location;
+                if (asm.IsDynamic)
+                    return "(dynamic)";
+
+                string moduleName = asm.ManifestModule.FullyQualifiedName;
+                if (!string.IsNullOrWhiteSpace(moduleName) &&
+                    !moduleName.StartsWith("<", StringComparison.Ordinal))
+                {
+                    return moduleName;
+                }
+
+                return AppContext.BaseDirectory;
             }
             catch
             {
