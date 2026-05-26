@@ -53,7 +53,16 @@ If you start the CLI without a script file, it opens the interactive mode.
 dotnet run --project CFGS_NE
 ```
 
-On startup, the REPL automatically loads valid plugin DLLs from the `plugins` directory next to the application. Invalid DLLs are skipped with a warning. This autoload behavior is only active in REPL mode.
+On startup, the REPL can automatically load plugins listed in `repl_plugins.json` next to the application. Bare DLL names are loaded from the application `plugins` directory, relative paths are resolved from the application directory, and invalid entries are skipped with a warning. This autoload behavior is only active in REPL mode.
+
+```json
+{
+  "plugins": [
+    "CFGS.StandardLibrary.dll",
+    "plugins/CustomPlugin.dll"
+  ]
+}
+```
 
 The REPL supports these commands.
 

@@ -12,6 +12,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using System.Text;
+using System.Text.Json;
 
 /// <summary>
 /// Defines the <see cref="AnsiConsole" />
@@ -91,7 +92,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v5.2.5";
+    public const string Version = "v5.2.6";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -368,18 +369,46 @@ public class Program
 
     private static void LoadReplPluginsFromApplicationPath(VM replVm)
     {
-        string pluginsDirectory = Path.Combine(AppContext.BaseDirectory, "plugins");
-        if (!Directory.Exists(pluginsDirectory))
+        string applicationDirectory = AppContext.BaseDirectory;
+        string configPath = Path.Combine(applicationDirectory, "repl_plugins.json");
+        if (!File.Exists(configPath))
             return;
 
-        string[] pluginFiles = Directory.GetFiles(pluginsDirectory, "*.dll", SearchOption.TopDirectoryOnly);
-        Array.Sort(pluginFiles, StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<string> pluginEntries;
+        try
+        {
+            pluginEntries = ReadReplPluginEntries(configPath);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[REPL] could not read repl_plugins.json: {ex.Message}");
+            return;
+        }
 
         int loaded = 0;
         int skipped = 0;
 
-        foreach (string pluginFile in pluginFiles)
+        foreach (string pluginEntry in pluginEntries)
         {
+            if (string.IsNullOrWhiteSpace(pluginEntry))
+                continue;
+
+            string pluginFile = ResolveReplPluginPath(applicationDirectory, pluginEntry);
+
+            if (!string.Equals(Path.GetExtension(pluginFile), ".dll", StringComparison.OrdinalIgnoreCase))
+            {
+                skipped++;
+                Console.Error.WriteLine($"[REPL] skipped plugin '{pluginEntry}': entry is not a DLL");
+                continue;
+            }
+
+            if (!File.Exists(pluginFile))
+            {
+                skipped++;
+                Console.Error.WriteLine($"[REPL] skipped plugin '{pluginEntry}': file not found");
+                continue;
+            }
+
             try
             {
                 replVm.LoadPlugin(pluginFile);
@@ -388,12 +417,60 @@ public class Program
             catch (Exception ex)
             {
                 skipped++;
-                Console.Error.WriteLine($"[REPL] skipped plugin '{Path.GetFileName(pluginFile)}': {ex.Message}");
+                Console.Error.WriteLine($"[REPL] skipped plugin '{pluginEntry}': {ex.Message}");
             }
         }
 
         if (loaded > 0 || skipped > 0)
             Console.WriteLine($"[REPL] plugins loaded: {loaded}, skipped: {skipped}");
+    }
+
+    private static IReadOnlyList<string> ReadReplPluginEntries(string configPath)
+    {
+        using FileStream stream = File.OpenRead(configPath);
+        using JsonDocument document = JsonDocument.Parse(stream, new JsonDocumentOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip,
+        });
+
+        JsonElement pluginsElement = document.RootElement;
+        if (document.RootElement.ValueKind == JsonValueKind.Object)
+        {
+            if (!document.RootElement.TryGetProperty("plugins", out pluginsElement))
+                throw new InvalidDataException("expected a 'plugins' array");
+        }
+
+        if (pluginsElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("expected a JSON array of plugin paths");
+
+        List<string> entries = new();
+        foreach (JsonElement entryElement in pluginsElement.EnumerateArray())
+        {
+            if (entryElement.ValueKind != JsonValueKind.String)
+                throw new InvalidDataException("plugin entries must be strings");
+
+            entries.Add(entryElement.GetString() ?? string.Empty);
+        }
+
+        return entries;
+    }
+
+    private static string ResolveReplPluginPath(string applicationDirectory, string pluginEntry)
+    {
+        string normalizedEntry = Environment.ExpandEnvironmentVariables(pluginEntry.Trim());
+        if (Path.IsPathFullyQualified(normalizedEntry))
+            return normalizedEntry;
+
+        bool hasDirectoryPart =
+            normalizedEntry.Contains(Path.DirectorySeparatorChar) ||
+            normalizedEntry.Contains(Path.AltDirectorySeparatorChar);
+
+        string relativePath = hasDirectoryPart
+            ? normalizedEntry
+            : Path.Combine("plugins", normalizedEntry);
+
+        return Path.GetFullPath(Path.Combine(applicationDirectory, relativePath));
     }
 
     /// <summary>
