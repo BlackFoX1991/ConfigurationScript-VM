@@ -1,0 +1,58 @@
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.Xml.dll";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+func main() {
+    var doc = xml_new("config");
+    assert_eq("doc_type", typeof(doc), "XmlDocumentHandle");
+
+    doc.declaration("1.0", "utf-8");
+
+    var root = doc.root();
+    assert_eq("root_name", root.name(), "config");
+
+    root.set_attr("version", "1");
+    assert_eq("root_attr", root.attr("version"), "1");
+
+    var db = root.add_element("database");
+    db.add_element("host", "localhost");
+    db.add_element("port", "1433");
+
+    var host = doc.select("/config/database/host");
+    assert_eq("xpath_host_text", host.text(), "localhost");
+
+    host.set_text("127.0.0.1");
+    assert_eq("mutated_host_text", doc.select("/config/database/host").text(), "127.0.0.1");
+
+    var ports = doc.select_all("/config/database/port");
+    assert_eq("select_all_len", ports.len(), 1);
+
+    doc.select("/config/database/port").remove();
+    assert_eq("removed_port", doc.select("/config/database/port"), null);
+
+    var nsdoc = xml_parse("<x:root xmlns:x=\"urn:test\"><x:item id=\"1\" /></x:root>");
+    var item = nsdoc.select("/x:root/x:item", {"x": "urn:test"});
+    assert_eq("namespace_xpath_attr", item.attr("id"), "1");
+
+    var comment = nsdoc.create_comment("done");
+    nsdoc.root().append(comment);
+    assert_eq("comment_node_type", nsdoc.root().children()[1].node_type(), "Comment");
+
+    if (failed == 0) {
+        print("ALL PASSED: feature_10_xml_plugin");
+    } else {
+        print("FAILED: feature_10_xml_plugin (" + str(failed) + ")");
+    }
+}
+
+main();
