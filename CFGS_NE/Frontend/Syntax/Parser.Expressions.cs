@@ -491,7 +491,8 @@ namespace CFGS_VM.Analytic.Core
                     node = new IndexExpr(
                         node,
                         new StringExpr(member, line, col, file),
-                        line, col, file
+                        line, col, file,
+                        isDotAccess: true
                     );
                     Eat(TokenType.Ident);
                     continue;

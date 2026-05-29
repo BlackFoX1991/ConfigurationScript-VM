@@ -2,4 +2,4 @@ class C() {
 }
 
 var c = new C();
-c["__type"] = 9;
+c.__type = 9;

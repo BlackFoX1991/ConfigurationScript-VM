@@ -147,7 +147,7 @@ namespace CFGS_VM.Analytic.Lowering
             Expr expr = new VarExpr(parts[0], line, col, file);
             for (int i = 1; i < parts.Count; i++)
             {
-                expr = new IndexExpr(expr, new StringExpr(parts[i], line, col, file), line, col, file);
+                expr = new IndexExpr(expr, new StringExpr(parts[i], line, col, file), line, col, file, isDotAccess: true);
             }
 
             return expr;
@@ -179,7 +179,7 @@ namespace CFGS_VM.Analytic.Lowering
             Expr current = new VarExpr(parts[0], line, col, file);
             for (int i = 1; i < parts.Count; i++)
             {
-                Expr next = new IndexExpr(current, new StringExpr(parts[i], line, col, file), line, col, file);
+                Expr next = new IndexExpr(current, new StringExpr(parts[i], line, col, file), line, col, file, isDotAccess: true);
                 Expr ensureExpr = new BinaryExpr(
                     next,
                     TokenType.QQNull,

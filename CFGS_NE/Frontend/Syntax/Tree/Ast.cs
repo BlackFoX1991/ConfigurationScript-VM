@@ -295,6 +295,11 @@ namespace CFGS_VM.Analytic.Tree
         public Expr? Index;
 
         /// <summary>
+        /// Gets whether this access was written with dot member syntax.
+        /// </summary>
+        public bool IsDotAccess { get; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="IndexExpr"/> class.
         /// </summary>
         /// <param name="t">The t<see cref="Expr?"/></param>
@@ -302,9 +307,11 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
-        public IndexExpr(Expr? t, Expr? i, int line, int col, string fname) : base(line, col, fname)
+        public IndexExpr(Expr? t, Expr? i, int line, int col, string fname, bool isDotAccess = false) : base(line, col, fname)
         {
-            Target = t; Index = i;
+            Target = t;
+            Index = i;
+            IsDotAccess = isDotAccess;
         }
     }
 

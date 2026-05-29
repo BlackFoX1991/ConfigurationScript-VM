@@ -64,7 +64,7 @@ namespace CFGS_VM.Analytic.Semantics
                 return compiler.Context.TopLevelClassDecls.TryGetValue(variableExpr.Name, out decl!);
             }
 
-            if (expr is not IndexExpr indexExpr || indexExpr.Index is not StringExpr segment)
+            if (expr is not IndexExpr { IsDotAccess: true } indexExpr || indexExpr.Index is not StringExpr segment)
                 return false;
 
             if (indexExpr.Target == null)

@@ -306,7 +306,7 @@ namespace CFGS_VM.Analytic.Lowering
                 BinaryExpr b => new BinaryExpr(LowerExpr(b.Left), b.Op, LowerExpr(b.Right), b.Line, b.Col, b.OriginFile),
                 UnaryExpr u => new UnaryExpr(u.Op, LowerExpr(u.Right), u.Line, u.Col, u.OriginFile),
                 ArrayExpr a => new ArrayExpr(a.Elements.Select(LowerExpr).ToList(), a.Line, a.Col, a.OriginFile),
-                IndexExpr i => new IndexExpr(LowerNullableExpr(i.Target), LowerNullableExpr(i.Index), i.Line, i.Col, i.OriginFile),
+                IndexExpr i => new IndexExpr(LowerNullableExpr(i.Target), LowerNullableExpr(i.Index), i.Line, i.Col, i.OriginFile, i.IsDotAccess),
                 SliceExpr s => new SliceExpr(LowerNullableExpr(s.Target), LowerNullableExpr(s.Start), LowerNullableExpr(s.End), s.Line, s.Col, s.OriginFile),
                 DictExpr d => new DictExpr(d.Pairs.Select(pair => (LowerExpr(pair.Key), LowerExpr(pair.Value))).ToList(), d.Line, d.Col, d.OriginFile),
                 PrefixExpr p => new PrefixExpr(LowerNullableExpr(p.Target), p.Op, p.Line, p.Col, p.OriginFile),

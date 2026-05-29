@@ -1,5 +1,4 @@
 class Box() {
 }
 
-var key = "missing";
-Box[key] = 2;
+Box.missing = 2;

@@ -65,6 +65,9 @@ namespace CFGS_VM.VMCore
             _ => throw new CompilerException($"unsupported operator token for bytecode: {t}", tp.Line, tp.Col, outOfFile)
         };
 
+        private static object? IndexAccessOperand(IndexExpr indexExpr)
+            => indexExpr.IsDotAccess ? true : null;
+
         /// <summary>
         /// The EnterFunctionLocals
         /// </summary>

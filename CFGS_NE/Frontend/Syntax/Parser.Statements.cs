@@ -408,7 +408,7 @@ namespace CFGS_VM.Analytic.Core
                     string fieldName = _current.Value.ToString() ?? "";
                     Eat(TokenType.Ident);
 
-                    target = new IndexExpr(target, new StringExpr(fieldName, line, col, fsname), line, col, fsname);
+                    target = new IndexExpr(target, new StringExpr(fieldName, line, col, fsname), line, col, fsname, isDotAccess: true);
                 }
 
                 else if (_current.Type == TokenType.LBracket)
@@ -548,7 +548,8 @@ namespace CFGS_VM.Analytic.Core
                         target = new IndexExpr(
                             target,
                             new StringExpr(fieldName, line, col, fsname),
-                            line, col, fsname
+                            line, col, fsname,
+                            isDotAccess: true
                         );
                         continue;
                     }

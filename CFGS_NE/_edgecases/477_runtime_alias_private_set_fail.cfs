@@ -3,5 +3,4 @@ class C() {
 }
 
 var c = new C();
-var key = "x";
-c[key] = 9;
+c.x = 9;
