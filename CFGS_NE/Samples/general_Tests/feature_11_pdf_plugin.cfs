@@ -1,0 +1,62 @@
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.Pdf.dll";
+
+var failed = 0;
+
+func assert_eq(name, actual, expected) {
+    if (actual == expected) {
+        print("OK   " + name + " = " + str(actual));
+    } else {
+        print("FAIL " + name + " -> got " + str(actual) + ", expected " + str(expected));
+        failed = failed + 1;
+    }
+}
+
+func main() {
+    var pdfPath = "CFGS_NE/Samples/general_Tests/_tmp_pdf_plugin.pdf";
+    var xmlPath = "CFGS_NE/Samples/general_Tests/_tmp_pdf_plugin_factur-x.xml";
+
+    fdelete(pdfPath);
+    fdelete(xmlPath);
+
+    var doc = pdf_new("PDF Plugin Smoke");
+    assert_eq("doc_type", typeof(doc), "PdfDocumentHandle");
+    assert_eq("initial_page_count", doc.page_count(), 0);
+
+    doc.set_info({"title": "PDF Plugin Smoke", "author": "CFGS"});
+    assert_eq("info_title", doc.info()["title"], "PDF Plugin Smoke");
+
+    var page = doc.add_page(595, 842);
+    assert_eq("page_type", typeof(page), "PdfPageHandle");
+    assert_eq("page_count_after_add", doc.page_count(), 1);
+    assert_eq("page_width", page.size()["width"], 595);
+
+    page.draw_line(72, 120, 300, 120, "#111827", 1);
+    page.draw_rect(72, 140, 160, 50, "#2563EB", 2);
+    page.fill_rect(250, 140, 80, 50, "#E5E7EB");
+    page.draw_text("CFGS PDF", 72, 96, 18, "Arial", "#111827", "bold");
+
+    doc.attach_bytes("factur-x.xml", "<invoice><id>1</id></invoice>", "application/xml", "Data", "Structured invoice data");
+    assert_eq("attachments_before_save", doc.attachments().len(), 1);
+
+    doc.save(pdfPath);
+
+    var loaded = pdf_load(pdfPath);
+    assert_eq("loaded_page_count", loaded.page_count(), 1);
+    assert_eq("loaded_attachment_count", loaded.attachments().len(), 1);
+    assert_eq("loaded_attachment_name", loaded.attachments()[0]["name"], "factur-x.xml");
+
+    var extractedBytes = loaded.extract_attachment("factur-x.xml", xmlPath);
+    assert_eq("extracted_attachment_bytes", extractedBytes > 0, true);
+
+    fdelete(pdfPath);
+    fdelete(xmlPath);
+
+    if (failed == 0) {
+        print("ALL PASSED: feature_11_pdf_plugin");
+    } else {
+        print("FAILED: feature_11_pdf_plugin (" + str(failed) + ")");
+    }
+}
+
+main();
