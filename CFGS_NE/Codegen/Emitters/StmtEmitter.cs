@@ -75,7 +75,7 @@ namespace CFGS_VM.VMCore
                         CompileExpr(aies.Value);
                         CompileExpr(aies.Target);
                         _insns.Add(new Instruction(OpCode.ROT, null, aies.Line, aies.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_SET, null, aies.Line, aies.Col, s.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_SET, IndexAccessOperand(aies.Target), aies.Line, aies.Col, s.OriginFile));
                         break;
                     }
 

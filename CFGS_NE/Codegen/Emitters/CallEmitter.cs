@@ -30,7 +30,7 @@ namespace CFGS_VM.VMCore
                 else
                     CompileExpr(ie.Index);
 
-                _insns.Add(new Instruction(OpCode.INDEX_GET, null, call.Line, call.Col, call.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_GET, IndexAccessOperand(ie), call.Line, call.Col, call.OriginFile));
                 EmitCallArgumentsReversed(call.Args);
                 _insns.Add(new Instruction(OpCode.CALL_INDIRECT, call.Args.Count, call.Line, call.Col, call.OriginFile));
                 return;
@@ -49,7 +49,7 @@ namespace CFGS_VM.VMCore
         {
             CompileExpr(mce.Target);
             _insns.Add(new Instruction(OpCode.PUSH_STR, mce.Method, mce.Line, mce.Col, mce.OriginFile));
-            _insns.Add(new Instruction(OpCode.INDEX_GET, null, mce.Line, mce.Col, mce.OriginFile));
+            _insns.Add(new Instruction(OpCode.INDEX_GET, true, mce.Line, mce.Col, mce.OriginFile));
             EmitCallArgumentsReversed(mce.Args);
             _insns.Add(new Instruction(OpCode.CALL_INDIRECT, mce.Args.Count, mce.Line, mce.Col, mce.OriginFile));
         }

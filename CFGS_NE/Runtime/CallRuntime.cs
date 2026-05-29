@@ -411,6 +411,9 @@ namespace CFGS_VM.VMCore
             return StepResult.Next;
         }
 
+        private static Instruction AsInternalMemberAccess(Instruction instr)
+            => new(OpCode.INDEX_GET, true, instr.Line, instr.Col, instr.OriginFile);
+
         /// <summary>
         /// Handles the CALL_INDIRECT opcode.
         /// </summary>
@@ -489,7 +492,7 @@ namespace CFGS_VM.VMCore
                 }
                 else if (callee is BoundType bt)
                 {
-                    object ctorVal = GetIndexedValue(bt.Type, "new", instr);
+                    object ctorVal = GetIndexedValue(bt.Type, "new", AsInternalMemberAccess(instr));
                     if (ctorVal is BoundMethod ctorBound)
                     {
                         f = ctorBound.Function;
@@ -534,7 +537,7 @@ namespace CFGS_VM.VMCore
                 }
                 else if (callee is StaticInstance st)
                 {
-                    object ctorVal = GetIndexedValue(st, "new", instr);
+                    object ctorVal = GetIndexedValue(st, "new", AsInternalMemberAccess(instr));
                     if (ctorVal is BoundMethod ctorBound)
                     {
                         f = ctorBound.Function;
@@ -630,7 +633,7 @@ namespace CFGS_VM.VMCore
             }
             else if (calleeNoOperand is BoundType bt2)
             {
-                object ctorVal = GetIndexedValue(bt2.Type, "new", instr);
+                object ctorVal = GetIndexedValue(bt2.Type, "new", AsInternalMemberAccess(instr));
                 if (ctorVal is BoundMethod ctorBound)
                 {
                     fNoOperand = ctorBound.Function;
@@ -701,7 +704,7 @@ namespace CFGS_VM.VMCore
             }
             else if (calleeNoOperand is StaticInstance st2)
             {
-                object ctorVal = GetIndexedValue(st2, "new", instr);
+                object ctorVal = GetIndexedValue(st2, "new", AsInternalMemberAccess(instr));
                 if (ctorVal is BoundMethod ctorBound)
                 {
                     fNoOperand = ctorBound.Function;

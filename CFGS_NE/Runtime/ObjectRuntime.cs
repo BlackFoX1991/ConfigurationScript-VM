@@ -240,6 +240,9 @@ namespace CFGS_VM.VMCore
             );
         }
 
+        private static bool IsMemberAccessInstruction(Instruction instr)
+            => instr.Operand is bool memberAccess && memberAccess;
+
         /// <summary>
         /// Defines the VisibilityPublic
         /// </summary>
@@ -983,6 +986,9 @@ namespace CFGS_VM.VMCore
 
                 case ClassInstance obj:
                     {
+                        if (!IsMemberAccessInstruction(instr))
+                            throw CreateIndexException(target, idxObj, instr);
+
                         MarkCurrentAsyncSharedStateHazard();
                         string key = idxObj?.ToString() ?? "";
 
@@ -1056,6 +1062,9 @@ namespace CFGS_VM.VMCore
 
                 case StaticInstance st:
                     {
+                        if (!IsMemberAccessInstruction(instr))
+                            throw CreateIndexException(target, idxObj, instr);
+
                         MarkCurrentAsyncSharedStateHazard();
                         string key = idxObj?.ToString() ?? "";
 
@@ -1163,6 +1172,13 @@ namespace CFGS_VM.VMCore
 
                 case ClassInstance obj:
                     {
+                        if (!allowReservedRuntimeSlotWrites &&
+                            writeMode != PropertyWriteMode.Init &&
+                            !IsMemberAccessInstruction(instr))
+                        {
+                            throw new VMException("Runtime error: class instances are not indexable; use dot access for members.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        }
+
                         MarkCurrentAsyncSharedStateHazard();
                         string key = idxObj?.ToString() ?? "";
                         if (key.Length == 0)
@@ -1233,6 +1249,13 @@ namespace CFGS_VM.VMCore
 
                 case StaticInstance st:
                     {
+                        if (!allowReservedRuntimeSlotWrites &&
+                            writeMode != PropertyWriteMode.Init &&
+                            !IsMemberAccessInstruction(instr))
+                        {
+                            throw new VMException("Runtime error: class static members are not indexable; use dot access for static members.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        }
+
                         MarkCurrentAsyncSharedStateHazard();
                         string key = idxObj?.ToString() ?? "";
                         if (key.Length == 0)

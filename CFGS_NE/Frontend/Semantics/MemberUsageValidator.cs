@@ -641,6 +641,28 @@ namespace CFGS_VM.Analytic.Semantics
             if (string.IsNullOrWhiteSpace(memberName))
                 return;
 
+            if (!indexExpr.IsDotAccess)
+            {
+                if (indexExpr.Target is VarExpr bracketReceiver && IsReceiverIdentifier(bracketReceiver.Name))
+                {
+                    throw new CompilerException(
+                        "class members require dot access; bracket access is for indexable values",
+                        indexExpr.Line,
+                        indexExpr.Col,
+                        indexExpr.OriginFile);
+                }
+
+                if (indexExpr.Target != null &&
+                    _memberAccessRules.TryResolveKnownClassDeclFromExpr(_compiler, indexExpr.Target, CurrentLocals, out _))
+                {
+                    throw new CompilerException(
+                        "class static members require dot access; bracket access is for indexable values",
+                        indexExpr.Line,
+                        indexExpr.Col,
+                        indexExpr.OriginFile);
+                }
+            }
+
             if (indexExpr.Target is VarExpr receiverVar && IsReceiverIdentifier(receiverVar.Name))
             {
                 ValidateReceiverUsage(receiverVar.Name, receiverVar);

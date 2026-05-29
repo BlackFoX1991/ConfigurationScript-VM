@@ -5,5 +5,4 @@ class Base() {
 class Child() : Base() {
 }
 
-var key = "ps";
-var leak = Child[key];
+var leak = Child.ps;

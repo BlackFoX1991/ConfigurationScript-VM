@@ -831,7 +831,8 @@ namespace CFGS_VM.Analytic.Modules
                     indexExpr.Index is null ? null : RewriteExpr(indexExpr.Index, state),
                     indexExpr.Line,
                     indexExpr.Col,
-                    indexExpr.OriginFile),
+                    indexExpr.OriginFile,
+                    indexExpr.IsDotAccess),
                 SliceExpr sliceExpr => new SliceExpr(
                     sliceExpr.Target is null ? null : RewriteExpr(sliceExpr.Target, state),
                     RewriteNullableExpr(sliceExpr.Start, state),
@@ -1114,7 +1115,7 @@ namespace CFGS_VM.Analytic.Modules
             Expr expr = new VarExpr(parts[0], node.Line, node.Col, node.OriginFile);
             for (int i = 1; i < parts.Length; i++)
             {
-                expr = new IndexExpr(expr, new StringExpr(parts[i], node.Line, node.Col, node.OriginFile), node.Line, node.Col, node.OriginFile);
+                expr = new IndexExpr(expr, new StringExpr(parts[i], node.Line, node.Col, node.OriginFile), node.Line, node.Col, node.OriginFile, isDotAccess: true);
             }
 
             return expr;

@@ -3,5 +3,4 @@ class Vault() {
 }
 
 var v = new Vault();
-var key = "token";
-var leak = v[key];
+var leak = v.token;

@@ -19,8 +19,7 @@ class Base(v) {
     func readSecret() { return this.secret; }
 
     func writeSecretByAlias(n) {
-        var key = "secret";
-        this[key] = n;
+        this.secret = n;
         return this.secret;
     }
 
@@ -32,8 +31,7 @@ class Child(v) : Base(v) {
     func readProtected() { return this.prot; }
 
     func bumpProtectedByAlias() {
-        var key = "prot";
-        this[key] = this[key] + 10;
+        this.prot = this.prot + 10;
         return this.prot;
     }
 

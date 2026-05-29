@@ -1,0 +1,9 @@
+class C {
+    public static var test1 = 222;
+}
+
+func main() {
+    print(C["test1"]);
+}
+
+main();

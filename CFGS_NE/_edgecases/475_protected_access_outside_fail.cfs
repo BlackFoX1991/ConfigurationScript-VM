@@ -6,5 +6,4 @@ class Child() : Base() {
 }
 
 var c = new Child();
-var key = "p";
-var leak = c[key];
+var leak = c.p;

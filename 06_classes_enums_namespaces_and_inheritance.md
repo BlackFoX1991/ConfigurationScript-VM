@@ -128,6 +128,8 @@ class Meter(v) {
 
 The important receiver here is `type`. It is available in class methods and points at the current type. It works in instance methods and static methods.
 
+Static class members use dot access, for example `Meter.make(10)`. Bracket access such as `Meter["make"]` is dictionary or index access and is not a class member lookup. Constructors are invoked with `new Meter(...)`; they are not exposed as a `"new"` static member.
+
 ## Creating Instances
 
 ```cfs

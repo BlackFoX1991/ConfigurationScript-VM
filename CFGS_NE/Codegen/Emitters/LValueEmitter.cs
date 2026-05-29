@@ -29,7 +29,7 @@ namespace CFGS_VM.VMCore
                 CompileExpr(ie.Target);
                 CompileExpr(ie.Index);
                 if (load)
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, ie.Line, ie.Col, ie.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_GET, IndexAccessOperand(ie), ie.Line, ie.Col, ie.OriginFile));
             }
             else
             {
@@ -60,7 +60,7 @@ namespace CFGS_VM.VMCore
                     CompileExpr(ie.Target);
                     CompileExpr(ie.Index);
                     _insns.Add(new Instruction(OpCode.ROT, null, ie.Line, ie.Col, ie.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_SET, null, ie.Line, ie.Col, ie.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_SET, IndexAccessOperand(ie), ie.Line, ie.Col, ie.OriginFile));
                 }
             }
             else

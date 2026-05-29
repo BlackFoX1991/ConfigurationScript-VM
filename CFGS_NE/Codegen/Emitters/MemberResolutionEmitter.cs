@@ -249,7 +249,7 @@ namespace CFGS_VM.VMCore
             if (!TryEmitCurrentPropertyBackingSlotTarget(node))
                 return false;
 
-            _insns.Add(new Instruction(OpCode.INDEX_GET, null, node.Line, node.Col, node.OriginFile));
+            _insns.Add(new Instruction(OpCode.INDEX_GET, true, node.Line, node.Col, node.OriginFile));
             return true;
         }
 
@@ -317,7 +317,7 @@ namespace CFGS_VM.VMCore
             {
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", node.Line, node.Col, node.OriginFile));
                 _insns.Add(new Instruction(OpCode.PUSH_STR, name, node.Line, node.Col, node.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_GET, null, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_GET, true, node.Line, node.Col, node.OriginFile));
                 return true;
             }
 
@@ -327,7 +327,7 @@ namespace CFGS_VM.VMCore
                     ?? throw new CompilerException("internal compiler error: missing current class for static member load", node.Line, node.Col, node.OriginFile);
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, cls.Name, node.Line, node.Col, node.OriginFile));
                 _insns.Add(new Instruction(OpCode.PUSH_STR, name, node.Line, node.Col, node.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_GET, null, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_GET, true, node.Line, node.Col, node.OriginFile));
                 return true;
             }
 
@@ -353,7 +353,7 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", node.Line, node.Col, node.OriginFile));
                 _insns.Add(new Instruction(OpCode.PUSH_STR, name, node.Line, node.Col, node.OriginFile));
                 _insns.Add(new Instruction(OpCode.ROT, null, node.Line, node.Col, node.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_SET, null, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_SET, true, node.Line, node.Col, node.OriginFile));
                 return true;
             }
 
@@ -364,7 +364,7 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, cls.Name, node.Line, node.Col, node.OriginFile));
                 _insns.Add(new Instruction(OpCode.PUSH_STR, name, node.Line, node.Col, node.OriginFile));
                 _insns.Add(new Instruction(OpCode.ROT, null, node.Line, node.Col, node.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_SET, null, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_SET, true, node.Line, node.Col, node.OriginFile));
                 return true;
             }
 

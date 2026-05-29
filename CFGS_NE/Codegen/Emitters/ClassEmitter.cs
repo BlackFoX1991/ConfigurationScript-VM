@@ -181,11 +181,11 @@ namespace CFGS_VM.VMCore
                 {
                     _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_STR, "__type", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_GET, true, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_GET, true, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_STR, "new", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_GET, true, cds.Line, cds.Col, cds.OriginFile));
 
                     for (int i = cds.BaseCtorArgs.Count - 1; i >= 0; i--)
                         CompileExpr(cds.BaseCtorArgs[i]);
@@ -285,7 +285,7 @@ namespace CFGS_VM.VMCore
                 {
                     _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_STR, "init", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, cds.Line, cds.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_GET, true, cds.Line, cds.Col, cds.OriginFile));
 
                     for (int i = ctorParams.Count - 1; i >= 0; i--)
                     {
@@ -497,7 +497,7 @@ namespace CFGS_VM.VMCore
                     {
                         _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", ne.Line, ne.Col, ne.OriginFile));
                         _insns.Add(new Instruction(OpCode.PUSH_STR, parts[0], ne.Line, ne.Col, ne.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, ne.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, true, ne.Line, ne.Col, ne.OriginFile));
                         usedOuterBinding = true;
                     }
                 }
@@ -507,7 +507,7 @@ namespace CFGS_VM.VMCore
                     for (int i = 1; i < parts.Length; i++)
                     {
                         _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], ne.Line, ne.Col, ne.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, ne.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, true, ne.Line, ne.Col, ne.OriginFile));
                     }
                     usedOuterBinding = true;
                 }
@@ -519,7 +519,7 @@ namespace CFGS_VM.VMCore
                 for (int i = 1; i < parts.Length; i++)
                 {
                     _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], ne.Line, ne.Col, ne.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, null, ne.Line, ne.Col, ne.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_GET, true, ne.Line, ne.Col, ne.OriginFile));
                 }
             }
 
@@ -557,13 +557,13 @@ namespace CFGS_VM.VMCore
 
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
                 _insns.Add(new Instruction(OpCode.PUSH_STR, "__type", oi.Line, oi.Col, oi.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_GET, null, oi.Line, oi.Col, oi.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_GET, true, oi.Line, oi.Col, oi.OriginFile));
 
                 _insns.Add(new Instruction(OpCode.PUSH_STR, keyStr.Value, oi.Line, oi.Col, oi.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_GET, null, oi.Line, oi.Col, oi.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_GET, true, oi.Line, oi.Col, oi.OriginFile));
 
                 _insns.Add(new Instruction(OpCode.PUSH_STR, "new", oi.Line, oi.Col, oi.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_GET, null, oi.Line, oi.Col, oi.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_GET, true, oi.Line, oi.Col, oi.OriginFile));
 
                 for (int i = ce.Args.Count - 1; i >= 0; i--)
                     CompileExpr(ce.Args[i]);
