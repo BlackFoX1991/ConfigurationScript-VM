@@ -592,6 +592,20 @@ try {
         if (-not $okCliParams) { Write-Host $resCliParams.Output }
     }
 
+    if ("706_cli_interactive_debugger" -like $NameFilter) {
+        $stdin = "break 2`ncontinue`nlocals`nquit`n"
+        $resCliDebugger = Invoke-Cfgs -CfgsArgs @(
+            "-di",
+            (Edge-Path "_edgecases\706_cli_interactive_debugger.cfs")
+        ) -StdinText $stdin
+        $okCliDebugger = $resCliDebugger.Output.Contains("[dbg]") -and
+                         $resCliDebugger.Output.Contains("breakpoint added") -and
+                         $resCliDebugger.Output.Contains("x = 1") -and
+                         (-not $resCliDebugger.Output.Contains("[Error-Id:"))
+        Write-Result -Name "706_cli_interactive_debugger" -Ok $okCliDebugger -Details "Expected redirected interactive debugger commands to work."
+        if (-not $okCliDebugger) { Write-Host $resCliDebugger.Output }
+    }
+
     # REPL redirected-input checks
     if ("704_repl_redirected_exit" -like $NameFilter) {
         $resReplExit = Invoke-Cfgs -CfgsArgs @() -StdinText "exit`n"

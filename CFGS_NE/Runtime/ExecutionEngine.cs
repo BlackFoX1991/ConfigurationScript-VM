@@ -2,6 +2,7 @@ using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
+using CFGS_VM.VMCore.Debugging;
 using System.Text;
 
 namespace CFGS_VM.VMCore
@@ -65,12 +66,19 @@ namespace CFGS_VM.VMCore
                 {
                     try
                     {
+                        Instruction instr = _program[_ip];
+                        VmDebugContext debugContext = CreateDebugContext(_ip, instr);
+
+                        if (Debugger?.BeforeInstruction(this, debugContext) == VmDebuggerControl.Stop)
+                            return RunStopReason.Halted;
+
                         if (debugging)
                             WriteDebugTrace(_ip);
 
-                        Instruction instr = _program[_ip++];
+                        _ip++;
                         _ip = Math.Clamp(_ip, 0, _program.Count - 1);
                         StepResult res = HandleInstruction(ref _ip, _program, instr);
+                        Debugger?.AfterInstruction(this, debugContext);
 
                         if (res == StepResult.Halt)
                             return RunStopReason.Halted;
@@ -103,6 +111,7 @@ namespace CFGS_VM.VMCore
                     catch (VMException ex)
                     {
                         int safeIp = Math.Min(_ip, _program.Count - 1);
+                        Debugger?.OnException(this, CreateDebugContext(safeIp, _program[safeIp]), ex);
 
                         ExceptionObject payload = new(
                             type: "RuntimeError",
@@ -126,6 +135,7 @@ namespace CFGS_VM.VMCore
                     catch (Exception sysEx)
                     {
                         int safeIp = Math.Min(_ip, _program.Count - 1);
+                        Debugger?.OnException(this, CreateDebugContext(safeIp, _program[safeIp]), sysEx);
                         ExceptionObject payload = new(
                             type: "SystemError",
                             message: sysEx.Message,
@@ -285,6 +295,9 @@ namespace CFGS_VM.VMCore
             DebugStream!.Write(Encoding.Default.GetBytes(
                 $"[DEBUG] {dinstr} (Line {dinstr.Line}, Col {dinstr.Col})\n"));
         }
+
+        private VmDebugContext CreateDebugContext(int ip, Instruction instruction)
+            => new(ip, instruction, _stack.Count, _scopes.Count, _callStack.Count);
 
         /// <summary>
         /// The SafeCurrentInstr

@@ -90,9 +90,14 @@ public class Program
     public static bool IsDebug { get; private set; } = false;
 
     /// <summary>
+    /// Gets a value indicating whether the interactive VM debugger is enabled.
+    /// </summary>
+    public static bool IsInteractiveDebug { get; private set; } = false;
+
+    /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v5.3.0";
+    public const string Version = "v5.3.2";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -123,7 +128,7 @@ public class Program
     ##########        #...............::##      [ debug to enable/disable the debug mode            ]
       ######         %#+++.............::##     [ ansi to enable or disable Ansi-Console-Mode       ]
       #####        ####+++++++.........:::##    =====================================================
-  ########        #####++++++++.........::##    [ Commands : -d(ebug) -p(arams) -c(ompile)]
+  ########        #####++++++++.........::##    [ Commands : -d(ebug) -di(debugger) -p(arams) -c(ompile)]
   ########        #####+++++++++........::##    [            -s(et) buffer  maxlen                  ]
       #####        ####++++++++*.......::-##    [                   ansi    1 or 0 to en/dis-able   ]
       ######        *##++++++**........::##     [ Compile  : -c file.cfs [-o file.cfb]              ]   
@@ -242,6 +247,12 @@ public class Program
                             IsDebug = true;
                             break;
 
+                        case "-di":
+                        case "-debugger":
+                        case "--debugger":
+                            IsInteractiveDebug = true;
+                            break;
+
                         case "-p":
                         case "-params":
                             ignoreMode = true;
@@ -282,12 +293,12 @@ public class Program
 
                     if (file.EndsWith(".cfb", StringComparison.OrdinalIgnoreCase))
                     {
-                        await RunCompiledFileAsync(file, IsDebug, workingDirectory: workingDirectory);
+                        await RunCompiledFileAsync(file, IsDebug, IsInteractiveDebug, workingDirectory: workingDirectory);
                     }
                     else
                     {
                         string input = File.ReadAllText(file);
-                        await RunSourceAsync(input, file, IsDebug, workingDirectory: workingDirectory);
+                        await RunSourceAsync(input, file, IsDebug, IsInteractiveDebug, workingDirectory: workingDirectory);
                     }
 
                     currentSourceForError = null;
@@ -308,7 +319,7 @@ public class Program
 
                     try
                     {
-                        await RunSourceAsync(code, "<repl>", IsDebug, sharedVm: replVm);
+                        await RunSourceAsync(code, "<repl>", IsDebug, IsInteractiveDebug, sharedVm: replVm);
                     }
                     catch (Exception ex)
                     {
@@ -608,11 +619,13 @@ public class Program
         string source,
         string name,
         bool debug = false,
+        bool interactiveDebug = false,
         CancellationToken ct = default,
         VM? sharedVm = null,
         string? workingDirectory = null)
     {
         VM vm = sharedVm ?? new VM();
+        vm.Debugger = interactiveDebug ? new ConsoleVmDebugger() : null;
         vm.EntryScriptPath = string.Equals(name, "<repl>", StringComparison.Ordinal)
             ? "<repl>"
             : Path.GetFullPath(name);
@@ -657,11 +670,13 @@ public class Program
     private static async Task RunCompiledFileAsync(
         string file,
         bool debug = false,
+        bool interactiveDebug = false,
         CancellationToken ct = default,
         string? workingDirectory = null)
     {
         CompiledScript compiled = CfbFile.Load(file);
         VM vm = new();
+        vm.Debugger = interactiveDebug ? new ConsoleVmDebugger() : null;
         vm.EntryScriptPath = Path.GetFullPath(file);
 
         foreach (string plugin in compiled.RequiredPlugins)
