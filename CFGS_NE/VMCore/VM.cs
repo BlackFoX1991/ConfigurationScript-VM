@@ -640,7 +640,7 @@ namespace CFGS_VM.VMCore
                             break;
                         }
 
-                        throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                     }
 
@@ -692,7 +692,7 @@ namespace CFGS_VM.VMCore
                         object value = _stack.Pop();
                         Env? env = FindEnvWithLocal(name);
                         if (env == null)
-                            throw new VMException($"Runtime error: assignment to undeclared variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            throw new VMException(UndefinedAssignmentMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         MarkAsyncHazardForEnvAccess(env);
                         if (env.IsConstLocal(name))

@@ -48,9 +48,11 @@ namespace CFGS_VM.VMCore.Extensions
                     TimestampUtc = DateTime.UtcNow,
                     Phase = phase,
                     SourceName = sourceName,
+                    DiagnosticCode = diag.Code,
                     Category = diag.Category,
                     ExceptionType = ex.GetType().FullName ?? ex.GetType().Name,
                     Message = diag.Message,
+                    Help = diag.Help,
                     SourceFile = diag.SourceFile,
                     Line = diag.Line,
                     Column = diag.Column,
@@ -163,6 +165,8 @@ namespace CFGS_VM.VMCore.Extensions
             /// </summary>
             public string? SourceName { get; set; }
 
+            public string DiagnosticCode { get; set; } = string.Empty;
+
             /// <summary>
             /// Gets or sets the Category
             /// </summary>
@@ -177,6 +181,8 @@ namespace CFGS_VM.VMCore.Extensions
             /// Gets or sets the Message
             /// </summary>
             public string Message { get; set; } = string.Empty;
+
+            public string? Help { get; set; }
 
             /// <summary>
             /// Gets or sets the SourceFile

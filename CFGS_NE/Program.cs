@@ -131,7 +131,8 @@ public class Program
   ########        #####++++++++.........::##    [ Commands : -d(ebug) -di(debugger) -p(arams) -c(ompile)]
   ########        #####+++++++++........::##    [            -s(et) buffer  maxlen                  ]
       #####        ####++++++++*.......::-##    [                   ansi    1 or 0 to en/dis-able   ]
-      ######        *##++++++**........::##     [ Compile  : -c file.cfs [-o file.cfb]              ]   
+      ######        *##++++++**........::##     [ Compile  : -c file.cfs [-o file.cfb]              ]
+    ##########        #******........:::##      [ Check    : -check file.cfs [--json]               ]   
     ##########        #******........:::##      [--------------REPL INFO----------------------------]
      ############     #.:...........::###       [ Enter runs complete code, Ctrl+Enter forces run   ]
            ############..........:::###         [ Use Ctrl+Backspace to clear the code              ]
@@ -157,6 +158,32 @@ public class Program
 
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
+
+        if (TryGetCheckArguments(args, out string? checkInput, out bool checkJson))
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(checkInput))
+                {
+                    Console.Error.WriteLine("missing input script for -check/--check");
+                    Environment.ExitCode = 1;
+                    return;
+                }
+
+                CheckFile(checkInput, checkJson);
+            }
+            catch (Exception ex)
+            {
+                if (checkJson)
+                    PrintDiagnosticJson(ex, checkInput ?? "<check>");
+                else
+                    PrintTrackedException(ex, "check", checkInput ?? "<check>");
+
+                Environment.ExitCode = 1;
+            }
+
+            return;
+        }
 
         if (TryGetCompileArguments(args, out string? compileInput, out string? compileOutput, out bool compileDebug))
         {
@@ -378,6 +405,36 @@ public class Program
         return compileMode;
     }
 
+    private static bool TryGetCheckArguments(string[] args, out string? input, out bool json)
+    {
+        input = null;
+        json = false;
+        bool checkMode = false;
+
+        foreach (string rawArg in args)
+        {
+            string arg = rawArg.Trim();
+            switch (arg)
+            {
+                case "-check":
+                case "--check":
+                case "check":
+                    checkMode = true;
+                    continue;
+
+                case "--json":
+                case "-json":
+                    json = true;
+                    continue;
+            }
+
+            if (checkMode && !arg.StartsWith("-", StringComparison.Ordinal) && input is null)
+                input = rawArg;
+        }
+
+        return checkMode;
+    }
+
     private static void LoadReplPluginsFromApplicationPath(VM replVm)
     {
         string applicationDirectory = AppContext.BaseDirectory;
@@ -590,6 +647,14 @@ public class Program
         if (!string.IsNullOrWhiteSpace(location))
             Console.WriteLine($"at {location}");
 
+        string? sourceSpan = ErrorDiagnostics.FormatSourceSpan(diag);
+        if (!string.IsNullOrWhiteSpace(sourceSpan))
+            Console.WriteLine(sourceSpan);
+
+        string? help = ErrorDiagnostics.FormatHelp(diag);
+        if (!string.IsNullOrWhiteSpace(help))
+            Console.WriteLine(help);
+
         string? languageStack = ErrorDiagnostics.FormatLanguageStack(diag);
         if (!string.IsNullOrWhiteSpace(languageStack))
         {
@@ -604,6 +669,28 @@ public class Program
 
         if (!string.IsNullOrWhiteSpace(errorId))
             Console.WriteLine($"[Error-Id: {errorId}]");
+    }
+
+    private static void PrintDiagnosticJson(Exception ex, string? sourceName = null)
+    {
+        ErrorDiagnostic diag = ErrorDiagnostics.FromException(ex, sourceName);
+        var payload = new[]
+        {
+            new
+            {
+                code = diag.Code,
+                category = diag.Category,
+                message = diag.Message,
+                sourceFile = diag.SourceFile,
+                line = diag.Line,
+                column = diag.Column,
+                spanLength = diag.SpanLength,
+                help = diag.Help,
+                sourceSpan = ErrorDiagnostics.FormatSourceSpan(diag)
+            }
+        };
+
+        Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
     }
 
     /// <summary>
@@ -665,6 +752,27 @@ public class Program
         CompiledScript compiled = CfgsCompiler.CompileFile(inputPath, compileVm.LoadPlugin, Version);
         CfbFile.Save(compiled, output);
         Console.WriteLine($"[CFB] compiled '{inputPath}' -> '{output}'");
+    }
+
+    private static void CheckFile(string inputPath, bool json)
+    {
+        if (!File.Exists(inputPath))
+            throw new FileNotFoundException($"Could not load the script-file : '{inputPath}'", inputPath);
+
+        if (inputPath.EndsWith(".cfb", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = CfbFile.Load(inputPath);
+        }
+        else
+        {
+            VM checkVm = new();
+            _ = CfgsCompiler.CompileFile(inputPath, checkVm.LoadPlugin, Version);
+        }
+
+        if (json)
+            Console.WriteLine("[]");
+        else
+            Console.WriteLine($"[CHECK] ok: {inputPath}");
     }
 
     private static async Task RunCompiledFileAsync(

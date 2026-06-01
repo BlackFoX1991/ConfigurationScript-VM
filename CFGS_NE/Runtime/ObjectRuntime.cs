@@ -1347,7 +1347,7 @@ namespace CFGS_VM.VMCore
             if (instr.Operand is string nameFromEnv)
             {
                 Env owner = FindEnvWithLocal(nameFromEnv)
-                    ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    ?? throw new VMException(UndefinedVariableMessage(nameFromEnv), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(owner);
                 target = GetLocalVar(owner, nameFromEnv)!;
             }
@@ -1379,7 +1379,7 @@ namespace CFGS_VM.VMCore
             if (instr.Operand is string nameFromEnv)
             {
                 Env env = FindEnvWithLocal(nameFromEnv)
-                    ?? throw new VMException($"Runtime error: undefined variable '{nameFromEnv}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    ?? throw new VMException(UndefinedVariableMessage(nameFromEnv), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                 MarkAsyncHazardForEnvAccess(env);
                 target = GetLocalVar(env, nameFromEnv)!;

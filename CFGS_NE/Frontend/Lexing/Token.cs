@@ -31,6 +31,11 @@ public class Token
     public int Column { get; }
 
     /// <summary>
+    /// Gets the token length in source characters.
+    /// </summary>
+    public int Length { get; }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="Token"/> class.
     /// </summary>
     /// <param name="type">The type<see cref="TokenType"/></param>
@@ -38,13 +43,14 @@ public class Token
     /// <param name="line">The line<see cref="int"/></param>
     /// <param name="col">The col<see cref="int"/></param>
     /// <param name="filename">The filename<see cref="string"/></param>
-    public Token(TokenType type, object value, int line, int col, string filename)
+    public Token(TokenType type, object value, int line, int col, string filename, int length = 0)
     {
         Type = type;
         Value = value;
         Line = line;
         Column = col;
         Filename = filename;
+        Length = Math.Max(1, length);
     }
 
     /// <summary>

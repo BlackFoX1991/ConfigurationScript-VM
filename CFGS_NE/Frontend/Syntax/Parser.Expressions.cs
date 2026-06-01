@@ -416,7 +416,7 @@ namespace CFGS_VM.Analytic.Core
             }
             else
             {
-                throw new ParserException($"invalid factor, token {_current.Type}", _current.Line, _current.Column, _current.Filename);
+                throw ErrorAtCurrent($"invalid factor, token {_current.Type}");
             }
 
             while (true)
@@ -424,7 +424,7 @@ namespace CFGS_VM.Analytic.Core
                 if (_current.Type == TokenType.LParen)
                 {
                     if (node is NullExpr)
-                        throw new ParserException("invalid access on null reference", _current.Line, _current.Column, _current.Filename);
+                        throw ErrorAtCurrent("invalid access on null reference");
 
                     int line = _current.Line;
                     int col = _current.Column;
@@ -441,7 +441,7 @@ namespace CFGS_VM.Analytic.Core
                 else if (_current.Type == TokenType.LBracket)
                 {
                     if (node is NullExpr)
-                        throw new ParserException("invalid access on null reference", _current.Line, _current.Column, _current.Filename);
+                        throw ErrorAtCurrent("invalid access on null reference");
                     int line = _current.Line;
                     int col = _current.Column;
                     string file = _current.Filename;
@@ -480,10 +480,10 @@ namespace CFGS_VM.Analytic.Core
                 else if (_current.Type == TokenType.Dot)
                 {
                     if (node is NullExpr)
-                        throw new ParserException("invalid access on null reference", _current.Line, _current.Column, _current.Filename);
+                        throw ErrorAtCurrent("invalid access on null reference");
                     Eat(TokenType.Dot);
                     if (_current.Type != TokenType.Ident)
-                        throw new ParserException("expected identifier after '.'", _current.Line, _current.Column, _current.Filename);
+                        throw ErrorAtCurrent("expected identifier after '.'");
                     int line = _current.Line;
                     int col = _current.Column;
                     string file = _current.Filename;
@@ -547,7 +547,7 @@ namespace CFGS_VM.Analytic.Core
                 else if (_current.Type == TokenType.PlusPlus || _current.Type == TokenType.MinusMinus)
                 {
                     if (node is NullExpr)
-                        throw new ParserException("invalid access on null reference", _current.Line, _current.Column, _current.Filename);
+                        throw ErrorAtCurrent("invalid access on null reference");
                     TokenType op = _current.Type;
                     int line = _current.Line;
                     int col = _current.Column;

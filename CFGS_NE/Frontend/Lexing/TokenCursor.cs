@@ -69,7 +69,8 @@ namespace CFGS_VM.Analytic.Core
                     message ?? $"Expected {type}, got {token.Type} -> '{token.Value}'",
                     token.Line,
                     token.Column,
-                    token.Filename);
+                    token.Filename,
+                    token.Length);
             }
 
             Advance();

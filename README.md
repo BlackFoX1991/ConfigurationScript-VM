@@ -27,6 +27,9 @@ If you are opening CFGS for the first time, this is the best reading order.
 14. [Internal Architecture](14_internal_architecture.md)
 15. [XML Plugin](15_xml_plugin.md)
 16. [PDF Plugin](16_pdf_plugin.md)
+17. [Debugging CFGS Scripts](17_debugging.md)
+18. [CFGS Language Specification](18_language_specification.md)
+19. [Diagnostics and Error Codes](19_diagnostics.md)
 
 ## Complete Feature Index
 
@@ -50,6 +53,7 @@ The following topics are covered completely across the English documentation set
 - Standard library. All builtins. All string, array, dictionary, DateTime, DirectoryInfo, FileHandle, BinaryFileHandle, exception, and task intrinsics.
 - Official repository plugins. Standard library. HTTP. SQL. XML with DOM editing, XPath, namespaces, serialization, PDF with document creation, page editing, metadata, attachments, and Crypto with hashing, HMAC, PBKDF2, AES GCM, RSA, ECDSA, Ed25519, X25519, JWT, HOTP and TOTP, and X509.
 - Plugin development. `IVmPlugin`. `BuiltinDescriptor`. `IntrinsicDescriptor`. Attribute based registration. `BuiltinAttribute`. `IntrinsicAttribute`. `SmartAwait`. `NonBlocking`. Packaging and importing.
+- Language specification. Normative processing model, lexical rules, scoping, values, expressions, OOP, modules, async, errors, CLI execution, CFB artifacts, debugging, and compatibility rules.
 
 ## Smallest Useful Example
 

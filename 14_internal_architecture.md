@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document describes the productive CFGS architecture after the parser, compiler, and VM refactor. It is about code ownership and pipeline boundaries, not language syntax.
+This document describes the productive CFGS architecture after the parser, compiler, and VM refactor. It is about code ownership and pipeline boundaries, not language syntax. Normative language behavior is defined in [CFGS Language Specification](18_language_specification.md).
 
 ## End-to-End Pipeline
 

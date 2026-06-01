@@ -1,0 +1,9 @@
+class C {
+    public static var test1 = 222;
+}
+
+func main() {
+    var x = C["test1"];
+}
+
+main();

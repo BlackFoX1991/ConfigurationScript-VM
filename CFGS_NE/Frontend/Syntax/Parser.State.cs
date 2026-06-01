@@ -1,3 +1,4 @@
+using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Tokens;
 
 namespace CFGS_VM.Analytic.Core
@@ -162,6 +163,12 @@ namespace CFGS_VM.Analytic.Core
         {
             return _cursor.Expect(type, message);
         }
+
+        private ParserException ErrorAtCurrent(string message)
+            => ErrorAt(message, _current);
+
+        private static ParserException ErrorAt(string message, Token token)
+            => new(message, token.Line, token.Column, token.Filename, token.Length);
 
         /// <summary>
         /// The Eat

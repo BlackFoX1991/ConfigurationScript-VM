@@ -78,7 +78,11 @@ public class Lexer
     /// <returns>The <see cref="Token"/></returns>
     private Token MakeToken(TokenType type, object value)
     {
-        return new Token(type, value, _tokLine, _tokCol, FileName);
+        value ??= string.Empty;
+        int length = _line == _tokLine
+            ? Math.Max(1, _col - _tokCol)
+            : Math.Max(1, value.ToString()?.Length ?? 1);
+        return new Token(type, value, _tokLine, _tokCol, FileName, length);
     }
 
     /// <summary>

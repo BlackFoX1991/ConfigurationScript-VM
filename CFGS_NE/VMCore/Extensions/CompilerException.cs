@@ -31,19 +31,25 @@ namespace CFGS_VM.VMCore.Extensions
         public string FileSource { get; }
 
         /// <summary>
+        /// Gets the source span length when known.
+        /// </summary>
+        public int? SpanLength { get; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="CompilerException"/> class.
         /// </summary>
         /// <param name="message">The message<see cref="string"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="column">The column<see cref="int"/></param>
         /// <param name="fileSource">The fileSource<see cref="string"/></param>
-        public CompilerException(string message, int line, int column, string fileSource)
+        public CompilerException(string message, int line, int column, string fileSource, int? spanLength = null)
             : base(message)
         {
             RawMessage = message;
             Line = line;
             Column = column;
             FileSource = fileSource;
+            SpanLength = spanLength is > 0 ? spanLength : null;
         }
     }
 }

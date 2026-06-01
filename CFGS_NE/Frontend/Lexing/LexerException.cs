@@ -29,18 +29,24 @@ public sealed class LexerException : Exception
     public string Filename { get; }
 
     /// <summary>
+    /// Gets the source span length when known.
+    /// </summary>
+    public int? SpanLength { get; }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="LexerException"/> class.
     /// </summary>
     /// <param name="message">The message<see cref="string"/></param>
     /// <param name="line">The line<see cref="int"/></param>
     /// <param name="column">The column<see cref="int"/></param>
     /// <param name="filename">The filename<see cref="string"/></param>
-    public LexerException(string message, int line, int column, string filename)
+    public LexerException(string message, int line, int column, string filename, int? spanLength = null)
         : base(message)
     {
         RawMessage = message;
         Line = line;
         Column = column;
         Filename = filename;
+        SpanLength = spanLength is > 0 ? spanLength : null;
     }
 }

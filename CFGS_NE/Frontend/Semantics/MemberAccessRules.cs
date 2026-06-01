@@ -148,7 +148,8 @@ namespace CFGS_VM.Analytic.Semantics
                         DescribeMissingPropertyAccessor(propertyOwnerDecl, propertyDecl, accessKind),
                         node.Line,
                         node.Col,
-                        node.OriginFile);
+                        node.OriginFile,
+                        memberName.Length);
                 }
 
                 if (IsMemberAccessAllowed(compiler, currentClassDecl, propertyOwnerDecl, propertyVisibility))
@@ -158,7 +159,8 @@ namespace CFGS_VM.Analytic.Semantics
                     $"inaccessible {accessorLabel} for property '{memberName}' in class '{propertyOwnerDecl.Name}': '{VisibilityLabel(propertyVisibility)}' access",
                     node.Line,
                     node.Col,
-                    node.OriginFile);
+                    node.OriginFile,
+                    memberName.Length);
             }
 
             if (!TryFindMemberVisibilityInHierarchy(compiler, decl, memberName, expectInstance, out ClassDeclStmt ownerDecl, out MemberVisibility visibility))
@@ -171,7 +173,8 @@ namespace CFGS_VM.Analytic.Semantics
                 $"inaccessible member '{memberName}' in class '{ownerDecl.Name}': '{VisibilityLabel(visibility)}' access",
                 node.Line,
                 node.Col,
-                node.OriginFile);
+                node.OriginFile,
+                memberName.Length);
         }
 
         public void ValidateMemberAccessAgainstCurrentClass(
@@ -197,14 +200,19 @@ namespace CFGS_VM.Analytic.Semantics
                         $"invalid instance member access '{memberName}' in class '{currentClass.Name}': member is static",
                         node.Line,
                         node.Col,
-                        node.OriginFile);
+                        node.OriginFile,
+                        memberName.Length);
                 }
 
                 throw new CompilerException(
-                    $"unknown instance member '{memberName}' in class '{currentClass.Name}'",
+                    WithDidYouMean(
+                        $"unknown instance member '{memberName}' in class '{currentClass.Name}'",
+                        memberName,
+                        currentClass.InstanceMembers),
                     node.Line,
                     node.Col,
-                    node.OriginFile);
+                    node.OriginFile,
+                    memberName.Length);
             }
 
             if (!expectInstance && !hasStatic)
@@ -215,14 +223,19 @@ namespace CFGS_VM.Analytic.Semantics
                         $"invalid static member access '{memberName}' in class '{currentClass.Name}': member is instance",
                         node.Line,
                         node.Col,
-                        node.OriginFile);
+                        node.OriginFile,
+                        memberName.Length);
                 }
 
                 throw new CompilerException(
-                    $"unknown static member '{memberName}' in class '{currentClass.Name}'",
+                    WithDidYouMean(
+                        $"unknown static member '{memberName}' in class '{currentClass.Name}'",
+                        memberName,
+                        currentClass.StaticMembers),
                     node.Line,
                     node.Col,
-                    node.OriginFile);
+                    node.OriginFile,
+                    memberName.Length);
             }
 
             ValidateMemberVisibilityAgainstKnownClass(compiler, currentClassDecl, memberName, expectInstance, currentClassDecl, node, accessKind);
@@ -249,14 +262,19 @@ namespace CFGS_VM.Analytic.Semantics
                         $"invalid instance member access '{memberName}' in class '{decl.Name}': member is static",
                         node.Line,
                         node.Col,
-                        node.OriginFile);
+                        node.OriginFile,
+                        memberName.Length);
                 }
 
                 throw new CompilerException(
-                    $"unknown instance member '{memberName}' in class '{decl.Name}'",
+                    WithDidYouMean(
+                        $"unknown instance member '{memberName}' in class '{decl.Name}'",
+                        memberName,
+                        instanceMembers),
                     node.Line,
                     node.Col,
-                    node.OriginFile);
+                    node.OriginFile,
+                    memberName.Length);
             }
 
             if (!expectInstance && !hasStatic)
@@ -267,14 +285,19 @@ namespace CFGS_VM.Analytic.Semantics
                         $"invalid static member access '{memberName}' in class '{decl.Name}': member is instance",
                         node.Line,
                         node.Col,
-                        node.OriginFile);
+                        node.OriginFile,
+                        memberName.Length);
                 }
 
                 throw new CompilerException(
-                    $"unknown static member '{memberName}' in class '{decl.Name}'",
+                    WithDidYouMean(
+                        $"unknown static member '{memberName}' in class '{decl.Name}'",
+                        memberName,
+                        staticMembers),
                     node.Line,
                     node.Col,
-                    node.OriginFile);
+                    node.OriginFile,
+                    memberName.Length);
             }
 
             ValidateMemberVisibilityAgainstKnownClass(compiler, decl, memberName, expectInstance, currentClassDecl, node, accessKind);
@@ -300,7 +323,8 @@ namespace CFGS_VM.Analytic.Semantics
                         $"invalid initializer member '{name}': reserved member name",
                         valueExpr.Line,
                         valueExpr.Col,
-                        valueExpr.OriginFile);
+                        valueExpr.OriginFile,
+                        name.Length);
                 }
             }
 
@@ -313,10 +337,14 @@ namespace CFGS_VM.Analytic.Semantics
                 if (!instanceMembers.Contains(name))
                 {
                     throw new CompilerException(
-                        $"unknown initializer member '{name}' for class '{decl.Name}'",
+                        WithDidYouMean(
+                            $"unknown initializer member '{name}' for class '{decl.Name}'",
+                            name,
+                            instanceMembers),
                         valueExpr.Line,
                         valueExpr.Col,
-                        valueExpr.OriginFile);
+                        valueExpr.OriginFile,
+                        name.Length);
                 }
 
                 ValidateMemberVisibilityAgainstKnownClass(compiler, decl, name, expectInstance: true, currentClassDecl, valueExpr, MemberAccessKind.Init);
@@ -392,6 +420,68 @@ namespace CFGS_VM.Analytic.Semantics
                 MemberVisibility.Protected => "protected",
                 _ => "public"
             };
+        }
+
+        private static string WithDidYouMean(string message, string name, IEnumerable<string> candidates)
+        {
+            if (TryFindClosestName(name, candidates, out string? closest))
+                return $"{message}; did you mean '{closest}'?";
+
+            return message;
+        }
+
+        private static bool TryFindClosestName(string name, IEnumerable<string> candidates, out string? closest)
+        {
+            closest = null;
+            if (string.IsNullOrWhiteSpace(name))
+                return false;
+
+            int bestDistance = int.MaxValue;
+            foreach (string candidate in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(candidate))
+                    continue;
+
+                int distance = EditDistance(name, candidate);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    closest = candidate;
+                }
+            }
+
+            int threshold = Math.Max(2, name.Length / 3);
+            return closest is not null && bestDistance <= threshold;
+        }
+
+        private static int EditDistance(string left, string right)
+        {
+            if (left.Length == 0)
+                return right.Length;
+            if (right.Length == 0)
+                return left.Length;
+
+            int[] previous = new int[right.Length + 1];
+            int[] current = new int[right.Length + 1];
+
+            for (int j = 0; j <= right.Length; j++)
+                previous[j] = j;
+
+            for (int i = 1; i <= left.Length; i++)
+            {
+                current[0] = i;
+                for (int j = 1; j <= right.Length; j++)
+                {
+                    int cost = left[i - 1] == right[j - 1] ? 0 : 1;
+                    current[j] = Math.Min(
+                        Math.Min(current[j - 1] + 1, previous[j] + 1),
+                        previous[j - 1] + cost);
+                }
+
+                (previous, current) = (current, previous);
+            }
+
+            return previous[right.Length];
         }
 
         private static string DescribeMissingPropertyAccessor(ClassDeclStmt ownerDecl, PropertyDeclStmt propertyDecl, MemberAccessKind accessKind)

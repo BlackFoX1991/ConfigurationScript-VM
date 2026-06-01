@@ -6,7 +6,7 @@ ConfigurationScript, or CFGS, is implemented in this repository as a bytecode VM
 
 In practice this means two things. First, the language is clearly formalized. Second, the documentation should be aligned with the current implementation instead of historical material. That is exactly what this folder does.
 
-If you want the codebase-level structure behind that implementation, continue with [Internal Architecture](14_internal_architecture.md).
+If you want the codebase-level structure behind that implementation, continue with [Internal Architecture](14_internal_architecture.md). If you want the normative language rules, use [CFGS Language Specification](18_language_specification.md).
 
 ## Important Project Folders
 
@@ -84,6 +84,8 @@ The built in REPL help also describes these interactions.
 
 - `-d` or `-debug` enables debug mode before execution starts.
 - `-di`, `-debugger`, or `--debugger` starts the interactive VM debugger.
+- `-check <file.cfs|file.cfb>`, `--check <file.cfs|file.cfb>`, or `check <file.cfs|file.cfb>` validates a source or CFB file without running it.
+- `--json` with `-check` emits diagnostics as a JSON array for tools and CI.
 - `-c <file.cfs>` or `-compile <file.cfs>` compiles a source script to `.cfb`.
 - `-o <file.cfb>` or `-out <file.cfb>` sets the output path for `-c` or `-compile`.
 - `-s buffer <number>` sets the debug buffer size.
@@ -92,6 +94,7 @@ The built in REPL help also describes these interactions.
 
 In debug mode the CLI writes a `log_file.log` into the current working directory after execution.
 In interactive debugger mode the VM stops before instructions and accepts commands such as `step`, `next`, `continue`, `break`, `locals`, `globals`, `stack`, `callstack`, and `print`. For details, see [Debugging CFGS Scripts](17_debugging.md).
+For diagnostic codes, source spans, and machine-readable check output, see [Diagnostics and Error Codes](19_diagnostics.md).
 
 ## Working Directory During Execution
 

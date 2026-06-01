@@ -79,19 +79,19 @@ internal sealed class CfgsAnalyzer
         }
         catch (LexerException ex)
         {
-            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.Category);
+            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
         }
         catch (ParserException ex)
         {
-            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.Category);
+            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
         }
         catch (CompilerException ex)
         {
-            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.FileSource, ex.Line, ex.Column, ex.RawMessage, ex.Category);
+            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.FileSource, ex.Line, ex.Column, ex.RawMessage, InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
         }
         catch (Exception ex)
         {
-            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, origin, 1, 1, ex.Message, "SystemError");
+            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, origin, 1, 1, ex.Message, "CFGS9000");
         }
 
         EnsureDocumentEntry(diagnosticsByUri, documentUri);
@@ -1273,14 +1273,16 @@ internal sealed class CfgsAnalyzer
         int line,
         int column,
         string message,
-        string code)
+        string code,
+        int? spanLength = null)
     {
         string uri = sources.ToDocumentUri(origin, fallbackDocumentUri);
         RangeInfo range = TextLocator.CreateRange(
             sources.TryGetSource(origin, out string? text) ? text : null,
             line,
             column,
-            null);
+            null,
+            spanLength);
 
         if (!diagnosticsByUri.TryGetValue(uri, out List<CfgsDiagnostic>? list))
         {
@@ -1289,6 +1291,97 @@ internal sealed class CfgsAnalyzer
         }
 
         list.Add(new CfgsDiagnostic(range, message.Trim(), 1, "cfgs", code));
+    }
+
+    private static string InferDiagnosticCode(string category, string? message)
+    {
+        string m = (message ?? string.Empty).Trim().ToLowerInvariant();
+
+        if (m.Contains(".cfb", StringComparison.Ordinal) ||
+            m.Contains("binary", StringComparison.Ordinal) ||
+            m.Contains("bytecode", StringComparison.Ordinal))
+            return "CFGS5000";
+
+        if (category.Equals("LexError", StringComparison.OrdinalIgnoreCase))
+            return "CFGS0001";
+
+        if (category.Equals("ParseError", StringComparison.OrdinalIgnoreCase))
+        {
+            if (m.Contains("expected", StringComparison.Ordinal))
+                return "CFGS1001";
+            if (m.Contains("import", StringComparison.Ordinal))
+                return "CFGS4001";
+            if (m.Contains("duplicate", StringComparison.Ordinal))
+                return "CFGS1002";
+            return "CFGS1000";
+        }
+
+        if (category.Equals("CompileError", StringComparison.OrdinalIgnoreCase))
+        {
+            if (m.Contains("dot access", StringComparison.Ordinal) ||
+                m.Contains("bracket access", StringComparison.Ordinal))
+                return "CFGS2003";
+            if (m.Contains("receiver", StringComparison.Ordinal))
+                return "CFGS2004";
+            if (m.Contains("unknown", StringComparison.Ordinal))
+                return "CFGS2001";
+            if (m.Contains("inaccessible", StringComparison.Ordinal))
+                return "CFGS2002";
+            if (m.Contains("duplicate", StringComparison.Ordinal))
+                return "CFGS2005";
+            if (m.Contains("override", StringComparison.Ordinal))
+                return "CFGS2006";
+            if (m.Contains("assignment", StringComparison.Ordinal) ||
+                m.Contains("assign target", StringComparison.Ordinal) ||
+                m.Contains("read-only", StringComparison.Ordinal))
+                return "CFGS2007";
+            if (m.Contains("invalid static member access", StringComparison.Ordinal) ||
+                m.Contains("invalid instance member access", StringComparison.Ordinal) ||
+                m.Contains("member is static", StringComparison.Ordinal) ||
+                m.Contains("member is instance", StringComparison.Ordinal))
+                return "CFGS2008";
+            if (m.Contains("reserved", StringComparison.Ordinal))
+                return "CFGS2009";
+            if (m.Contains("interface", StringComparison.Ordinal))
+                return "CFGS2010";
+            if (m.Contains("constructor", StringComparison.Ordinal) ||
+                m.Contains("base ctor", StringComparison.Ordinal))
+                return "CFGS2011";
+            if (m.Contains("property", StringComparison.Ordinal) ||
+                m.Contains("backing-field", StringComparison.Ordinal) ||
+                m.Contains("accessor", StringComparison.Ordinal))
+                return "CFGS2012";
+            if (m.Contains("ambiguous", StringComparison.Ordinal))
+                return "CFGS2013";
+            if (m.Contains("async", StringComparison.Ordinal) ||
+                m.Contains("await", StringComparison.Ordinal) ||
+                m.Contains("yield", StringComparison.Ordinal))
+                return "CFGS2014";
+            if (m.Contains("argument", StringComparison.Ordinal) ||
+                m.Contains("parameter", StringComparison.Ordinal) ||
+                m.Contains("spread", StringComparison.Ordinal) ||
+                m.Contains("rest", StringComparison.Ordinal) ||
+                m.Contains("default", StringComparison.Ordinal))
+                return "CFGS2015";
+            if (m.Contains("namespace", StringComparison.Ordinal))
+                return "CFGS2016";
+            return "CFGS2000";
+        }
+
+        if (category.Equals("RuntimeError", StringComparison.OrdinalIgnoreCase))
+        {
+            if (m.Contains("undefined variable", StringComparison.Ordinal))
+                return "CFGS3001";
+            if (m.Contains("not indexable", StringComparison.Ordinal))
+                return "CFGS3003";
+            if (m.Contains("index", StringComparison.Ordinal))
+                return "CFGS3002";
+            if (m.Contains("argument", StringComparison.Ordinal))
+                return "CFGS3004";
+            return "CFGS3000";
+        }
+
+        return "CFGS9000";
     }
 
     private static string GetDocumentOrigin(string documentUri)
@@ -1867,11 +1960,11 @@ internal readonly record struct RangeInfo(PositionInfo Start, PositionInfo End);
 
 internal static class TextLocator
 {
-    public static RangeInfo CreateRange(string? sourceText, int line, int column, string? token)
+    public static RangeInfo CreateRange(string? sourceText, int line, int column, string? token, int? spanLength = null)
     {
         int startLine = Math.Max(line - 1, 0);
         int startCharacter = Math.Max(column - 1, 0);
-        int endCharacter = startCharacter + Math.Max(token?.Length ?? 1, 1);
+        int endCharacter = startCharacter + Math.Max(spanLength ?? token?.Length ?? 1, 1);
 
         if (sourceText is null)
             return new RangeInfo(new PositionInfo(startLine, startCharacter), new PositionInfo(startLine, endCharacter));

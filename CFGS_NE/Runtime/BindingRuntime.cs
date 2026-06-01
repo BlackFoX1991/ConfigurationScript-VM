@@ -37,6 +37,9 @@ namespace CFGS_VM.VMCore
         private bool TryGetBuiltin(string name, out BuiltinDescriptor descriptor)
             => _builtins.TryGet(name, out descriptor);
 
+        private IEnumerable<string> SnapshotBuiltinNames()
+            => _builtins.Snapshot().Select(static descriptor => descriptor.Name);
+
         /// <summary>
         /// Copies the current binding layer into another VM binding surface.
         /// </summary>

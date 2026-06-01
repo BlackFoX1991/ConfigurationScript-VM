@@ -606,6 +606,74 @@ try {
         if (-not $okCliDebugger) { Write-Host $resCliDebugger.Output }
     }
 
+    if ("707_cli_diagnostic_format" -like $NameFilter) {
+        $resCliDiagnostic = Invoke-Cfgs -CfgsArgs @(
+            (Edge-Path "_edgecases\707_cli_diagnostic_format.cfs")
+        )
+        $okCliDiagnostic = $resCliDiagnostic.Output.Contains("CFGS2003: [CompileError]") -and
+                           $resCliDiagnostic.Output.Contains("|     var x = C[`"test1`"];") -and
+                           $resCliDiagnostic.Output.Contains("^") -and
+                           $resCliDiagnostic.Output.Contains("= help: use dot syntax")
+        Write-Result -Name "707_cli_diagnostic_format" -Ok $okCliDiagnostic -Details "Expected diagnostic code, source span, caret, and help output."
+        if (-not $okCliDiagnostic) { Write-Host $resCliDiagnostic.Output }
+    }
+
+    if ("708_member_did_you_mean_fail" -like $NameFilter) {
+        $resDidYouMean = Invoke-Cfgs -CfgsArgs @(
+            (Edge-Path "_edgecases\708_member_did_you_mean_fail.cfs")
+        )
+        $okDidYouMean = $resDidYouMean.Output.Contains("unknown static member 'tset1'") -and
+                        $resDidYouMean.Output.Contains("did you mean 'test1'?")
+        Write-Result -Name "708_member_did_you_mean_fail" -Ok $okDidYouMean -Details "Expected did-you-mean suggestion for unknown class member."
+        if (-not $okDidYouMean) { Write-Host $resDidYouMean.Output }
+    }
+
+    if ("709_cli_check_json_diagnostic" -like $NameFilter) {
+        $resCheckJson = Invoke-Cfgs -CfgsArgs @(
+            "-check",
+            (Edge-Path "_edgecases\709_cli_check_json_diagnostic.cfs"),
+            "--json"
+        )
+        $okCheckJson = $resCheckJson.Output.Contains('"code": "CFGS2003"') -and
+                       $resCheckJson.Output.Contains('"category": "CompileError"') -and
+                       $resCheckJson.Output.Contains('"help":') -and
+                       $resCheckJson.Output.Contains('"sourceSpan":') -and
+                       (-not $resCheckJson.Output.Contains("[Error-Id:"))
+        Write-Result -Name "709_cli_check_json_diagnostic" -Ok $okCheckJson -Details "Expected -check --json to emit structured diagnostics without error tracking decoration."
+        if (-not $okCheckJson) { Write-Host $resCheckJson.Output }
+    }
+
+    if ("710_runtime_variable_did_you_mean_fail" -like $NameFilter) {
+        $resRuntimeDidYouMean = Invoke-Cfgs -CfgsArgs @(
+            (Edge-Path "_edgecases\710_runtime_variable_did_you_mean_fail.cfs")
+        )
+        $okRuntimeDidYouMean = $resRuntimeDidYouMean.Output.Contains("undefined variable 'totalCout'") -and
+                               $resRuntimeDidYouMean.Output.Contains("did you mean 'totalCount'?")
+        Write-Result -Name "710_runtime_variable_did_you_mean_fail" -Ok $okRuntimeDidYouMean -Details "Expected did-you-mean suggestion for undefined runtime variable."
+        if (-not $okRuntimeDidYouMean) { Write-Host $resRuntimeDidYouMean.Output }
+    }
+
+    if ("711_parser_native_span_fail" -like $NameFilter) {
+        $resParserSpan = Invoke-Cfgs -CfgsArgs @(
+            (Edge-Path "_edgecases\711_parser_native_span_fail.cfs")
+        )
+        $okParserSpan = $resParserSpan.Output.Contains("CFGS1000: [ParseError] invalid factor, token AndAnd") -and
+                        $resParserSpan.Output.Contains("| var x = &&;") -and
+                        $resParserSpan.Output.Contains("^^")
+        Write-Result -Name "711_parser_native_span_fail" -Ok $okParserSpan -Details "Expected parser diagnostics to highlight the full offending token span."
+        if (-not $okParserSpan) { Write-Host $resParserSpan.Output }
+    }
+
+    if ("712_semantic_special_code_fail" -like $NameFilter) {
+        $resSemanticCode = Invoke-Cfgs -CfgsArgs @(
+            (Edge-Path "_edgecases\712_semantic_special_code_fail.cfs")
+        )
+        $okSemanticCode = $resSemanticCode.Output.Contains("CFGS2008: [CompileError]") -and
+                          $resSemanticCode.Output.Contains("invalid static member access 'value'")
+        Write-Result -Name "712_semantic_special_code_fail" -Ok $okSemanticCode -Details "Expected semantic static/instance mismatch to use a specialized diagnostic code."
+        if (-not $okSemanticCode) { Write-Host $resSemanticCode.Output }
+    }
+
     # REPL redirected-input checks
     if ("704_repl_redirected_exit" -like $NameFilter) {
         $resReplExit = Invoke-Cfgs -CfgsArgs @() -StdinText "exit`n"

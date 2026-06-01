@@ -351,7 +351,7 @@ namespace CFGS_VM.VMCore
             if (instr.Operand is string name)
             {
                 Env owner = FindEnvWithLocal(name)
-                    ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    ?? throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(owner);
                 target = GetLocalVar(owner, name)!;
             }
@@ -424,7 +424,7 @@ namespace CFGS_VM.VMCore
             if (instr.Operand is string name)
             {
                 Env env = FindEnvWithLocal(name)
-                    ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    ?? throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(env);
                 target = GetLocalVar(env, name)!;
                 MarkAsyncHazardForMutableCollection(target);
@@ -650,7 +650,7 @@ namespace CFGS_VM.VMCore
             string name = (string)instr.Operand;
             Env? env = FindEnvWithLocal(name);
             if (env == null || !TryGetLocalVar(env, name, out object? obj))
-                throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             MarkAsyncHazardForEnvAccess(env);
             AppendToCollectionTarget(obj!, pushedValue, instr, name);
@@ -731,7 +731,7 @@ namespace CFGS_VM.VMCore
             if (instr.Operand is string name)
             {
                 Env env = FindEnvWithLocal(name)
-                    ?? throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    ?? throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(env);
                 target = GetLocalVar(env, name)!;
                 MarkAsyncHazardForMutableCollection(target);
@@ -814,7 +814,7 @@ namespace CFGS_VM.VMCore
                 string name = (string)instr.Operand;
                 Env? owner = FindEnvWithLocal(name);
                 if (owner == null)
-                    throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                 MarkAsyncHazardForEnvAccess(owner);
                 object target = GetLocalVar(owner, name)!;
@@ -968,7 +968,7 @@ namespace CFGS_VM.VMCore
             string name = (string)instr.Operand;
             Env? env = FindEnvWithLocal(name);
             if (env == null || !TryGetLocalVar(env, name, out object? target))
-                throw new VMException($"Runtime error: undefined variable '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             MarkAsyncHazardForEnvAccess(env);
             MarkAsyncHazardForMutableCollection(target);
