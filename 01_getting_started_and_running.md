@@ -91,7 +91,7 @@ The built in REPL help also describes these interactions.
 - `-p` or `-params` separates script arguments from CLI arguments.
 
 In debug mode the CLI writes a `log_file.log` into the current working directory after execution.
-In interactive debugger mode the VM stops before instructions and accepts commands such as `step`, `next`, `continue`, `break`, `locals`, `globals`, `stack`, `callstack`, and `print`.
+In interactive debugger mode the VM stops before instructions and accepts commands such as `step`, `next`, `continue`, `break`, `locals`, `globals`, `stack`, `callstack`, and `print`. For details, see [Debugging CFGS Scripts](17_debugging.md).
 
 ## Working Directory During Execution
 
