@@ -6,8 +6,11 @@ CFGS has two import worlds.
 
 1. Source modules from `.cfs` files.
 2. Plugin assemblies from `.dll` files.
+3. Native .NET assemblies through `import native`.
 
 For `.cfs`, the focus is exported language symbols. For `.dll`, the focus is runtime extensions such as builtins and intrinsics.
+
+Native .NET interop is different from plugin loading: it gives the script an alias that can walk public CLR namespaces, types, constructors, static members, instance members, fields, properties, and methods directly.
 
 ## Import Header Rule
 
@@ -111,10 +114,20 @@ Dot access also works in many cases. The bracket form is still especially explic
 Relative and simple module paths are searched in this order.
 
 1. The current script directory.
-2. The current working directory.
-3. The directory of the running CLI.
+2. The nearest package restore directory, such as `.cfgs/plugins`, found from the script directory.
+3. The current working directory.
+4. The nearest package restore directory found from the current working directory.
+5. The directory of the running CLI.
 
 This applies to both `.cfs` and `.dll`.
+
+Package restore lets scripts import restored plugins by DLL file name.
+
+```cfs
+import "CFGS.StandardLibrary.dll";
+```
+
+For the manifest and lockfile workflow, see [Package and Dependency Management](20_package_dependency_management.md).
 
 ## Self Imports and Cycles
 
@@ -165,6 +178,32 @@ Important details.
 - The import loads and activates plugins in the assembly.
 - Attribute based builtins and intrinsics inside that assembly are registered as well.
 
+## Native .NET Imports
+
+Regular .NET assemblies can be loaded as native interop roots.
+
+```cfs
+import native "MyLibrary.dll" as Net;
+
+func main() {
+    var box = Net.MyCompany.Tools.Box.new(7);
+    box.Value = 20;
+    print(box.Add(5));
+}
+```
+
+Important details.
+
+- Native imports require an alias.
+- Public CLR namespaces and types are accessed with dot syntax.
+- Constructors are exposed through `.new(...)` on the CLR type.
+- Public static and instance fields, properties, and methods are available through dot access.
+- Named arguments, optional CLR parameters, `params` arrays, inferred simple generic methods, delegates, events, and CLR indexers are supported.
+- Bracket access is not CLR member lookup; for native objects it maps to CLR indexers, otherwise keep it for dictionary and index access.
+- CFB files store the native DLL file name, not local build-machine paths.
+
+For details, see [Native .NET Interop](21_native_dotnet_interop.md).
+
 ## Namespaces and Modules Together
 
 Modules can expose namespaces by containing top level namespace declarations. The import then brings the resulting top level symbols into the current context, or into a namespace alias, depending on the import form.
@@ -200,6 +239,7 @@ main();
 - Import not placed in the header.
 - Named import on a DLL.
 - Namespace import on a DLL.
+- Native import without an alias.
 - Alias conflicts with existing symbols.
 - Import of a name that is not actually exported.
 

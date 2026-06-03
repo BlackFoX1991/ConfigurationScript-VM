@@ -8,6 +8,7 @@ using CFGS_VM.VMCore.Codegen;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
+using CFGS_VM.VMCore.Interop;
 
 namespace CFGS_VM.VMCore
 {
@@ -21,6 +22,15 @@ namespace CFGS_VM.VMCore
         {
             switch (e)
             {
+                case NativeAssemblyExpr native:
+                    _insns.Add(new Instruction(
+                        OpCode.PUSH_CONST,
+                        new NativeAssemblyReference(native.Alias, native.Path),
+                        e.Line,
+                        e.Col,
+                        e.OriginFile));
+                    break;
+
                 case NumberExpr n:
                     if (n.Value is int)
                         _insns.Add(new Instruction(OpCode.PUSH_INT, n.Value, e.Line, e.Col, e.OriginFile));

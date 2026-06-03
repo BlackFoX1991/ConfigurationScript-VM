@@ -328,7 +328,9 @@ try {
 
     if ("229_await_non_generic_task_valuetask" -like $NameFilter -or
         "231_plugin_nonblocking_loader" -like $NameFilter -or
-        "233_await_generic_task_valuetask" -like $NameFilter) {
+        "233_await_generic_task_valuetask" -like $NameFilter -or
+        "714_native_interop_valid" -like $NameFilter -or
+        "715_native_interop_cfb" -like $NameFilter) {
         $edgeAwaitDll = Join-Path $runtimeEdgeDir "CFGS.EdgeAwaitables.dll"
         if (-not (Test-Path -LiteralPath $edgeAwaitDll)) {
             if (-not (Test-Path -LiteralPath (Join-Path $edgeAwaitablesBuildDir "CFGS.EdgeAwaitables.dll"))) {
@@ -410,6 +412,7 @@ try {
     Run-ExpectContains -Name "242_async_pure_io_parallelism" -ScriptArgs @((Edge-Path "_edgecases\242_async_pure_io_parallelism.cfs")) -Expected "EDGE_OK:242_async_pure_io_parallelism"
     Run-ExpectContains -Name "243_async_shared_collection_aliases" -ScriptArgs @((Edge-Path "_edgecases\243_async_shared_collection_aliases.cfs")) -Expected "EDGE_OK:243_async_shared_collection_aliases"
     Run-ExpectContains -Name "245_async_default_param_await" -ScriptArgs @((Edge-Path "_edgecases\245_async_default_param_await.cfs")) -Expected "EDGE_OK:245_async_default_param_await"
+    Run-ExpectContains -Name "714_native_interop_valid" -ScriptArgs @((Edge-Path "_edgecases\714_native_interop_valid.cfs")) -Expected "EDGE_OK:714_native_interop_valid"
     Run-ExpectContains -Name "301_try_throw_finally" -ScriptArgs @((Edge-Path "_edgecases\301_try_throw_finally.cfs")) -Expected "EDGE_OK:301_try_throw_finally"
     Run-ExpectContains -Name "402_import_named_and_file" -ScriptArgs @((Edge-Path "_edgecases\402_import_named_and_file.cfs")) -Expected "EDGE_OK:402_import_named_and_file"
     if ("495_plugin_multifile_reload" -like $NameFilter) {
@@ -674,6 +677,51 @@ try {
         if (-not $okSemanticCode) { Write-Host $resSemanticCode.Output }
     }
 
+    if ("713_package_restore_lockfile" -like $NameFilter) {
+        $pkgRoot = Join-Path $runtimeRepoRoot "pkg713"
+        $pkgApp = Join-Path $pkgRoot "app"
+        New-Item -ItemType Directory -Force -Path $pkgApp | Out-Null
+
+        $pkgScript = Join-Path $pkgApp "main.cfs"
+        [IO.File]::WriteAllText($pkgScript, "import `"CFGS.StandardLibrary.dll`";`nprint(`"EDGE_OK:713_package_restore_lockfile`");`n")
+
+        $stdlibSource = Edge-Path "_edgecases\CFGS.StandardLibrary.dll"
+        $resInstall = Invoke-Cfgs -CfgsArgs @(
+            "install",
+            $stdlibSource,
+            "--project",
+            $pkgRoot,
+            "--name",
+            "stdlib",
+            "--version",
+            "5.3.4"
+        )
+        $resDeps = Invoke-Cfgs -CfgsArgs @("deps", "list", "--project", $pkgRoot)
+        $resPkgRun = Invoke-Cfgs -CfgsArgs @($pkgScript)
+
+        $manifestPath = Join-Path $pkgRoot "cfgs.json"
+        $lockPath = Join-Path $pkgRoot "cfgs.lock.json"
+        $restoredDll = Join-Path $pkgRoot ".cfgs\plugins\CFGS.StandardLibrary.dll"
+        $lockText = if (Test-Path -LiteralPath $lockPath) { [IO.File]::ReadAllText($lockPath) } else { "" }
+
+        $okPackage = $resInstall.Output.Contains("installed plugin dependency: stdlib") -and
+                     $resInstall.Output.Contains("restored packages") -and
+                     $resDeps.Output.Contains("stdlib 5.3.4") -and
+                     $resDeps.Output.Contains("locked") -and
+                     (Test-Path -LiteralPath $manifestPath) -and
+                     (Test-Path -LiteralPath $lockPath) -and
+                     (Test-Path -LiteralPath $restoredDll) -and
+                     $lockText.Contains('"sha256"') -and
+                     $resPkgRun.Output.Contains("EDGE_OK:713_package_restore_lockfile")
+
+        Write-Result -Name "713_package_restore_lockfile" -Ok $okPackage -Details "Expected install/restore to create cfgs.json, cfgs.lock.json, restored plugin DLL, and import from .cfgs/plugins."
+        if (-not $okPackage) {
+            Write-Host $resInstall.Output
+            Write-Host $resDeps.Output
+            Write-Host $resPkgRun.Output
+        }
+    }
+
     # REPL redirected-input checks
     if ("704_repl_redirected_exit" -like $NameFilter) {
         $resReplExit = Invoke-Cfgs -CfgsArgs @() -StdinText "exit`n"
@@ -803,6 +851,24 @@ try {
         if (-not $okCfb) {
             Write-Host $resCompile.Output
             Write-Host $resCfb.Output
+        }
+    }
+
+    if ("715_native_interop_cfb" -like $NameFilter) {
+        $cfbPath = Join-Path $runtimeEdgeDir "native_interop_valid.cfb"
+        $resNativeCompile = Invoke-Cfgs -CfgsArgs @(
+            "-c",
+            (Edge-Path "_edgecases\714_native_interop_valid.cfs"),
+            "-o",
+            $cfbPath
+        )
+        $resNativeCfb = Invoke-Cfgs -CfgsArgs @($cfbPath)
+        $okNativeCfb = $resNativeCompile.Output.Contains("[CFB] compiled") -and
+                       $resNativeCfb.Output.Contains("EDGE_OK:714_native_interop_valid")
+        Write-Result -Name "715_native_interop_cfb" -Ok $okNativeCfb -Details "Expected native interop assembly references to execute from compiled CFB."
+        if (-not $okNativeCfb) {
+            Write-Host $resNativeCompile.Output
+            Write-Host $resNativeCfb.Output
         }
     }
 }

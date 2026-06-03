@@ -7,6 +7,7 @@ using CFGS_VM.Analytic.Modules;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
+using CFGS_VM.Packaging;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -97,7 +98,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v5.3.4";
+    public const string Version = "v5.5.4";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -133,6 +134,7 @@ public class Program
       #####        ####++++++++*.......::-##    [                   ansi    1 or 0 to en/dis-able   ]
       ######        *##++++++**........::##     [ Compile  : -c file.cfs [-o file.cfb]              ]
     ##########        #******........:::##      [ Check    : -check file.cfs [--json]               ]   
+    ##########        #******........:::##      [ Packages : init | install plugin.dll | restore    ]   
     ##########        #******........:::##      [--------------REPL INFO----------------------------]
      ############     #.:...........::###       [ Enter runs complete code, Ctrl+Enter forces run   ]
            ############..........:::###         [ Use Ctrl+Backspace to clear the code              ]
@@ -158,6 +160,22 @@ public class Program
 
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
+
+        PackageCliCommand packageCommand;
+        try
+        {
+            if (TryGetPackageArguments(args, out packageCommand))
+            {
+                Environment.ExitCode = RunPackageCommand(packageCommand);
+                return;
+            }
+        }
+        catch (ArgumentException ex)
+        {
+            Console.Error.WriteLine($"[CFGS] invalid package command: {ex.Message}");
+            Environment.ExitCode = 1;
+            return;
+        }
 
         if (TryGetCheckArguments(args, out string? checkInput, out bool checkJson))
         {
@@ -433,6 +451,168 @@ public class Program
         }
 
         return checkMode;
+    }
+
+    private sealed class PackageCliCommand
+    {
+        public string Command { get; init; } = string.Empty;
+        public string? PluginPath { get; set; }
+        public string? ProjectDirectory { get; set; }
+        public string? Name { get; set; }
+        public string? Version { get; set; }
+        public bool Restore { get; set; } = true;
+        public bool IncludeDependencies { get; set; } = true;
+        public bool List { get; set; }
+    }
+
+    private static bool TryGetPackageArguments(string[] args, out PackageCliCommand command)
+    {
+        command = new PackageCliCommand();
+        if (args.Length == 0)
+            return false;
+
+        string first = args[0].Trim();
+        if (!IsPackageCommand(first))
+            return false;
+
+        command = new PackageCliCommand { Command = first };
+        for (int i = 1; i < args.Length; i++)
+        {
+            string arg = args[i].Trim();
+            switch (arg)
+            {
+                case "--project":
+                case "-project":
+                    command.ProjectDirectory = ReadOptionValue(args, ref i, arg);
+                    break;
+
+                case "--name":
+                case "-name":
+                    command.Name = ReadOptionValue(args, ref i, arg);
+                    break;
+
+                case "--version":
+                case "-version":
+                    command.Version = ReadOptionValue(args, ref i, arg);
+                    break;
+
+                case "--no-restore":
+                    command.Restore = false;
+                    break;
+
+                case "--no-dependencies":
+                    command.IncludeDependencies = false;
+                    break;
+
+                case "list":
+                    command.List = true;
+                    break;
+
+                default:
+                    if (command.PluginPath is null && !arg.StartsWith("-", StringComparison.Ordinal))
+                        command.PluginPath = args[i];
+                    break;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsPackageCommand(string command)
+        => string.Equals(command, "init", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(command, "restore", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(command, "install", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(command, "deps", StringComparison.OrdinalIgnoreCase);
+
+    private static string ReadOptionValue(string[] args, ref int index, string option)
+    {
+        if (index + 1 >= args.Length)
+            throw new ArgumentException($"missing value for {option}");
+
+        index++;
+        return args[index];
+    }
+
+    private static int RunPackageCommand(PackageCliCommand command)
+    {
+        try
+        {
+            switch (command.Command.ToLowerInvariant())
+            {
+                case "init":
+                    CfgsManifest manifest = CfgsPackageManager.Init(command.ProjectDirectory);
+                    string initRoot = CfgsPackageManager.ResolveProjectRoot(command.ProjectDirectory);
+                    Console.WriteLine($"[CFGS] initialized {CfgsPackageManager.ManifestFileName}: {Path.Combine(initRoot, CfgsPackageManager.ManifestFileName)}");
+                    Console.WriteLine($"[CFGS] project: {manifest.Name ?? new DirectoryInfo(initRoot).Name}");
+                    return 0;
+
+                case "install":
+                    if (string.IsNullOrWhiteSpace(command.PluginPath))
+                    {
+                        Console.Error.WriteLine("missing plugin path for install");
+                        return 1;
+                    }
+
+                    CfgsPluginDependency installed = CfgsPackageManager.InstallPlugin(
+                        command.PluginPath,
+                        command.ProjectDirectory,
+                        command.Name,
+                        command.Version,
+                        command.IncludeDependencies,
+                        command.Restore);
+
+                    Console.WriteLine($"[CFGS] installed plugin dependency: {installed.Name ?? Path.GetFileNameWithoutExtension(installed.Path)}");
+                    if (command.Restore)
+                        Console.WriteLine($"[CFGS] restored packages and updated {CfgsPackageManager.LockFileName}");
+                    return 0;
+
+                case "restore":
+                    CfgsLockFile restored = CfgsPackageManager.Restore(command.ProjectDirectory);
+                    Console.WriteLine($"[CFGS] restored {restored.Plugins.Count} plugin dependency/dependencies");
+                    Console.WriteLine($"[CFGS] lockfile: {CfgsPackageManager.LockFileName}");
+                    return 0;
+
+                case "deps":
+                    return RunDepsCommand(command);
+
+                default:
+                    Console.Error.WriteLine($"unknown package command '{command.Command}'");
+                    return 1;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[CFGS] {command.Command} failed: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static int RunDepsCommand(PackageCliCommand command)
+    {
+        string root = CfgsPackageManager.ResolveProjectRoot(command.ProjectDirectory);
+        CfgsManifest manifest = CfgsPackageManager.ReadManifest(root);
+        CfgsLockFile? lockFile = CfgsPackageManager.TryReadLockFile(root);
+
+        Console.WriteLine($"[CFGS] project: {manifest.Name ?? new DirectoryInfo(root).Name}");
+        if (manifest.Plugins is null || manifest.Plugins.Count == 0)
+        {
+            Console.WriteLine("[CFGS] plugins: 0");
+            return 0;
+        }
+
+        Console.WriteLine($"[CFGS] plugins: {manifest.Plugins.Count}");
+        foreach (CfgsPluginDependency plugin in manifest.Plugins)
+        {
+            CfgsLockedPlugin? locked = lockFile?.Plugins.FirstOrDefault(p =>
+                string.Equals(p.Name, plugin.Name, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(Path.GetFileName(p.Source), Path.GetFileName(plugin.Path), StringComparison.OrdinalIgnoreCase));
+
+            string version = string.IsNullOrWhiteSpace(plugin.Version) ? "0.0.0" : plugin.Version;
+            string lockInfo = locked is null ? "not restored" : $"locked {locked.Sha256[..Math.Min(12, locked.Sha256.Length)]}";
+            Console.WriteLine($"  - {plugin.Name ?? Path.GetFileNameWithoutExtension(plugin.Path)} {version} ({lockInfo})");
+        }
+
+        return 0;
     }
 
     private static void LoadReplPluginsFromApplicationPath(VM replVm)
@@ -716,6 +896,7 @@ public class Program
         vm.EntryScriptPath = string.Equals(name, "<repl>", StringComparison.Ordinal)
             ? "<repl>"
             : Path.GetFullPath(name);
+        vm.NativeAssemblyBaseDirectory = workingDirectory ?? Environment.CurrentDirectory;
 
         CompiledScript compiled = CfgsCompiler.CompileSource(name, source, vm.LoadPlugin, workingDirectory, Version);
         vm.LoadCompiledScript(compiled);
@@ -786,6 +967,7 @@ public class Program
         VM vm = new();
         vm.Debugger = interactiveDebug ? new ConsoleVmDebugger() : null;
         vm.EntryScriptPath = Path.GetFullPath(file);
+        vm.NativeAssemblyBaseDirectory = workingDirectory ?? Path.GetDirectoryName(vm.EntryScriptPath) ?? Environment.CurrentDirectory;
 
         foreach (string plugin in compiled.RequiredPlugins)
             vm.LoadPlugin(ResolveCompiledPluginPath(plugin, workingDirectory));
@@ -885,6 +1067,7 @@ public class Program
             NamespaceImportSyntaxStmt => true,
             NamedImportSyntaxStmt => true,
             DefaultImportSyntaxStmt => true,
+            NativeImportSyntaxStmt => true,
             UseNamespaceStmt => true,
             VarDecl => true,
             ConstDecl => true,

@@ -1,0 +1,44 @@
+import native "CFGS.EdgeAwaitables.dll" as Net;
+import "edge_assert.cfs";
+
+func main() {
+    edge_begin("714_native_interop_valid");
+
+    var box = Net.CFGS.EdgeAwaitables.EdgeNativeBox.new(7);
+    edge_eq("native_instance_method", box.Add(5), 12);
+
+    box.Value = 20;
+    edge_eq("native_property_set", box.Value, 20);
+
+    edge_eq("native_static_method", Net.CFGS.EdgeAwaitables.EdgeNativeBox.StaticAdd(2, 3), 5);
+    edge_eq("native_static_property", Net.CFGS.EdgeAwaitables.EdgeNativeBox.StaticText, "EDGE_NATIVE_STATIC");
+
+    edge_eq("native_optional_named_args", box.OptionalJoin("A", right: "Z"), "A:M:Z");
+    edge_eq("native_params_array", box.SumParams("sum", 1, 2, 3, 4), 10);
+    edge_eq("native_generic_method", Net.CFGS.EdgeAwaitables.EdgeNativeBox.EchoGeneric("GENERIC_OK"), "GENERIC_OK");
+
+    edge_eq("native_indexer_get", box[2], "idx:2:20");
+    box[2] = "44";
+    edge_eq("native_indexer_set", box.Value, 44);
+
+    var adder = box.MakeAdder();
+    edge_eq("native_delegate_invoke", adder(2, 3), 5);
+
+    func multiply(a, b) {
+        return a * b;
+    }
+    edge_eq("native_closure_delegate_arg", box.UseBinary(3, 4, multiply), 12);
+
+    var eventTotal = 0;
+    func on_number(v) {
+        eventTotal = eventTotal + v;
+    }
+    box.NumberChanged.add(on_number);
+    box.RaiseNumber(7);
+    edge_eq("native_event_add_closure", eventTotal, 7);
+    box.NumberChanged.remove(on_number);
+    box.RaiseNumber(5);
+    edge_eq("native_event_remove_closure", eventTotal, 7);
+
+    edge_finish("714_native_interop_valid");
+}

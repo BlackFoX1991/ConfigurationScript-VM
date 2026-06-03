@@ -109,3 +109,54 @@ public sealed class EdgeAwaitablesPlugin : IVmPlugin
         return (recv?.ToString() ?? "") + suffix;
     }
 }
+
+public sealed class EdgeNativeBox
+{
+    private readonly Dictionary<int, string> _items = new();
+
+    public EdgeNativeBox(int value)
+    {
+        Value = value;
+    }
+
+    public int Value { get; set; }
+
+    public static string StaticText { get; set; } = "EDGE_NATIVE_STATIC";
+
+    public event Action<int>? NumberChanged;
+
+    public string this[int index]
+    {
+        get => _items.TryGetValue(index, out string? value) ? value : $"idx:{index}:{Value}";
+        set
+        {
+            _items[index] = value;
+            if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+                Value = parsed;
+        }
+    }
+
+    public int Add(int amount)
+        => Value + amount;
+
+    public string OptionalJoin(string left, string middle = "M", string right = "R")
+        => $"{left}:{middle}:{right}";
+
+    public int SumParams(string label, params int[] values)
+        => values.Sum();
+
+    public Func<int, int, int> MakeAdder()
+        => static (left, right) => left + right;
+
+    public int UseBinary(int left, int right, Func<int, int, int> op)
+        => op(left, right);
+
+    public void RaiseNumber(int value)
+        => NumberChanged?.Invoke(value);
+
+    public static int StaticAdd(int left, int right)
+        => left + right;
+
+    public static T EchoGeneric<T>(T value)
+        => value;
+}

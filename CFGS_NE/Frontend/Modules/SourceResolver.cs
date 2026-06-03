@@ -1,3 +1,4 @@
+using CFGS_VM.Packaging;
 using System.Net.Http;
 
 namespace CFGS_VM.Analytic.Modules
@@ -198,15 +199,61 @@ namespace CFGS_VM.Analytic.Modules
                 catch (IOException) { }
 
                 if (!string.IsNullOrWhiteSpace(sourceDirectory))
+                {
                     yield return sourceDirectory!;
+                    foreach (string packagePluginDirectory in GetPackagePluginDirectories(sourceDirectory!))
+                        yield return packagePluginDirectory;
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(_workingDirectory))
+            {
                 yield return _workingDirectory!;
+                foreach (string packagePluginDirectory in GetPackagePluginDirectories(_workingDirectory!))
+                    yield return packagePluginDirectory;
+            }
             else
+            {
                 yield return Directory.GetCurrentDirectory();
+                foreach (string packagePluginDirectory in GetPackagePluginDirectories(Directory.GetCurrentDirectory()))
+                    yield return packagePluginDirectory;
+            }
 
             yield return GetExeBaseDir();
+        }
+
+        private static IEnumerable<string> GetPackagePluginDirectories(string startDirectory)
+        {
+            DirectoryInfo? current;
+            try
+            {
+                current = new DirectoryInfo(Path.GetFullPath(startDirectory));
+            }
+            catch (ArgumentException)
+            {
+                yield break;
+            }
+            catch (IOException)
+            {
+                yield break;
+            }
+
+            HashSet<string> yielded = new(StringComparer.OrdinalIgnoreCase);
+            while (current is not null)
+            {
+                string packagePluginDirectory = Path.Combine(
+                    current.FullName,
+                    CfgsPackageManager.PackageDirectoryName,
+                    CfgsPackageManager.PluginDirectoryName);
+
+                if (Directory.Exists(packagePluginDirectory) && yielded.Add(packagePluginDirectory))
+                    yield return packagePluginDirectory;
+
+                if (File.Exists(Path.Combine(current.FullName, CfgsPackageManager.ManifestFileName)))
+                    yield break;
+
+                current = current.Parent;
+            }
         }
 
         private static string? NormalizeWorkingDirectory(string? workingDirectory)

@@ -9,6 +9,8 @@ A plugin is a .NET assembly that teaches the CFGS runtime new builtins and or ne
 
 Both paths can exist in the same assembly at the same time.
 
+This is separate from native .NET interop. Native interop can load a regular .NET assembly and expose public CLR types directly through an alias, but it does not register CFGS builtins or intrinsics. Use plugins when you want a deliberate CFGS API; use native interop when direct CLR access is the goal.
+
 ## How Plugins Are Loaded
 
 A script loads a plugin through a normal DLL import.
@@ -189,14 +191,20 @@ print(cache.get("host"));
 
 If your plugin has additional NuGet or project dependencies, those DLLs need to be available next to your plugin at runtime. Otherwise the loader may find the assembly itself but still fail to activate specific types.
 
+If you only want to use public .NET classes from a DLL without registering builtins or intrinsics, see [Native .NET Interop](21_native_dotnet_interop.md).
+
 ## Packaging and Importing
 
 The typical flow is simple.
 
 1. Build the plugin.
 2. Make sure the output DLL and its dependencies live in a known location.
-3. Load it in the script with `import "Path\\MyPlugin.dll";`.
-4. Use the registered builtins or intrinsics like normal language features.
+3. Add it to `cfgs.json` with `install Path\\MyPlugin.dll`.
+4. Run `restore` to copy the plugin artifacts into `.cfgs/plugins`.
+5. Load it in the script with `import "MyPlugin.dll";`.
+6. Use the registered builtins or intrinsics like normal language features.
+
+Direct path imports still work, but the manifest workflow gives projects a stable dependency list and lockfile.
 
 ## Troubleshooting
 

@@ -4,6 +4,7 @@ using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Core;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
+using CFGS_VM.VMCore.Interop;
 using CFGS_VM.VMCore.Plugin;
 using System.Collections;
 
@@ -468,6 +469,45 @@ namespace CFGS_VM.VMCore
                     object? result = InvokeBuiltinForCall(desc, argsList, instr);
                     _stack.Push(result!);
                     return StepResult.Continue;
+                }
+                else if (callee is ClrCallable clrCallable)
+                {
+                    try
+                    {
+                        object? result = NativeInterop.Invoke(clrCallable, argsList, this, instr);
+                        _stack.Push(result!);
+                        return StepResult.Continue;
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new VMException($"Runtime error: native interop call failed: {ex.Message}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex);
+                    }
+                }
+                else if (callee is ClrDelegateHandle clrDelegate)
+                {
+                    try
+                    {
+                        object? result = NativeInterop.Invoke(clrDelegate, argsList, this, instr);
+                        _stack.Push(result!);
+                        return StepResult.Continue;
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new VMException($"Runtime error: native interop delegate call failed: {ex.Message}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex);
+                    }
+                }
+                else if (callee is ClrEventAccessor clrEventAccessor)
+                {
+                    try
+                    {
+                        object? result = NativeInterop.Invoke(clrEventAccessor, argsList, this, instr);
+                        _stack.Push(result!);
+                        return StepResult.Continue;
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new VMException($"Runtime error: native interop call failed: {ex.Message}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex);
+                    }
                 }
                 else if (callee is BoundMethod bm)
                 {

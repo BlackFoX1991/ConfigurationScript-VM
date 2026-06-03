@@ -4,7 +4,7 @@ namespace CFGS_VM.VMCore
 {
     public sealed class CompiledScript
     {
-        public const int CurrentBytecodeVersion = 1;
+        public const int CurrentBytecodeVersion = 2;
 
         public string Name { get; }
 

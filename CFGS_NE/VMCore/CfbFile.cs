@@ -1,5 +1,6 @@
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions.Core;
+using CFGS_VM.VMCore.Interop;
 using System.Numerics;
 using System.Text;
 
@@ -23,6 +24,7 @@ namespace CFGS_VM.VMCore
             Boolean = 9,
             ObjectArray = 10,
             RuntimePropertyDescriptor = 11,
+            NativeAssemblyReference = 12,
         }
 
         public static void Save(CompiledScript script, string path)
@@ -190,6 +192,11 @@ namespace CFGS_VM.VMCore
                     writer.Write((byte)OperandKind.RuntimePropertyDescriptor);
                     WriteRuntimePropertyDescriptor(writer, descriptor);
                     break;
+                case NativeAssemblyReference nativeAssembly:
+                    writer.Write((byte)OperandKind.NativeAssemblyReference);
+                    writer.Write(nativeAssembly.Alias);
+                    writer.Write(SanitizePluginReference(nativeAssembly.Path));
+                    break;
                 default:
                     throw new InvalidDataException($"unsupported CFB operand type '{operand.GetType().FullName}'");
             }
@@ -217,6 +224,7 @@ namespace CFGS_VM.VMCore
                 OperandKind.Boolean => reader.ReadBoolean(),
                 OperandKind.ObjectArray => ReadObjectArray(reader),
                 OperandKind.RuntimePropertyDescriptor => ReadRuntimePropertyDescriptor(reader),
+                OperandKind.NativeAssemblyReference => new NativeAssemblyReference(reader.ReadString(), reader.ReadString()),
                 _ => throw new InvalidDataException($"unsupported CFB operand kind '{kind}'")
             };
         }

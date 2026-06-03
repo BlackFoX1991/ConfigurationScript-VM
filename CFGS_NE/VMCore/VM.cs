@@ -361,7 +361,10 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case OpCode.PUSH_CONST:
-                    _stack.Push(instr.Operand!);
+                    if (instr.Operand is Interop.NativeAssemblyReference nativeAssemblyReference)
+                        _stack.Push(Interop.NativeInterop.LoadAssembly(nativeAssemblyReference, NativeAssemblyBaseDirectory));
+                    else
+                        _stack.Push(instr.Operand!);
                     break;
 
                 case OpCode.PUSH_SCOPE:
@@ -949,6 +952,13 @@ namespace CFGS_VM.VMCore
         /// Importing modules does not change this value.
         /// </summary>
         public string EntryScriptPath { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the base directory for relative native .NET assembly references.
+        /// </summary>
+        public string NativeAssemblyBaseDirectory { get; set; } = string.Empty;
+
+        internal Dictionary<string, Delegate> NativeClosureDelegateCache { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
         /// The RequireStack

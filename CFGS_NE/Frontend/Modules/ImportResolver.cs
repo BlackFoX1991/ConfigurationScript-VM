@@ -48,6 +48,10 @@ namespace CFGS_VM.Analytic.Modules
             {
                 switch (stmt)
                 {
+                    case NativeImportSyntaxStmt nativeImport:
+                        ResolveNativeImport(nativeImport, resolved, knownTopLevelKinds);
+                        break;
+
                     case BareImportSyntaxStmt bareImport:
                         ResolveBareImport(bareImport, resolved, seenImportedTopLevelSymbols, knownTopLevelKinds, knownNamespaceRoots);
                         break;
@@ -76,6 +80,33 @@ namespace CFGS_VM.Analytic.Modules
             List<Stmt> useResolved = new UseNamespaceResolver().Resolve(statements, resolved);
             TopLevelSymbolFacts.ValidateTopLevelSymbolUniqueness(useResolved);
             return useResolved;
+        }
+
+        private void ResolveNativeImport(
+            NativeImportSyntaxStmt nativeImport,
+            List<Stmt> resolved,
+            Dictionary<string, string> knownTopLevelKinds)
+        {
+            if (knownTopLevelKinds.ContainsKey(nativeImport.Alias))
+            {
+                throw new ParserException(
+                    TopLevelSymbolFacts.DuplicateTopLevelMessage(nativeImport.Alias, "native import", knownTopLevelKinds[nativeImport.Alias]),
+                    nativeImport.Line,
+                    nativeImport.Col,
+                    nativeImport.OriginFile);
+            }
+
+            string? resolvedPath = _sourceResolver.ResolveImportPath(nativeImport.Path, nativeImport.OriginFile);
+            string path = resolvedPath ?? nativeImport.Path;
+
+            resolved.Add(new ConstDecl(
+                nativeImport.Alias,
+                new NativeAssemblyExpr(nativeImport.Alias, path, nativeImport.Line, nativeImport.Col, nativeImport.OriginFile),
+                nativeImport.Line,
+                nativeImport.Col,
+                nativeImport.OriginFile));
+
+            knownTopLevelKinds[nativeImport.Alias] = "native import";
         }
 
         public bool TryHandleDllImport(string rawPath, int line, int col, string sourceFileName)

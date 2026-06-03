@@ -43,7 +43,7 @@ namespace CFGS_VM.VMCore
                     return VmDebuggerControl.Continue;
                 }
 
-                string command = line.Trim();
+                string command = line.Trim().Trim('\uFEFF');
                 if (command.Length == 0)
                     command = "step";
 

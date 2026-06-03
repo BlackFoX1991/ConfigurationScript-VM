@@ -86,6 +86,10 @@ The built in REPL help also describes these interactions.
 - `-di`, `-debugger`, or `--debugger` starts the interactive VM debugger.
 - `-check <file.cfs|file.cfb>`, `--check <file.cfs|file.cfb>`, or `check <file.cfs|file.cfb>` validates a source or CFB file without running it.
 - `--json` with `-check` emits diagnostics as a JSON array for tools and CI.
+- `init` creates a `cfgs.json` package manifest in the current project.
+- `install <plugin.dll>` adds a local plugin dependency and restores it.
+- `restore` reads `cfgs.json`, copies plugin artifacts into `.cfgs/plugins`, and updates `cfgs.lock.json`.
+- `deps list` lists manifest plugins and lock status.
 - `-c <file.cfs>` or `-compile <file.cfs>` compiles a source script to `.cfb`.
 - `-o <file.cfb>` or `-out <file.cfb>` sets the output path for `-c` or `-compile`.
 - `-s buffer <number>` sets the debug buffer size.
@@ -95,6 +99,7 @@ The built in REPL help also describes these interactions.
 In debug mode the CLI writes a `log_file.log` into the current working directory after execution.
 In interactive debugger mode the VM stops before instructions and accepts commands such as `step`, `next`, `continue`, `break`, `locals`, `globals`, `stack`, `callstack`, and `print`. For details, see [Debugging CFGS Scripts](17_debugging.md).
 For diagnostic codes, source spans, and machine-readable check output, see [Diagnostics and Error Codes](19_diagnostics.md).
+For `cfgs.json`, lockfiles, and restore/install workflows, see [Package and Dependency Management](20_package_dependency_management.md).
 
 ## Working Directory During Execution
 

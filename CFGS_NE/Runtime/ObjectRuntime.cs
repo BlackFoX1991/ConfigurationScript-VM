@@ -4,6 +4,7 @@ using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Core;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
+using CFGS_VM.VMCore.Interop;
 using System.Numerics;
 using System.Linq;
 
@@ -984,6 +985,26 @@ namespace CFGS_VM.VMCore
                         return null!;
                     }
 
+                case ClrAssemblyHandle or ClrNamespaceHandle or ClrTypeHandle or ClrObjectHandle or ClrEventHandle:
+                    {
+                        try
+                        {
+                            if (!IsMemberAccessInstruction(instr))
+                                return NativeInterop.GetIndex(target, [idxObj])!;
+
+                            string key = idxObj?.ToString() ?? "";
+                            if (string.IsNullOrWhiteSpace(key))
+                                throw new VMException("Runtime error: native member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                            return NativeInterop.GetMember(target, key)!;
+                        }
+                        catch (Exception ex)
+                        {
+                            string op = IsMemberAccessInstruction(instr) ? "member access" : "index access";
+                            throw new VMException($"Runtime error: native interop {op} failed: {ex.Message}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex);
+                        }
+                    }
+
                 case ClassInstance obj:
                     {
                         if (!IsMemberAccessInstruction(instr))
@@ -1167,6 +1188,31 @@ namespace CFGS_VM.VMCore
                         MarkAsyncHazardForMutableCollection(dict);
                         string key = NormalizeDictionaryWriteKey(dict, idxObj, instr);
                         SetDictionaryValue(dict, key, value);
+                        break;
+                    }
+
+                case ClrTypeHandle or ClrObjectHandle:
+                    {
+                        try
+                        {
+                            if (!IsMemberAccessInstruction(instr))
+                            {
+                                NativeInterop.SetIndex(target, [idxObj], value, this, instr);
+                                break;
+                            }
+
+                            string key = idxObj?.ToString() ?? "";
+                            if (string.IsNullOrWhiteSpace(key))
+                                throw new VMException("Runtime error: native member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                            NativeInterop.SetMember(target, key, value, this, instr);
+                        }
+                        catch (Exception ex)
+                        {
+                            string op = IsMemberAccessInstruction(instr) ? "member assignment" : "index assignment";
+                            throw new VMException($"Runtime error: native interop {op} failed: {ex.Message}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex);
+                        }
+
                         break;
                     }
 

@@ -104,6 +104,7 @@ namespace CFGS_VM.VMCore
                 NamespaceImportSyntaxStmt => true,
                 NamedImportSyntaxStmt => true,
                 DefaultImportSyntaxStmt => true,
+                NativeImportSyntaxStmt => true,
                 UseNamespaceStmt => true,
                 VarDecl => true,
                 ConstDecl => true,

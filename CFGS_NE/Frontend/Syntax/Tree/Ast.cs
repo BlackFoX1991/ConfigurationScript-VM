@@ -91,6 +91,23 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
+    /// Defines a runtime native .NET assembly alias expression.
+    /// </summary>
+    public sealed class NativeAssemblyExpr : Expr
+    {
+        public string Alias { get; }
+
+        public string Path { get; }
+
+        public NativeAssemblyExpr(string alias, string path, int line, int col, string fname)
+            : base(line, col, fname)
+        {
+            Alias = alias;
+            Path = path;
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="NumberExpr" />
     /// </summary>
     public class NumberExpr(dynamic? v, int line, int col, string fname) : Expr(line, col, fname)
@@ -1407,6 +1424,23 @@ namespace CFGS_VM.Analytic.Tree
             : base(line, col, file)
         {
             ImportName = importName;
+            Path = path;
+        }
+    }
+
+    /// <summary>
+    /// Defines a syntax-only native .NET interop import before module resolution.
+    /// </summary>
+    public sealed class NativeImportSyntaxStmt : Stmt
+    {
+        public string Alias { get; }
+
+        public string Path { get; }
+
+        public NativeImportSyntaxStmt(string alias, string path, int line, int col, string file)
+            : base(line, col, file)
+        {
+            Alias = alias;
             Path = path;
         }
     }

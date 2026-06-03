@@ -89,6 +89,7 @@ CFGS runtime values include:
 - exception objects
 - task and awaitable values
 - plugin-provided host objects
+- native CLR host objects
 
 `null` represents the absence of a value. It is distinct from `false`, `0`, an empty string, an empty array, and an empty dictionary.
 
@@ -361,7 +362,7 @@ File-scoped namespace declarations MUST appear where the header rules allow them
 
 Imports are header-oriented. Imports in invalid positions MUST fail.
 
-CFGS supports source imports, module imports, named imports, alias imports, namespace imports, URL imports, and DLL plugin imports where enabled by the host.
+CFGS supports source imports, module imports, named imports, alias imports, namespace imports, URL imports, DLL plugin imports, and native .NET imports where enabled by the host.
 
 Import resolution searches documented locations in order:
 
@@ -377,6 +378,8 @@ Import cycles MUST fail unless explicitly supported by a future documented modul
 
 Imported modules are declaration-oriented and MUST NOT execute arbitrary imperative top-level code.
 
+Native .NET imports use the form `import native "path.dll" as Alias;`. The alias introduces a native assembly root. Native assembly roots MUST use dot access for namespace, type, constructor, static member, and instance member traversal. Bracket access MUST NOT be interpreted as native member lookup.
+
 ## Plugins and Host Integration
 
 DLL imports load plugins through the VM plugin loader.
@@ -388,6 +391,8 @@ Plugin registration errors MUST fail clearly.
 Plugin-provided values MUST obey the VM call and await contracts when exposed to CFGS code.
 
 Host integrations such as file I/O, HTTP, SQL, XML, PDF, crypto, and custom plugins are outside the core syntax, but their exposed builtins and intrinsics MUST follow the same runtime value and error conventions.
+
+Native .NET interop MAY expose public CLR types, constructors, fields, properties, methods, indexers, delegates, and events directly. Hosts that support this feature MUST keep it separate from plugin registration: loading a native interop assembly MUST NOT imply automatic builtin or intrinsic registration unless the same assembly is also loaded through the plugin import path.
 
 ## Async, Await, and Yield
 
@@ -498,6 +503,8 @@ The CLI may execute source `.cfs` files or compiled `.cfb` files.
 
 When running a script file, the CLI sets the script working directory to the directory of that script.
 
+The host MAY support a project manifest named `cfgs.json` and a lockfile named `cfgs.lock.json`. A conforming local package implementation MUST keep restored plugin artifacts under a project-local package directory such as `.cfgs/plugins`, and DLL import resolution MAY search that directory for bare plugin file names.
+
 Check mode is enabled with `-check`, `--check`, or `check`. It validates a source `.cfs` file by compiling it and validates a `.cfb` file by loading the binary artifact. Check mode MUST NOT execute the script.
 
 When check mode is combined with `--json`, successful checks emit an empty JSON diagnostic array and failed checks emit a JSON diagnostic array.
@@ -514,7 +521,7 @@ Interactive VM debugging is enabled with `-di`, `-debugger`, or `--debugger`.
 
 `.cfb` files are compiled CFGS bytecode artifacts.
 
-A CFB file stores bytecode, function metadata, source hash, compiler version, auto-main metadata, and plugin DLL names discovered during compilation.
+A CFB file stores bytecode, function metadata, source hash, compiler version, auto-main metadata, plugin DLL names discovered during compilation, and native interop DLL names discovered during compilation.
 
 CFB files MUST NOT store local source file paths or local plugin file paths as dependency identities.
 
