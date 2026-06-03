@@ -17,6 +17,7 @@ dotnet dist\Debug\net10.0\CFGS_VM.dll CFGS_NE\Samples\general_Tests\feature_08_a
 Recommended entry points.
 
 - `general_Tests/feature_01_core_control_classes.cfs` through `feature_09_binary_bytes.cfs` are the current feature-oriented reference set.
+- `Interop_Tests/native_basic.cfs` and `Interop_Tests/native_static_and_enums.cfs` are the starting points for native .NET interop.
 - `general_Tests/destructuring.cfs`, `foreach.cfs`, and `small_test.cfs` are compact focused examples.
 - `Class_Tests/classes.cfs` and `Class_Tests/inheritance.cfs` are the clearest OOP samples from the older set.
 - `Http_Tests/mini_web_framework_cfs_only.cfs` is the cleanest starting point for a server-side CFS web app without custom browser JavaScript.
@@ -27,6 +28,7 @@ Important caveats.
 - `Class_Tests/cyclic_edge.cfs` is an intentional negative sample and should fail with a compile error.
 - `tool_scripts/ExprParser.cfs`, `tool_scripts/qrTest.cfs`, and `tool_scripts/bloomRepl.cfs` are interactive.
 - `tool_scripts/bloom.cfs` and `tool_scripts/qrCode.cfs` are helper or library style scripts and are not useful entry points by themselves.
+- `Interop_Tests/native_delegate_event_optional.cfs` requires building `CFGS_NE/_edgecases/EdgeAwaitablesPlugin/CFGS.EdgeAwaitables.csproj`.
 - `Http_Tests/http.cfs`, `Http_Tests/framework_test.cfs`, and `Http_Tests/md_render_test.cfs` start local servers and keep running until you stop them.
 - `Http_Tests/mini_web_framework.cfs` uses a tiny JavaScript fetch bridge, while `Http_Tests/mini_web_framework_cfs_only.cfs` stays on plain HTML form posts.
 - `general_Tests/await.cfs` and the `/getbin` route in `Http_Tests/http.cfs` require outbound internet access.
