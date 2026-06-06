@@ -22,6 +22,11 @@ namespace CFGS.StandardLibrary
     /// </summary>
     public sealed class CFGS_STDLIB : IVmPlugin
     {
+        static CFGS_STDLIB()
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        }
+
         /// <summary>
         /// Gets or sets a value indicating whether AllowFileIO
         /// </summary>
@@ -134,6 +139,58 @@ namespace CFGS.StandardLibrary
             }
         }
 
+        private static byte ConvertAnyToByteValue(object? value, Instruction instr, string name)
+        {
+            if (value is null)
+            {
+                throw new VMException(
+                    $"Runtime error: {name} cannot be null",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+
+            if (value is List<object> bits)
+                return ConvertBitArrayToByte(bits, instr, name);
+
+            return ConvertToByteValue(value, instr, name);
+        }
+
+        private static byte ConvertBitArrayToByte(List<object> bits, Instruction instr, string name)
+        {
+            if (bits.Count is < 1 or > 8)
+            {
+                throw new VMException(
+                    $"Runtime error: {name} bit array must contain 1..8 values",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+
+            int result = 0;
+            for (int i = 0; i < bits.Count; i++)
+            {
+                int bit;
+                try
+                {
+                    bit = Convert.ToInt32(bits[i], CultureInfo.InvariantCulture);
+                }
+                catch (Exception ex)
+                {
+                    throw new VMException(
+                        $"Runtime error: {name}[{i}] is not a valid bit ({ex.GetType().Name}: {ex.Message})",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                }
+
+                if (bit is not 0 and not 1)
+                {
+                    throw new VMException(
+                        $"Runtime error: {name}[{i}] must be 0 or 1",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                }
+
+                result = (result << 1) | bit;
+            }
+
+            return (byte)result;
+        }
+
         private static byte[] ConvertVmValueToBytes(object? value, Instruction instr, string name)
         {
             if (value is not List<object> list)
@@ -144,6 +201,23 @@ namespace CFGS.StandardLibrary
             }
 
             return ConvertVmArrayToBytes(list, instr, name);
+        }
+
+        private static byte[] ConvertAnyToBytes(object? value, Instruction instr, string name, string? encodingName = null)
+        {
+            if (value is null)
+                return Array.Empty<byte>();
+
+            if (value is List<object> list)
+                return ConvertVmArrayToBytes(list, instr, name);
+
+            if (value is string text)
+                return ResolveTextEncoding(encodingName, instr, name).GetBytes(text);
+
+            if (value is char ch)
+                return ResolveTextEncoding(encodingName, instr, name).GetBytes(ch.ToString());
+
+            return [ConvertAnyToByteValue(value, instr, name)];
         }
 
         private static byte[] ConvertVmArrayToBytes(List<object> list, Instruction instr, string name)
@@ -163,20 +237,54 @@ namespace CFGS.StandardLibrary
             return result;
         }
 
-        private static Encoding ResolveTextEncoding(string? encodingName, Instruction instr, string opName)
+        private static Encoding ResolveTextEncoding(object? encodingName, Instruction instr, string opName)
         {
-            string actualName = string.IsNullOrWhiteSpace(encodingName) ? Encoding.UTF8.WebName : encodingName.Trim();
             try
             {
-                return Encoding.GetEncoding(actualName);
+                if (encodingName is null)
+                    return Encoding.UTF8;
+
+                if (encodingName is not string and not char)
+                {
+                    int codePage = Convert.ToInt32(encodingName, CultureInfo.InvariantCulture);
+                    return Encoding.GetEncoding(codePage);
+                }
+
+                string actualName = encodingName.ToString() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(actualName))
+                    return Encoding.UTF8;
+
+                return Encoding.GetEncoding(actualName.Trim());
             }
             catch (Exception ex)
             {
+                string actualName = encodingName?.ToString() ?? Encoding.UTF8.WebName;
                 throw new VMException(
                     $"Runtime error: {opName} encoding '{actualName}' is not supported ({ex.GetType().Name}: {ex.Message})",
                     instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
             }
         }
+
+        private static Dictionary<string, object> EncodingToVmInfo(Encoding encoding)
+            => new(StringComparer.Ordinal)
+            {
+                ["name"] = encoding.WebName,
+                ["webName"] = encoding.WebName,
+                ["encodingName"] = encoding.EncodingName,
+                ["bodyName"] = encoding.BodyName,
+                ["headerName"] = encoding.HeaderName,
+                ["codePage"] = encoding.CodePage,
+                ["windowsCodePage"] = encoding.WindowsCodePage,
+                ["isSingleByte"] = encoding.IsSingleByte
+            };
+
+        private static Dictionary<string, object> EncodingInfoToVmInfo(EncodingInfo info)
+            => new(StringComparer.Ordinal)
+            {
+                ["name"] = info.Name,
+                ["displayName"] = info.DisplayName,
+                ["codePage"] = info.CodePage
+            };
 
         private static (string Path, int Mode) ParseFileOpenArgs(List<object> args, Instruction instr, string opName)
         {
@@ -462,6 +570,18 @@ namespace CFGS.StandardLibrary
             {
                 if (args[0] is null) return null!;
                 return ConvertToByteValue(args[0], instr, "value");
+            }));
+
+            builtins.Register(new BuiltinDescriptor("tobyte", 1, 1, (args, instr) =>
+            {
+                if (args[0] is null) return null!;
+                return ConvertAnyToByteValue(args[0], instr, "value");
+            }));
+
+            builtins.Register(new BuiltinDescriptor("tobytes", 1, 2, (args, instr) =>
+            {
+                string? encodingName = args.Count >= 2 ? args[1]?.ToString() : null;
+                return ToVmByteArray(ConvertAnyToBytes(args[0], instr, "value", encodingName));
             }));
 
             builtins.Register(new BuiltinDescriptor("long", 1, 1, (args, instr) =>
@@ -852,15 +972,73 @@ namespace CFGS.StandardLibrary
             builtins.Register(new BuiltinDescriptor("textToBytes", 1, 2, (args, instr) =>
             {
                 string text = args[0]?.ToString() ?? "";
-                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1]?.ToString() : null, instr, "textToBytes");
+                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1] : null, instr, "textToBytes");
                 return ToVmByteArray(encoding.GetBytes(text));
             }));
 
             builtins.Register(new BuiltinDescriptor("bytesToText", 1, 2, (args, instr) =>
             {
                 byte[] bytes = ConvertVmValueToBytes(args[0], instr, "bytes");
-                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1]?.ToString() : null, instr, "bytesToText");
+                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1] : null, instr, "bytesToText");
                 return encoding.GetString(bytes);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("encodeText", 1, 2, (args, instr) =>
+            {
+                string text = args[0]?.ToString() ?? "";
+                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1] : null, instr, "encodeText");
+                return ToVmByteArray(encoding.GetBytes(text));
+            }));
+
+            builtins.Register(new BuiltinDescriptor("decodeText", 1, 2, (args, instr) =>
+            {
+                byte[] bytes = ConvertVmValueToBytes(args[0], instr, "bytes");
+                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1] : null, instr, "decodeText");
+                return encoding.GetString(bytes);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("convertEncoding", 3, 3, (args, instr) =>
+            {
+                byte[] sourceBytes = ConvertVmValueToBytes(args[0], instr, "bytes");
+                Encoding sourceEncoding = ResolveTextEncoding(args[1], instr, "convertEncoding");
+                Encoding targetEncoding = ResolveTextEncoding(args[2], instr, "convertEncoding");
+                string text = sourceEncoding.GetString(sourceBytes);
+                return ToVmByteArray(targetEncoding.GetBytes(text));
+            }));
+
+            builtins.Register(new BuiltinDescriptor("hasEncoding", 1, 1, (args, instr) =>
+            {
+                try
+                {
+                    _ = ResolveTextEncoding(args[0], instr, "hasEncoding");
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }));
+
+            builtins.Register(new BuiltinDescriptor("encodingInfo", 1, 1, (args, instr) =>
+            {
+                Encoding encoding = ResolveTextEncoding(args[0], instr, "encodingInfo");
+                return EncodingToVmInfo(encoding);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("encodingNames", 0, 0, (args, instr) =>
+            {
+                return Encoding.GetEncodings()
+                    .OrderBy(static info => info.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(static info => (object)info.Name)
+                    .ToList();
+            }));
+
+            builtins.Register(new BuiltinDescriptor("encodings", 0, 0, (args, instr) =>
+            {
+                return Encoding.GetEncodings()
+                    .OrderBy(static info => info.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(static info => (object)EncodingInfoToVmInfo(info))
+                    .ToList();
             }));
 
             builtins.Register(new BuiltinDescriptor("sleep", 1, 1, (args, instr) =>
@@ -1722,6 +1900,28 @@ namespace CFGS.StandardLibrary
             {
                 dynamic fh = recv; return (string)fh.ReadLine();
             }));
+            intrinsics.Register(T, new IntrinsicDescriptor("writeByte", 1, 1, (recv, a, instr) =>
+            {
+                FileHandle fh = (FileHandle)recv;
+                fh.WriteByte(ConvertToByteValue(a[0], instr, "value"));
+                return recv;
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("writeBytes", 1, 1, (recv, a, instr) =>
+            {
+                FileHandle fh = (FileHandle)recv;
+                fh.WriteBytes(ConvertVmValueToBytes(a[0], instr, "value"));
+                return recv;
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("readByte", 0, 0, (recv, a, i) =>
+            {
+                FileHandle fh = (FileHandle)recv;
+                return fh.ReadByte();
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("readBytes", 1, 1, (recv, a, i) =>
+            {
+                FileHandle fh = (FileHandle)recv;
+                return ToVmByteArray(fh.ReadBytes(Convert.ToInt32(a[0], CultureInfo.InvariantCulture)));
+            }));
             intrinsics.Register(T, new IntrinsicDescriptor("seek", 2, 2, (recv, a, i) =>
             {
                 dynamic fh = recv;
@@ -1729,6 +1929,13 @@ namespace CFGS.StandardLibrary
                 return (long)fh.Seek(off, ToSeekOrigin(a[1]));
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("tell", 0, 0, (recv, a, i) => { dynamic fh = recv; return (long)fh.Tell(); }));
+            intrinsics.Register(T, new IntrinsicDescriptor("position", 0, 0, (recv, a, i) => { FileHandle fh = (FileHandle)recv; return fh.Tell(); }));
+            intrinsics.Register(T, new IntrinsicDescriptor("setPosition", 1, 1, (recv, a, i) =>
+            {
+                FileHandle fh = (FileHandle)recv;
+                return fh.SetPosition(Convert.ToInt64(a[0], CultureInfo.InvariantCulture));
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("length", 0, 0, (recv, a, i) => { FileHandle fh = (FileHandle)recv; return fh.Length(); }));
             intrinsics.Register(T, new IntrinsicDescriptor("eof", 0, 0, (recv, a, i) => { dynamic fh = recv; return (bool)fh.Eof(); }));
             intrinsics.Register(T, new IntrinsicDescriptor("close", 0, 0, (recv, a, i) => { dynamic fh = recv; fh.Close(); return 1; }));
 
@@ -1755,6 +1962,44 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("readlineAsync", 0, 0, (recv, a, i) =>
             {
                 return Task.Run<object?>(() => { dynamic fh = recv; return (string)fh.ReadLine(); });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("writeByteAsync", 1, 1, (recv, a, instr) =>
+            {
+                return Task.Run<object?>(() =>
+                {
+                    FileHandle fh = (FileHandle)recv;
+                    fh.WriteByte(ConvertToByteValue(a[0], instr, "value"));
+                    return recv;
+                });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("writeBytesAsync", 1, 1, (recv, a, instr) =>
+            {
+                return Task.Run<object?>(() =>
+                {
+                    FileHandle fh = (FileHandle)recv;
+                    fh.WriteBytes(ConvertVmValueToBytes(a[0], instr, "value"));
+                    return recv;
+                });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("readByteAsync", 0, 0, (recv, a, instr) =>
+            {
+                return Task.Run<object?>(() =>
+                {
+                    FileHandle fh = (FileHandle)recv;
+                    return fh.ReadByte();
+                });
+            }, smartAwait: true));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("readBytesAsync", 1, 1, (recv, a, instr) =>
+            {
+                return Task.Run<object?>(() =>
+                {
+                    FileHandle fh = (FileHandle)recv;
+                    return (object)ToVmByteArray(fh.ReadBytes(Convert.ToInt32(a[0], CultureInfo.InvariantCulture)));
+                });
             }, smartAwait: true));
         }
 
@@ -1806,6 +2051,24 @@ namespace CFGS.StandardLibrary
             {
                 BinaryFileHandle fh = (BinaryFileHandle)recv;
                 return fh.Tell();
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("position", 0, 0, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                return fh.Tell();
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("setPosition", 1, 1, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                return fh.SetPosition(Convert.ToInt64(a[0], CultureInfo.InvariantCulture));
+            }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("length", 0, 0, (recv, a, instr) =>
+            {
+                BinaryFileHandle fh = (BinaryFileHandle)recv;
+                return fh.Length();
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("eof", 0, 0, (recv, a, instr) =>

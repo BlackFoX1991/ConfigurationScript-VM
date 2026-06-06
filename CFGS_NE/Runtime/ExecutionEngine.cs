@@ -190,11 +190,7 @@ namespace CFGS_VM.VMCore
                     else
                     {
                         if (debugging)
-                        {
-                            DebugStream!.Position = 0;
-                            using FileStream file = File.Create("log_file.log");
-                            DebugStream.CopyTo(file);
-                        }
+                            TryWriteEmergencyDebugLog();
 
                         throw new VMException(
                             "Uncaught system exception",
@@ -294,6 +290,26 @@ namespace CFGS_VM.VMCore
                 $"[DEBUG] {dinstr.Line} ->  IP={ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
             DebugStream!.Write(Encoding.Default.GetBytes(
                 $"[DEBUG] {dinstr} (Line {dinstr.Line}, Col {dinstr.Col})\n"));
+        }
+
+        private void TryWriteEmergencyDebugLog()
+        {
+            if (DebugStream is null)
+                return;
+
+            try
+            {
+                DebugStream.Position = 0;
+                string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff", System.Globalization.CultureInfo.InvariantCulture);
+                string path = Path.Combine(Path.GetTempPath(), $"cfgs_debug_{timestamp}_{Environment.ProcessId}_{Guid.NewGuid():N}.log");
+                using FileStream file = File.Create(path);
+                DebugStream.CopyTo(file);
+                DebugStream.Position = 0;
+            }
+            catch
+            {
+                // Best effort only: the original VM exception must remain the observable failure.
+            }
         }
 
         private VmDebugContext CreateDebugContext(int ip, Instruction instruction)

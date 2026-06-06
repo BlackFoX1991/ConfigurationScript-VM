@@ -330,7 +330,8 @@ try {
         "231_plugin_nonblocking_loader" -like $NameFilter -or
         "233_await_generic_task_valuetask" -like $NameFilter -or
         "714_native_interop_valid" -like $NameFilter -or
-        "715_native_interop_cfb" -like $NameFilter) {
+        "715_native_interop_cfb" -like $NameFilter -or
+        "716_cfb_package_plugin_resolution" -like $NameFilter) {
         $edgeAwaitDll = Join-Path $runtimeEdgeDir "CFGS.EdgeAwaitables.dll"
         if (-not (Test-Path -LiteralPath $edgeAwaitDll)) {
             if (-not (Test-Path -LiteralPath (Join-Path $edgeAwaitablesBuildDir "CFGS.EdgeAwaitables.dll"))) {
@@ -412,6 +413,9 @@ try {
     Run-ExpectContains -Name "242_async_pure_io_parallelism" -ScriptArgs @((Edge-Path "_edgecases\242_async_pure_io_parallelism.cfs")) -Expected "EDGE_OK:242_async_pure_io_parallelism"
     Run-ExpectContains -Name "243_async_shared_collection_aliases" -ScriptArgs @((Edge-Path "_edgecases\243_async_shared_collection_aliases.cfs")) -Expected "EDGE_OK:243_async_shared_collection_aliases"
     Run-ExpectContains -Name "245_async_default_param_await" -ScriptArgs @((Edge-Path "_edgecases\245_async_default_param_await.cfs")) -Expected "EDGE_OK:245_async_default_param_await"
+    Run-ExpectContains -Name "246_file_handle_byte_position" -ScriptArgs @((Edge-Path "_edgecases\246_file_handle_byte_position.cfs")) -Expected "EDGE_OK:246_file_handle_byte_position"
+    Run-ExpectContains -Name "247_tobyte_tobytes" -ScriptArgs @((Edge-Path "_edgecases\247_tobyte_tobytes.cfs")) -Expected "EDGE_OK:247_tobyte_tobytes"
+    Run-ExpectContains -Name "248_encoding_builtins" -ScriptArgs @((Edge-Path "_edgecases\248_encoding_builtins.cfs")) -Expected "EDGE_OK:248_encoding_builtins"
     Run-ExpectContains -Name "714_native_interop_valid" -ScriptArgs @((Edge-Path "_edgecases\714_native_interop_valid.cfs")) -Expected "EDGE_OK:714_native_interop_valid"
     Run-ExpectContains -Name "301_try_throw_finally" -ScriptArgs @((Edge-Path "_edgecases\301_try_throw_finally.cfs")) -Expected "EDGE_OK:301_try_throw_finally"
     Run-ExpectContains -Name "402_import_named_and_file" -ScriptArgs @((Edge-Path "_edgecases\402_import_named_and_file.cfs")) -Expected "EDGE_OK:402_import_named_and_file"
@@ -869,6 +873,60 @@ try {
         if (-not $okNativeCfb) {
             Write-Host $resNativeCompile.Output
             Write-Host $resNativeCfb.Output
+        }
+    }
+
+    if ("716_cfb_package_plugin_resolution" -like $NameFilter) {
+        $pkgRoot = Join-Path $runtimeRepoRoot "pkg716"
+        $pkgApp = Join-Path $pkgRoot "app"
+        New-Item -ItemType Directory -Force -Path $pkgApp | Out-Null
+
+        $pkgScript = Join-Path $pkgApp "main.cfs"
+        [IO.File]::WriteAllText($pkgScript, @"
+import "CFGS.StandardLibrary.dll";
+import "CFGS.EdgeAwaitables.dll";
+print("EDGE_OK:716_cfb_package_plugin_resolution:" + str(await edge_task_int_value()));
+"@)
+
+        $edgePluginSource = Join-Path $runtimeEdgeDir "CFGS.EdgeAwaitables.dll"
+        $resInstall = Invoke-Cfgs -CfgsArgs @(
+            "install",
+            $edgePluginSource,
+            "--project",
+            $pkgRoot,
+            "--name",
+            "edgeawait",
+            "--version",
+            "1.0.0"
+        )
+
+        $runtimeEdgePluginBackup = Join-Path $runtimeEdgeDir "CFGS.EdgeAwaitables.dll.hide_for_pkg716"
+        $movedRuntimePlugin = $false
+        if (Test-Path -LiteralPath $edgePluginSource) {
+            Move-Item -LiteralPath $edgePluginSource -Destination $runtimeEdgePluginBackup -Force
+            $movedRuntimePlugin = $true
+        }
+
+        try {
+            $cfbPath = Join-Path $pkgApp "main.cfb"
+            $resCompile = Invoke-Cfgs -CfgsArgs @("-c", $pkgScript, "-o", $cfbPath)
+            $resCfb = Invoke-Cfgs -CfgsArgs @($cfbPath)
+
+            $okPackageCfb = $resInstall.Output.Contains("installed plugin dependency: edgeawait") -and
+                            $resCompile.Output.Contains("[CFB] compiled") -and
+                            $resCfb.Output.Contains("EDGE_OK:716_cfb_package_plugin_resolution:123")
+
+            Write-Result -Name "716_cfb_package_plugin_resolution" -Ok $okPackageCfb -Details "Expected compiled CFB to resolve package-restored plugins from .cfgs/plugins."
+            if (-not $okPackageCfb) {
+                Write-Host $resInstall.Output
+                Write-Host $resCompile.Output
+                Write-Host $resCfb.Output
+            }
+        }
+        finally {
+            if ($movedRuntimePlugin -and (Test-Path -LiteralPath $runtimeEdgePluginBackup)) {
+                Move-Item -LiteralPath $runtimeEdgePluginBackup -Destination $edgePluginSource -Force
+            }
         }
     }
 }

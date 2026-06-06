@@ -28,6 +28,13 @@ After that, its builtins and intrinsics are available globally.
 - `getfields(dict)` returns the keys of a dictionary as an array.
 - `textToBytes(text, encoding = "utf-8")` encodes text into an array of byte values.
 - `bytesToText(bytes, encoding = "utf-8")` decodes an array of byte values into text.
+- `encodeText(text, encoding = "utf-8")` is an explicit alias for text-to-byte encoding.
+- `decodeText(bytes, encoding = "utf-8")` is an explicit alias for byte-to-text decoding.
+- `convertEncoding(bytes, fromEncoding, toEncoding)` decodes bytes with one encoding and re-encodes them with another.
+- `hasEncoding(nameOrCodePage)` checks whether an encoding is available.
+- `encodingInfo(nameOrCodePage)` returns encoding metadata.
+- `encodingNames()` returns all available encoding names.
+- `encodings()` returns all available encodings with name, display name, and code page.
 
 Example.
 
@@ -41,6 +48,8 @@ print(byte(300));   # runtime error: value must be between 0 and 255
 var bytes = textToBytes("Hi");
 print(bytesToText(bytes));
 ```
+
+Encoding names can be standard names such as `"utf-8"` or codepage names such as `"windows-1252"`. Numeric code pages such as `65001` or `1252` are also accepted.
 
 Cleanup example.
 
@@ -82,6 +91,9 @@ destroy(r);
 - `readAllBytes(path)` reads the full file into an array of byte values.
 - `readAllBytesAsync(path)` is the asynchronous version.
 - `writeAllBytes(path, bytes)` writes an array of byte values and returns the written byte count.
+- `tobyte(value)` converts a scalar value to one byte. If `value` is an array of 1..8 bits, it packs them left to right into one byte.
+- `tobytes(value)` converts text to UTF-8 bytes, validates byte arrays, converts scalar values to a one-byte array, and converts `null` to an empty array.
+- `tobytes(value, encoding)` uses the named text encoding when `value` is text.
 - `fileSize(path)` returns the file size in bytes, or `-1` if the file does not exist.
 - `fileLastWriteTime(path)` returns the local last-write timestamp.
 - `fileLastWriteTimeUtc(path)` returns the UTC last-write timestamp.
@@ -395,8 +407,15 @@ A `FileHandle` returned by `fopen` supports these methods.
 - `flush()`
 - `read(count)`
 - `readline()`
+- `writeByte(value)`
+- `writeBytes(bytes)`
+- `readByte()`
+- `readBytes(count)`
 - `seek(offset, origin)`
 - `tell()`
+- `position()`
+- `setPosition(position)`
+- `length()`
 - `eof()`
 - `close()`
 - `writeAsync(text)`
@@ -404,6 +423,10 @@ A `FileHandle` returned by `fopen` supports these methods.
 - `flushAsync()`
 - `readAsync(count)`
 - `readlineAsync()`
+- `writeByteAsync(value)`
+- `writeBytesAsync(bytes)`
+- `readByteAsync()`
+- `readBytesAsync(count)`
 
 For `seek`, `origin` means the following.
 
@@ -431,6 +454,9 @@ A `BinaryFileHandle` returned by `fbopen` supports these methods.
 - `readBytes(count)`
 - `seek(offset, origin)`
 - `tell()`
+- `position()`
+- `setPosition(position)`
+- `length()`
 - `eof()`
 - `close()`
 - `writeByteAsync(value)`

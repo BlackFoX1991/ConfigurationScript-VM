@@ -1,0 +1,50 @@
+import "edge_assert.cfs";
+
+edge_begin("247_tobyte_tobytes");
+
+edge_eq("tobyte_bit_array_6_bits", tobyte([0, 1, 0, 1, 1, 1]), 23);
+edge_eq("tobyte_bit_array_8_bits", tobyte([1, 0, 1, 0, 0, 1, 0, 1]), 165);
+edge_eq("tobyte_int", tobyte(255), 255);
+edge_eq("tobyte_string_number", tobyte("42"), 42);
+edge_eq("tobyte_bool_true", tobyte(true), 1);
+edge_eq("tobyte_bool_false", tobyte(false), 0);
+edge_eq("tobyte_null", tobyte(null), null);
+
+var textBytes = tobytes("Hi");
+edge_eq("tobytes_text_len", len(textBytes), 2);
+edge_eq("tobytes_text_0", textBytes[0], 72);
+edge_eq("tobytes_text_1", textBytes[1], 105);
+
+var arrayBytes = tobytes([0, 1, 127, 255]);
+edge_eq("tobytes_array_len", len(arrayBytes), 4);
+edge_eq("tobytes_array_0", arrayBytes[0], 0);
+edge_eq("tobytes_array_3", arrayBytes[3], 255);
+
+var scalarBytes = tobytes(5);
+edge_eq("tobytes_scalar_len", len(scalarBytes), 1);
+edge_eq("tobytes_scalar_0", scalarBytes[0], 5);
+
+var boolBytes = tobytes(true);
+edge_eq("tobytes_bool_len", len(boolBytes), 1);
+edge_eq("tobytes_bool_0", boolBytes[0], 1);
+
+var nullBytes = tobytes(null);
+edge_eq("tobytes_null_empty", len(nullBytes), 0);
+
+edge_throws("tobyte_bit_array_invalid_bit", func() {
+    var _ = tobyte([1, 2, 0]);
+});
+
+edge_throws("tobyte_bit_array_too_long", func() {
+    var _ = tobyte([1, 1, 1, 1, 1, 1, 1, 1, 1]);
+});
+
+edge_throws("tobyte_out_of_range", func() {
+    var _ = tobyte(256);
+});
+
+edge_throws("tobytes_array_out_of_range", func() {
+    var _ = tobytes([1, 256]);
+});
+
+edge_finish("247_tobyte_tobytes");

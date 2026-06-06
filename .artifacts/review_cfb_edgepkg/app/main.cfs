@@ -1,0 +1,2 @@
+import "CFGS.EdgeAwaitables.dll";
+print("EDGEPKG_" + str(await edge_task_int_value()));

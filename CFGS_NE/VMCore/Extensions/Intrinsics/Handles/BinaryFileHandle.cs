@@ -99,6 +99,8 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
 
         public long Tell() => FS.Position;
 
+        public long Length() => FS.Length;
+
         public bool Eof()
         {
             EnsureReadable();
@@ -106,6 +108,8 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
         }
 
         public long Seek(long offset, SeekOrigin origin) => FS.Seek(offset, origin);
+
+        public long SetPosition(long position) => Seek(position, SeekOrigin.Begin);
 
         public void Close() => Dispose();
     }

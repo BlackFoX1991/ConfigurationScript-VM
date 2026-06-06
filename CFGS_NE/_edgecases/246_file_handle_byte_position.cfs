@@ -1,0 +1,61 @@
+import "edge_assert.cfs";
+
+edge_begin("246_file_handle_byte_position");
+
+var path = "_tmp_file_handle_byte_position.bin";
+
+var writer = fopen(path, 2);
+edge_eq("writer_initial_position", writer.position(), 0);
+writer.writeByte(65);
+edge_eq("writer_position_after_byte", writer.position(), 1);
+writer.writeBytes([66, 67]);
+edge_eq("writer_position_after_bytes", writer.position(), 3);
+edge_eq("writer_length_after_bytes", writer.length(), 3);
+edge_eq("writer_set_position", writer.setPosition(1), 1);
+writer.writeByte(90);
+writer.flush();
+writer.close();
+
+var reader = fopen(path, 0);
+edge_eq("reader_length", reader.length(), 3);
+edge_eq("reader_initial_position", reader.position(), 0);
+edge_eq("reader_read_byte_0", reader.readByte(), 65);
+edge_eq("reader_position_after_byte", reader.position(), 1);
+var chunk = reader.readBytes(2);
+edge_eq("reader_read_bytes_len", len(chunk), 2);
+edge_eq("reader_read_bytes_0", chunk[0], 90);
+edge_eq("reader_read_bytes_1", chunk[1], 67);
+edge_eq("reader_eof_after_chunk", reader.eof(), true);
+edge_eq("reader_eof_byte", reader.readByte(), -1);
+edge_eq("reader_reset_position", reader.setPosition(1), 1);
+edge_eq("reader_read_after_reset", reader.readByte(), 90);
+reader.close();
+
+var rw = fopen(path, 1);
+edge_eq("rw_set_end", rw.setPosition(rw.length()), 3);
+rw.writeByte(68);
+edge_eq("rw_position_after_append", rw.position(), 4);
+edge_eq("rw_length_after_append", rw.length(), 4);
+edge_eq("rw_set_begin", rw.setPosition(0), 0);
+edge_eq("rw_read_byte_0", rw.readByte(), 65);
+edge_eq("rw_read_byte_1", rw.readByte(), 90);
+edge_eq("rw_read_byte_2", rw.readByte(), 67);
+edge_eq("rw_read_byte_3", rw.readByte(), 68);
+rw.close();
+
+var asyncReader = fopen(path, 0);
+edge_eq("async_read_byte", await asyncReader.readByteAsync(), 65);
+var asyncChunk = await asyncReader.readBytesAsync(2);
+edge_eq("async_read_bytes_len", len(asyncChunk), 2);
+edge_eq("async_read_bytes_0", asyncChunk[0], 90);
+edge_eq("async_read_bytes_1", asyncChunk[1], 67);
+asyncReader.close();
+
+var binaryReader = fbopen(path, 0);
+edge_eq("binary_length_alias", binaryReader.length(), 4);
+edge_eq("binary_position_alias", binaryReader.position(), 0);
+edge_eq("binary_set_position_alias", binaryReader.setPosition(2), 2);
+edge_eq("binary_read_after_position_alias", binaryReader.readByte(), 67);
+binaryReader.close();
+
+edge_finish("246_file_handle_byte_position");

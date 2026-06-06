@@ -98,7 +98,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v5.5.4";
+    public const string Version = "v5.5.8";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -910,14 +910,7 @@ public class Program
             _ = await vm.InvokeGlobalFunctionAsync("main", originFile: name);
 
         if (debug)
-        {
-            vm.DebugOutput.Position = 0;
-            string logDirectory = workingDirectory ?? Environment.CurrentDirectory;
-            string lpath = Path.Combine(logDirectory, "log_file.log");
-            using FileStream file = File.Create(lpath);
-            vm.DebugOutput.CopyTo(file);
-            Console.WriteLine($"[DEBUG] log-file created : {lpath}");
-        }
+            WriteDebugLog(vm, workingDirectory);
     }
 
     private static void CompileFileToCfb(string inputPath, string? outputPath)
@@ -983,14 +976,7 @@ public class Program
             _ = await vm.InvokeGlobalFunctionAsync("main", originFile: file);
 
         if (debug)
-        {
-            vm.DebugOutput.Position = 0;
-            string logDirectory = workingDirectory ?? Environment.CurrentDirectory;
-            string lpath = Path.Combine(logDirectory, "log_file.log");
-            using FileStream debugFile = File.Create(lpath);
-            vm.DebugOutput.CopyTo(debugFile);
-            Console.WriteLine($"[DEBUG] log-file created : {lpath}");
-        }
+            WriteDebugLog(vm, workingDirectory);
     }
 
     private static string ResolveCompiledPluginPath(string pluginReference, string? workingDirectory)
@@ -1004,7 +990,7 @@ public class Program
             plugin.Contains(Path.AltDirectorySeparatorChar);
 
         string baseDirectory = workingDirectory ?? Environment.CurrentDirectory;
-        string[] candidates = hasDirectoryPart
+        List<string> candidates = hasDirectoryPart
             ? [
                 Path.Combine(baseDirectory, plugin),
                 Path.Combine(AppContext.BaseDirectory, plugin)
@@ -1016,6 +1002,12 @@ public class Program
                 Path.Combine(AppContext.BaseDirectory, plugin)
               ];
 
+        if (!hasDirectoryPart)
+        {
+            foreach (string packagePluginDirectory in GetPackagePluginDirectories(baseDirectory))
+                candidates.Insert(0, Path.Combine(packagePluginDirectory, plugin));
+        }
+
         foreach (string candidate in candidates)
         {
             string fullCandidate = Path.GetFullPath(candidate);
@@ -1026,152 +1018,56 @@ public class Program
         return Path.GetFullPath(Path.Combine(baseDirectory, hasDirectoryPart ? plugin : Path.Combine("plugins", plugin)));
     }
 
-    private static bool ShouldAutoInvokeMain(IReadOnlyList<Stmt> syntaxAst)
-        => HasTopLevelMainFunction(syntaxAst) &&
-           !HasImperativeTopLevelStatements(syntaxAst) &&
-           !HasExplicitTopLevelMainInvocation(syntaxAst);
-
-    private static bool HasTopLevelMainFunction(IEnumerable<Stmt> statements)
+    private static IEnumerable<string> GetPackagePluginDirectories(string startDirectory)
     {
-        foreach (Stmt stmt in statements)
+        DirectoryInfo? current;
+        try
         {
-            switch (stmt)
-            {
-                case FuncDeclStmt funcDecl when string.Equals(funcDecl.Name, "main", StringComparison.Ordinal):
-                    return true;
-                case ExportStmt exportStmt when exportStmt.Inner is FuncDeclStmt exportedFunc &&
-                                               string.Equals(exportedFunc.Name, "main", StringComparison.Ordinal):
-                    return true;
-            }
+            current = new DirectoryInfo(Path.GetFullPath(startDirectory));
+        }
+        catch (ArgumentException)
+        {
+            yield break;
+        }
+        catch (IOException)
+        {
+            yield break;
         }
 
-        return false;
-    }
-
-    private static bool HasImperativeTopLevelStatements(IEnumerable<Stmt> statements)
-    {
-        foreach (Stmt stmt in statements)
+        HashSet<string> yielded = new(StringComparer.OrdinalIgnoreCase);
+        while (current is not null)
         {
-            if (!IsDeclarativeTopLevelStatement(stmt))
-                return true;
+            string packagePluginDirectory = Path.Combine(
+                current.FullName,
+                CfgsPackageManager.PackageDirectoryName,
+                CfgsPackageManager.PluginDirectoryName);
+
+            if (Directory.Exists(packagePluginDirectory) && yielded.Add(packagePluginDirectory))
+                yield return packagePluginDirectory;
+
+            if (File.Exists(Path.Combine(current.FullName, CfgsPackageManager.ManifestFileName)))
+                yield break;
+
+            current = current.Parent;
         }
-
-        return false;
     }
 
-    private static bool IsDeclarativeTopLevelStatement(Stmt stmt)
-        => stmt switch
-        {
-            EmptyStmt => true,
-            BareImportSyntaxStmt => true,
-            NamespaceImportSyntaxStmt => true,
-            NamedImportSyntaxStmt => true,
-            DefaultImportSyntaxStmt => true,
-            NativeImportSyntaxStmt => true,
-            UseNamespaceStmt => true,
-            VarDecl => true,
-            ConstDecl => true,
-            FuncDeclStmt => true,
-            ClassDeclStmt => true,
-            InterfaceDeclStmt => true,
-            EnumDeclStmt => true,
-            NamespaceDeclStmt => true,
-            ExportStmt exportStmt => IsDeclarativeTopLevelStatement(exportStmt.Inner),
-            _ => false
-        };
-
-    private static bool HasExplicitTopLevelMainInvocation(IEnumerable<Stmt> statements)
+    private static void WriteDebugLog(VM vm, string? workingDirectory)
     {
-        foreach (Stmt stmt in statements)
+        try
         {
-            if (HasExplicitTopLevelMainInvocation(stmt))
-                return true;
+            vm.DebugOutput.Position = 0;
+            string logDirectory = workingDirectory ?? Environment.CurrentDirectory;
+            Directory.CreateDirectory(logDirectory);
+            string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
+            string lpath = Path.Combine(logDirectory, $"log_file_{timestamp}_{Environment.ProcessId}.log");
+            using FileStream debugFile = File.Create(lpath);
+            vm.DebugOutput.CopyTo(debugFile);
+            Console.WriteLine($"[DEBUG] log-file created : {lpath}");
         }
-
-        return false;
-    }
-
-    private static bool HasExplicitTopLevelMainInvocation(Stmt stmt)
-        => stmt switch
+        catch (Exception ex)
         {
-            ExprStmt exprStmt => ContainsDirectMainCall(exprStmt.Expression),
-            AssignExprStmt assignStmt => ContainsDirectMainCall(assignStmt.Value),
-            SliceSetStmt sliceSetStmt => ContainsDirectMainCall(sliceSetStmt.Value),
-            PushStmt pushStmt => ContainsDirectMainCall(pushStmt.Value),
-            VarDecl varDecl => ContainsDirectMainCall(varDecl.Value),
-            ConstDecl constDecl => ContainsDirectMainCall(constDecl.Value),
-            ExportStmt exportStmt => HasExplicitTopLevelMainInvocation(exportStmt.Inner),
-            BlockStmt blockStmt => HasExplicitTopLevelMainInvocation(blockStmt.Statements),
-            NamespaceDeclStmt namespaceDecl => HasExplicitTopLevelMainInvocation(namespaceDecl.BodyStatements),
-            _ => false
-        };
-
-    private static bool ContainsDirectMainCall(Expr? expr)
-    {
-        switch (expr)
-        {
-            case null:
-                return false;
-            case VarExpr:
-                return false;
-            case FuncExpr:
-                return false;
-            case CallExpr callExpr:
-                if (callExpr.Target is VarExpr targetVar &&
-                    string.Equals(targetVar.Name, "main", StringComparison.Ordinal))
-                {
-                    return true;
-                }
-
-                if (ContainsDirectMainCall(callExpr.Target))
-                    return true;
-
-                foreach (Expr arg in callExpr.Args)
-                {
-                    if (ContainsDirectMainCall(arg))
-                        return true;
-                }
-
-                return false;
-            case AwaitExpr awaitExpr:
-                return ContainsDirectMainCall(awaitExpr.Inner);
-            case BinaryExpr binaryExpr:
-                return ContainsDirectMainCall(binaryExpr.Left) || ContainsDirectMainCall(binaryExpr.Right);
-            case UnaryExpr unaryExpr:
-                return ContainsDirectMainCall(unaryExpr.Right);
-            case ConditionalExpr conditionalExpr:
-                return ContainsDirectMainCall(conditionalExpr.Condition) ||
-                       ContainsDirectMainCall(conditionalExpr.ThenExpr) ||
-                       ContainsDirectMainCall(conditionalExpr.ElseExpr);
-            case ArrayExpr arrayExpr:
-                return arrayExpr.Elements.Any(ContainsDirectMainCall);
-            case DictExpr dictExpr:
-                return dictExpr.Pairs.Any(pair => ContainsDirectMainCall(pair.Key) || ContainsDirectMainCall(pair.Value));
-            case IndexExpr indexExpr:
-                return ContainsDirectMainCall(indexExpr.Target) || ContainsDirectMainCall(indexExpr.Index);
-            case SliceExpr sliceExpr:
-                return ContainsDirectMainCall(sliceExpr.Target) ||
-                       ContainsDirectMainCall(sliceExpr.Start) ||
-                       ContainsDirectMainCall(sliceExpr.End);
-            case ObjectInitExpr objectInitExpr:
-                return ContainsDirectMainCall(objectInitExpr.Target) ||
-                       objectInitExpr.Inits.Any(init => ContainsDirectMainCall(init.Value));
-            case NewExpr newExpr:
-                return newExpr.Args.Any(ContainsDirectMainCall) ||
-                       newExpr.Initializers.Any(init => ContainsDirectMainCall(init.Value));
-            case MatchExpr matchExpr:
-                if (ContainsDirectMainCall(matchExpr.Scrutinee) || ContainsDirectMainCall(matchExpr.DefaultArm))
-                    return true;
-
-                foreach (CaseExprArm arm in matchExpr.Arms)
-                {
-                    if (ContainsDirectMainCall(arm.Guard) || ContainsDirectMainCall(arm.Body))
-                        return true;
-                }
-
-                return false;
-            default:
-                return false;
+            Console.Error.WriteLine($"[DEBUG] could not write log-file: {ex.Message}");
         }
     }
 

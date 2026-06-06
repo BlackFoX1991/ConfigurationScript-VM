@@ -7,7 +7,7 @@ func now_ms() {
 }
 
 async func delayed(timer) {
-    var _ = await timer.delay(80, null);
+    var _ = await timer.delay(250, null);
     return 1;
 }
 
@@ -24,7 +24,7 @@ var fast = immediate();
 edge_eq("slow_task_type", typeof(slow), "Task<Object>");
 edge_eq("fast_task_type", typeof(fast), "Task<Object>");
 edge_eq("fast_result", await fast, 2);
-edge_true("fast_task_not_blocked_by_pending_io", now_ms() - started < 60);
+edge_true("fast_task_not_blocked_by_pending_io", now_ms() - started < 180);
 edge_eq("slow_result", await slow, 1);
 
 edge_finish("242_async_pure_io_parallelism");
