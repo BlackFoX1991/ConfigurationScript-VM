@@ -381,6 +381,7 @@ Available DirectoryInfo intrinsics are.
 - `setAttributes(value)`
 - `create()`
 - `delete(recursive = optional)`
+- `deleteDir(recursive = optional)` alias for scripts, because `delete` is also a language keyword
 - `refresh()`
 - `moveTo(dest)`
 - `createSubdirectory(name)`

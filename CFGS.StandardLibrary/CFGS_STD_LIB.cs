@@ -1775,13 +1775,16 @@ namespace CFGS.StandardLibrary
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 ((DirectoryInfo)r).Create(); return r;
             }));
-            intrinsics.Register(T, new IntrinsicDescriptor("delete", 0, 1, (r, a, instr) =>
+            object DeleteDirectoryInfo(object r, List<object> a, Instruction instr)
             {
                 if (!AllowFileIO)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 bool recursive = a.Count > 0 && Convert.ToBoolean(a[0], CultureInfo.InvariantCulture);
                 ((DirectoryInfo)r).Delete(recursive); return 1;
-            }));
+            }
+
+            intrinsics.Register(T, new IntrinsicDescriptor("delete", 0, 1, DeleteDirectoryInfo));
+            intrinsics.Register(T, new IntrinsicDescriptor("deleteDir", 0, 1, DeleteDirectoryInfo));
             intrinsics.Register(T, new IntrinsicDescriptor("refresh", 0, 0, (r, a, instr) =>
             {
                 if (!AllowFileIO)
