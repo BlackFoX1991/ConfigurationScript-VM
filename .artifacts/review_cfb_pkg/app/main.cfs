@@ -1,2 +1,0 @@
-import "CFGS.StandardLibrary.dll";
-print("CFB_PKG_OK" + str(1));

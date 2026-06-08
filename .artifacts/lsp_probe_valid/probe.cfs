@@ -1,7 +1,0 @@
-﻿class MyClass() {
-    var a = 1;
-}
-
-func main() {
-    print("Hello");
-}
