@@ -363,3 +363,4 @@ MigrationBackup/
 FodyWeavers.xsd
 /dist_release
 /.claude
+/EffCopy.cfs
