@@ -83,12 +83,12 @@ namespace CFGS_VM.Analytic.Semantics
         {
             if (!context.QualifiedClassDecls.TryAdd(qualifiedPath, decl))
             {
-                /*throw new CompilerException(
+                throw new CompilerException(
                     $"duplicate class '{qualifiedPath}'",
                     decl.Line,
                     decl.Col,
-                    decl.OriginFile);*/
-                return;
+                    decl.OriginFile);
+                
             }
 
             context.ClassQualifiedPaths[decl] = qualifiedPath;
@@ -101,12 +101,12 @@ namespace CFGS_VM.Analytic.Semantics
         {
             if (!context.QualifiedInterfaceDecls.TryAdd(qualifiedPath, decl))
             {
-                /*throw new CompilerException(
+                throw new CompilerException(
                     $"duplicate interface '{qualifiedPath}'",
                     decl.Line,
                     decl.Col,
-                    decl.OriginFile);*/
-                return;
+                    decl.OriginFile);
+                
             }
 
             context.InterfaceQualifiedPaths[decl] = qualifiedPath;
