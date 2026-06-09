@@ -3,14 +3,24 @@ import "edge_assert.cfs";
 edge_begin("248_encoding_builtins");
 
 var names = encodingNames();
+var enc = encoding();
+var namesViaNamespace = enc.names();
+var namesViaShortNamespace = encoding.names();
 edge_true("encoding_names_non_empty", len(names) > 0);
+edge_true("encoding_namespace_names_non_empty", len(namesViaNamespace) > 0);
+edge_true("encoding_short_namespace_names_non_empty", len(namesViaShortNamespace) > 0);
 edge_true("has_utf8_name", hasEncoding("utf-8"));
+edge_true("encoding_namespace_has_utf8_name", enc.has("utf-8"));
+edge_true("encoding_short_namespace_has_utf8_name", encoding.has("utf-8"));
 edge_true("has_utf8_codepage", hasEncoding(65001));
 edge_true("has_windows_1252", hasEncoding("windows-1252"));
 edge_eq("has_invalid_encoding", hasEncoding("definitely-not-an-encoding"), false);
+edge_eq("encoding_namespace_has_invalid", enc.has("definitely-not-an-encoding"), false);
 
 var utf8Info = encodingInfo("utf-8");
 edge_eq("utf8_info_codepage", utf8Info["codePage"], 65001);
+edge_eq("encoding_namespace_info_codepage", enc.info("utf-8")["codePage"], 65001);
+edge_eq("encoding_short_namespace_info_codepage", encoding.info("utf-8")["codePage"], 65001);
 
 var cpInfo = encodingInfo("windows-1252");
 edge_eq("windows_1252_codepage", cpInfo["codePage"], 1252);
@@ -32,8 +42,19 @@ edge_eq("convert_encoding_roundtrip", decodeText(utf8Bytes, "utf-8"), "Ä");
 var tobytesLatin = tobytes("Ä", "windows-1252");
 edge_eq("tobytes_encoding_byte", tobytesLatin[0], 196);
 
+var asciiBytesViaNamespace = enc.encode("ABC", "utf-8");
+edge_eq("encoding_namespace_encode_len", len(asciiBytesViaNamespace), 3);
+edge_eq("encoding_namespace_encode_0", asciiBytesViaNamespace[0], 65);
+edge_eq("encoding_namespace_decode", enc.decode([65, 66, 67], "utf-8"), "ABC");
+
+var convertedAscii = enc.convert([65, 66, 67], "utf-8", "utf-8");
+edge_eq("encoding_namespace_convert_len", len(convertedAscii), 3);
+edge_eq("encoding_namespace_convert_2", convertedAscii[2], 67);
+
 var infos = encodings();
+var infosViaNamespace = enc.all();
 edge_true("encodings_non_empty", len(infos) > 0);
+edge_true("encoding_namespace_all_non_empty", len(infosViaNamespace) > 0);
 edge_true("encoding_info_has_name", infos[0]["name"] != null);
 edge_true("encoding_info_has_codepage", infos[0]["codePage"] != null);
 

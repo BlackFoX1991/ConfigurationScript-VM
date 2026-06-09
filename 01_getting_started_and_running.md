@@ -64,14 +64,14 @@ On startup, the REPL can automatically load plugins listed in `repl_plugins.json
 }
 ```
 
-The REPL supports these commands.
+The REPL supports these `$` commands. The prefix keeps REPL commands separate from normal script input.
 
-- `help` shows the help screen.
-- `exit` or `quit` ends the session.
-- `clear` or `cls` clears the console.
-- `debug` toggles debug mode.
-- `ansi` toggles ANSI output.
-- `buffer:len` sets the debug buffer size.
+- `$help` shows the help screen.
+- `$exit` or `$quit` ends the session.
+- `$clear` or `$cls` clears the console.
+- `$debug` toggles debug mode.
+- `$ansi` toggles ANSI output.
+- `$buffer:len` sets the debug buffer size.
 
 The built in REPL help also describes these interactions.
 

@@ -482,15 +482,13 @@ namespace CFGS_VM.Analytic.Core
                     if (node is NullExpr)
                         throw ErrorAtCurrent("invalid access on null reference");
                     Eat(TokenType.Dot);
-                    if (_current.Type != TokenType.Ident && _current.Type != TokenType.New)
+                    if (!IsMemberNameToken(_current.Type))
                         throw ErrorAtCurrent("expected identifier after '.'");
                     int line = _current.Line;
                     int col = _current.Column;
                     string file = _current.Filename;
                     TokenType memberToken = _current.Type;
-                    string member = memberToken == TokenType.New
-                        ? "new"
-                        : _current.Value?.ToString() ?? "";
+                    string member = MemberNameFromToken(_current);
                     node = new IndexExpr(
                         node,
                         new StringExpr(member, line, col, file),

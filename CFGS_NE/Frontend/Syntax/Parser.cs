@@ -32,6 +32,67 @@ namespace CFGS_VM.Analytic.Core
             _cursor = new TokenCursor(_lexer);
         }
 
+        private static bool IsMemberNameToken(TokenType type)
+        {
+            return type switch
+            {
+                TokenType.Ident or
+                TokenType.Print or
+                TokenType.Var or
+                TokenType.Const or
+                TokenType.Static or
+                TokenType.Property or
+                TokenType.Public or
+                TokenType.Private or
+                TokenType.Protected or
+                TokenType.If or
+                TokenType.Else or
+                TokenType.While or
+                TokenType.Do or
+                TokenType.For or
+                TokenType.ForEach or
+                TokenType.Break or
+                TokenType.Continue or
+                TokenType.Delete or
+                TokenType.Match or
+                TokenType.Case or
+                TokenType.Default or
+                TokenType.In or
+                TokenType.Is or
+                TokenType.Null or
+                TokenType.True or
+                TokenType.False or
+                TokenType.Try or
+                TokenType.Catch or
+                TokenType.Finally or
+                TokenType.Using or
+                TokenType.Defer or
+                TokenType.Throw or
+                TokenType.Class or
+                TokenType.Interface or
+                TokenType.Enum or
+                TokenType.Import or
+                TokenType.Use or
+                TokenType.Export or
+                TokenType.Namespace or
+                TokenType.From or
+                TokenType.As or
+                TokenType.Out or
+                TokenType.New or
+                TokenType.Func or
+                TokenType.Return or
+                TokenType.Async or
+                TokenType.Yield or
+                TokenType.Await => true,
+                _ => false
+            };
+        }
+
+        private static string MemberNameFromToken(Token token)
+        {
+            return token.Value?.ToString() ?? "";
+        }
+
         /// <summary>
         /// The Parse
         /// </summary>

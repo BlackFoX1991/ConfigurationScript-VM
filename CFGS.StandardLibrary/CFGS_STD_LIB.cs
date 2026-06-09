@@ -74,6 +74,530 @@ namespace CFGS.StandardLibrary
             RegisterDateTime(intrinsics);
             RegisterDirectoryInfo(intrinsics);
             RegisterTaskNamespace(intrinsics);
+            RegisterEncodingNamespace(intrinsics);
+            RegisterRegexNamespace(intrinsics);
+            RegisterJsonNamespace(intrinsics);
+            RegisterMathNamespace(intrinsics);
+            RegisterConsoleNamespace(intrinsics);
+            RegisterFileSystemNamespace(intrinsics);
+        }
+
+        private static object TextToBytesVm(List<object> args, Instruction instr, string opName)
+        {
+            string text = args[0]?.ToString() ?? "";
+            Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1] : null, instr, opName);
+            return ToVmByteArray(encoding.GetBytes(text));
+        }
+
+        private static object BytesToTextVm(List<object> args, Instruction instr, string opName)
+        {
+            byte[] bytes = ConvertVmValueToBytes(args[0], instr, "bytes");
+            Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1] : null, instr, opName);
+            return encoding.GetString(bytes);
+        }
+
+        private static object ConvertEncodingVm(List<object> args, Instruction instr, string opName)
+        {
+            byte[] sourceBytes = ConvertVmValueToBytes(args[0], instr, "bytes");
+            Encoding sourceEncoding = ResolveTextEncoding(args[1], instr, opName);
+            Encoding targetEncoding = ResolveTextEncoding(args[2], instr, opName);
+            string text = sourceEncoding.GetString(sourceBytes);
+            return ToVmByteArray(targetEncoding.GetBytes(text));
+        }
+
+        private static object HasEncodingVm(List<object> args, Instruction instr, string opName)
+        {
+            try
+            {
+                _ = ResolveTextEncoding(args[0], instr, opName);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static object EncodingInfoVm(List<object> args, Instruction instr, string opName)
+        {
+            Encoding encoding = ResolveTextEncoding(args[0], instr, opName);
+            return EncodingToVmInfo(encoding);
+        }
+
+        private static object EncodingNamesVm()
+        {
+            return Encoding.GetEncodings()
+                .OrderBy(static info => info.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(static info => (object)info.Name)
+                .ToList();
+        }
+
+        private static object EncodingsVm()
+        {
+            return Encoding.GetEncodings()
+                .OrderBy(static info => info.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(static info => (object)EncodingInfoToVmInfo(info))
+                .ToList();
+        }
+
+        private static void RegisterEncodingNamespace(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(EncodingNamespace);
+
+            intrinsics.Register(T, new IntrinsicDescriptor("textToBytes", 1, 2, (recv, a, instr) => TextToBytesVm(a, instr, "encoding.textToBytes")));
+            intrinsics.Register(T, new IntrinsicDescriptor("bytesToText", 1, 2, (recv, a, instr) => BytesToTextVm(a, instr, "encoding.bytesToText")));
+            intrinsics.Register(T, new IntrinsicDescriptor("encode", 1, 2, (recv, a, instr) => TextToBytesVm(a, instr, "encoding.encode")));
+            intrinsics.Register(T, new IntrinsicDescriptor("encodeText", 1, 2, (recv, a, instr) => TextToBytesVm(a, instr, "encoding.encodeText")));
+            intrinsics.Register(T, new IntrinsicDescriptor("decode", 1, 2, (recv, a, instr) => BytesToTextVm(a, instr, "encoding.decode")));
+            intrinsics.Register(T, new IntrinsicDescriptor("decodeText", 1, 2, (recv, a, instr) => BytesToTextVm(a, instr, "encoding.decodeText")));
+            intrinsics.Register(T, new IntrinsicDescriptor("convert", 3, 3, (recv, a, instr) => ConvertEncodingVm(a, instr, "encoding.convert")));
+            intrinsics.Register(T, new IntrinsicDescriptor("convertEncoding", 3, 3, (recv, a, instr) => ConvertEncodingVm(a, instr, "encoding.convertEncoding")));
+            intrinsics.Register(T, new IntrinsicDescriptor("has", 1, 1, (recv, a, instr) => HasEncodingVm(a, instr, "encoding.has")));
+            intrinsics.Register(T, new IntrinsicDescriptor("hasEncoding", 1, 1, (recv, a, instr) => HasEncodingVm(a, instr, "encoding.hasEncoding")));
+            intrinsics.Register(T, new IntrinsicDescriptor("info", 1, 1, (recv, a, instr) => EncodingInfoVm(a, instr, "encoding.info")));
+            intrinsics.Register(T, new IntrinsicDescriptor("encodingInfo", 1, 1, (recv, a, instr) => EncodingInfoVm(a, instr, "encoding.encodingInfo")));
+            intrinsics.Register(T, new IntrinsicDescriptor("names", 0, 0, (recv, a, instr) => EncodingNamesVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("encodingNames", 0, 0, (recv, a, instr) => EncodingNamesVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("all", 0, 0, (recv, a, instr) => EncodingsVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("encodings", 0, 0, (recv, a, instr) => EncodingsVm()));
+        }
+
+        private static Dictionary<string, object> RegexMatchToVm(Match match)
+        {
+            return new Dictionary<string, object>
+            {
+                ["matched"] = match.Value,
+                ["index"] = match.Index,
+                ["groups"] = match.Groups.Cast<Group>().Select(g => (object)g.Value).ToList()
+            };
+        }
+
+        private static object RegexMatchVm(List<object> args)
+        {
+            string input = args[0]?.ToString() ?? "";
+            string pattern = args[1]?.ToString() ?? "";
+            Match match = Regex.Match(input, pattern);
+            return match.Success ? RegexMatchToVm(match) : null!;
+        }
+
+        private static object RegexMatchesVm(List<object> args)
+        {
+            string input = args[0]?.ToString() ?? "";
+            string pattern = args[1]?.ToString() ?? "";
+            return Regex.Matches(input, pattern)
+                .Select(match => (object)RegexMatchToVm(match))
+                .ToList();
+        }
+
+        private static object RegexReplaceVm(List<object> args)
+        {
+            string input = args[0]?.ToString() ?? "";
+            string pattern = args[1]?.ToString() ?? "";
+            string replacement = args[2]?.ToString() ?? "";
+            return Regex.Replace(input, pattern, replacement);
+        }
+
+        private static object RegexTestVm(List<object> args)
+        {
+            string input = args[0]?.ToString() ?? "";
+            string pattern = args[1]?.ToString() ?? "";
+            return Regex.IsMatch(input, pattern);
+        }
+
+        private static object RegexSplitVm(List<object> args)
+        {
+            string input = args[0]?.ToString() ?? "";
+            string pattern = args[1]?.ToString() ?? "";
+            return Regex.Split(input, pattern).Select(s => (object)s).ToList();
+        }
+
+        private static void RegisterRegexNamespace(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(RegexNamespace);
+
+            intrinsics.Register(T, new IntrinsicDescriptor("match", 2, 2, (recv, a, instr) => RegexMatchVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("matches", 2, 2, (recv, a, instr) => RegexMatchesVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("replace", 3, 3, (recv, a, instr) => RegexReplaceVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("test", 2, 2, (recv, a, instr) => RegexTestVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("split", 2, 2, (recv, a, instr) => RegexSplitVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("regex_match", 2, 2, (recv, a, instr) => RegexMatchVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("regex_matches", 2, 2, (recv, a, instr) => RegexMatchesVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("regex_replace", 3, 3, (recv, a, instr) => RegexReplaceVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("regex_test", 2, 2, (recv, a, instr) => RegexTestVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("regex_split", 2, 2, (recv, a, instr) => RegexSplitVm(a)));
+        }
+
+        private static object JsonParseVm(List<object> args)
+        {
+            string? json = args[0]?.ToString();
+            if (string.IsNullOrWhiteSpace(json))
+                return null!;
+
+            using JsonDocument doc = JsonDocument.Parse(json);
+            return JsonToVmValue(doc.RootElement)!;
+        }
+
+        private static object JsonStringifyVm(List<object> args)
+        {
+            return JsonSerializer.Serialize(NormalizeForJson(args[0]), Options);
+        }
+
+        private static void RegisterJsonNamespace(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(JsonNamespace);
+
+            intrinsics.Register(T, new IntrinsicDescriptor("parse", 1, 1, (recv, a, instr) => JsonParseVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("from", 1, 1, (recv, a, instr) => JsonParseVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fromjson", 1, 1, (recv, a, instr) => JsonParseVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("stringify", 1, 1, (recv, a, instr) => JsonStringifyVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("to", 1, 1, (recv, a, instr) => JsonStringifyVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("tojson", 1, 1, (recv, a, instr) => JsonStringifyVm(a)));
+        }
+
+        private static object MathAbsVm(List<object> args) => Math.Abs((dynamic)args[0]);
+
+        private static object MathRandVm(List<object> args)
+        {
+            return new Random(Convert.ToInt32(args[0], CultureInfo.InvariantCulture))
+                .Next(Convert.ToInt32(args[1], CultureInfo.InvariantCulture), Convert.ToInt32(args[2], CultureInfo.InvariantCulture));
+        }
+
+        private static object MathFloorVm(List<object> args) => Math.Floor(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
+        private static object MathCeilVm(List<object> args) => Math.Ceiling(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
+        private static object MathRoundVm(List<object> args) => args.Count == 1
+            ? Math.Round(Convert.ToDouble(args[0], CultureInfo.InvariantCulture))
+            : Math.Round(Convert.ToDouble(args[0], CultureInfo.InvariantCulture), Convert.ToInt32(args[1], CultureInfo.InvariantCulture));
+
+        private static object MathMinVm(List<object> args)
+        {
+            dynamic a = args[0], b = args[1];
+            return a < b ? a : b;
+        }
+
+        private static object MathMaxVm(List<object> args)
+        {
+            dynamic a = args[0], b = args[1];
+            return a > b ? a : b;
+        }
+
+        private static object MathSqrtVm(List<object> args) => Math.Sqrt(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
+        private static object MathPowVm(List<object> args) => Math.Pow(Convert.ToDouble(args[0], CultureInfo.InvariantCulture), Convert.ToDouble(args[1], CultureInfo.InvariantCulture));
+        private static object MathLogVm(List<object> args) => args.Count == 1
+            ? Math.Log(Convert.ToDouble(args[0], CultureInfo.InvariantCulture))
+            : Math.Log(Convert.ToDouble(args[0], CultureInfo.InvariantCulture), Convert.ToDouble(args[1], CultureInfo.InvariantCulture));
+        private static object MathLog10Vm(List<object> args) => Math.Log10(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
+        private static object MathSinVm(List<object> args) => Math.Sin(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
+        private static object MathCosVm(List<object> args) => Math.Cos(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
+        private static object MathTanVm(List<object> args) => Math.Tan(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
+        private static object MathSignVm(List<object> args) => Math.Sign(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
+        private static object MathTruncVm(List<object> args) => Math.Truncate(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
+
+        private static void RegisterMathNamespace(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(MathNamespace);
+
+            intrinsics.Register(T, new IntrinsicDescriptor("abs", 1, 1, (recv, a, instr) => MathAbsVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("rand", 3, 3, (recv, a, instr) => MathRandVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("floor", 1, 1, (recv, a, instr) => MathFloorVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("ceil", 1, 1, (recv, a, instr) => MathCeilVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("round", 1, 2, (recv, a, instr) => MathRoundVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("min", 2, 2, (recv, a, instr) => MathMinVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("max", 2, 2, (recv, a, instr) => MathMaxVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("sqrt", 1, 1, (recv, a, instr) => MathSqrtVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("pow", 2, 2, (recv, a, instr) => MathPowVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("log", 1, 2, (recv, a, instr) => MathLogVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("log10", 1, 1, (recv, a, instr) => MathLog10Vm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("sin", 1, 1, (recv, a, instr) => MathSinVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("cos", 1, 1, (recv, a, instr) => MathCosVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("tan", 1, 1, (recv, a, instr) => MathTanVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("sign", 1, 1, (recv, a, instr) => MathSignVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("trunc", 1, 1, (recv, a, instr) => MathTruncVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("PI", 0, 0, (recv, a, instr) => Math.PI));
+            intrinsics.Register(T, new IntrinsicDescriptor("pi", 0, 0, (recv, a, instr) => Math.PI));
+            intrinsics.Register(T, new IntrinsicDescriptor("E", 0, 0, (recv, a, instr) => Math.E));
+            intrinsics.Register(T, new IntrinsicDescriptor("e", 0, 0, (recv, a, instr) => Math.E));
+        }
+
+        private static object ConsolePrintVm(List<object> args)
+        {
+            PrintValue(args[0], Console.Out, escapeNewlines: false);
+            Console.Out.WriteLine();
+            Console.Out.Flush();
+            return 1;
+        }
+
+        private static object ConsolePutVm(List<object> args)
+        {
+            PrintValue(args[0], Console.Out, escapeNewlines: false);
+            Console.Out.Flush();
+            return 1;
+        }
+
+        private static object ConsoleClearVm()
+        {
+            Console.Clear();
+            return 1;
+        }
+
+        private static object ConsoleGetLineVm() => Console.ReadLine() ?? "";
+        private static object ConsoleGetCharVm() => Console.Read();
+        private static object ConsoleGetLineAsyncVm() => Task.Run<object?>(async () => await Console.In.ReadLineAsync().ConfigureAwait(false));
+        private static object ConsoleGetCharAsyncVm() => Task.Run<object?>(async () =>
+        {
+            char[] buf = new char[1];
+            int n = await Console.In.ReadAsync(buf, 0, 1).ConfigureAwait(false);
+            return n <= 0 ? -1 : (int)buf[0];
+        });
+
+        private static void RegisterConsoleNamespace(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(ConsoleNamespace);
+
+            intrinsics.Register(T, new IntrinsicDescriptor("print", 1, 1, (recv, a, instr) => ConsolePrintVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("put", 1, 1, (recv, a, instr) => ConsolePutVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("clear", 0, 0, (recv, a, instr) => ConsoleClearVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("getl", 0, 0, (recv, a, instr) => ConsoleGetLineVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("getc", 0, 0, (recv, a, instr) => ConsoleGetCharVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("readLine", 0, 0, (recv, a, instr) => ConsoleGetLineVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("readChar", 0, 0, (recv, a, instr) => ConsoleGetCharVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("getlAsync", 0, 0, (recv, a, instr) => ConsoleGetLineAsyncVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("getcAsync", 0, 0, (recv, a, instr) => ConsoleGetCharAsyncVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("readLineAsync", 0, 0, (recv, a, instr) => ConsoleGetLineAsyncVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("readCharAsync", 0, 0, (recv, a, instr) => ConsoleGetCharAsyncVm()));
+        }
+
+        private static object FileDeleteVm(List<object> args)
+        {
+            var path = args[0]?.ToString() ?? string.Empty;
+            if (path.Length == 0)
+                throw new ArgumentException("fdelete requires a file path.");
+
+            if (!File.Exists(path))
+                return 0;
+
+            File.Delete(path);
+            return 1;
+        }
+
+        private static object FileMoveVm(List<object> args)
+        {
+            var source = args[0]?.ToString() ?? string.Empty;
+            var destination = args[1]?.ToString() ?? string.Empty;
+            var overwrite = args.Count >= 3 && Convert.ToBoolean(args[2], CultureInfo.InvariantCulture);
+
+            if (source.Length == 0 || destination.Length == 0)
+                throw new ArgumentException("fmove requires source and destination paths.");
+
+            var parent = Path.GetDirectoryName(Path.GetFullPath(destination));
+            if (!string.IsNullOrWhiteSpace(parent))
+                Directory.CreateDirectory(parent);
+
+            File.Move(source, destination, overwrite);
+            return destination;
+        }
+
+        private static object FileCopyVm(List<object> args)
+        {
+            var source = args[0]?.ToString() ?? string.Empty;
+            var destination = args[1]?.ToString() ?? string.Empty;
+            var overwrite = args.Count >= 3 && Convert.ToBoolean(args[2], CultureInfo.InvariantCulture);
+
+            if (source.Length == 0 || destination.Length == 0)
+                throw new ArgumentException("fcopy requires source and destination paths.");
+
+            var parent = Path.GetDirectoryName(Path.GetFullPath(destination));
+            if (!string.IsNullOrWhiteSpace(parent))
+                Directory.CreateDirectory(parent);
+
+            File.Copy(source, destination, overwrite);
+            return destination;
+        }
+
+        private static object FileOpenVm(List<object> args, Instruction instr)
+        {
+            (string path, int mode, FileStream fs, bool canRead, bool canWrite) = OpenFileStream(args, instr, "fopen");
+            return new FileHandle(path, mode, fs, canRead, canWrite);
+        }
+
+        private static object BinaryFileOpenVm(List<object> args, Instruction instr)
+        {
+            (string path, int mode, FileStream fs, bool canRead, bool canWrite) = OpenFileStream(args, instr, "fbopen");
+            return new BinaryFileHandle(path, mode, fs, canRead, canWrite);
+        }
+
+        private static object ReadAllBytesVm(List<object> args, Instruction instr)
+        {
+            EnsureFileIo(instr);
+            string path = args[0]?.ToString() ?? "";
+            try
+            {
+                return ToVmByteArray(File.ReadAllBytes(path));
+            }
+            catch (Exception ex)
+            {
+                throw new VMException(
+                    $"Runtime error: readAllBytes('{path}') failed: {ex.GetType().Name}: {ex.Message}",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+        }
+
+        private static object ReadAllBytesAsyncVm(List<object> args, Instruction instr)
+        {
+            EnsureFileIo(instr);
+            string path = args[0]?.ToString() ?? "";
+            return Task.Run<object?>(async () =>
+            {
+                try
+                {
+                    byte[] bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
+                    return ToVmByteArray(bytes);
+                }
+                catch (Exception ex)
+                {
+                    throw new VMException(
+                        $"Runtime error: readAllBytesAsync('{path}') failed: {ex.GetType().Name}: {ex.Message}",
+                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                }
+            });
+        }
+
+        private static object WriteAllBytesVm(List<object> args, Instruction instr)
+        {
+            EnsureFileIo(instr);
+            string path = args[0]?.ToString() ?? "";
+            byte[] bytes = ConvertVmValueToBytes(args[1], instr, "data");
+            try
+            {
+                File.WriteAllBytes(path, bytes);
+                return bytes.Length;
+            }
+            catch (Exception ex)
+            {
+                throw new VMException(
+                    $"Runtime error: writeAllBytes('{path}', data) failed: {ex.GetType().Name}: {ex.Message}",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+        }
+
+        private static object ReadTextAsyncVm(List<object> args, Instruction instr)
+        {
+            if (!AllowFileIO)
+                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            string path = args[0]?.ToString() ?? "";
+            return Task.Run<object?>(async () => await File.ReadAllTextAsync(path).ConfigureAwait(false));
+        }
+
+        private static object WriteTextAsyncVm(List<object> args, Instruction instr)
+        {
+            if (!AllowFileIO)
+                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            string path = args[0]?.ToString() ?? "";
+            string text = args[1]?.ToString() ?? "";
+            return Task.Run<object?>(async () => { await File.WriteAllTextAsync(path, text).ConfigureAwait(false); return 1; });
+        }
+
+        private static object AppendTextAsyncVm(List<object> args, Instruction instr)
+        {
+            if (!AllowFileIO)
+                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            string path = args[0]?.ToString() ?? "";
+            string text = args[1]?.ToString() ?? "";
+            return Task.Run<object?>(async () => { await File.AppendAllTextAsync(path, text).ConfigureAwait(false); return 1; });
+        }
+
+        private static object FileSizeVm(List<object> args, Instruction instr)
+        {
+            EnsureFileIo(instr);
+            string path = args[0]?.ToString() ?? "";
+            return File.Exists(path) ? new FileInfo(path).Length : -1L;
+        }
+
+        private static object FileLastWriteTimeVm(List<object> args, Instruction instr)
+        {
+            EnsureFileIo(instr);
+            string path = args[0]?.ToString() ?? "";
+            return File.GetLastWriteTime(path);
+        }
+
+        private static object FileLastWriteTimeUtcVm(List<object> args, Instruction instr)
+        {
+            EnsureFileIo(instr);
+            string path = args[0]?.ToString() ?? "";
+            return File.GetLastWriteTimeUtc(path);
+        }
+
+        private static object FileExistsVm(List<object> args)
+        {
+            if (args[0] is not string)
+                return false;
+            return File.Exists(args[0].ToString());
+        }
+
+        private static object SetWorkspaceVm(List<object> args, Instruction instr)
+        {
+            if (!AllowFileIO)
+                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            if (args[0] is not string path)
+                throw new VMException("Runtime error: set_workspace requires a string path",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            try
+            {
+                Directory.SetCurrentDirectory(path);
+                return 1;
+            }
+            catch (Exception ex)
+            {
+                throw new VMException($"Runtime error: set_workspace('{path}') failed: {ex.GetType().Name}: {ex.Message}",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            }
+        }
+
+        private static object GetWorkspaceVm() => Directory.GetCurrentDirectory();
+
+        private static object GetDirectoryVm(List<object> args, Instruction instr)
+        {
+            if (!AllowFileIO)
+                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            return Path.GetDirectoryName(args[0]?.ToString() ?? "") ?? "";
+        }
+
+        private static object DirectoryInfoVm(List<object> args) => new DirectoryInfo(args[0]?.ToString() ?? "");
+
+        private static void RegisterFileSystemNamespace(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(FileSystemNamespace);
+
+            intrinsics.Register(T, new IntrinsicDescriptor("open", 2, 2, (recv, a, instr) => FileOpenVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fopen", 2, 2, (recv, a, instr) => FileOpenVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("openBinary", 2, 2, (recv, a, instr) => BinaryFileOpenVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fbopen", 2, 2, (recv, a, instr) => BinaryFileOpenVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("delete", 1, 1, (recv, a, instr) => FileDeleteVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fdelete", 1, 1, (recv, a, instr) => FileDeleteVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("move", 2, 3, (recv, a, instr) => FileMoveVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fmove", 2, 3, (recv, a, instr) => FileMoveVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("copy", 2, 3, (recv, a, instr) => FileCopyVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fcopy", 2, 3, (recv, a, instr) => FileCopyVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("exists", 1, 1, (recv, a, instr) => FileExistsVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fexist", 1, 1, (recv, a, instr) => FileExistsVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("readAllBytes", 1, 1, (recv, a, instr) => ReadAllBytesVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("readAllBytesAsync", 1, 1, (recv, a, instr) => ReadAllBytesAsyncVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("writeAllBytes", 2, 2, (recv, a, instr) => WriteAllBytesVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("readTextAsync", 1, 1, (recv, a, instr) => ReadTextAsyncVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("writeTextAsync", 2, 2, (recv, a, instr) => WriteTextAsyncVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("appendTextAsync", 2, 2, (recv, a, instr) => AppendTextAsyncVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("size", 1, 1, (recv, a, instr) => FileSizeVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fileSize", 1, 1, (recv, a, instr) => FileSizeVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("lastWriteTime", 1, 1, (recv, a, instr) => FileLastWriteTimeVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fileLastWriteTime", 1, 1, (recv, a, instr) => FileLastWriteTimeVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("lastWriteTimeUtc", 1, 1, (recv, a, instr) => FileLastWriteTimeUtcVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fileLastWriteTimeUtc", 1, 1, (recv, a, instr) => FileLastWriteTimeUtcVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("setWorkspace", 1, 1, (recv, a, instr) => SetWorkspaceVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("set_workspace", 1, 1, (recv, a, instr) => SetWorkspaceVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("getWorkspace", 0, 0, (recv, a, instr) => GetWorkspaceVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("get_workspace", 0, 0, (recv, a, instr) => GetWorkspaceVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("getDirectory", 1, 1, (recv, a, instr) => GetDirectoryVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("directoryInfo", 1, 1, (recv, a, instr) => DirectoryInfoVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("DirectoryInfo", 1, 1, (recv, a, instr) => DirectoryInfoVm(a)));
         }
 
         /// <summary>
@@ -458,80 +982,42 @@ namespace CFGS.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("print", 1, 1, (args, instr) =>
             {
-                PrintValue(args[0], Console.Out, escapeNewlines: false);
-                Console.Out.WriteLine();
-                Console.Out.Flush();
-                return 1;
+                return ConsolePrintVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("put", 1, 1, (args, instr) =>
             {
-                PrintValue(args[0], Console.Out, escapeNewlines: false);
-                Console.Out.Flush();
-                return 1;
+                return ConsolePutVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("fdelete", 1, 1, (args, instr) =>
             {
-                var path = args[0]?.ToString() ?? string.Empty;
-                if (path.Length == 0)
-                    throw new ArgumentException("fdelete requires a file path.");
-
-                if (!File.Exists(path))
-                    return 0;
-
-                File.Delete(path);
-                return 1;
+                return FileDeleteVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("fmove", 2, 3, (args, instr) =>
             {
-                var source = args[0]?.ToString() ?? string.Empty;
-                var destination = args[1]?.ToString() ?? string.Empty;
-                var overwrite = args.Count >= 3 && Convert.ToBoolean(args[2]);
-
-                if (source.Length == 0 || destination.Length == 0)
-                    throw new ArgumentException("fmove requires source and destination paths.");
-
-                var parent = Path.GetDirectoryName(Path.GetFullPath(destination));
-                if (!string.IsNullOrWhiteSpace(parent))
-                    Directory.CreateDirectory(parent);
-
-                File.Move(source, destination, overwrite);
-                return destination;
+                return FileMoveVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("fcopy", 2, 3, (args, instr) =>
             {
-                var source = args[0]?.ToString() ?? string.Empty;
-                var destination = args[1]?.ToString() ?? string.Empty;
-                var overwrite = args.Count >= 3 && Convert.ToBoolean(args[2]);
-
-                if (source.Length == 0 || destination.Length == 0)
-                    throw new ArgumentException("fcopy requires source and destination paths.");
-
-                var parent = Path.GetDirectoryName(Path.GetFullPath(destination));
-                if (!string.IsNullOrWhiteSpace(parent))
-                    Directory.CreateDirectory(parent);
-
-                File.Copy(source, destination, overwrite);
-                return destination;
+                return FileCopyVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("clear", 0, 0, (args, instr) =>
             {
-                Console.Clear();
-                return 1;
+                return ConsoleClearVm();
             }));
 
             builtins.Register(new BuiltinDescriptor("getl", 0, 0, (args, instr) =>
             {
-                return Console.ReadLine() ?? "";
+                return ConsoleGetLineVm();
             }));
 
             builtins.Register(new BuiltinDescriptor("getc", 0, 0, (args, instr) =>
             {
-                return Console.Read();
+                return ConsoleGetCharVm();
             }));
 
             builtins.Register(new BuiltinDescriptor("str", 1, 1, (args, instr) =>
@@ -664,25 +1150,11 @@ namespace CFGS.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("set_workspace", 1, 1, (args, instr) =>
             {
-                if (!AllowFileIO)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                if (args[0] is not string path)
-                    throw new VMException("Runtime error: set_workspace requires a string path",
-                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                try
-                {
-                    Directory.SetCurrentDirectory(path);
-                    return 1;
-                }
-                catch (Exception ex)
-                {
-                    throw new VMException($"Runtime error: set_workspace('{path}') failed: {ex.GetType().Name}: {ex.Message}",
-                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                }
+                return SetWorkspaceVm(args, instr);
             }));
             builtins.Register(new BuiltinDescriptor("get_workspace", 0, 0, (args, instr) =>
             {
-                return Directory.GetCurrentDirectory();
+                return GetWorkspaceVm();
             }));
 
             builtins.Register(new BuiltinDescriptor("ScriptPath", 0, 0, (args, instr) =>
@@ -704,14 +1176,12 @@ namespace CFGS.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("getDirectory", 1, 1, (args, instr) =>
             {
-                if (!AllowFileIO)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                return Path.GetDirectoryName(args[0]?.ToString() ?? "") ?? "";
+                return GetDirectoryVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("DirectoryInfo", 1, 1, (args, instr) =>
             {
-                return new DirectoryInfo(args[0]?.ToString() ?? "");
+                return DirectoryInfoVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("DateTime", 0, 0, (args, instr) =>
@@ -727,65 +1197,58 @@ namespace CFGS.StandardLibrary
                 return DateTime.UtcNow.ToString(args.Count > 0 ? args[0].ToString() : null);
             }));
 
-            builtins.Register(new BuiltinDescriptor("abs", 1, 1, (args, instr) => Math.Abs((dynamic)args[0])));
+            builtins.Register(new BuiltinDescriptor("abs", 1, 1, (args, instr) => MathAbsVm(args)));
 
             builtins.Register(new BuiltinDescriptor("rand", 3, 3, (args, instr) =>
             {
-                return new Random((int)Convert.ToInt32(args[0]))
-                    .Next(Convert.ToInt32(args[1]), Convert.ToInt32(args[2]));
+                return MathRandVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("floor", 1, 1, (args, instr) =>
-                Math.Floor(Convert.ToDouble(args[0]))));
+                MathFloorVm(args)));
 
             builtins.Register(new BuiltinDescriptor("ceil", 1, 1, (args, instr) =>
-                Math.Ceiling(Convert.ToDouble(args[0]))));
+                MathCeilVm(args)));
 
             builtins.Register(new BuiltinDescriptor("round", 1, 2, (args, instr) =>
-                args.Count == 1
-                    ? Math.Round(Convert.ToDouble(args[0]))
-                    : Math.Round(Convert.ToDouble(args[0]), Convert.ToInt32(args[1]))));
+                MathRoundVm(args)));
 
             builtins.Register(new BuiltinDescriptor("min", 2, 2, (args, instr) =>
             {
-                dynamic a = args[0], b = args[1];
-                return a < b ? a : b;
+                return MathMinVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("max", 2, 2, (args, instr) =>
             {
-                dynamic a = args[0], b = args[1];
-                return a > b ? a : b;
+                return MathMaxVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("sqrt", 1, 1, (args, instr) =>
-                Math.Sqrt(Convert.ToDouble(args[0]))));
+                MathSqrtVm(args)));
 
             builtins.Register(new BuiltinDescriptor("pow", 2, 2, (args, instr) =>
-                Math.Pow(Convert.ToDouble(args[0]), Convert.ToDouble(args[1]))));
+                MathPowVm(args)));
 
             builtins.Register(new BuiltinDescriptor("log", 1, 2, (args, instr) =>
-                args.Count == 1
-                    ? Math.Log(Convert.ToDouble(args[0]))
-                    : Math.Log(Convert.ToDouble(args[0]), Convert.ToDouble(args[1]))));
+                MathLogVm(args)));
 
             builtins.Register(new BuiltinDescriptor("log10", 1, 1, (args, instr) =>
-                Math.Log10(Convert.ToDouble(args[0]))));
+                MathLog10Vm(args)));
 
             builtins.Register(new BuiltinDescriptor("sin", 1, 1, (args, instr) =>
-                Math.Sin(Convert.ToDouble(args[0]))));
+                MathSinVm(args)));
 
             builtins.Register(new BuiltinDescriptor("cos", 1, 1, (args, instr) =>
-                Math.Cos(Convert.ToDouble(args[0]))));
+                MathCosVm(args)));
 
             builtins.Register(new BuiltinDescriptor("tan", 1, 1, (args, instr) =>
-                Math.Tan(Convert.ToDouble(args[0]))));
+                MathTanVm(args)));
 
             builtins.Register(new BuiltinDescriptor("sign", 1, 1, (args, instr) =>
-                Math.Sign(Convert.ToDouble(args[0]))));
+                MathSignVm(args)));
 
             builtins.Register(new BuiltinDescriptor("trunc", 1, 1, (args, instr) =>
-                Math.Truncate(Convert.ToDouble(args[0]))));
+                MathTruncVm(args)));
 
             builtins.Register(new BuiltinDescriptor("PI", 0, 0, (args, instr) => Math.PI));
 
@@ -794,56 +1257,27 @@ namespace CFGS.StandardLibrary
             // Regex builtins
             builtins.Register(new BuiltinDescriptor("regex_match", 2, 2, (args, instr) =>
             {
-                string input = args[0]?.ToString() ?? "";
-                string pattern = args[1]?.ToString() ?? "";
-                Match m = Regex.Match(input, pattern);
-                if (!m.Success) return null!;
-                Dictionary<string, object> result = new()
-                {
-                    ["matched"] = m.Value,
-                    ["index"] = m.Index,
-                    ["groups"] = m.Groups.Cast<Group>().Select(g => (object)g.Value).ToList()
-                };
-                return result;
+                return RegexMatchVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("regex_matches", 2, 2, (args, instr) =>
             {
-                string input = args[0]?.ToString() ?? "";
-                string pattern = args[1]?.ToString() ?? "";
-                MatchCollection matches = Regex.Matches(input, pattern);
-                return matches.Select(m =>
-                {
-                    Dictionary<string, object> d = new()
-                    {
-                        ["matched"] = m.Value,
-                        ["index"] = m.Index,
-                        ["groups"] = m.Groups.Cast<Group>().Select(g => (object)g.Value).ToList()
-                    };
-                    return (object)d;
-                }).ToList();
+                return RegexMatchesVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("regex_replace", 3, 3, (args, instr) =>
             {
-                string input = args[0]?.ToString() ?? "";
-                string pattern = args[1]?.ToString() ?? "";
-                string replacement = args[2]?.ToString() ?? "";
-                return Regex.Replace(input, pattern, replacement);
+                return RegexReplaceVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("regex_test", 2, 2, (args, instr) =>
             {
-                string input = args[0]?.ToString() ?? "";
-                string pattern = args[1]?.ToString() ?? "";
-                return Regex.IsMatch(input, pattern);
+                return RegexTestVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("regex_split", 2, 2, (args, instr) =>
             {
-                string input = args[0]?.ToString() ?? "";
-                string pattern = args[1]?.ToString() ?? "";
-                return Regex.Split(input, pattern).Select(s => (object)s).ToList();
+                return RegexSplitVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("isdigit", 1, 1, (args, instr) =>
@@ -875,6 +1309,14 @@ namespace CFGS.StandardLibrary
                 return System.Threading.Tasks.Task.FromResult<object?>(args[0]);
             }, smartAwait: true));
 
+            builtins.Register(new BuiltinDescriptor("encoding", 0, 0, (args, instr) => EncodingNamespace.Instance));
+            builtins.Register(new BuiltinDescriptor("regex", 0, 0, (args, instr) => RegexNamespace.Instance));
+            builtins.Register(new BuiltinDescriptor("json", 0, 0, (args, instr) => JsonNamespace.Instance));
+            builtins.Register(new BuiltinDescriptor("math", 0, 0, (args, instr) => MathNamespace.Instance));
+            builtins.Register(new BuiltinDescriptor("console", 0, 0, (args, instr) => ConsoleNamespace.Instance));
+            builtins.Register(new BuiltinDescriptor("fs", 0, 0, (args, instr) => FileSystemNamespace.Instance));
+            builtins.Register(new BuiltinDescriptor("file", 0, 0, (args, instr) => FileSystemNamespace.Instance));
+
             builtins.Register(new BuiltinDescriptor("isarray", 1, 1, (args, instr) => args[0] is List<object>));
             builtins.Register(new BuiltinDescriptor("isdict", 1, 1, (args, instr) => args[0] is Dictionary<string, object>));
 
@@ -886,18 +1328,13 @@ namespace CFGS.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("fromjson", 1, 1, (args, instr) =>
             {
-                string? json = args[0]?.ToString();
-                if (string.IsNullOrWhiteSpace(json))
-                    return null!;
-
-                using JsonDocument doc = JsonDocument.Parse(json);
-                return JsonToVmValue(doc.RootElement)!;
+                return JsonParseVm(args);
             }));
 
 
             builtins.Register(new BuiltinDescriptor("tojson", 1, 1, (args, instr) =>
             {
-                return JsonSerializer.Serialize(NormalizeForJson(args[0]), Options);
+                return JsonStringifyVm(args);
             }));
 
 
@@ -905,140 +1342,72 @@ namespace CFGS.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("fopen", 2, 2, (args, instr) =>
             {
-                (string path, int mode, FileStream fs, bool canRead, bool canWrite) = OpenFileStream(args, instr, "fopen");
-                return new FileHandle(path, mode, fs, canRead, canWrite);
+                return FileOpenVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("fbopen", 2, 2, (args, instr) =>
             {
-                (string path, int mode, FileStream fs, bool canRead, bool canWrite) = OpenFileStream(args, instr, "fbopen");
-                return new BinaryFileHandle(path, mode, fs, canRead, canWrite);
+                return BinaryFileOpenVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("readAllBytes", 1, 1, (args, instr) =>
             {
-                EnsureFileIo(instr);
-                string path = args[0]?.ToString() ?? "";
-                try
-                {
-                    return ToVmByteArray(File.ReadAllBytes(path));
-                }
-                catch (Exception ex)
-                {
-                    throw new VMException(
-                        $"Runtime error: readAllBytes('{path}') failed: {ex.GetType().Name}: {ex.Message}",
-                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                }
+                return ReadAllBytesVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("readAllBytesAsync", 1, 1, (args, instr) =>
             {
-                EnsureFileIo(instr);
-                string path = args[0]?.ToString() ?? "";
-                return Task.Run<object?>(async () =>
-                {
-                    try
-                    {
-                        byte[] bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
-                        return ToVmByteArray(bytes);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw new VMException(
-                            $"Runtime error: readAllBytesAsync('{path}') failed: {ex.GetType().Name}: {ex.Message}",
-                            instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                    }
-                });
+                return ReadAllBytesAsyncVm(args, instr);
             }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("writeAllBytes", 2, 2, (args, instr) =>
             {
-                EnsureFileIo(instr);
-                string path = args[0]?.ToString() ?? "";
-                byte[] bytes = ConvertVmValueToBytes(args[1], instr, "data");
-                try
-                {
-                    File.WriteAllBytes(path, bytes);
-                    return bytes.Length;
-                }
-                catch (Exception ex)
-                {
-                    throw new VMException(
-                        $"Runtime error: writeAllBytes('{path}', data) failed: {ex.GetType().Name}: {ex.Message}",
-                        instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                }
+                return WriteAllBytesVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("textToBytes", 1, 2, (args, instr) =>
             {
-                string text = args[0]?.ToString() ?? "";
-                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1] : null, instr, "textToBytes");
-                return ToVmByteArray(encoding.GetBytes(text));
+                return TextToBytesVm(args, instr, "textToBytes");
             }));
 
             builtins.Register(new BuiltinDescriptor("bytesToText", 1, 2, (args, instr) =>
             {
-                byte[] bytes = ConvertVmValueToBytes(args[0], instr, "bytes");
-                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1] : null, instr, "bytesToText");
-                return encoding.GetString(bytes);
+                return BytesToTextVm(args, instr, "bytesToText");
             }));
 
             builtins.Register(new BuiltinDescriptor("encodeText", 1, 2, (args, instr) =>
             {
-                string text = args[0]?.ToString() ?? "";
-                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1] : null, instr, "encodeText");
-                return ToVmByteArray(encoding.GetBytes(text));
+                return TextToBytesVm(args, instr, "encodeText");
             }));
 
             builtins.Register(new BuiltinDescriptor("decodeText", 1, 2, (args, instr) =>
             {
-                byte[] bytes = ConvertVmValueToBytes(args[0], instr, "bytes");
-                Encoding encoding = ResolveTextEncoding(args.Count >= 2 ? args[1] : null, instr, "decodeText");
-                return encoding.GetString(bytes);
+                return BytesToTextVm(args, instr, "decodeText");
             }));
 
             builtins.Register(new BuiltinDescriptor("convertEncoding", 3, 3, (args, instr) =>
             {
-                byte[] sourceBytes = ConvertVmValueToBytes(args[0], instr, "bytes");
-                Encoding sourceEncoding = ResolveTextEncoding(args[1], instr, "convertEncoding");
-                Encoding targetEncoding = ResolveTextEncoding(args[2], instr, "convertEncoding");
-                string text = sourceEncoding.GetString(sourceBytes);
-                return ToVmByteArray(targetEncoding.GetBytes(text));
+                return ConvertEncodingVm(args, instr, "convertEncoding");
             }));
 
             builtins.Register(new BuiltinDescriptor("hasEncoding", 1, 1, (args, instr) =>
             {
-                try
-                {
-                    _ = ResolveTextEncoding(args[0], instr, "hasEncoding");
-                    return true;
-                }
-                catch
-                {
-                    return false;
-                }
+                return HasEncodingVm(args, instr, "hasEncoding");
             }));
 
             builtins.Register(new BuiltinDescriptor("encodingInfo", 1, 1, (args, instr) =>
             {
-                Encoding encoding = ResolveTextEncoding(args[0], instr, "encodingInfo");
-                return EncodingToVmInfo(encoding);
+                return EncodingInfoVm(args, instr, "encodingInfo");
             }));
 
             builtins.Register(new BuiltinDescriptor("encodingNames", 0, 0, (args, instr) =>
             {
-                return Encoding.GetEncodings()
-                    .OrderBy(static info => info.Name, StringComparer.OrdinalIgnoreCase)
-                    .Select(static info => (object)info.Name)
-                    .ToList();
+                return EncodingNamesVm();
             }));
 
             builtins.Register(new BuiltinDescriptor("encodings", 0, 0, (args, instr) =>
             {
-                return Encoding.GetEncodings()
-                    .OrderBy(static info => info.Name, StringComparer.OrdinalIgnoreCase)
-                    .Select(static info => (object)EncodingInfoToVmInfo(info))
-                    .ToList();
+                return EncodingsVm();
             }));
 
             builtins.Register(new BuiltinDescriptor("sleep", 1, 1, (args, instr) =>
@@ -1054,71 +1423,47 @@ namespace CFGS.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("getlAsync", 0, 0, (args, instr) =>
             {
-                return Task.Run<object?>(async () => await Console.In.ReadLineAsync().ConfigureAwait(false));
+                return ConsoleGetLineAsyncVm();
             }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("getcAsync", 0, 0, (args, instr) =>
             {
-                return Task.Run<object?>(async () =>
-                {
-                    char[] buf = new char[1];
-                    int n = await Console.In.ReadAsync(buf, 0, 1).ConfigureAwait(false);
-                    return n <= 0 ? -1 : (int)buf[0];
-                });
+                return ConsoleGetCharAsyncVm();
             }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("readTextAsync", 1, 1, (args, instr) =>
             {
-                if (!AllowFileIO)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                string path = args[0]?.ToString() ?? "";
-                return Task.Run<object?>(async () => await File.ReadAllTextAsync(path).ConfigureAwait(false));
+                return ReadTextAsyncVm(args, instr);
             }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("writeTextAsync", 2, 2, (args, instr) =>
             {
-                if (!AllowFileIO)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                string path = args[0]?.ToString() ?? "";
-                string text = args[1]?.ToString() ?? "";
-                return Task.Run<object?>(async () => { await File.WriteAllTextAsync(path, text).ConfigureAwait(false); return 1; });
+                return WriteTextAsyncVm(args, instr);
             }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("appendTextAsync", 2, 2, (args, instr) =>
             {
-                if (!AllowFileIO)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-                string path = args[0]?.ToString() ?? "";
-                string text = args[1]?.ToString() ?? "";
-                return Task.Run<object?>(async () => { await File.AppendAllTextAsync(path, text).ConfigureAwait(false); return 1; });
+                return AppendTextAsyncVm(args, instr);
             }, smartAwait: true));
 
             builtins.Register(new BuiltinDescriptor("fileSize", 1, 1, (args, instr) =>
             {
-                EnsureFileIo(instr);
-                string path = args[0]?.ToString() ?? "";
-                return File.Exists(path) ? new FileInfo(path).Length : -1L;
+                return FileSizeVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("fileLastWriteTime", 1, 1, (args, instr) =>
             {
-                EnsureFileIo(instr);
-                string path = args[0]?.ToString() ?? "";
-                return File.GetLastWriteTime(path);
+                return FileLastWriteTimeVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("fileLastWriteTimeUtc", 1, 1, (args, instr) =>
             {
-                EnsureFileIo(instr);
-                string path = args[0]?.ToString() ?? "";
-                return File.GetLastWriteTimeUtc(path);
+                return FileLastWriteTimeUtcVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("fexist", 1, 1, (args, instr) =>
             {
-                if (args[0] is not string)
-                    return false;
-                return File.Exists(args[0].ToString());
+                return FileExistsVm(args);
             }));
         }
 

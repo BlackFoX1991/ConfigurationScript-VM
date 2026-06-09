@@ -402,11 +402,12 @@ namespace CFGS_VM.Analytic.Core
                 {
                     Eat(TokenType.Dot);
 
-                    if (_current.Type != TokenType.Ident)
+                    if (!IsMemberNameToken(_current.Type))
                         throw new ParserException("expected identifier after '.'", line, col, _current.Filename);
 
-                    string fieldName = _current.Value.ToString() ?? "";
-                    Eat(TokenType.Ident);
+                    TokenType memberToken = _current.Type;
+                    string fieldName = MemberNameFromToken(_current);
+                    Eat(memberToken);
 
                     target = new IndexExpr(target, new StringExpr(fieldName, line, col, fsname), line, col, fsname, isDotAccess: true);
                 }
@@ -539,11 +540,12 @@ namespace CFGS_VM.Analytic.Core
                     if (_current.Type == TokenType.Dot)
                     {
                         Eat(TokenType.Dot);
-                        if (_current.Type != TokenType.Ident)
+                        if (!IsMemberNameToken(_current.Type))
                             throw new ParserException("expected identifier after '.'", line, col, _current.Filename);
 
-                        string fieldName = _current.Value?.ToString() ?? "";
-                        Eat(TokenType.Ident);
+                        TokenType memberToken = _current.Type;
+                        string fieldName = MemberNameFromToken(_current);
+                        Eat(memberToken);
 
                         target = new IndexExpr(
                             target,

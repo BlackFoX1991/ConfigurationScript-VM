@@ -5,6 +5,7 @@ using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Core;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Interop;
+using CFGS_VM.VMCore.Plugin;
 using System.Numerics;
 using System.Linq;
 
@@ -924,6 +925,18 @@ namespace CFGS_VM.VMCore
         {
             switch (target)
             {
+                case BuiltinCallable bc when bc.ArityMin == 0 && bc.ArityMax == 0:
+                    {
+                        if (!TryGetBuiltin(bc.Name, out BuiltinDescriptor desc))
+                            throw new VMException($"Runtime error: unknown builtin '{bc.Name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                        object? resolved = InvokeBuiltinForCall(desc, [], instr);
+                        if (resolved is null)
+                            throw CreateIndexException(target, idxObj, instr);
+
+                        return GetIndexedValue(resolved, idxObj, instr);
+                    }
+
                 case System.Threading.Tasks.Task<object> _:
                     {
                         string key = idxObj?.ToString() ?? "";

@@ -98,7 +98,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v5.5.8";
+    public const string Version = "v5.6.0";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -114,7 +114,7 @@ public class Program
     /// Defines the header_text
     /// </summary>
     private static readonly string header_text =
-        $"[ Configuration-Language ] [ Version {Version} ]\n Enter your code, 'help' or 'exit/quit'\n Visit : https://github.com/BlackFoX1991/ConfigurationScript-VM";
+        $"[ Configuration-Language ] [ Version {Version} ]\n Enter your code, '$help' or '$exit/$quit'\n Visit : https://github.com/BlackFoX1991/ConfigurationScript-VM";
 
     /// <summary>
     /// Defines the help_diag
@@ -123,11 +123,11 @@ public class Program
 =====================================================================================================
                       #####                    
             ####     ##:::::+#####              [===================HELP============================]
-           ############......::::=###           [ Enter your code or use the following commands     ]
-           ############..........:::*##         [ buffer:length to set the logfile max. output      ]
-     ############     #.............:::##       [ cls/ clear to clear the console                   ]  
-    ##########        #...............::##      [ debug to enable/disable the debug mode            ]
-      ######         %#+++.............::##     [ ansi to enable or disable Ansi-Console-Mode       ]
+           ############......::::=###           [ Enter your code or use $ commands                ]
+           ############..........:::*##         [ $buffer:length to set logfile max. output        ]
+     ############     #.............:::##       [ $cls / $clear to clear the console               ]  
+    ##########        #...............::##      [ $debug to enable/disable the debug mode          ]
+      ######         %#+++.............::##     [ $ansi to enable or disable Ansi-Console-Mode     ]
       #####        ####+++++++.........:::##    =====================================================
   ########        #####++++++++.........::##    [ Commands : -d(ebug) -di(debugger) -p(arams) -c(ompile)]
   ########        #####+++++++++........::##    [            -s(et) buffer  maxlen                  ]
@@ -136,6 +136,7 @@ public class Program
     ##########        #******........:::##      [ Check    : -check file.cfs [--json]               ]   
     ##########        #******........:::##      [ Packages : init | install plugin.dll | restore    ]   
     ##########        #******........:::##      [--------------REPL INFO----------------------------]
+     ############     #.:...........::###       [ $help shows help, $exit/$quit leaves REPL        ]
      ############     #.:...........::###       [ Enter runs complete code, Ctrl+Enter forces run   ]
            ############..........:::###         [ Use Ctrl+Backspace to clear the code              ]
             ###########......::::####           [ Enter $L <Line> <Content> to edit a specific Line ]
@@ -1127,8 +1128,12 @@ public class Program
             if (raw is null)
                 return null;
 
-            raw = raw.TrimStart('\uFEFF');
-            string trimmed = raw.Trim();
+            string rawTrimmed = raw.Trim();
+            if (!rawTrimmed.StartsWith('$'))
+                return raw;
+
+            string commandRaw = rawTrimmed[1..].TrimStart('\uFEFF');
+            string trimmed = commandRaw.Trim();
 
             if (string.IsNullOrWhiteSpace(trimmed))
                 return string.Empty;
@@ -1174,7 +1179,7 @@ public class Program
                 int sep = trimmed.IndexOf(":");
                 if (sep == -1 || string.IsNullOrWhiteSpace(trimmed[(sep + 1)..]))
                 {
-                    Console.WriteLine("Usage : buffer:len");
+                    Console.WriteLine("Usage : $buffer:len");
                     return string.Empty;
                 }
 
@@ -1440,24 +1445,26 @@ public class Program
                     }
                 }
 
-                if (buffer.Count == 0)
+                if (buffer.Count == 0 && trimmed.StartsWith('$'))
                 {
-                    if (trimmed.Equals("exit", StringComparison.OrdinalIgnoreCase) ||
-                        trimmed.Equals("quit", StringComparison.OrdinalIgnoreCase))
+                    string command = trimmed[1..].TrimStart();
+
+                    if (command.Equals("exit", StringComparison.OrdinalIgnoreCase) ||
+                        command.Equals("quit", StringComparison.OrdinalIgnoreCase))
                     {
                         Console.WriteLine();
                         return null;
                     }
 
-                    if (trimmed.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
-                        trimmed.Equals("cls", StringComparison.OrdinalIgnoreCase))
+                    if (command.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
+                        command.Equals("cls", StringComparison.OrdinalIgnoreCase))
                     {
                         Console.WriteLine();
                         DoClear();
                         continue;
                     }
 
-                    if (trimmed.Equals("debug", StringComparison.OrdinalIgnoreCase))
+                    if (command.Equals("debug", StringComparison.OrdinalIgnoreCase))
                     {
                         IsDebug = !IsDebug;
                         Console.WriteLine();
@@ -1470,7 +1477,7 @@ public class Program
                         continue;
                     }
 
-                    if (trimmed.Equals("ansi", StringComparison.OrdinalIgnoreCase))
+                    if (command.Equals("ansi", StringComparison.OrdinalIgnoreCase))
                     {
                         if (AnsiMode)
                             AnsiConsole.DisableAnsi();
@@ -1488,7 +1495,7 @@ public class Program
                         continue;
                     }
 
-                    if (trimmed.Equals("help", StringComparison.OrdinalIgnoreCase))
+                    if (command.Equals("help", StringComparison.OrdinalIgnoreCase))
                     {
                         Console.WriteLine();
                         Console.WriteLine(help_diag);
@@ -1500,21 +1507,21 @@ public class Program
                         continue;
                     }
 
-                    if (trimmed.StartsWith("buffer", StringComparison.OrdinalIgnoreCase))
+                    if (command.StartsWith("buffer", StringComparison.OrdinalIgnoreCase))
                     {
-                        int restPos = trimmed.IndexOf(":");
+                        int restPos = command.IndexOf(":");
                         if (restPos == -1)
                         {
                             Console.WriteLine();
-                            Console.WriteLine("Usage : buffer:len");
+                            Console.WriteLine("Usage : $buffer:len");
                             goto abort_buf;
                         }
 
-                        string lenStr = trimmed.Substring(restPos + 1);
+                        string lenStr = command.Substring(restPos + 1);
                         if (lenStr.Trim() == string.Empty)
                         {
                             Console.WriteLine();
-                            Console.WriteLine("Usage : buffer:len");
+                            Console.WriteLine("Usage : $buffer:len");
                             goto abort_buf;
                         }
 

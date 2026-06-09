@@ -416,6 +416,7 @@ try {
     Run-ExpectContains -Name "246_file_handle_byte_position" -ScriptArgs @((Edge-Path "_edgecases\246_file_handle_byte_position.cfs")) -Expected "EDGE_OK:246_file_handle_byte_position"
     Run-ExpectContains -Name "247_tobyte_tobytes" -ScriptArgs @((Edge-Path "_edgecases\247_tobyte_tobytes.cfs")) -Expected "EDGE_OK:247_tobyte_tobytes"
     Run-ExpectContains -Name "248_encoding_builtins" -ScriptArgs @((Edge-Path "_edgecases\248_encoding_builtins.cfs")) -Expected "EDGE_OK:248_encoding_builtins"
+    Run-ExpectContains -Name "249_standard_library_namespaces" -ScriptArgs @((Edge-Path "_edgecases\249_standard_library_namespaces.cfs")) -Expected "EDGE_OK:249_standard_library_namespaces"
     Run-ExpectContains -Name "714_native_interop_valid" -ScriptArgs @((Edge-Path "_edgecases\714_native_interop_valid.cfs")) -Expected "EDGE_OK:714_native_interop_valid"
     Run-ExpectContains -Name "301_try_throw_finally" -ScriptArgs @((Edge-Path "_edgecases\301_try_throw_finally.cfs")) -Expected "EDGE_OK:301_try_throw_finally"
     Run-ExpectContains -Name "402_import_named_and_file" -ScriptArgs @((Edge-Path "_edgecases\402_import_named_and_file.cfs")) -Expected "EDGE_OK:402_import_named_and_file"
@@ -728,7 +729,7 @@ try {
 
     # REPL redirected-input checks
     if ("704_repl_redirected_exit" -like $NameFilter) {
-        $resReplExit = Invoke-Cfgs -CfgsArgs @() -StdinText "exit`n"
+        $resReplExit = Invoke-Cfgs -CfgsArgs @() -StdinText "`$exit`n"
         $okReplExit = $resReplExit.Output.Contains("[ Configuration-Language ]") -and
                       (-not $resReplExit.Output.Contains("InvalidOperationException : Cannot read keys")) -and
                       (-not $resReplExit.Output.Contains("[Error-Id:"))
@@ -737,7 +738,7 @@ try {
     }
 
     if ("705_repl_redirected_commands" -like $NameFilter) {
-        $stdin = "debug`nansi`nbuffer:77`nhelp`nexit`n"
+        $stdin = "`$debug`n`$ansi`n`$buffer:77`n`$help`n`$exit`n"
         $resReplCmd = Invoke-Cfgs -CfgsArgs @() -StdinText $stdin
         $okReplCmd = $resReplCmd.Output.Contains("Debug mode is now") -and
                      $resReplCmd.Output.Contains("Ansi-Mode is") -and

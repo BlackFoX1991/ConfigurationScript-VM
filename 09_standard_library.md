@@ -12,6 +12,13 @@ After that, its builtins and intrinsics are available globally.
 
 ## Builtins at a Glance
 
+Namespace builtins with no required arguments can be used with or without call parentheses when accessing members.
+
+```cfs
+regex.match("abc123", "\\d+");
+regex().match("abc123", "\\d+");
+```
+
 ### Types, Conversion, and Inspection
 
 - `typeof(value)` returns a friendly type name such as `Int`, `String`, `Array`, `Dictionary`, `Task<Object>`, or the class name of an instance.
@@ -26,15 +33,16 @@ After that, its builtins and intrinsics are available globally.
 - `dictionary(value)` builds a dictionary. Dictionaries are copied. Single values produce an empty dictionary.
 - `isarray(value)` and `isdict(value)` check collection types.
 - `getfields(dict)` returns the keys of a dictionary as an array.
-- `textToBytes(text, encoding = "utf-8")` encodes text into an array of byte values.
-- `bytesToText(bytes, encoding = "utf-8")` decodes an array of byte values into text.
-- `encodeText(text, encoding = "utf-8")` is an explicit alias for text-to-byte encoding.
-- `decodeText(bytes, encoding = "utf-8")` is an explicit alias for byte-to-text decoding.
-- `convertEncoding(bytes, fromEncoding, toEncoding)` decodes bytes with one encoding and re-encodes them with another.
-- `hasEncoding(nameOrCodePage)` checks whether an encoding is available.
-- `encodingInfo(nameOrCodePage)` returns encoding metadata.
-- `encodingNames()` returns all available encoding names.
-- `encodings()` returns all available encodings with name, display name, and code page.
+- `encoding()` returns the encoding namespace object.
+- `encoding().encode(text, encoding = "utf-8")` encodes text into an array of byte values.
+- `encoding().decode(bytes, encoding = "utf-8")` decodes an array of byte values into text.
+- `encoding().convert(bytes, fromEncoding, toEncoding)` decodes bytes with one encoding and re-encodes them with another.
+- `encoding().has(nameOrCodePage)` checks whether an encoding is available.
+- `encoding().info(nameOrCodePage)` returns encoding metadata.
+- `encoding().names()` returns all available encoding names.
+- `encoding().all()` returns all available encodings with name, display name, and code page.
+- Short member-access form is also supported: `encoding.encode(...)`, `encoding.decode(...)`, `encoding.names()`.
+- Compatibility aliases remain available: `textToBytes`, `bytesToText`, `encodeText`, `decodeText`, `convertEncoding`, `hasEncoding`, `encodingInfo`, `encodingNames`, and `encodings`.
 
 Example.
 
@@ -45,8 +53,10 @@ print(byte(300));   # runtime error: value must be between 0 and 255
 ```
 
 ```cfs
-var bytes = textToBytes("Hi");
-print(bytesToText(bytes));
+var enc = encoding();
+var bytes = enc.encode("Hi");
+print(enc.decode(bytes));
+print(encoding.decode(bytes));
 ```
 
 Encoding names can be standard names such as `"utf-8"` or codepage names such as `"windows-1252"`. Numeric code pages such as `65001` or `1252` are also accepted.
@@ -72,6 +82,15 @@ destroy(r);
 
 ### Output and Console
 
+- `console()` returns the console namespace object.
+- `console().print(value)` writes the value followed by a newline.
+- `console().put(value)` writes the value without a newline.
+- `console().clear()` clears the console.
+- `console().getl()` / `console().readLine()` read one line from stdin.
+- `console().getc()` / `console().readChar()` read one character from stdin.
+- `console().getlAsync()` / `console().readLineAsync()` are asynchronous line readers.
+- `console().getcAsync()` / `console().readCharAsync()` are asynchronous character readers.
+- Short member-access form is also supported: `console.print(...)`, `console.put(...)`, `console.getl()`.
 - `print(value)` writes the value followed by a newline.
 - `put(value)` writes the value without a newline.
 - `clear()` clears the console.
@@ -81,6 +100,15 @@ destroy(r);
 
 ### Files, Paths, and Working Directory
 
+- `fs()` and `file()` return the file-system namespace object.
+- `fs().open(path, mode)` / `fs().fopen(path, mode)` open a text/binary-capable `FileHandle`.
+- `fs().openBinary(path, mode)` / `fs().fbopen(path, mode)` open a `BinaryFileHandle`.
+- `fs().exists(path)`, `fs().copy(source, dest, overwrite = false)`, `fs().move(source, dest, overwrite = false)`, and `fs().delete(path)` perform common file operations.
+- `fs().readAllBytes(path)`, `fs().readAllBytesAsync(path)`, and `fs().writeAllBytes(path, bytes)` handle byte arrays.
+- `fs().readTextAsync(path)`, `fs().writeTextAsync(path, text)`, and `fs().appendTextAsync(path, text)` are asynchronous text helpers.
+- `fs().size(path)`, `fs().lastWriteTime(path)`, and `fs().lastWriteTimeUtc(path)` return file metadata.
+- `fs().setWorkspace(path)`, `fs().getWorkspace()`, `fs().getDirectory(path)`, and `fs().directoryInfo(path)` wrap working-directory and directory-info helpers.
+- Short member-access form is also supported: `fs.copy(...)`, `fs.exists(...)`, `file.size(...)`.
 - `set_workspace(path)` sets the current working directory.
 - `get_workspace()` returns the current working directory.
 - `ScriptPath()` returns the entry script path of the current run. In the REPL it returns `<repl>`.
@@ -130,6 +158,11 @@ writeAllBytes("demo.bin", bytes);
 
 ### Math and Character Checks
 
+- `math()` returns the math namespace object.
+- `math().abs(x)`, `math().floor(x)`, `math().ceil(x)`, `math().round(x, digits = optional)`, `math().min(a, b)`, and `math().max(a, b)` provide basic numeric helpers.
+- `math().sqrt(x)`, `math().pow(base, exp)`, `math().log(x, base = optional)`, `math().log10(x)`, `math().sin(x)`, `math().cos(x)`, and `math().tan(x)` provide scientific helpers.
+- `math().sign(x)`, `math().trunc(x)`, `math().rand(seed, min, max)`, `math().pi()`, and `math().e()` provide sign, truncation, random, and constant helpers.
+- Short member-access form is also supported: `math.abs(...)`, `math.pow(...)`, `math.pi()`.
 - `abs(x)` returns the absolute value.
 - `rand(seed, min, max)` returns a pseudo random number.
 - `floor(x)` rounds down to the nearest integer.
@@ -149,23 +182,30 @@ writeAllBytes("demo.bin", bytes);
 
 ### Regular Expressions
 
-- `regex_match(input, pattern)` returns the first match as a dictionary with `matched`, `index`, and `groups`, or `null`.
-- `regex_matches(input, pattern)` returns all matches as a list of dictionaries.
-- `regex_replace(input, pattern, replacement)` replaces all matches and returns the result string.
-- `regex_test(input, pattern)` returns `true` if the pattern matches anywhere in the input.
-- `regex_split(input, pattern)` splits the input by the pattern and returns an array.
+- `regex()` returns the regular-expression namespace object.
+- `regex().match(input, pattern)` returns the first match as a dictionary with `matched`, `index`, and `groups`, or `null`.
+- `regex().matches(input, pattern)` returns all matches as a list of dictionaries.
+- `regex().replace(input, pattern, replacement)` replaces all matches and returns the result string.
+- `regex().test(input, pattern)` returns `true` if the pattern matches anywhere in the input.
+- `regex().split(input, pattern)` splits the input by the pattern and returns an array.
+- Short member-access form is also supported: `regex.match(...)`, `regex.replace(...)`, `regex.test(...)`.
+- Compatibility aliases remain available: `regex_match`, `regex_matches`, `regex_replace`, `regex_test`, and `regex_split`.
 
 Example.
 
 ```cfs
-print(regex_test("hello123", "\\d+"));
-var m = regex_match("abc 42 def", "(\\d+)");
+print(regex.test("hello123", "\\d+"));
+var m = regex.match("abc 42 def", "(\\d+)");
 print(m["matched"]);
-print(regex_replace("foo bar baz", "\\s+", "-"));
+print(regex.replace("foo bar baz", "\\s+", "-"));
 ```
 
 ### JSON
 
+- `json()` returns the JSON namespace object.
+- `json().parse(text)` converts JSON text into CFGS values.
+- `json().stringify(value)` serializes a CFGS value into JSON text.
+- Short member-access form is also supported: `json.parse(...)`, `json.stringify(...)`.
 - `fromjson(text)` converts JSON text into CFGS values.
 - `tojson(value)` serializes a CFGS value into JSON text.
 
