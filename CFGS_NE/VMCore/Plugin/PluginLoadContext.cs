@@ -45,5 +45,25 @@ namespace CFGS_VM.VMCore.Plugin
 
             return null;
         }
+
+        protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
+        {
+            string? path = _resolver.ResolveUnmanagedDllToPath(unmanagedDllName);
+            if (path != null)
+                return LoadUnmanagedDllFromPath(path);
+
+            string localCandidate = Path.Combine(_pluginDirectory, unmanagedDllName);
+            if (File.Exists(localCandidate))
+                return LoadUnmanagedDllFromPath(localCandidate);
+
+            if (!unmanagedDllName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            {
+                string localDllCandidate = Path.Combine(_pluginDirectory, unmanagedDllName + ".dll");
+                if (File.Exists(localDllCandidate))
+                    return LoadUnmanagedDllFromPath(localDllCandidate);
+            }
+
+            return IntPtr.Zero;
+        }
     }
 }

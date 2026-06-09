@@ -3,6 +3,7 @@ using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
 using Microsoft.Data.SqlClient;
 using System.Data;
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace CFGS.Microsoft.SQL
@@ -179,9 +180,17 @@ namespace CFGS.Microsoft.SQL
         private static string SanitizeSqlError(Exception ex)
         {
             if (ex is SqlException sqlEx)
-                return $"SQL error (code {sqlEx.Number}): {sqlEx.Message.Split('\n')[0]}";
-            return $"SQL error: {ex.GetType().Name}";
+                return $"SQL error (code {sqlEx.Number}): {FirstLine(sqlEx.Message)}";
+
+            List<string> parts = [];
+            for (Exception? current = ex; current != null; current = current.InnerException)
+                parts.Add($"{current.GetType().Name}: {FirstLine(current.Message)}");
+
+            return $"SQL error: {string.Join(" -> ", parts)}";
         }
+
+        private static string FirstLine(string? value)
+            => (value ?? string.Empty).Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
 
         /// <summary>
         /// The Register
@@ -265,12 +274,7 @@ namespace CFGS.Microsoft.SQL
                     List<object> results = new();
                     using SqlDataReader reader = cmd.ExecuteReader();
                     while (reader.Read())
-                    {
-                        Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
-                        for (int i = 0; i < reader.FieldCount; i++)
-                            row[reader.GetName(i)] = reader.GetValue(i) == DBNull.Value ? null! : reader.GetValue(i);
-                        results.Add(row);
-                    }
+                        results.Add(ReadRow(reader));
                     return results;
                 },
                 async cmd =>
@@ -278,12 +282,7 @@ namespace CFGS.Microsoft.SQL
                     List<object> results = new();
                     using SqlDataReader reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
                     while (await reader.ReadAsync().ConfigureAwait(false))
-                    {
-                        Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
-                        for (int i = 0; i < reader.FieldCount; i++)
-                            row[reader.GetName(i)] = reader.GetValue(i) == DBNull.Value ? null! : reader.GetValue(i);
-                        results.Add(row);
-                    }
+                        results.Add(ReadRow(reader));
                     return results;
                 });
 
@@ -326,12 +325,7 @@ namespace CFGS.Microsoft.SQL
                     List<object> results = new();
                     using SqlDataReader reader = cmd.ExecuteReader();
                     while (reader.Read())
-                    {
-                        Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
-                        for (int i = 0; i < reader.FieldCount; i++)
-                            row[reader.GetName(i)] = reader.GetValue(i) == DBNull.Value ? null! : reader.GetValue(i);
-                        results.Add(row);
-                    }
+                        results.Add(ReadRow(reader));
                     return results;
                 },
                 async cmd =>
@@ -339,12 +333,7 @@ namespace CFGS.Microsoft.SQL
                     List<object> results = new();
                     using SqlDataReader reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
                     while (await reader.ReadAsync().ConfigureAwait(false))
-                    {
-                        Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
-                        for (int i = 0; i < reader.FieldCount; i++)
-                            row[reader.GetName(i)] = reader.GetValue(i) == DBNull.Value ? null! : reader.GetValue(i);
-                        results.Add(row);
-                    }
+                        results.Add(ReadRow(reader));
                     return results;
                 });
 
@@ -950,6 +939,21 @@ namespace CFGS.Microsoft.SQL
                         instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 }
             });
+        }
+
+        private static Dictionary<string, object> ReadRow(SqlDataReader reader)
+        {
+            Dictionary<string, object> row = new(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                object value = reader.GetValue(i);
+                object normalized = value == DBNull.Value ? null! : value;
+                row[i.ToString(CultureInfo.InvariantCulture)] = normalized;
+                row[reader.GetName(i)] = normalized;
+            }
+
+            return row;
         }
 
         /// <summary>
