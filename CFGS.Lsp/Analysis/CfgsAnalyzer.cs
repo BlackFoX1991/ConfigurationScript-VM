@@ -50,8 +50,237 @@ internal sealed class CfgsAnalyzer
         "break", "continue", "func", "return", "match", "case", "default", "try", "catch",
         "finally", "throw", "class", "interface", "enum", "new", "null", "true", "false", "import",
         "export", "namespace", "from", "as", "static", "public", "private", "protected",
-        "async", "await", "yield", "out"
+        "async", "await", "yield", "out", "using", "defer"
     ];
+
+    private static readonly CfgsCompletionItem[] StandardLibraryCompletions =
+    [
+        new("encoding", 9, "standard library namespace"),
+        new("regex", 9, "standard library namespace"),
+        new("json", 9, "standard library namespace"),
+        new("math", 9, "standard library namespace"),
+        new("console", 9, "standard library namespace"),
+        new("fs", 9, "standard library namespace"),
+        new("file", 9, "standard library namespace"),
+        new("task", 9, "standard library namespace"),
+        new("textToBytes", 3, "builtin: textToBytes(text, encoding = \"utf-8\")"),
+        new("bytesToText", 3, "builtin: bytesToText(bytes, encoding = \"utf-8\")"),
+        new("encodeText", 3, "builtin: encodeText(text, encoding = \"utf-8\")"),
+        new("decodeText", 3, "builtin: decodeText(bytes, encoding = \"utf-8\")"),
+        new("convertEncoding", 3, "builtin: convertEncoding(bytes, fromEncoding, toEncoding)"),
+        new("hasEncoding", 3, "builtin: hasEncoding(nameOrCodePage)"),
+        new("encodingInfo", 3, "builtin: encodingInfo(nameOrCodePage)"),
+        new("encodingNames", 3, "builtin: encodingNames()"),
+        new("encodings", 3, "builtin: encodings()"),
+        new("regex_match", 3, "builtin: regex_match(input, pattern)"),
+        new("regex_matches", 3, "builtin: regex_matches(input, pattern)"),
+        new("regex_replace", 3, "builtin: regex_replace(input, pattern, replacement)"),
+        new("regex_test", 3, "builtin: regex_test(input, pattern)"),
+        new("regex_split", 3, "builtin: regex_split(input, pattern)"),
+        new("fromjson", 3, "builtin: fromjson(text)"),
+        new("tojson", 3, "builtin: tojson(value)"),
+        new("abs", 3, "builtin: abs(x)"),
+        new("rand", 3, "builtin: rand(seed, min, max)"),
+        new("floor", 3, "builtin: floor(x)"),
+        new("ceil", 3, "builtin: ceil(x)"),
+        new("round", 3, "builtin: round(x, digits = optional)"),
+        new("min", 3, "builtin: min(a, b)"),
+        new("max", 3, "builtin: max(a, b)"),
+        new("sqrt", 3, "builtin: sqrt(x)"),
+        new("pow", 3, "builtin: pow(base, exp)"),
+        new("log", 3, "builtin: log(x, base = optional)"),
+        new("log10", 3, "builtin: log10(x)"),
+        new("sin", 3, "builtin: sin(x)"),
+        new("cos", 3, "builtin: cos(x)"),
+        new("tan", 3, "builtin: tan(x)"),
+        new("sign", 3, "builtin: sign(x)"),
+        new("trunc", 3, "builtin: trunc(x)"),
+        new("PI", 21, "builtin constant"),
+        new("E", 21, "builtin constant"),
+        new("print", 3, "builtin: print(value)"),
+        new("put", 3, "builtin: put(value)"),
+        new("clear", 3, "builtin: clear()"),
+        new("getl", 3, "builtin: getl()"),
+        new("getc", 3, "builtin: getc()"),
+        new("getlAsync", 3, "builtin: getlAsync()"),
+        new("getcAsync", 3, "builtin: getcAsync()"),
+        new("fopen", 3, "builtin: fopen(path, mode)"),
+        new("fbopen", 3, "builtin: fbopen(path, mode)"),
+        new("fexist", 3, "builtin: fexist(path)"),
+        new("fcopy", 3, "builtin: fcopy(source, dest, overwrite = false)"),
+        new("fmove", 3, "builtin: fmove(source, dest, overwrite = false)"),
+        new("fdelete", 3, "builtin: fdelete(path)"),
+        new("readAllBytes", 3, "builtin: readAllBytes(path)"),
+        new("readAllBytesAsync", 3, "builtin: readAllBytesAsync(path)"),
+        new("writeAllBytes", 3, "builtin: writeAllBytes(path, bytes)"),
+        new("readTextAsync", 3, "builtin: readTextAsync(path)"),
+        new("writeTextAsync", 3, "builtin: writeTextAsync(path, text)"),
+        new("appendTextAsync", 3, "builtin: appendTextAsync(path, text)"),
+        new("fileSize", 3, "builtin: fileSize(path)"),
+        new("fileLastWriteTime", 3, "builtin: fileLastWriteTime(path)"),
+        new("fileLastWriteTimeUtc", 3, "builtin: fileLastWriteTimeUtc(path)"),
+        new("set_workspace", 3, "builtin: set_workspace(path)"),
+        new("get_workspace", 3, "builtin: get_workspace()"),
+        new("getDirectory", 3, "builtin: getDirectory(path)"),
+        new("DirectoryInfo", 3, "builtin: DirectoryInfo(path)")
+    ];
+
+    private static readonly IReadOnlyDictionary<string, CfgsCompletionItem[]> StandardLibraryNamespaceMembers =
+        new Dictionary<string, CfgsCompletionItem[]>(StringComparer.Ordinal)
+        {
+            ["encoding"] =
+            [
+                new("encode", 2, "encoding.encode(text, encoding = \"utf-8\")"),
+                new("decode", 2, "encoding.decode(bytes, encoding = \"utf-8\")"),
+                new("convert", 2, "encoding.convert(bytes, fromEncoding, toEncoding)"),
+                new("has", 2, "encoding.has(nameOrCodePage)"),
+                new("info", 2, "encoding.info(nameOrCodePage)"),
+                new("names", 2, "encoding.names()"),
+                new("all", 2, "encoding.all()"),
+                new("textToBytes", 2, "encoding.textToBytes(text, encoding = \"utf-8\")"),
+                new("bytesToText", 2, "encoding.bytesToText(bytes, encoding = \"utf-8\")"),
+                new("encodeText", 2, "encoding.encodeText(text, encoding = \"utf-8\")"),
+                new("decodeText", 2, "encoding.decodeText(bytes, encoding = \"utf-8\")"),
+                new("convertEncoding", 2, "encoding.convertEncoding(bytes, fromEncoding, toEncoding)"),
+                new("hasEncoding", 2, "encoding.hasEncoding(nameOrCodePage)"),
+                new("encodingInfo", 2, "encoding.encodingInfo(nameOrCodePage)"),
+                new("encodingNames", 2, "encoding.encodingNames()"),
+                new("encodings", 2, "encoding.encodings()")
+            ],
+            ["regex"] =
+            [
+                new("match", 2, "regex.match(input, pattern)"),
+                new("matches", 2, "regex.matches(input, pattern)"),
+                new("replace", 2, "regex.replace(input, pattern, replacement)"),
+                new("test", 2, "regex.test(input, pattern)"),
+                new("split", 2, "regex.split(input, pattern)"),
+                new("regex_match", 2, "regex.regex_match(input, pattern)"),
+                new("regex_matches", 2, "regex.regex_matches(input, pattern)"),
+                new("regex_replace", 2, "regex.regex_replace(input, pattern, replacement)"),
+                new("regex_test", 2, "regex.regex_test(input, pattern)"),
+                new("regex_split", 2, "regex.regex_split(input, pattern)")
+            ],
+            ["json"] =
+            [
+                new("parse", 2, "json.parse(text)"),
+                new("stringify", 2, "json.stringify(value)"),
+                new("from", 2, "json.from(text)"),
+                new("to", 2, "json.to(value)"),
+                new("fromjson", 2, "json.fromjson(text)"),
+                new("tojson", 2, "json.tojson(value)")
+            ],
+            ["math"] =
+            [
+                new("abs", 2, "math.abs(x)"),
+                new("rand", 2, "math.rand(seed, min, max)"),
+                new("floor", 2, "math.floor(x)"),
+                new("ceil", 2, "math.ceil(x)"),
+                new("round", 2, "math.round(x, digits = optional)"),
+                new("min", 2, "math.min(a, b)"),
+                new("max", 2, "math.max(a, b)"),
+                new("sqrt", 2, "math.sqrt(x)"),
+                new("pow", 2, "math.pow(base, exp)"),
+                new("log", 2, "math.log(x, base = optional)"),
+                new("log10", 2, "math.log10(x)"),
+                new("sin", 2, "math.sin(x)"),
+                new("cos", 2, "math.cos(x)"),
+                new("tan", 2, "math.tan(x)"),
+                new("sign", 2, "math.sign(x)"),
+                new("trunc", 2, "math.trunc(x)"),
+                new("pi", 2, "math.pi()"),
+                new("PI", 2, "math.PI()"),
+                new("e", 2, "math.e()"),
+                new("E", 2, "math.E()")
+            ],
+            ["console"] =
+            [
+                new("print", 2, "console.print(value)"),
+                new("put", 2, "console.put(value)"),
+                new("clear", 2, "console.clear()"),
+                new("getl", 2, "console.getl()"),
+                new("getc", 2, "console.getc()"),
+                new("readLine", 2, "console.readLine()"),
+                new("readChar", 2, "console.readChar()"),
+                new("getlAsync", 2, "console.getlAsync()"),
+                new("getcAsync", 2, "console.getcAsync()"),
+                new("readLineAsync", 2, "console.readLineAsync()"),
+                new("readCharAsync", 2, "console.readCharAsync()")
+            ],
+            ["fs"] =
+            [
+                new("open", 2, "fs.open(path, mode)"),
+                new("fopen", 2, "fs.fopen(path, mode)"),
+                new("openBinary", 2, "fs.openBinary(path, mode)"),
+                new("fbopen", 2, "fs.fbopen(path, mode)"),
+                new("exists", 2, "fs.exists(path)"),
+                new("fexist", 2, "fs.fexist(path)"),
+                new("copy", 2, "fs.copy(source, dest, overwrite = false)"),
+                new("fcopy", 2, "fs.fcopy(source, dest, overwrite = false)"),
+                new("move", 2, "fs.move(source, dest, overwrite = false)"),
+                new("fmove", 2, "fs.fmove(source, dest, overwrite = false)"),
+                new("delete", 2, "fs.delete(path)"),
+                new("fdelete", 2, "fs.fdelete(path)"),
+                new("readAllBytes", 2, "fs.readAllBytes(path)"),
+                new("readAllBytesAsync", 2, "fs.readAllBytesAsync(path)"),
+                new("writeAllBytes", 2, "fs.writeAllBytes(path, bytes)"),
+                new("readTextAsync", 2, "fs.readTextAsync(path)"),
+                new("writeTextAsync", 2, "fs.writeTextAsync(path, text)"),
+                new("appendTextAsync", 2, "fs.appendTextAsync(path, text)"),
+                new("size", 2, "fs.size(path)"),
+                new("fileSize", 2, "fs.fileSize(path)"),
+                new("lastWriteTime", 2, "fs.lastWriteTime(path)"),
+                new("fileLastWriteTime", 2, "fs.fileLastWriteTime(path)"),
+                new("lastWriteTimeUtc", 2, "fs.lastWriteTimeUtc(path)"),
+                new("fileLastWriteTimeUtc", 2, "fs.fileLastWriteTimeUtc(path)"),
+                new("setWorkspace", 2, "fs.setWorkspace(path)"),
+                new("set_workspace", 2, "fs.set_workspace(path)"),
+                new("getWorkspace", 2, "fs.getWorkspace()"),
+                new("get_workspace", 2, "fs.get_workspace()"),
+                new("getDirectory", 2, "fs.getDirectory(path)"),
+                new("directoryInfo", 2, "fs.directoryInfo(path)"),
+                new("DirectoryInfo", 2, "fs.DirectoryInfo(path)")
+            ],
+            ["file"] =
+            [
+                new("open", 2, "file.open(path, mode)"),
+                new("fopen", 2, "file.fopen(path, mode)"),
+                new("openBinary", 2, "file.openBinary(path, mode)"),
+                new("fbopen", 2, "file.fbopen(path, mode)"),
+                new("exists", 2, "file.exists(path)"),
+                new("fexist", 2, "file.fexist(path)"),
+                new("copy", 2, "file.copy(source, dest, overwrite = false)"),
+                new("fcopy", 2, "file.fcopy(source, dest, overwrite = false)"),
+                new("move", 2, "file.move(source, dest, overwrite = false)"),
+                new("fmove", 2, "file.fmove(source, dest, overwrite = false)"),
+                new("delete", 2, "file.delete(path)"),
+                new("fdelete", 2, "file.fdelete(path)"),
+                new("readAllBytes", 2, "file.readAllBytes(path)"),
+                new("readAllBytesAsync", 2, "file.readAllBytesAsync(path)"),
+                new("writeAllBytes", 2, "file.writeAllBytes(path, bytes)"),
+                new("readTextAsync", 2, "file.readTextAsync(path)"),
+                new("writeTextAsync", 2, "file.writeTextAsync(path, text)"),
+                new("appendTextAsync", 2, "file.appendTextAsync(path, text)"),
+                new("size", 2, "file.size(path)"),
+                new("fileSize", 2, "file.fileSize(path)"),
+                new("lastWriteTime", 2, "file.lastWriteTime(path)"),
+                new("fileLastWriteTime", 2, "file.fileLastWriteTime(path)"),
+                new("lastWriteTimeUtc", 2, "file.lastWriteTimeUtc(path)"),
+                new("fileLastWriteTimeUtc", 2, "file.fileLastWriteTimeUtc(path)"),
+                new("setWorkspace", 2, "file.setWorkspace(path)"),
+                new("set_workspace", 2, "file.set_workspace(path)"),
+                new("getWorkspace", 2, "file.getWorkspace()"),
+                new("get_workspace", 2, "file.get_workspace()"),
+                new("getDirectory", 2, "file.getDirectory(path)"),
+                new("directoryInfo", 2, "file.directoryInfo(path)"),
+                new("DirectoryInfo", 2, "file.DirectoryInfo(path)")
+            ],
+            ["task"] =
+            [
+                new("get", 2, "task.get(value)"),
+                new("completed", 2, "task.completed()"),
+                new("delay", 2, "task.delay(ms, value = null)")
+            ]
+        };
 
     public CfgsAnalysisResult Analyze(string documentUri, string sourceText, IReadOnlyDictionary<string, string>? openDocumentSources = null)
     {
@@ -104,6 +333,9 @@ internal sealed class CfgsAnalyzer
 
         foreach (string keyword in Keywords)
             items[keyword] = new CfgsCompletionItem(keyword, 14, "keyword");
+
+        foreach (CfgsCompletionItem completion in StandardLibraryCompletions)
+            items.TryAdd(completion.Label, completion);
 
         foreach (CfgsSymbol symbol in result.AllSymbols)
         {
@@ -230,7 +462,8 @@ internal sealed class CfgsAnalyzer
     }
 
     public CfgsSymbol? FindHoverSymbol(CfgsAnalysisResult result, int line, int character)
-        => FindDefinitions(result, line, character).FirstOrDefault();
+        => FindDefinitions(result, line, character).FirstOrDefault()
+           ?? TryFindStandardLibrarySymbol(result, line, character);
 
     public CfgsSymbol? ResolveSymbol(CfgsAnalysisResult result, int line, int character)
     {
@@ -649,6 +882,10 @@ internal sealed class CfgsAnalyzer
             IReadOnlyList<CfgsCompletionItem> semanticItems = GetSemanticDotCompletions(result, request.Value);
             if (semanticItems.Count > 0)
                 return semanticItems;
+
+            string? completionPrefix = GetDotContainerPrefix(result.SourceText, line, request.Value.TargetCharacter);
+            if (completionPrefix is not null)
+                return GetDotCompletions(result, completionPrefix, request.Value.TypedPrefix);
         }
 
         string? prefix = GetDotPrefix(result.SourceText, line, character);
@@ -686,7 +923,7 @@ internal sealed class CfgsAnalyzer
     {
         SignatureRequest? request = SignatureLocator.TryFindSignatureRequest(result.SourceText, line, character);
         if (request is null)
-            return null;
+            return TryFindStandardLibrarySignatureHelp(result, line, character);
 
         IReadOnlyList<CfgsSignature> signatures = FindResolvedCallSite(result, request.Value.TargetLine, request.Value.TargetCharacter) is CfgsResolvedCallSite callSite
             ? ResolveCallSiteSymbols(result, callSite, static s => s.Signature is not null)
@@ -701,11 +938,341 @@ internal sealed class CfgsAnalyzer
                 .ToList();
 
         if (signatures.Count == 0)
-            return null;
+            return TryFindStandardLibrarySignatureHelp(result, request.Value)
+                   ?? TryFindStandardLibrarySignatureHelp(result, line, character);
 
         int maxParameters = signatures.Max(static signature => signature.Parameters.Count);
         int activeParameter = Math.Min(request.Value.ActiveParameter, Math.Max(maxParameters - 1, 0));
         return new CfgsSignatureHelpResult(signatures, 0, activeParameter);
+    }
+
+    private static CfgsSignatureHelpResult? TryFindStandardLibrarySignatureHelp(CfgsAnalysisResult result, SignatureRequest request)
+    {
+        string? callablePath = GetCallablePathAt(result.SourceText, request.TargetLine, request.TargetCharacter);
+        if (string.IsNullOrWhiteSpace(callablePath))
+            return null;
+
+        if (!TryFindStandardLibraryCompletion(callablePath!, out CfgsCompletionItem completion))
+            return null;
+
+        if (!completion.Detail.Contains('('))
+            return null;
+
+        CfgsSignature signature = CompletionItemToSignature(completion);
+        int activeParameter = Math.Min(request.ActiveParameter, Math.Max(signature.Parameters.Count - 1, 0));
+        return new CfgsSignatureHelpResult([signature], 0, activeParameter);
+    }
+
+    private static CfgsSignatureHelpResult? TryFindStandardLibrarySignatureHelp(CfgsAnalysisResult result, int line, int character)
+    {
+        if (!TryFindLineCallTarget(result.SourceText, line, character, out string? callablePath, out int activeParameter))
+            return null;
+
+        if (!TryFindStandardLibraryCompletion(callablePath, out CfgsCompletionItem completion))
+            return null;
+
+        if (!completion.Detail.Contains('('))
+            return null;
+
+        CfgsSignature signature = CompletionItemToSignature(completion);
+        int boundedParameter = Math.Min(activeParameter, Math.Max(signature.Parameters.Count - 1, 0));
+        return new CfgsSignatureHelpResult([signature], 0, boundedParameter);
+    }
+
+    private static CfgsSymbol? TryFindStandardLibrarySymbol(CfgsAnalysisResult result, int line, int character)
+    {
+        if (!TryGetQualifiedIdentifierAt(result.SourceText, line, character, out string? path, out RangeInfo fullRange))
+            return null;
+
+        if (!TryFindStandardLibraryCompletion(path, out CfgsCompletionItem completion))
+            return null;
+
+        string name = path.Contains('.', StringComparison.Ordinal)
+            ? path[(path.LastIndexOf('.') + 1)..]
+            : path;
+        RangeInfo selectionRange = CreateLeafRange(result.SourceText, line, character, name);
+        string hoverText = CreateStandardLibraryHoverText(completion);
+
+        return new CfgsSymbol(
+            name,
+            path,
+            ToStandardLibrarySymbolKind(completion),
+            result.DocumentUri,
+            result.Origin,
+            fullRange,
+            selectionRange,
+            completion.Detail,
+            hoverText,
+            [],
+            IsSynthetic: true);
+    }
+
+    private static string? GetCallablePathAt(string sourceText, int line, int character)
+        => TryGetQualifiedIdentifierAt(sourceText, line, character, out string? path, out _)
+            ? path
+            : null;
+
+    private static bool TryFindLineCallTarget(string sourceText, int line, int character, out string callablePath, out int activeParameter)
+    {
+        callablePath = string.Empty;
+        activeParameter = 0;
+
+        string[] lines = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        if (line < 0 || line >= lines.Length)
+            return false;
+
+        string lineText = lines[line];
+        int cursor = Math.Clamp(character, 0, lineText.Length);
+        int openParenIndex = FindLineCallOpenParen(lineText, cursor);
+        if (openParenIndex < 0)
+            return false;
+
+        activeParameter = CountLineArguments(lineText, openParenIndex + 1, cursor);
+
+        int targetIndex = openParenIndex - 1;
+        while (targetIndex >= 0 && char.IsWhiteSpace(lineText[targetIndex]))
+            targetIndex--;
+
+        if (targetIndex < 0)
+            return false;
+
+        while (targetIndex >= 0 && !IsIdentifierChar(lineText[targetIndex]))
+            targetIndex--;
+
+        return targetIndex >= 0 &&
+               TryGetQualifiedIdentifierAt(sourceText, line, targetIndex, out callablePath, out _);
+    }
+
+    private static int FindLineCallOpenParen(string lineText, int cursor)
+    {
+        int parenDepth = 0;
+        int bracketDepth = 0;
+        int braceDepth = 0;
+
+        for (int i = cursor - 1; i >= 0; i--)
+        {
+            char ch = lineText[i];
+            switch (ch)
+            {
+                case ')':
+                    parenDepth++;
+                    break;
+                case ']':
+                    bracketDepth++;
+                    break;
+                case '}':
+                    braceDepth++;
+                    break;
+                case '(':
+                    if (parenDepth == 0 && bracketDepth == 0 && braceDepth == 0)
+                        return i;
+                    parenDepth--;
+                    break;
+                case '[':
+                    if (bracketDepth > 0)
+                        bracketDepth--;
+                    break;
+                case '{':
+                    if (braceDepth > 0)
+                        braceDepth--;
+                    break;
+            }
+        }
+
+        return -1;
+    }
+
+    private static int CountLineArguments(string lineText, int start, int cursor)
+    {
+        int commas = 0;
+        int parenDepth = 0;
+        int bracketDepth = 0;
+        int braceDepth = 0;
+
+        for (int i = start; i < cursor && i < lineText.Length; i++)
+        {
+            char ch = lineText[i];
+            switch (ch)
+            {
+                case '(':
+                    parenDepth++;
+                    break;
+                case ')':
+                    if (parenDepth > 0)
+                        parenDepth--;
+                    break;
+                case '[':
+                    bracketDepth++;
+                    break;
+                case ']':
+                    if (bracketDepth > 0)
+                        bracketDepth--;
+                    break;
+                case '{':
+                    braceDepth++;
+                    break;
+                case '}':
+                    if (braceDepth > 0)
+                        braceDepth--;
+                    break;
+                case ',':
+                    if (parenDepth == 0 && bracketDepth == 0 && braceDepth == 0)
+                        commas++;
+                    break;
+            }
+        }
+
+        return commas;
+    }
+
+    private static bool TryFindStandardLibraryCompletion(string path, out CfgsCompletionItem completion)
+    {
+        if (path.Contains('.', StringComparison.Ordinal))
+        {
+            int dotIndex = path.LastIndexOf('.');
+            string namespaceName = path[..dotIndex];
+            string memberName = path[(dotIndex + 1)..];
+
+            if (StandardLibraryNamespaceMembers.TryGetValue(namespaceName, out CfgsCompletionItem[]? members))
+            {
+                foreach (CfgsCompletionItem item in members)
+                {
+                    if (string.Equals(item.Label, memberName, StringComparison.Ordinal))
+                    {
+                        completion = item;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        foreach (CfgsCompletionItem item in StandardLibraryCompletions)
+        {
+            if (string.Equals(item.Label, path, StringComparison.Ordinal))
+            {
+                completion = item;
+                return true;
+            }
+        }
+
+        completion = default!;
+        return false;
+    }
+
+    private static bool TryGetQualifiedIdentifierAt(string sourceText, int line, int character, out string path, out RangeInfo range)
+    {
+        path = string.Empty;
+        range = default;
+
+        string[] lines = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        if (line < 0 || line >= lines.Length)
+            return false;
+
+        string lineText = lines[line];
+        if (lineText.Length == 0)
+            return false;
+
+        int index = Math.Clamp(character, 0, lineText.Length);
+        if (index == lineText.Length && index > 0)
+            index--;
+
+        char current = lineText[index];
+        if (!IsQualifiedIdentifierChar(current) && index > 0)
+            index--;
+
+        if (!IsQualifiedIdentifierChar(lineText[index]))
+            return false;
+
+        int start = index;
+        while (start > 0 && IsQualifiedIdentifierChar(lineText[start - 1]))
+            start--;
+
+        int end = index;
+        while (end < lineText.Length && IsQualifiedIdentifierChar(lineText[end]))
+            end++;
+
+        string candidate = lineText[start..end].Trim('.');
+        if (string.IsNullOrWhiteSpace(candidate))
+            return false;
+
+        string[] parts = candidate.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (!parts.All(static part => part.All(IsIdentifierChar)))
+            return false;
+
+        path = string.Join(".", parts);
+        range = new RangeInfo(new PositionInfo(line, start), new PositionInfo(line, end));
+        return true;
+    }
+
+    private static RangeInfo CreateLeafRange(string sourceText, int line, int character, string name)
+    {
+        string[] lines = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        if (line < 0 || line >= lines.Length || string.IsNullOrEmpty(name))
+            return new RangeInfo(new PositionInfo(line, character), new PositionInfo(line, character + Math.Max(name.Length, 1)));
+
+        string lineText = lines[line];
+        int index = Math.Clamp(character, 0, lineText.Length);
+        if (index == lineText.Length && index > 0)
+            index--;
+
+        if (index >= 0 && index < lineText.Length && !IsIdentifierChar(lineText[index]) && index > 0)
+            index--;
+
+        int start = index;
+        while (start > 0 && IsIdentifierChar(lineText[start - 1]))
+            start--;
+
+        int end = Math.Max(index, start);
+        while (end < lineText.Length && IsIdentifierChar(lineText[end]))
+            end++;
+
+        if (end <= start)
+            end = Math.Min(lineText.Length, start + name.Length);
+
+        return new RangeInfo(new PositionInfo(line, start), new PositionInfo(line, end));
+    }
+
+    private static string CreateStandardLibraryHoverText(CfgsCompletionItem item)
+    {
+        StringBuilder sb = new();
+        sb.AppendLine("```cfgs");
+        sb.AppendLine(item.Detail);
+        sb.AppendLine("```");
+        return sb.ToString();
+    }
+
+    private static int ToStandardLibrarySymbolKind(CfgsCompletionItem item)
+    {
+        if (item.Detail.Contains("namespace", StringComparison.OrdinalIgnoreCase))
+            return 3;
+
+        if (item.Detail.Contains("constant", StringComparison.OrdinalIgnoreCase))
+            return 14;
+
+        if (item.Detail.Contains('('))
+            return 12;
+
+        return 13;
+    }
+
+    private static CfgsSignature CompletionItemToSignature(CfgsCompletionItem item)
+    {
+        string label = item.Detail.StartsWith("builtin: ", StringComparison.Ordinal)
+            ? item.Detail["builtin: ".Length..]
+            : item.Detail;
+
+        int open = label.IndexOf('(');
+        int close = label.LastIndexOf(')');
+        IReadOnlyList<string> parameters = [];
+        if (open >= 0 && close > open)
+        {
+            parameters = label[(open + 1)..close]
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToList();
+        }
+
+        int minArgs = parameters.Count(parameter => !parameter.Contains('=', StringComparison.Ordinal));
+        return new CfgsSignature(label, parameters, RestParameter: null, minArgs);
     }
 
     public CfgsRenameResult? RenameSymbol(CfgsAnalysisResult result, int line, int character, string newName)
@@ -1215,11 +1782,44 @@ internal sealed class CfgsAnalyzer
         return string.IsNullOrWhiteSpace(prefix) ? null : prefix;
     }
 
-    private IReadOnlyList<CfgsCompletionItem> GetDotCompletions(CfgsAnalysisResult result, string prefix)
+    private static string? GetDotContainerPrefix(string sourceText, int line, int memberStartCharacter)
+    {
+        string[] lines = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        if (line < 0 || line >= lines.Length)
+            return null;
+
+        string lineText = lines[line];
+        int dotIndex = memberStartCharacter - 1;
+        if (dotIndex < 0 || dotIndex >= lineText.Length || lineText[dotIndex] != '.')
+            return null;
+
+        int end = dotIndex;
+        int start = end - 1;
+        while (start >= 0 && (char.IsLetterOrDigit(lineText[start]) || lineText[start] == '_' || lineText[start] == '.'))
+            start--;
+        start++;
+
+        string prefix = lineText[start..end];
+        return string.IsNullOrWhiteSpace(prefix) ? null : prefix;
+    }
+
+    private IReadOnlyList<CfgsCompletionItem> GetDotCompletions(CfgsAnalysisResult result, string prefix, string typedPrefix = "")
     {
         string searchPrefix = prefix + ".";
 
-        List<CfgsCompletionItem> items = [];
+        Dictionary<string, CfgsCompletionItem> items = new(StringComparer.Ordinal);
+
+        if (StandardLibraryNamespaceMembers.TryGetValue(prefix, out CfgsCompletionItem[]? stdlibMembers))
+        {
+            foreach (CfgsCompletionItem item in stdlibMembers)
+            {
+                if (string.IsNullOrWhiteSpace(typedPrefix) ||
+                    item.Label.StartsWith(typedPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    items.TryAdd(item.Label, item);
+                }
+            }
+        }
 
         foreach (CfgsSymbol symbol in result.AllSymbols.Concat(result.SemanticModel.Symbols))
         {
@@ -1233,15 +1833,23 @@ internal sealed class CfgsAnalyzer
             if (remainder.Contains('.', StringComparison.Ordinal))
                 continue;
 
-            if (items.All(item => !string.Equals(item.Label, remainder, StringComparison.Ordinal)))
-                items.Add(new CfgsCompletionItem(remainder, ToCompletionKind(symbol.Kind), symbol.Detail));
+            if (!string.IsNullOrWhiteSpace(typedPrefix) &&
+                !remainder.StartsWith(typedPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            items.TryAdd(remainder, new CfgsCompletionItem(remainder, ToCompletionKind(symbol.Kind), symbol.Detail));
         }
 
-        return items.OrderBy(static item => item.Label, StringComparer.Ordinal).ToList();
+        return items.Values.OrderBy(static item => item.Label, StringComparer.Ordinal).ToList();
     }
 
     private static bool IsIdentifierChar(char ch)
         => char.IsLetterOrDigit(ch) || ch == '_';
+
+    private static bool IsQualifiedIdentifierChar(char ch)
+        => IsIdentifierChar(ch) || ch == '.';
 
     private sealed class StringTupleComparer : IEqualityComparer<(string, string)>
     {

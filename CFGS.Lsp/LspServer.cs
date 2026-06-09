@@ -277,7 +277,7 @@ internal sealed class LspServer
                         int character = position.GetProperty("character").GetInt32();
 
                         DocumentState state = EnsureDocument(uri);
-                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        CfgsAnalysisResult analysis = state.Analysis;
                         CfgsSignatureHelpResult? signatureHelp = _analyzer.FindSignatureHelp(analysis, line, character);
                         object? payload = signatureHelp is null
                             ? null
