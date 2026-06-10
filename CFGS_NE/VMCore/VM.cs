@@ -930,6 +930,38 @@ namespace CFGS_VM.VMCore
             LoadInstructions(script.Instructions);
         }
 
+        public void LoadReplCompiledScript(CompiledScript script)
+        {
+            ResetReplExecutionState();
+            RemoveReplFunctionBindings();
+            Functions.Clear();
+            _functionsByAddress.Clear();
+            LoadFunctions(script.Functions);
+            LoadInstructions(script.Instructions);
+        }
+
+        private void ResetReplExecutionState()
+        {
+            _stack.Clear();
+            _callStack.Clear();
+            _tryHandlers.Clear();
+            _awaitTask = null;
+            _awaitResumeIp = 0;
+
+            while (_scopes.Count > 1)
+                _scopes.RemoveAt(_scopes.Count - 1);
+        }
+
+        private void RemoveReplFunctionBindings()
+        {
+            if (_scopes.Count == 0)
+                return;
+
+            Env global = _scopes[0];
+            foreach (string functionName in Functions.Keys.ToArray())
+                global.RemoveLocal(functionName);
+        }
+
         /// <summary>
         private MemoryStream _debugStream;
 

@@ -98,7 +98,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v6.0.0";
+    public const string Version = "v6.0.1";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -120,29 +120,28 @@ public class Program
     /// Defines the help_diag
     /// </summary>
     private static readonly string help_diag = @"
-=====================================================================================================
-                      #####                    
-            ####     ##:::::+#####              [===================HELP============================]
-           ############......::::=###           [ Enter your code or use $ commands                ]
-           ############..........:::*##         [ $buffer:length to set logfile max. output        ]
-     ############     #.............:::##       [ $cls / $clear to clear the console               ]  
-    ##########        #...............::##      [ $debug to enable/disable the debug mode          ]
-      ######         %#+++.............::##     [ $ansi to enable or disable Ansi-Console-Mode     ]
-      #####        ####+++++++.........:::##    =====================================================
-  ########        #####++++++++.........::##    [ Commands : -d(ebug) -di(debugger) -p(arams) -c(ompile)]
-  ########        #####+++++++++........::##    [            -s(et) buffer  maxlen                  ]
-      #####        ####++++++++*.......::-##    [                   ansi    1 or 0 to en/dis-able   ]
-      ######        *##++++++**........::##     [ Compile  : -c file.cfs [-o file.cfb]              ]
-    ##########        #******........:::##      [ Check    : -check file.cfs [--json]               ]   
-    ##########        #******........:::##      [ Packages : init | install plugin.dll | restore    ]   
-    ##########        #******........:::##      [--------------REPL INFO----------------------------]
-     ############     #.:...........::###       [ $help shows help, $exit/$quit leaves REPL        ]
-     ############     #.:...........::###       [ Enter runs complete code, Ctrl+Enter forces run   ]
-           ############..........:::###         [ Use Ctrl+Backspace to clear the code              ]
-            ###########......::::####           [ Enter $L <Line> <Content> to edit a specific Line ]
-            *###     ##:::::#####               [ Use Arrow Up/Down to trigger $L command           ]
-                      #####                     [---------------------------------------------------]
-=====================================================================================================";
+================================================================================
+[=============================== HELP =========================================]
+[ Enter your code or use $ commands                                            ]
+[ $buffer:length to set logfile max. output                                    ]
+[ $cls / $clear to clear the console                                           ]
+[ $debug to enable/disable the debug mode                                      ]
+[ $ansi to enable or disable Ansi-Console-Mode                                 ]
+================================================================================
+[ Commands : -d(ebug) -di(debugger) -p(arams) -c(ompile)                       ]
+[            -s(et) buffer  maxlen                                             ]
+[                   ansi    1 or 0 to en/dis-able                              ]
+[ Compile  : -c file.cfs [-o file.cfb]                                         ]
+[ Check    : -check file.cfs [--json]                                          ]
+[ Packages : init | install plugin.dll | restore                               ]
+[------------------------------ REPL INFO -------------------------------------]
+[ $help shows help, $exit/$quit leaves REPL                                    ]
+[ Enter runs complete code, Ctrl+Enter forces run                              ]
+[ Use Ctrl+Backspace to clear the code                                         ]
+[ Enter $L <Line> <Content> to edit a specific Line                            ]
+[ Use Arrow Up/Down to trigger $L command                                      ]
+[------------------------------------------------------------------------------]
+================================================================================";
 
     /// <summary>
     /// The Main
@@ -906,14 +905,18 @@ public class Program
             namespaces: vm.Namespaces,
             workingDirectory: workingDirectory,
             compilerVersion: Version);
-        vm.LoadCompiledScript(compiled);
+        bool isRepl = string.Equals(name, "<repl>", StringComparison.Ordinal);
+        if (sharedVm is not null && isRepl)
+            vm.LoadReplCompiledScript(compiled);
+        else
+            vm.LoadCompiledScript(compiled);
 
         if (debug)
             PrintInstructions(name, compiled.Instructions, compiled.Functions);
 
         await vm.RunAsync(debug, 0, ct);
 
-        if (sharedVm is null && compiled.ShouldAutoInvokeMain)
+        if ((sharedVm is null || isRepl) && compiled.ShouldAutoInvokeMain)
             _ = await vm.InvokeGlobalFunctionAsync("main", originFile: name);
 
         if (debug)

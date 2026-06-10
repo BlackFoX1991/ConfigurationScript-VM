@@ -744,11 +744,20 @@ try {
         $okReplCmd = $resReplCmd.Output.Contains("Debug mode is now") -and
                      $resReplCmd.Output.Contains("Ansi-Mode is") -and
                      $resReplCmd.Output.Contains("[SETTINGS] Debug-Buffer set to 77") -and
-                     $resReplCmd.Output.Contains("[===================HELP============================]") -and
+                     $resReplCmd.Output.Contains("[=============================== HELP =========================================]") -and
                      (-not $resReplCmd.Output.Contains("InvalidOperationException : Cannot read keys")) -and
                      (-not $resReplCmd.Output.Contains("[Error-Id:"))
         Write-Result -Name "705_repl_redirected_commands" -Ok $okReplCmd -Details "Expected redirected REPL commands to work without ReadKey exceptions."
         if (-not $okReplCmd) { Write-Host $resReplCmd.Output }
+    }
+
+    if ("706_repl_automain" -like $NameFilter) {
+        $stdin = "import `"CFGS.StandardLibrary.dll`"; func main() { print(`"repl-main-ok`"); }`n`$exit`n"
+        $resReplMain = Invoke-Cfgs -CfgsArgs @() -StdinText $stdin
+        $okReplMain = $resReplMain.Output.Contains("repl-main-ok") -and
+                      (-not $resReplMain.Output.Contains("[Error-Id:"))
+        Write-Result -Name "706_repl_automain" -Ok $okReplMain -Details "Expected REPL snippets with declarative main() to auto-run once."
+        if (-not $okReplMain) { Write-Host $resReplMain.Output }
     }
 
     # Error tracking checks
