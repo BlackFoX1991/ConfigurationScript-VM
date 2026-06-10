@@ -77,8 +77,7 @@ namespace CFGS_VM.VMCore
                     descriptor.ArityMin,
                     descriptor.ArityMax,
                     (recv, args, ins) => descriptor.Invoke(recv, args, ins),
-                    smartAwait: descriptor.SmartAwait,
-                    nonBlocking: descriptor.NonBlocking);
+                    descriptor.Options);
 
                 bound = new IntrinsicBound(adapted, receiver!);
                 return true;

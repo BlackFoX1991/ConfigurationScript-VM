@@ -20,6 +20,46 @@ namespace CFGS_VM.VMCore.Plugin
     public delegate object IntrinsicInvoker(object receiver, List<object> args, Instruction instr);
 
     /// <summary>
+    /// Defines how a native builtin or intrinsic result is adapted by the VM.
+    /// </summary>
+    public sealed class NativeCallOptions
+    {
+        public bool AdaptAwaitables { get; init; } = true;
+
+        public bool OffloadBlockingWork { get; init; } = false;
+
+        public static NativeCallOptions Default { get; } = new();
+
+        public static NativeCallOptions Awaitable { get; } = new()
+        {
+            AdaptAwaitables = true,
+            OffloadBlockingWork = false
+        };
+
+        public static NativeCallOptions Direct { get; } = new()
+        {
+            AdaptAwaitables = false,
+            OffloadBlockingWork = false
+        };
+
+        public static NativeCallOptions Offloaded { get; } = new()
+        {
+            AdaptAwaitables = true,
+            OffloadBlockingWork = true
+        };
+
+        public NativeCallOptions()
+        {
+        }
+
+        public NativeCallOptions(bool adaptAwaitables, bool offloadBlockingWork = false)
+        {
+            AdaptAwaitables = adaptAwaitables;
+            OffloadBlockingWork = offloadBlockingWork;
+        }
+    }
+
+    /// <summary>
     /// Defines the <see cref="BuiltinDescriptor" />
     /// </summary>
     public sealed class BuiltinDescriptor
@@ -44,12 +84,7 @@ namespace CFGS_VM.VMCore.Plugin
         /// </summary>
         public BuiltinInvoker Invoke { get; }
 
-        public bool SmartAwait { get; }
-
-        [Obsolete("Use SmartAwait instead.")]
-        public bool smartAwait => SmartAwait;
-
-        public bool NonBlocking { get; }
+        public NativeCallOptions Options { get; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="BuiltinDescriptor"/> class.
@@ -63,26 +98,13 @@ namespace CFGS_VM.VMCore.Plugin
             int arityMin,
             int arityMax,
             BuiltinInvoker invoke,
-            bool smartAwait = true,
-            bool nonBlocking = false)
+            NativeCallOptions? options = null)
         {
             Name = name ?? throw new ArgumentNullException(nameof(name));
             ArityMin = arityMin;
             ArityMax = arityMax;
             Invoke = invoke ?? throw new ArgumentNullException(nameof(invoke));
-            SmartAwait = smartAwait;
-            this.NonBlocking = nonBlocking;
-
-        }
-
-        public BuiltinDescriptor(
-            string name,
-            int arityMin,
-            int arityMax,
-            BuiltinInvoker invoke,
-            bool smartAwait)
-            : this(name, arityMin, arityMax, invoke, smartAwait, nonBlocking: false)
-        {
+            Options = options ?? NativeCallOptions.Default;
         }
 
         /// <summary>
@@ -117,9 +139,7 @@ namespace CFGS_VM.VMCore.Plugin
         /// </summary>
         public IntrinsicInvoker Invoke { get; }
 
-        public bool SmartAwait { get; }
-
-        public bool NonBlocking { get; }
+        public NativeCallOptions Options { get; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="IntrinsicDescriptor"/> class.
@@ -133,26 +153,13 @@ namespace CFGS_VM.VMCore.Plugin
             int arityMin,
             int arityMax,
             IntrinsicInvoker invoke,
-            bool smartAwait = true,
-            bool nonBlocking = false)
+            NativeCallOptions? options = null)
         {
             Name = name ?? throw new ArgumentNullException(nameof(name));
             ArityMin = arityMin;
             ArityMax = arityMax;
             Invoke = invoke ?? throw new ArgumentNullException(nameof(invoke));
-            SmartAwait = smartAwait;
-            NonBlocking = nonBlocking;
-
-        }
-
-        public IntrinsicDescriptor(
-            string name,
-            int arityMin,
-            int arityMax,
-            IntrinsicInvoker invoke,
-            bool smartAwait)
-            : this(name, arityMin, arityMax, invoke, smartAwait, nonBlocking: false)
-        {
+            Options = options ?? NativeCallOptions.Default;
         }
 
         /// <summary>
@@ -399,9 +406,9 @@ namespace CFGS_VM.VMCore.Plugin
             ArityMax = arityMax;
         }
 
-        public bool SmartAwait { get; set; } = true;
+        public bool AdaptAwaitables { get; set; } = true;
 
-        public bool NonBlocking { get; set; } = false;
+        public bool OffloadBlockingWork { get; set; } = false;
     }
 
     /// <summary>
@@ -445,8 +452,8 @@ namespace CFGS_VM.VMCore.Plugin
             ArityMax = arityMax;
         }
 
-        public bool SmartAwait { get; set; } = true;
+        public bool AdaptAwaitables { get; set; } = true;
 
-        public bool NonBlocking { get; set; } = false;
+        public bool OffloadBlockingWork { get; set; } = false;
     }
 }

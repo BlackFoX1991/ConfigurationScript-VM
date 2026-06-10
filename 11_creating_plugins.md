@@ -118,8 +118,7 @@ A builtin descriptor has these key pieces. It can be registered globally through
 - minimum arity
 - maximum arity
 - delegate for the actual call
-- optional `smartAwait`
-- optional `nonBlocking`
+- optional `NativeCallOptions`
 
 ### `IntrinsicDescriptor`
 
@@ -130,8 +129,7 @@ An intrinsic descriptor follows the same idea, but includes a receiver type.
 - minimum arity
 - maximum arity
 - delegate with `receiver`, `args`, `instr`
-- optional `smartAwait`
-- optional `nonBlocking`
+- optional `NativeCallOptions`
 
 ## Path 2. Attributes
 
@@ -167,20 +165,25 @@ The method signatures should effectively look like this.
 
 Return types may also be awaitable. The loader recognizes `Task`, `Task<T>`, `ValueTask`, and `ValueTask<T>`.
 
-## `smartAwait`
+## `NativeCallOptions`
 
-`smartAwait` tells the runtime that the result should be treated as meaningfully awaitable. With attributes, this is also enabled automatically when the return type is awaitable anyway.
+`NativeCallOptions` controls how the VM adapts a native call result.
+
+- `NativeCallOptions.Default` adapts awaitable return values.
+- `NativeCallOptions.Awaitable` documents that the call intentionally returns an awaitable value.
+- `NativeCallOptions.Direct` disables awaitable adaptation for special low-level cases.
+- `NativeCallOptions.Offloaded` runs synchronous blocking code on a background task and adapts the result as awaitable.
+
+With attributes, awaitable adaptation is also enabled automatically when the method return type is awaitable. Attribute-based calls use the properties `AdaptAwaitables` and `OffloadBlockingWork`, because .NET attributes cannot accept arbitrary options objects.
 
 In practice that means the following. If your builtin returns `Task<T>`, it already feels like a native awaitable value in CFGS.
 
-## `nonBlocking`
-
-`nonBlocking` is for synchronous code that you intentionally want to move off the direct execution path. The runtime starts that call inside a background task.
+`Offloaded` is for synchronous code that you intentionally want to move off the direct execution path. The runtime starts that call inside a background task.
 
 Example.
 
 ```csharp
-[Builtin("edge_attr_nonblocking_sync", 2, 2, NonBlocking = true)]
+[Builtin("edge_attr_blocking_sync", 2, 2, OffloadBlockingWork = true)]
 private static object SlowCall(List<object> args, Instruction instr)
 {
     Thread.Sleep(Convert.ToInt32(args[0]));
@@ -247,7 +250,7 @@ For more loader detail, you can set the environment variable `CFGS_PLUGIN_VERBOS
 - Give namespace members clear verbal names.
 - Use intrinsics for receiver centered behavior.
 - Use `Task` or `ValueTask` when the call is naturally async.
-- Use `nonBlocking` only for real blocking foreign code emergencies.
+- Use `NativeCallOptions.Offloaded` or `OffloadBlockingWork` only for real blocking foreign code emergencies.
 - Prefer namespace members over global builtins for new public plugin APIs.
 - Do not register names that collide with existing namespaces, builtins, or intrinsics.
 - Treat error messages as part of your plugin API.

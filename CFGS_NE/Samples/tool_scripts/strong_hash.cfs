@@ -1,7 +1,7 @@
 import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Security.Crypto.dll";
 
-export class StrongHash(algorithm = "sha512", output = "hex") {
+export class StrongHash {
     public const algorithm;
     public const output;
 

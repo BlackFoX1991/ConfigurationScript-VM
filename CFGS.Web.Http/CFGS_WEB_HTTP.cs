@@ -111,7 +111,7 @@ namespace CFGS.Web.Http
                 Dictionary<string, object> headers = args.Count >= 2 && args[1] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
                 return HttpGetAsync(url, headers, timeout);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("http_post", 2, 5, (args, instr) =>
             {
@@ -121,7 +121,7 @@ namespace CFGS.Web.Http
                 int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
                 string contentType = args.Count >= 5 ? args[4]?.ToString() ?? "text/plain" : "text/plain";
                 return HttpSendWithBodyAsync(HttpMethod.Post, url, body, headers, timeout, contentType);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("http_put", 2, 5, (args, instr) =>
             {
@@ -131,7 +131,7 @@ namespace CFGS.Web.Http
                 int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
                 string contentType = args.Count >= 5 ? args[4]?.ToString() ?? "text/plain" : "text/plain";
                 return HttpSendWithBodyAsync(HttpMethod.Put, url, body, headers, timeout, contentType);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("http_delete", 1, 3, (args, instr) =>
             {
@@ -139,7 +139,7 @@ namespace CFGS.Web.Http
                 Dictionary<string, object> headers = args.Count >= 2 && args[1] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
                 return HttpDeleteAsync(url, headers, timeout);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("http_patch", 2, 5, (args, instr) =>
             {
@@ -149,7 +149,7 @@ namespace CFGS.Web.Http
                 int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
                 string contentType = args.Count >= 5 ? args[4]?.ToString() ?? "text/plain" : "text/plain";
                 return HttpSendWithBodyAsync(HttpMethod.Patch, url, body, headers, timeout, contentType);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("http_head", 1, 3, (args, instr) =>
             {
@@ -157,7 +157,7 @@ namespace CFGS.Web.Http
                 Dictionary<string, object> headers = args.Count >= 2 && args[1] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
                 return HttpHeadAsync(url, headers, timeout);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("http_download", 2, 3, (args, instr) =>
             {
@@ -167,7 +167,7 @@ namespace CFGS.Web.Http
 
                 EnsureFileIo(instr);
                 return HttpDownloadAsync(url, path, timeout);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("urlencode", 1, 1, (args, instr) =>
             {
@@ -502,8 +502,8 @@ namespace CFGS.Web.Http
 
             intrinsics.Register(T, new IntrinsicDescriptor("start", 0, 0, (recv, a, i) => { ((ServerHandle)recv).Start(); return recv!; }));
             intrinsics.Register(T, new IntrinsicDescriptor("stop", 0, 0, (recv, a, i) => { ((ServerHandle)recv).Stop(); return recv!; }));
-            intrinsics.Register(T, new IntrinsicDescriptor("start_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).StartAsync(), smartAwait: true));
-            intrinsics.Register(T, new IntrinsicDescriptor("stop_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).StopAsync(), smartAwait: true));
+            intrinsics.Register(T, new IntrinsicDescriptor("start_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).StartAsync(), NativeCallOptions.Awaitable));
+            intrinsics.Register(T, new IntrinsicDescriptor("stop_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).StopAsync(), NativeCallOptions.Awaitable));
             intrinsics.Register(T, new IntrinsicDescriptor("is_running", 0, 0, (recv, a, i) => ((ServerHandle)recv).IsRunning));
             intrinsics.Register(T, new IntrinsicDescriptor("pending_count", 0, 0, (recv, a, i) => ((ServerHandle)recv).PendingCount));
 
@@ -516,7 +516,7 @@ namespace CFGS.Web.Http
             {
                 int? timeout = a.Count >= 1 ? Convert.ToInt32(a[0], CultureInfo.InvariantCulture) : (int?)null;
                 return ((ServerHandle)recv).PollAsync(timeout)!;
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("respond", 3, 4, (recv, a, i) =>
             {
@@ -533,10 +533,10 @@ namespace CFGS.Web.Http
                 object? body = a[2];
                 Dictionary<string, object>? headers = a.Count >= 4 && a[3] is Dictionary<string, object> d ? d : null;
                 return ((ServerHandle)recv).RespondAsync(id, status, body, headers);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("close", 0, 0, (recv, a, i) => { ((ServerHandle)recv).Close(); return 1; }));
-            intrinsics.Register(T, new IntrinsicDescriptor("close_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).CloseAsync(), smartAwait: true));
+            intrinsics.Register(T, new IntrinsicDescriptor("close_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).CloseAsync(), NativeCallOptions.Awaitable));
         }
 
         private static void RegisterRequestBodyIntrinsics(IIntrinsicRegistry intrinsics)
@@ -547,20 +547,20 @@ namespace CFGS.Web.Http
             {
                 int count = Convert.ToInt32(a[0], CultureInfo.InvariantCulture);
                 return ((ServerHandle.RequestBodyHandle)recv).ReadBytesVmAsync(count, instr);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("read_all_bytes", 0, 1, (recv, a, instr) =>
             {
                 long? maxBytes = a.Count >= 1 && a[0] != null ? Convert.ToInt64(a[0], CultureInfo.InvariantCulture) : null;
                 return ((ServerHandle.RequestBodyHandle)recv).ReadAllBytesVmAsync(maxBytes, instr);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("read_text", 0, 2, (recv, a, instr) =>
             {
                 long? maxBytes = a.Count >= 1 && a[0] != null ? Convert.ToInt64(a[0], CultureInfo.InvariantCulture) : null;
                 string? encoding = a.Count >= 2 ? a[1]?.ToString() : null;
                 return ((ServerHandle.RequestBodyHandle)recv).ReadTextAsync(maxBytes, encoding, instr);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("copy_to", 1, 2, (recv, a, instr) =>
             {
@@ -568,7 +568,7 @@ namespace CFGS.Web.Http
                 string path = a[0]?.ToString() ?? "";
                 long? maxBytes = a.Count >= 2 && a[1] != null ? Convert.ToInt64(a[1], CultureInfo.InvariantCulture) : null;
                 return ((ServerHandle.RequestBodyHandle)recv).CopyToAsync(path, maxBytes, instr);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("bytes_read", 0, 0, (recv, a, instr) =>
             {

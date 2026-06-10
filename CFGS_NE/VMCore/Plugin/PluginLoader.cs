@@ -508,18 +508,19 @@ namespace CFGS_VM.VMCore.Plugin
                         foreach (BuiltinAttribute b in battrs)
                         {
                             BuiltinInvoker inv = (args, instr) => InvokeStaticMethod(m, args, instr)!;
-                            bool smartAwait = b.SmartAwait || IsAwaitableReturnType(m.ReturnType);
+                            bool adaptAwaitables = b.AdaptAwaitables || IsAwaitableReturnType(m.ReturnType);
                             stagedAttrBuiltins.Register(new BuiltinDescriptor(
                                 b.Name,
                                 b.ArityMin,
                                 b.ArityMax,
                                 inv,
-                                smartAwait: smartAwait,
-                                nonBlocking: b.NonBlocking));
+                                new NativeCallOptions(
+                                    adaptAwaitables: adaptAwaitables,
+                                    offloadBlockingWork: b.OffloadBlockingWork)));
                             builtinCount++;
 
                             if (Verbose)
-                                LogInfo($"Staged builtin '{b.Name}' from {t.FullName}.{m.Name} (smartAwait={smartAwait}, nonBlocking={b.NonBlocking})");
+                                LogInfo($"Staged builtin '{b.Name}' from {t.FullName}.{m.Name} (adaptAwaitables={adaptAwaitables}, offloadBlockingWork={b.OffloadBlockingWork})");
                         }
 
                         IntrinsicAttribute[] iattrs;
@@ -539,18 +540,19 @@ namespace CFGS_VM.VMCore.Plugin
                             Type recv = a.ReceiverType ?? throw new InvalidOperationException($"Intrinsic '{a.Name}' has null receiver type on {t.FullName}.{m.Name}.");
                             string rname = recv.FullName ?? recv.Name;
                             IntrinsicInvoker inv = (recvObj, args, instr) => InvokeStaticMethod(m, recvObj, args, instr)!;
-                            bool smartAwait = a.SmartAwait || IsAwaitableReturnType(m.ReturnType);
+                            bool adaptAwaitables = a.AdaptAwaitables || IsAwaitableReturnType(m.ReturnType);
                             stagedAttrIntrinsics.Register(recv, new IntrinsicDescriptor(
                                 a.Name,
                                 a.ArityMin,
                                 a.ArityMax,
                                 inv,
-                                smartAwait: smartAwait,
-                                nonBlocking: a.NonBlocking));
+                                new NativeCallOptions(
+                                    adaptAwaitables: adaptAwaitables,
+                                    offloadBlockingWork: a.OffloadBlockingWork)));
                             intrinsicCount++;
 
                             if (Verbose)
-                                LogInfo($"Staged intrinsic '{a.Name}' (recv={rname}) from {t.FullName}.{m.Name} (smartAwait={smartAwait}, nonBlocking={a.NonBlocking})");
+                                LogInfo($"Staged intrinsic '{a.Name}' (recv={rname}) from {t.FullName}.{m.Name} (adaptAwaitables={adaptAwaitables}, offloadBlockingWork={a.OffloadBlockingWork})");
                         }
                     }
                 }

@@ -1,4 +1,4 @@
-﻿using CFGS_VM.VMCore.Extensions.Instance;
+using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Plugin;
@@ -663,12 +663,12 @@ namespace CFGS.StandardLibrary
             {
                 object? value = a[0];
                 return System.Threading.Tasks.Task.FromResult<object?>(value);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("completed", 0, 0, (recv, a, i) =>
             {
                 return System.Threading.Tasks.Task.FromResult<object?>(null);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("delay", 1, 2, (recv, a, instr) =>
             {
@@ -679,7 +679,7 @@ namespace CFGS.StandardLibrary
                     await System.Threading.Tasks.Task.Delay(ms).ConfigureAwait(false);
                     return value;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
         }
 
         private static void EnsureFileIo(Instruction instr)
@@ -1359,7 +1359,7 @@ namespace CFGS.StandardLibrary
                     return TaskNamespace.Instance;
 
                 return System.Threading.Tasks.Task.FromResult<object?>(args[0]);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("isarray", 1, 1, (args, instr) => args[0] is List<object>));
             builtins.Register(new BuiltinDescriptor("isdict", 1, 1, (args, instr) => args[0] is Dictionary<string, object>));
@@ -1402,7 +1402,7 @@ namespace CFGS.StandardLibrary
             builtins.Register(new BuiltinDescriptor("readAllBytesAsync", 1, 1, (args, instr) =>
             {
                 return ReadAllBytesAsyncVm(args, instr);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("writeAllBytes", 2, 2, (args, instr) =>
             {
@@ -1458,37 +1458,37 @@ namespace CFGS.StandardLibrary
             {
                 int ms = Convert.ToInt32(args[0], CultureInfo.InvariantCulture);
                 return Task.Run<object?>(async () => { await Task.Delay(ms).ConfigureAwait(false); return null; });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("nextTick", 0, 0, (args, instr) =>
             {
                 return Task.Run<object?>(async () => { await Task.Yield(); return null; });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("getlAsync", 0, 0, (args, instr) =>
             {
                 return ConsoleGetLineAsyncVm();
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("getcAsync", 0, 0, (args, instr) =>
             {
                 return ConsoleGetCharAsyncVm();
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("readTextAsync", 1, 1, (args, instr) =>
             {
                 return ReadTextAsyncVm(args, instr);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("writeTextAsync", 2, 2, (args, instr) =>
             {
                 return WriteTextAsyncVm(args, instr);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("appendTextAsync", 2, 2, (args, instr) =>
             {
                 return AppendTextAsyncVm(args, instr);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("fileSize", 1, 1, (args, instr) =>
             {
@@ -2334,27 +2334,27 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("writeAsync", 1, 1, (recv, a, i) =>
             {
                 return Task.Run<object?>(() => { dynamic fh = recv; fh.Write(a[0]?.ToString() ?? ""); return recv; });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("writelnAsync", 1, 1, (recv, a, i) =>
             {
                 return Task.Run<object?>(() => { dynamic fh = recv; fh.Writeln(a[0]?.ToString() ?? ""); return recv; });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("flushAsync", 0, 0, (recv, a, i) =>
             {
                 return Task.Run<object?>(() => { dynamic fh = recv; fh.Flush(); return recv; });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("readAsync", 1, 1, (recv, a, i) =>
             {
                 return Task.Run<object?>(() => { dynamic fh = recv; return (string)fh.Read(Convert.ToInt32(a[0])); });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("readlineAsync", 0, 0, (recv, a, i) =>
             {
                 return Task.Run<object?>(() => { dynamic fh = recv; return (string)fh.ReadLine(); });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("writeByteAsync", 1, 1, (recv, a, instr) =>
             {
@@ -2364,7 +2364,7 @@ namespace CFGS.StandardLibrary
                     fh.WriteByte(ConvertToByteValue(a[0], instr, "value"));
                     return recv;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("writeBytesAsync", 1, 1, (recv, a, instr) =>
             {
@@ -2374,7 +2374,7 @@ namespace CFGS.StandardLibrary
                     fh.WriteBytes(ConvertVmValueToBytes(a[0], instr, "value"));
                     return recv;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("readByteAsync", 0, 0, (recv, a, instr) =>
             {
@@ -2383,7 +2383,7 @@ namespace CFGS.StandardLibrary
                     FileHandle fh = (FileHandle)recv;
                     return fh.ReadByte();
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("readBytesAsync", 1, 1, (recv, a, instr) =>
             {
@@ -2392,7 +2392,7 @@ namespace CFGS.StandardLibrary
                     FileHandle fh = (FileHandle)recv;
                     return (object)ToVmByteArray(fh.ReadBytes(Convert.ToInt32(a[0], CultureInfo.InvariantCulture)));
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
         }
 
         private static void RegisterBinaryFile(IIntrinsicRegistry intrinsics)
@@ -2484,7 +2484,7 @@ namespace CFGS.StandardLibrary
                     fh.WriteByte(ConvertToByteValue(a[0], instr, "value"));
                     return recv;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("writeBytesAsync", 1, 1, (recv, a, instr) =>
             {
@@ -2494,7 +2494,7 @@ namespace CFGS.StandardLibrary
                     fh.WriteBytes(ConvertVmValueToBytes(a[0], instr, "value"));
                     return recv;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("flushAsync", 0, 0, (recv, a, instr) =>
             {
@@ -2504,7 +2504,7 @@ namespace CFGS.StandardLibrary
                     fh.Flush();
                     return recv;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("readByteAsync", 0, 0, (recv, a, instr) =>
             {
@@ -2513,7 +2513,7 @@ namespace CFGS.StandardLibrary
                     BinaryFileHandle fh = (BinaryFileHandle)recv;
                     return fh.ReadByte();
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("readBytesAsync", 1, 1, (recv, a, instr) =>
             {
@@ -2522,7 +2522,7 @@ namespace CFGS.StandardLibrary
                     BinaryFileHandle fh = (BinaryFileHandle)recv;
                     return (object)ToVmByteArray(fh.ReadBytes(Convert.ToInt32(a[0], CultureInfo.InvariantCulture)));
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
         }
 
         /// <summary>

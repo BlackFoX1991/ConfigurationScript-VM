@@ -1,4 +1,6 @@
-﻿namespace CFGS_VM.VMCore.Extensions.Intrinsics.Core
+using CFGS_VM.VMCore.Plugin;
+
+namespace CFGS_VM.VMCore.Extensions.Intrinsics.Core
 {
 
     public sealed class IntrinsicMethod
@@ -23,9 +25,7 @@
         /// </summary>
         public IntrinsicInvoker Invoke { get; }
 
-        public bool SmartAwait { get; }
-
-        public bool NonBlocking { get; }
+        public NativeCallOptions Options { get; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="IntrinsicMethod"/> class.
@@ -39,13 +39,13 @@
             int arityMin,
             int arityMax,
             IntrinsicInvoker invoke,
-            bool smartAwait = true,
-            bool nonBlocking = false)
+            NativeCallOptions? options = null)
         {
-            Name = name; ArityMin = arityMin; ArityMax = arityMax; Invoke = invoke;
-            this.SmartAwait = smartAwait;
-            this.NonBlocking = nonBlocking;
-
+            Name = name;
+            ArityMin = arityMin;
+            ArityMax = arityMax;
+            Invoke = invoke;
+            Options = options ?? NativeCallOptions.Default;
         }
 
         /// <summary>

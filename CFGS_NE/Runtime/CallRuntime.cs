@@ -179,9 +179,9 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The RunNonBlockingInvocation
+        /// The RunOffloadedInvocation
         /// </summary>
-        private static Task<object?> RunNonBlockingInvocation(Func<object?> invoke)
+        private static Task<object?> RunOffloadedInvocation(Func<object?> invoke)
         {
             return Task.Run<object?>(async () =>
             {
@@ -197,11 +197,11 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private static object? InvokeBuiltinForCall(BuiltinDescriptor desc, List<object> args, Instruction instr)
         {
-            if (!desc.NonBlocking)
+            if (!desc.Options.OffloadBlockingWork)
                 return desc.Invoke(args, instr);
 
             List<object> argsCopy = new(args);
-            return RunNonBlockingInvocation(() => desc.Invoke(argsCopy, instr));
+            return RunOffloadedInvocation(() => desc.Invoke(argsCopy, instr));
         }
 
         /// <summary>
@@ -211,11 +211,11 @@ namespace CFGS_VM.VMCore
         {
             MarkAsyncHazardForMutableReceiver(receiver);
 
-            if (!method.NonBlocking)
+            if (!method.Options.OffloadBlockingWork)
                 return method.Invoke(receiver, args, instr);
 
             List<object> argsCopy = new(args);
-            return RunNonBlockingInvocation(() => method.Invoke(receiver, argsCopy, instr));
+            return RunOffloadedInvocation(() => method.Invoke(receiver, argsCopy, instr));
         }
 
         /// <summary>

@@ -1,4 +1,4 @@
-﻿using CFGS_VM.VMCore.Plugin;
+using CFGS_VM.VMCore.Plugin;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
 using Microsoft.Data.SqlClient;
@@ -100,7 +100,7 @@ namespace CFGS.Microsoft.SQL
         {
             ThrowIfDisposed();
             if (Connection == null || Connection.State != ConnectionState.Open)
-                throw new InvalidOperationException("Die SQL-Verbindung ist nicht geöffnet.");
+                throw new InvalidOperationException("Die SQL-Verbindung ist nicht ge�ffnet.");
         }
 
         /// <summary>
@@ -236,7 +236,7 @@ namespace CFGS.Microsoft.SQL
                         instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
 
                 return ConnectAsync(connString, instr);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
         }
 
         /// <summary>
@@ -395,7 +395,7 @@ namespace CFGS.Microsoft.SQL
             intrinsics.Register(T, new IntrinsicDescriptor(name + "_async", 1, 2, (recv, a, instr) =>
             {
                 return RunAsyncSql(recv, a!, instr, asyncBody);
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor(name, 1, 2, (recv, a, instr) =>
             {
@@ -464,7 +464,7 @@ namespace CFGS.Microsoft.SQL
                         });
                     return (object)list!;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("columns", 1, 1, (recv, a, instr) =>
             {
@@ -511,7 +511,7 @@ namespace CFGS.Microsoft.SQL
                         });
                     return (object)cols!;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("views", 0, 0, (recv, a, instr) =>
             {
@@ -545,7 +545,7 @@ namespace CFGS.Microsoft.SQL
                         });
                     return (object)list!;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("procedures", 0, 0, (recv, a, instr) =>
             {
@@ -581,7 +581,7 @@ namespace CFGS.Microsoft.SQL
                         });
                     return (object)list!;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
         }
 
         /// <summary>
@@ -654,7 +654,7 @@ namespace CFGS.Microsoft.SQL
                     }
                     return (object)parameters!;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("view_definition", 1, 1, (recv, a, instr) =>
             {
@@ -695,7 +695,7 @@ namespace CFGS.Microsoft.SQL
                     object? def = await vcmd.ExecuteScalarAsync().ConfigureAwait(false);
                     return def ?? string.Empty;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
         }
 
         /// <summary>
@@ -761,7 +761,7 @@ namespace CFGS.Microsoft.SQL
                     }
                     return (object)list!;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("foreign_keys", 1, 1, (recv, a, instr) =>
             {
@@ -843,7 +843,7 @@ namespace CFGS.Microsoft.SQL
                     }
                     return (object)list!;
                 });
-            }, smartAwait: true));
+            }, NativeCallOptions.Awaitable));
         }
 
         /// <summary>
