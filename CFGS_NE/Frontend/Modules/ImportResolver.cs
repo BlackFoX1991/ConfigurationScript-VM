@@ -2,32 +2,37 @@ using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Lowering;
 using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.Analytic.Tree;
+using CFGS_VM.VMCore.Plugin;
 
 namespace CFGS_VM.Analytic.Modules
 {
     public sealed class ImportResolver
     {
         private readonly Action<string>? _loadPluginDll;
+        private readonly INamespaceRegistry? _namespaces;
         private readonly SourceResolver _sourceResolver;
         private readonly ModuleGraphBuilder _moduleGraphBuilder;
 
         public ImportResolver(
             Action<string>? loadPluginDll = null,
             Func<string, string?>? loadImportSource = null,
+            INamespaceRegistry? namespaces = null,
             Dictionary<string, List<Stmt>>? sharedAstByHash = null,
             Stack<string>? sharedImportStack = null)
-            : this(loadPluginDll, loadImportSource, sharedAstByHash, sharedImportStack, null)
+            : this(loadPluginDll, loadImportSource, namespaces, sharedAstByHash, sharedImportStack, null)
         {
         }
 
         internal ImportResolver(
             Action<string>? loadPluginDll,
             Func<string, string?>? loadImportSource,
+            INamespaceRegistry? namespaces,
             Dictionary<string, List<Stmt>>? sharedAstByHash,
             Stack<string>? sharedImportStack,
             SourceResolver? sourceResolver)
         {
             _loadPluginDll = loadPluginDll;
+            _namespaces = namespaces;
             _sourceResolver = sourceResolver ?? new SourceResolver();
             _moduleGraphBuilder = new ModuleGraphBuilder(
                 ResolveImportedSyntaxTree,
@@ -77,7 +82,7 @@ namespace CFGS_VM.Analytic.Modules
                 }
             }
 
-            List<Stmt> useResolved = new UseNamespaceResolver().Resolve(statements, resolved);
+            List<Stmt> useResolved = new UseNamespaceResolver(_namespaces).Resolve(statements, resolved);
             TopLevelSymbolFacts.ValidateTopLevelSymbolUniqueness(useResolved);
             return useResolved;
         }

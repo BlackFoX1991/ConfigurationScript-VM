@@ -8,6 +8,7 @@ namespace CFGS_VM.VMCore
     {
         private readonly BuiltinRegistry _builtins = new();
         private readonly IntrinsicRegistry _intrinsics = new();
+        private readonly NamespaceRegistry _namespaces = new();
 
         /// <summary>
         /// Gets the builtin registry abstraction.
@@ -20,16 +21,21 @@ namespace CFGS_VM.VMCore
         public IIntrinsicRegistry Intrinsics => _intrinsics;
 
         /// <summary>
+        /// Gets the namespace registry abstraction.
+        /// </summary>
+        public INamespaceRegistry Namespaces => _namespaces;
+
+        /// <summary>
         /// Loads every plugin DLL in the supplied directory into the VM binding registries.
         /// </summary>
         public void LoadPluginsFrom(string directory)
-            => PluginLoader.LoadDirectory(directory, _builtins, _intrinsics);
+            => PluginLoader.LoadDirectory(directory, _builtins, _intrinsics, _namespaces);
 
         /// <summary>
         /// Loads a single plugin DLL into the VM binding registries.
         /// </summary>
         public void LoadPlugin(string dllPath)
-            => PluginLoader.LoadDll(dllPath, _builtins, _intrinsics);
+            => PluginLoader.LoadDll(dllPath, _builtins, _intrinsics, _namespaces);
 
         /// <summary>
         /// Tries to bind a builtin by name.
@@ -39,6 +45,9 @@ namespace CFGS_VM.VMCore
 
         private IEnumerable<string> SnapshotBuiltinNames()
             => _builtins.Snapshot().Select(static descriptor => descriptor.Name);
+
+        private bool TryGetRegisteredNamespaceRoot(string name, out object namespaceObject)
+            => _namespaces.TryGetRoot(name, out namespaceObject);
 
         /// <summary>
         /// Copies the current binding layer into another VM binding surface.
@@ -50,6 +59,9 @@ namespace CFGS_VM.VMCore
 
             foreach ((Type ReceiverType, IntrinsicDescriptor Descriptor) entry in _intrinsics.Snapshot())
                 target.Intrinsics.Register(entry.ReceiverType, entry.Descriptor);
+
+            foreach (NamespaceDescriptor descriptor in _namespaces.Snapshot())
+                target.Namespaces.Register(descriptor);
         }
 
         /// <summary>

@@ -11,13 +11,13 @@ import "dist/Debug/net10.0/CFGS.Pdf.dll";
 
 It is based on PDFsharp and exposes documents and pages as handles. The plugin focuses on practical document generation, page manipulation, metadata, encryption flags, and embedded files for workflows such as ZUGFeRD or Factur-X.
 
-## Builtins
+## Namespace Members
 
-- `pdf_new(title = optional)`
-- `pdf_load(path, password = optional)`
-- `pdf_concat(paths, outputPath = optional)`
+- `pdf.new(title = optional)`
+- `pdf.load(path, password = optional)`
+- `pdf.concat(paths, outputPath = optional)`
 
-`pdf_concat` accepts an array of PDF paths. If `outputPath` is omitted, it returns a `PdfDocumentHandle`; otherwise it saves the merged PDF and returns the path.
+`pdf.concat` accepts an array of PDF paths. If `outputPath` is omitted, it returns a `PdfDocumentHandle`; otherwise it saves the merged PDF and returns the path.
 
 ## Document Intrinsics
 
@@ -73,8 +73,8 @@ import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Xml.dll";
 import "dist/Debug/net10.0/CFGS.Pdf.dll";
 
-var xml = xml_new("rsm:CrossIndustryInvoice", "urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100", "rsm");
-var pdf = pdf_new("Invoice");
+var xml = xml.new("rsm:CrossIndustryInvoice", "urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100", "rsm");
+var pdf = pdf.new("Invoice");
 
 var page = pdf.add_page(595, 842);
 page.draw_text("Invoice", 72, 96, 18, "Arial", "#111827", "bold");
@@ -88,7 +88,7 @@ For production ZUGFeRD/PDF-A-3 files, validate the output with veraPDF or anothe
 ## Attachments
 
 ```cfs
-var doc = pdf_load("invoice.pdf");
+var doc = pdf.load("invoice.pdf");
 var files = doc.attachments();
 foreach (var file in files) {
     print(file["name"]);
@@ -109,7 +109,7 @@ doc.extract_attachment("factur-x.xml", "factur-x.xml");
 ## Metadata
 
 ```cfs
-var doc = pdf_new();
+var doc = pdf.new();
 doc.set_info({
     "title": "Report",
     "author": "CFGS",

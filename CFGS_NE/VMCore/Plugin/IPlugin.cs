@@ -1,3 +1,5 @@
+using CFGS_VM.VMCore.Extensions.Core;
+
 namespace CFGS_VM.VMCore.Plugin
 {
     /// <summary>
@@ -161,6 +163,95 @@ namespace CFGS_VM.VMCore.Plugin
     }
 
     /// <summary>
+    /// Defines a native namespace exposed by a plugin or the standard library.
+    /// </summary>
+    public sealed class NamespaceDescriptor
+    {
+        public string Path { get; }
+
+        public object Instance { get; }
+
+        public IReadOnlyList<string> Members { get; }
+
+        public NamespaceDescriptor(string path, object instance, IEnumerable<string> members)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                throw new ArgumentException("Namespace path must not be empty.", nameof(path));
+
+            string[] parts = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0 || string.Join(".", parts) != path)
+                throw new ArgumentException($"Invalid namespace path '{path}'.", nameof(path));
+
+            foreach (string part in parts)
+            {
+                if (string.IsNullOrWhiteSpace(part))
+                    throw new ArgumentException($"Invalid namespace path '{path}'.", nameof(path));
+            }
+
+            Path = path;
+            Instance = instance ?? throw new ArgumentNullException(nameof(instance));
+            Members = members?.Where(static member => !string.IsNullOrWhiteSpace(member))
+                              .Distinct(StringComparer.Ordinal)
+                              .ToArray()
+                      ?? throw new ArgumentNullException(nameof(members));
+        }
+
+        public static NamespaceDescriptor FromBuiltins(
+            string path,
+            IEnumerable<(string MemberName, string BuiltinName, int ArityMin, int ArityMax)> members)
+        {
+            Dictionary<string, object> instance = new(StringComparer.Ordinal);
+            List<string> memberNames = new();
+
+            foreach ((string memberName, string builtinName, int arityMin, int arityMax) in members)
+            {
+                if (string.IsNullOrWhiteSpace(memberName))
+                    throw new ArgumentException("Namespace member name must not be empty.", nameof(members));
+
+                instance[memberName] = new BuiltinCallable(builtinName, arityMin, arityMax);
+                memberNames.Add(memberName);
+            }
+
+            return new NamespaceDescriptor(path, instance, memberNames);
+        }
+
+        public static NamespaceDescriptor FromDescriptors(
+            string path,
+            IEnumerable<(string MemberName, BuiltinDescriptor Descriptor)> members)
+        {
+            Dictionary<string, object> instance = new(StringComparer.Ordinal);
+            List<string> memberNames = new();
+
+            foreach ((string memberName, BuiltinDescriptor descriptor) in members)
+            {
+                if (string.IsNullOrWhiteSpace(memberName))
+                    throw new ArgumentException("Namespace member name must not be empty.", nameof(members));
+
+                instance[memberName] = new NamespaceBuiltinCallable(memberName, descriptor);
+                memberNames.Add(memberName);
+            }
+
+            return new NamespaceDescriptor(path, instance, memberNames);
+        }
+    }
+
+    public sealed class NamespaceBuiltinCallable
+    {
+        public string MemberName { get; }
+
+        public BuiltinDescriptor Descriptor { get; }
+
+        public NamespaceBuiltinCallable(string memberName, BuiltinDescriptor descriptor)
+        {
+            MemberName = memberName ?? throw new ArgumentNullException(nameof(memberName));
+            Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
+        }
+
+        public override string ToString()
+            => $"<builtin {MemberName}/{Descriptor.ArityMin}..{Descriptor.ArityMax}>";
+    }
+
+    /// <summary>
     /// Defines the <see cref="IBuiltinRegistry" />
     /// </summary>
     public interface IBuiltinRegistry
@@ -242,6 +333,25 @@ namespace CFGS_VM.VMCore.Plugin
     }
 
     /// <summary>
+    /// Defines the <see cref="INamespaceRegistry" />
+    /// </summary>
+    public interface INamespaceRegistry
+    {
+        void Register(NamespaceDescriptor descriptor);
+
+        bool TryGet(string path, out NamespaceDescriptor descriptor);
+
+        bool Contains(string path) => TryGet(path, out _);
+
+        bool TryGetRoot(string name, out object value);
+
+        bool Remove(string path)
+            => throw new NotSupportedException("This namespace registry does not support removal.");
+
+        IReadOnlyList<NamespaceDescriptor> Snapshot();
+    }
+
+    /// <summary>
     /// Defines the <see cref="IVmPlugin" />
     /// </summary>
     public interface IVmPlugin
@@ -251,7 +361,8 @@ namespace CFGS_VM.VMCore.Plugin
         /// </summary>
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics);
+        /// <param name="namespaces">The namespaces<see cref="INamespaceRegistry"/></param>
+        void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces);
     }
 
     /// <summary>

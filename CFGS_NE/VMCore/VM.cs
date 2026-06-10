@@ -637,6 +637,12 @@ namespace CFGS_VM.VMCore
                             break;
                         }
 
+                        if (TryGetRegisteredNamespaceRoot(name, out object namespaceObject))
+                        {
+                            _stack.Push(namespaceObject);
+                            break;
+                        }
+
                         if (TryGetBuiltin(name, out BuiltinDescriptor d))
                         {
                             _stack.Push(new BuiltinCallable(d.Name, d.ArityMin, d.ArityMax));

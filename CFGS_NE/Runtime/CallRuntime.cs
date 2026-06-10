@@ -470,6 +470,18 @@ namespace CFGS_VM.VMCore
                     _stack.Push(result!);
                     return StepResult.Continue;
                 }
+                else if (callee is NamespaceBuiltinCallable nbc)
+                {
+                    BuiltinDescriptor desc = nbc.Descriptor;
+                    if (actualArgCount < desc.ArityMin || actualArgCount > desc.ArityMax)
+                        throw new VMException(
+                            $"Runtime error: builtin '{nbc.MemberName}' expects {desc.ArityMin}..{desc.ArityMax} args, got {actualArgCount}",
+                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                    object? result = InvokeBuiltinForCall(desc, argsList, instr);
+                    _stack.Push(result!);
+                    return StepResult.Continue;
+                }
                 else if (callee is ClrCallable clrCallable)
                 {
                     try
@@ -644,6 +656,23 @@ namespace CFGS_VM.VMCore
                 if (!TryGetBuiltin(bc2.Name, out BuiltinDescriptor desc))
                     throw new VMException($"Runtime error: unknown builtin '{bc2.Name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+                int need = desc.ArityMin;
+                List<object> argsB = new();
+                for (int i = 0; i < need; i++)
+                {
+                    if (_stack.Count == 0)
+                        throw new VMException("Runtime error: insufficient args for builtin call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    argsB.Add(_stack.Pop());
+                }
+                argsB.Reverse();
+
+                object? result = InvokeBuiltinForCall(desc, argsB, instr);
+                _stack.Push(result!);
+                return StepResult.Continue;
+            }
+            else if (calleeNoOperand is NamespaceBuiltinCallable nbc2)
+            {
+                BuiltinDescriptor desc = nbc2.Descriptor;
                 int need = desc.ArityMin;
                 List<object> argsB = new();
                 for (int i = 0; i < need; i++)

@@ -21,11 +21,29 @@ public sealed class CFGS_PDF : IVmPlugin
             GlobalFontSettings.UseWindowsFontsUnderWindows = true;
     }
 
-    public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+    public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
     {
-        RegisterBuiltins(builtins);
+        BuiltinRegistry namespaceBuiltins = new();
+        RegisterBuiltins(namespaceBuiltins);
+        RegisterNamespaces(namespaces, namespaceBuiltins);
         RegisterDocumentIntrinsics(intrinsics);
         RegisterPageIntrinsics(intrinsics);
+    }
+
+    private static void RegisterNamespaces(INamespaceRegistry namespaces, BuiltinRegistry namespaceBuiltins)
+    {
+        Dictionary<string, BuiltinDescriptor> descriptors = namespaceBuiltins.Snapshot()
+            .ToDictionary(static descriptor => descriptor.Name, StringComparer.Ordinal);
+
+        (string MemberName, BuiltinDescriptor Descriptor)[] members =
+        [
+            ("new", descriptors["pdf_new"]),
+            ("load", descriptors["pdf_load"]),
+            ("concat", descriptors["pdf_concat"])
+        ];
+
+        namespaces.Register(NamespaceDescriptor.FromDescriptors("pdf", members));
+        namespaces.Register(NamespaceDescriptor.FromDescriptors("std.pdf", members));
     }
 
     private static void RegisterBuiltins(IBuiltinRegistry builtins)

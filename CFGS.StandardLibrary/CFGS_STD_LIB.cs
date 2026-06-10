@@ -54,6 +54,7 @@ namespace CFGS.StandardLibrary
             if (t == typeof(char)) return "Char";
             if (t == typeof(List<object>)) return "Array";
             if (t == typeof(Dictionary<string, object>)) return "Dictionary";
+            if (t == typeof(NamespaceBuiltinCallable)) return "BuiltinCallable";
             return t.Name;
         }
 
@@ -62,9 +63,11 @@ namespace CFGS.StandardLibrary
         /// </summary>
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+        /// <param name="namespaces">The namespaces<see cref="INamespaceRegistry"/></param>
+        public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
             RegisterBuiltins(builtins);
+            RegisterNamespaces(namespaces);
             RegisterString(intrinsics);
             RegisterArray(intrinsics);
             RegisterDict(intrinsics);
@@ -80,6 +83,54 @@ namespace CFGS.StandardLibrary
             RegisterMathNamespace(intrinsics);
             RegisterConsoleNamespace(intrinsics);
             RegisterFileSystemNamespace(intrinsics);
+        }
+
+        private static void RegisterNamespaces(INamespaceRegistry namespaces)
+        {
+            RegisterNamespaceAliases(namespaces, "console", ConsoleNamespace.Instance, [
+                "print", "put", "clear", "getl", "getc", "readLine", "readChar",
+                "getlAsync", "getcAsync", "readLineAsync", "readCharAsync"
+            ]);
+
+            RegisterNamespaceAliases(namespaces, "encoding", EncodingNamespace.Instance, [
+                "textToBytes", "bytesToText", "encode", "encodeText", "decode", "decodeText",
+                "convert", "convertEncoding", "has", "hasEncoding", "info", "encodingInfo",
+                "names", "encodingNames", "all", "encodings"
+            ]);
+
+            RegisterNamespaceAliases(namespaces, "regex", RegexNamespace.Instance, [
+                "match", "matches", "replace", "test", "split",
+                "regex_match", "regex_matches", "regex_replace", "regex_test", "regex_split"
+            ]);
+
+            RegisterNamespaceAliases(namespaces, "json", JsonNamespace.Instance, [
+                "parse", "from", "fromjson", "stringify", "to", "tojson"
+            ]);
+
+            RegisterNamespaceAliases(namespaces, "math", MathNamespace.Instance, [
+                "abs", "rand", "floor", "ceil", "round", "min", "max", "sqrt", "pow",
+                "log", "log10", "sin", "cos", "tan", "sign", "trunc", "PI", "pi", "E", "e"
+            ]);
+
+            RegisterNamespaceAliases(namespaces, "fs", FileSystemNamespace.Instance, FileSystemNamespaceMembers);
+            RegisterNamespaceAliases(namespaces, "file", FileSystemNamespace.Instance, FileSystemNamespaceMembers);
+        }
+
+        private static readonly string[] FileSystemNamespaceMembers =
+        [
+            "open", "fopen", "openBinary", "fbopen", "delete", "fdelete", "move", "fmove",
+            "copy", "fcopy", "exists", "fexist", "readAllBytes", "readAllBytesAsync",
+            "writeAllBytes", "readTextAsync", "writeTextAsync", "appendTextAsync", "size",
+            "fileSize", "lastWriteTime", "fileLastWriteTime", "lastWriteTimeUtc",
+            "fileLastWriteTimeUtc", "setWorkspace", "set_workspace", "getWorkspace",
+            "get_workspace", "getDirectory", "directoryInfo", "DirectoryInfo"
+        ];
+
+        private static void RegisterNamespaceAliases(INamespaceRegistry namespaces, string name, object instance, IEnumerable<string> members)
+        {
+            string[] materializedMembers = members.ToArray();
+            namespaces.Register(new NamespaceDescriptor(name, instance, materializedMembers));
+            namespaces.Register(new NamespaceDescriptor($"std.{name}", instance, materializedMembers));
         }
 
         private static object TextToBytesVm(List<object> args, Instruction instr, string opName)
@@ -936,6 +987,7 @@ namespace CFGS.StandardLibrary
                 if (val is char) return "Char";
                 if (val is List<object>) return "Array";
                 if (val is Dictionary<string, object>) return "Dictionary";
+                if (val is NamespaceBuiltinCallable) return "BuiltinCallable";
                 if (val is ClassInstance ci) return ci.ClassName;
                 if (val is StaticInstance si) return si.ClassName;
                 if (val is EnumInstance) return "Enum";
@@ -1308,14 +1360,6 @@ namespace CFGS.StandardLibrary
 
                 return System.Threading.Tasks.Task.FromResult<object?>(args[0]);
             }, smartAwait: true));
-
-            builtins.Register(new BuiltinDescriptor("encoding", 0, 0, (args, instr) => EncodingNamespace.Instance));
-            builtins.Register(new BuiltinDescriptor("regex", 0, 0, (args, instr) => RegexNamespace.Instance));
-            builtins.Register(new BuiltinDescriptor("json", 0, 0, (args, instr) => JsonNamespace.Instance));
-            builtins.Register(new BuiltinDescriptor("math", 0, 0, (args, instr) => MathNamespace.Instance));
-            builtins.Register(new BuiltinDescriptor("console", 0, 0, (args, instr) => ConsoleNamespace.Instance));
-            builtins.Register(new BuiltinDescriptor("fs", 0, 0, (args, instr) => FileSystemNamespace.Instance));
-            builtins.Register(new BuiltinDescriptor("file", 0, 0, (args, instr) => FileSystemNamespace.Instance));
 
             builtins.Register(new BuiltinDescriptor("isarray", 1, 1, (args, instr) => args[0] is List<object>));
             builtins.Register(new BuiltinDescriptor("isdict", 1, 1, (args, instr) => args[0] is Dictionary<string, object>));

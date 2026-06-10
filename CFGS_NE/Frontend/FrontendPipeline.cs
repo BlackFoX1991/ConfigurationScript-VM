@@ -2,6 +2,7 @@ using CFGS_VM.Analytic.Core;
 using CFGS_VM.Analytic.Lowering;
 using CFGS_VM.Analytic.Modules;
 using CFGS_VM.Analytic.Tree;
+using CFGS_VM.VMCore.Plugin;
 
 namespace CFGS_VM.Analytic
 {
@@ -11,6 +12,7 @@ namespace CFGS_VM.Analytic
     {
         private readonly Action<string>? _loadPluginDll;
         private readonly Func<string, string?>? _loadImportSource;
+        private readonly INamespaceRegistry? _namespaces;
         private readonly string? _workingDirectory;
         private readonly Dictionary<string, List<Stmt>>? _sharedAstByHash;
         private readonly Stack<string>? _sharedImportStack;
@@ -18,12 +20,14 @@ namespace CFGS_VM.Analytic
         public FrontendPipeline(
             Action<string>? loadPluginDll = null,
             Func<string, string?>? loadImportSource = null,
+            INamespaceRegistry? namespaces = null,
             string? workingDirectory = null,
             Dictionary<string, List<Stmt>>? sharedAstByHash = null,
             Stack<string>? sharedImportStack = null)
         {
             _loadPluginDll = loadPluginDll;
             _loadImportSource = loadImportSource;
+            _namespaces = namespaces;
             _workingDirectory = NormalizeWorkingDirectory(workingDirectory);
             _sharedAstByHash = sharedAstByHash;
             _sharedImportStack = sharedImportStack;
@@ -40,6 +44,7 @@ namespace CFGS_VM.Analytic
             ImportResolver importResolver = new(
                 _loadPluginDll,
                 _loadImportSource,
+                _namespaces,
                 _sharedAstByHash,
                 _sharedImportStack,
                 sourceResolver);

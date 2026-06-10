@@ -2,6 +2,7 @@ using CFGS_VM.Analytic;
 using CFGS_VM.Analytic.Core;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore.Extensions.Core;
+using CFGS_VM.VMCore.Plugin;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -12,6 +13,7 @@ namespace CFGS_VM.VMCore
         public static CompiledScript CompileFile(
             string path,
             Action<string>? loadPluginDll = null,
+            INamespaceRegistry? namespaces = null,
             string compilerVersion = "")
         {
             string source = File.ReadAllText(path);
@@ -20,13 +22,14 @@ namespace CFGS_VM.VMCore
                 ?? Path.GetDirectoryName(Path.GetFullPath(path))
                 ?? Environment.CurrentDirectory;
 
-            return CompileSource(path, source, loadPluginDll, workingDirectory, compilerVersion);
+            return CompileSource(path, source, loadPluginDll, namespaces, workingDirectory, compilerVersion);
         }
 
         public static CompiledScript CompileSource(
             string name,
             string source,
             Action<string>? loadPluginDll = null,
+            INamespaceRegistry? namespaces = null,
             string? workingDirectory = null,
             string compilerVersion = "")
         {
@@ -40,6 +43,7 @@ namespace CFGS_VM.VMCore
 
             FrontendPipeline frontendPipeline = new(
                 loadPluginDll: trackingPluginLoader,
+                namespaces: namespaces,
                 workingDirectory: workingDirectory);
 
             FrontendBuildResult frontendBuild = frontendPipeline.BuildLoweredAstWithSyntax(name, source);

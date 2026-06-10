@@ -37,7 +37,7 @@ export class Cookies
         }
 
         try {
-            return urldecode(raw);
+            return http.urldecode(raw);
         } catch (e) {
             return raw;
         }
@@ -48,8 +48,8 @@ export class Cookies
             return Util.sanitize_header_value(value, "");
         }
 
-        var payload = urlencode(str(value == null ? "" : value));
-        var mac = crypto_hmac(secret, Cookies._signed_payload(name, payload), "sha256", "utf8", "hex");
+        var payload = http.urlencode(str(value == null ? "" : value));
+        var mac = crypto.hmac(secret, Cookies._signed_payload(name, payload), "sha256", "utf8", "hex");
         return "s:" + payload + "." + mac;
     }
 
@@ -70,14 +70,14 @@ export class Cookies
 
         var payload = signed.substr(0, dot);
         var actual_mac = signed.substr(dot + 1, len(signed) - (dot + 1));
-        var expected_mac = crypto_hmac(secret, Cookies._signed_payload(name, payload), "sha256", "utf8", "hex");
+        var expected_mac = crypto.hmac(secret, Cookies._signed_payload(name, payload), "sha256", "utf8", "hex");
 
         if (!Util.safe_compare(actual_mac, expected_mac)) {
             return fallback;
         }
 
         try {
-            return urldecode(payload);
+            return http.urldecode(payload);
         } catch (e) {
             return fallback;
         }
@@ -146,7 +146,7 @@ export class Cookies
     }
 
     static func with_cookie(res, name, value, attrs = null) {
-        var encoded = urlencode(str(value == null ? "" : value));
+        var encoded = http.urlencode(str(value == null ? "" : value));
         return Cookies._append_cookie(res, name, encoded, attrs);
     }
 

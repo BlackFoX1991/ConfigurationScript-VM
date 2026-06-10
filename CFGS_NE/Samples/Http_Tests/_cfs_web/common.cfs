@@ -365,11 +365,11 @@ export class Util
             if (part != "") {
                 var eq = part.indexOf("=");
                 if (eq >= 0) {
-                    var key = urldecode(part.substr(0, eq));
-                    var value = urldecode(part.substr(eq + 1, len(part) - (eq + 1)));
+                    var key = http.urldecode(part.substr(0, eq));
+                    var value = http.urldecode(part.substr(eq + 1, len(part) - (eq + 1)));
                     Util._push_value(result, key, value);
                 } else {
-                    Util._push_value(result, urldecode(part), "");
+                    Util._push_value(result, http.urldecode(part), "");
                 }
             }
             i = i + 1;
@@ -759,14 +759,14 @@ export class Util
                 var i = 0;
                 while (i < len(v)) {
                     if (v[i] != null) {
-                        parts[] = urlencode(str(k)) + "=" + urlencode(str(v[i]));
+                        parts[] = http.urlencode(str(k)) + "=" + http.urlencode(str(v[i]));
                     }
                     i = i + 1;
                 }
                 continue;
             }
 
-            parts[] = urlencode(str(k)) + "=" + urlencode(str(v));
+            parts[] = http.urlencode(str(k)) + "=" + http.urlencode(str(v));
         }
         return Util.join(parts, "&");
     }
@@ -780,7 +780,7 @@ export class Util
     }
 
     static func secure_token(byte_count = 32, prefix = null) {
-        var token = crypto_random_bytes(byte_count, "hex");
+        var token = crypto.randomBytes(byte_count, "hex");
         if (prefix == null || prefix == "") {
             return token;
         }
@@ -789,7 +789,7 @@ export class Util
 
     static func safe_compare(left, right) {
         if (left == null || right == null) { return false; }
-        return crypto_fixed_time_equals(str(left), str(right));
+        return crypto.fixedTimeEquals(str(left), str(right));
     }
 
     static func sanitize_header_value(value, fallback = "") {
@@ -948,7 +948,7 @@ export class Util
     static func hash32(s) {
         if (s == null) { return 0; }
 
-        var enc = urlencode(str(s));
+        var enc = http.urlencode(str(s));
         var i = 0;
         var h = 5381;
 

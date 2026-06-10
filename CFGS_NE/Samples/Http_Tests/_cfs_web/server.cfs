@@ -675,7 +675,7 @@ export class ServerApp(port)
                     var rs = Util.split_segments(rest);
                     var r = 0;
                     while (r < len(rs)) {
-                        parts[] = urlencode(str(rs[r]));
+                        parts[] = http.urlencode(str(rs[r]));
                         r = r + 1;
                     }
                 }
@@ -685,7 +685,7 @@ export class ServerApp(port)
                 if (value == null) {
                     throw "Missing route parameter: " + key;
                 }
-                parts[] = urlencode(str(value));
+                parts[] = http.urlencode(str(value));
             } else {
                 parts[] = seg;
             }
@@ -2547,7 +2547,7 @@ export class ServerApp(port)
     async func run() {
         this.stop_requested = false;
         this.pending_requests = {};
-        var srv = http_server(this.port, this.runtime_max_body_bytes, "stream").start();
+        var srv = http.server(this.port, this.runtime_max_body_bytes, "stream").start();
         var waiter = task();
 
         print("ServerApp running on http://localhost:" + str(this.port) + "/");

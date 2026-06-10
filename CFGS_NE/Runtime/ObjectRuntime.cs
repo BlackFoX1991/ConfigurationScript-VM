@@ -925,18 +925,6 @@ namespace CFGS_VM.VMCore
         {
             switch (target)
             {
-                case BuiltinCallable bc when bc.ArityMin == 0 && bc.ArityMax == 0:
-                    {
-                        if (!TryGetBuiltin(bc.Name, out BuiltinDescriptor desc))
-                            throw new VMException($"Runtime error: unknown builtin '{bc.Name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-                        object? resolved = InvokeBuiltinForCall(desc, [], instr);
-                        if (resolved is null)
-                            throw CreateIndexException(target, idxObj, instr);
-
-                        return GetIndexedValue(resolved, idxObj, instr);
-                    }
-
                 case System.Threading.Tasks.Task<object> _:
                     {
                         string key = idxObj?.ToString() ?? "";

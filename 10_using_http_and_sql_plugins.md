@@ -10,28 +10,28 @@ import "dist/Debug/net10.0/CFGS.Web.Http.dll";
 import "dist/Debug/net10.0/CFGS.Microsoft.SQL.dll";
 ```
 
-After that, their builtins and intrinsics are available globally.
+After that, their namespace members and handle intrinsics are available through `http`, `sql`, `std.http`, and `std.sql`.
 
 ## HTTP Plugin
 
-### Available Builtins
+### Available Namespace Members
 
-- `http_get(url, headers = optional, timeoutMs = optional)`
-- `http_post(url, body, headers = optional, timeoutMs = optional, contentType = optional)`
-- `http_put(url, body, headers = optional, timeoutMs = optional, contentType = optional)`
-- `http_patch(url, body, headers = optional, timeoutMs = optional, contentType = optional)`
-- `http_delete(url, headers = optional, timeoutMs = optional)`
-- `http_head(url, headers = optional, timeoutMs = optional)`
-- `http_download(url, path, timeoutMs = optional)`
-- `urlencode(text)`
-- `urldecode(text)`
-- `http_server(port, maxRequestBodyBytes = optional, mode = optional)`
+- `http.get(url, headers = optional, timeoutMs = optional)`
+- `http.post(url, body, headers = optional, timeoutMs = optional, contentType = optional)`
+- `http.put(url, body, headers = optional, timeoutMs = optional, contentType = optional)`
+- `http.patch(url, body, headers = optional, timeoutMs = optional, contentType = optional)`
+- `http.delete(url, headers = optional, timeoutMs = optional)`
+- `http.head(url, headers = optional, timeoutMs = optional)`
+- `http.download(url, path, timeoutMs = optional)`
+- `http.urlencode(text)`
+- `http.urldecode(text)`
+- `http.server(port, maxRequestBodyBytes = optional, mode = optional)`
 
-`http_post`, `http_put`, and `http_patch` accept an optional `contentType` parameter. The default is `text/plain`. Their `body` argument may be a string or a byte array such as `[0x00, 0xFF, 0x41]`.
+`http.post`, `http.put`, and `http.patch` accept an optional `contentType` parameter. The default is `text/plain`. Their `body` argument may be a string or a byte array such as `[0x00, 0xFF, 0x41]`.
 
-### Return Shape of `http_get`, `http_post`, and Others
+### Return Shape of `http.get`, `http.post`, and Others
 
-All HTTP request builtins are async. The response is a dictionary with these keys.
+All HTTP request namespace members are async. The response is a dictionary with these keys.
 
 - `status`
 - `reason`
@@ -44,7 +44,7 @@ Example.
 
 ```cfs
 async func ping() {
-    var resp = await http_get("https://httpbin.org/get", {"User-Agent": "CFGS_HTTP/1.0"});
+    var resp = await http.get("https://httpbin.org/get", {"User-Agent": "CFGS_HTTP/1.0"});
     print(resp.status);
     print(resp.reason);
     print(resp.body);
@@ -53,19 +53,19 @@ async func ping() {
 
 ### Downloads
 
-`http_download` streams bytes to disk and returns the number of written bytes. File I O must be allowed for this to work.
+`http.download` streams bytes to disk and returns the number of written bytes. File I O must be allowed for this to work.
 
 ```cfs
-var bytes = await http_download("https://example.com/file.txt", "downloads/file.txt");
+var bytes = await http.download("https://example.com/file.txt", "downloads/file.txt");
 print(bytes);
 ```
 
-### `http_server(port, maxRequestBodyBytes = optional, mode = optional)`
+### `http.server(port, maxRequestBodyBytes = optional, mode = optional)`
 
-This builtin returns a `ServerHandle`.
+This namespace member returns a `ServerHandle`.
 
 ```cfs
-var srv = http_server(19081, 10 * 1024 * 1024);
+var srv = http.server(19081, 10 * 1024 * 1024);
 ```
 
 `maxRequestBodyBytes` defaults to `10 MiB`. Requests above this limit are marked with `body_too_large` and do not expose partial bytes.
@@ -73,7 +73,7 @@ var srv = http_server(19081, 10 * 1024 * 1024);
 Pass `"stream"` as the second or third argument to defer request body reads to the VM:
 
 ```cfs
-var srv = http_server(19081, 10 * 1024 * 1024, "stream");
+var srv = http.server(19081, 10 * 1024 * 1024, "stream");
 ```
 
 In stream mode the request dictionary includes `body_stream`, a handle with:
@@ -130,7 +130,7 @@ import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Web.Http.dll";
 
 async func main() {
-    var srv = http_server(19081);
+    var srv = http.server(19081);
     await srv.start_async();
 
     var req = await srv.poll_async(5000);
@@ -148,14 +148,14 @@ var _ = await main();
 
 ### Entry Point
 
-The SQL plugin begins with exactly one builtin.
+The SQL plugin begins with exactly one namespace member.
 
-- `sql_connect(connectionString)`
+- `sql.connect(connectionString)`
 
 The call is async and returns a `SqlHandle` when it succeeds.
 
 ```cfs
-var conn = await sql_connect("Server=127.0.0.1;Database=master;User Id=sa;Password=Secret;Encrypt=False;TrustServerCertificate=True;");
+var conn = await sql.connect("Server=127.0.0.1;Database=master;User Id=sa;Password=Secret;Encrypt=False;TrustServerCertificate=True;");
 ```
 
 ### `SqlHandle` Intrinsics
@@ -251,19 +251,19 @@ HTTP failures come back as normal exceptions from the specific await or call sit
 
 ### SQL
 
-`sql_connect` throws a CFGS error when the connection cannot be established, with a message like `SQL connect failed: ...`.
+`sql.connect` throws a CFGS error when the connection cannot be established, with a message like `SQL connect failed: ...`.
 
 The actual query helpers wrap database failures into sanitized error messages that do not expose internal SQL details.
 
 ## Security and Enablement Switches
 
-- HTTP downloads depend on file I O. If file operations are globally disabled, `http_download` cannot write.
+- HTTP downloads depend on file I O. If file operations are globally disabled, `http.download` cannot write.
 - The HTTP server automatically adds `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY` to all responses.
-- The SQL plugin has its own `AllowSql` switch. If it is disabled, `sql_connect` rejects the call.
+- The SQL plugin has its own `AllowSql` switch. If it is disabled, `sql.connect` rejects the call.
 
 ## When to Use Which Plugin
 
 - HTTP is a good fit for web APIs, simple downloads, and small local test servers.
 - SQL is a good fit for direct database administration, migration scripts, reports, and data extraction.
 
-If you want to build your own builtins and intrinsics in the same style, read [Creating Plugins](11_creating_plugins.md) next.
+If you want to build your own namespace members and intrinsics in the same style, read [Creating Plugins](11_creating_plugins.md) next.

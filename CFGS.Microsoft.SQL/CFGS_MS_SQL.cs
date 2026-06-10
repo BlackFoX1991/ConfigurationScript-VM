@@ -197,10 +197,26 @@ namespace CFGS.Microsoft.SQL
         /// </summary>
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+        public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
-            RegisterBuiltins(builtins);
+            BuiltinRegistry namespaceBuiltins = new();
+            RegisterBuiltins(namespaceBuiltins);
+            RegisterNamespaces(namespaces, namespaceBuiltins);
             RegisterIntrinsics(intrinsics);
+        }
+
+        private static void RegisterNamespaces(INamespaceRegistry namespaces, BuiltinRegistry namespaceBuiltins)
+        {
+            Dictionary<string, BuiltinDescriptor> descriptors = namespaceBuiltins.Snapshot()
+                .ToDictionary(static descriptor => descriptor.Name, StringComparer.Ordinal);
+
+            (string MemberName, BuiltinDescriptor Descriptor)[] members =
+            [
+                ("connect", descriptors["sql_connect"])
+            ];
+
+            namespaces.Register(NamespaceDescriptor.FromDescriptors("sql", members));
+            namespaces.Register(NamespaceDescriptor.FromDescriptors("std.sql", members));
         }
 
         /// <summary>

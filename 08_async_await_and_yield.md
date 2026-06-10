@@ -208,7 +208,7 @@ More details are documented in [Standard Library](09_standard_library.md).
 
 ## Async I O and Plugins
 
-Many builtins from the standard library and the plugins return tasks directly. This includes these examples.
+Many standard-library builtins and plugin namespace members return tasks directly. This includes these examples.
 
 - `sleep`
 - `nextTick`
@@ -217,10 +217,10 @@ Many builtins from the standard library and the plugins return tasks directly. T
 - `readTextAsync`
 - `writeTextAsync`
 - `appendTextAsync`
-- `http_get`
-- `http_post`
-- `http_download`
-- `sql_connect`
+- `http.get`
+- `http.post`
+- `http.download`
+- `sql.connect`
 - all SQL `_async` intrinsics
 
 ## Typical `main` Pattern

@@ -17,7 +17,7 @@ class MssqlTodoStore(connection_string)
     }
 
     async func open() {
-        this.conn = await sql_connect(this.connection_string);
+        this.conn = await sql.connect(this.connection_string);
         return this;
     }
 

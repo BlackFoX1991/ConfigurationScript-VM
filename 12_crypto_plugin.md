@@ -9,7 +9,7 @@ import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Security.Crypto.dll";
 ```
 
-After that, hashing, HMAC, random bytes, AES GCM, RSA, ECDSA, Ed25519, X25519, PBKDF2, JWT helpers, HOTP and TOTP helpers, X509 certificate helpers, and binary conversion helpers are available globally.
+After that, hashing, HMAC, random bytes, AES GCM, RSA, ECDSA, Ed25519, X25519, PBKDF2, JWT helpers, HOTP and TOTP helpers, X509 certificate helpers, and binary conversion helpers are available through `crypto` and `std.crypto`.
 
 ## Core Value Model
 
@@ -19,60 +19,60 @@ The plugin uses three shapes that fit naturally into CFGS.
 - Dictionaries for structured payloads such as AES GCM encrypted packets.
 - Handle objects for binary blobs and asymmetric keys.
 
-The central binary handle is `CryptoBlob`. You usually get it from `crypto_blob(...)`, `crypto_random_bytes(...)`, or `crypto_aes_key()`.
+The central binary handle is `CryptoBlob`. You usually get it from `crypto.blob(...)`, `crypto.randomBytes(...)`, or `crypto.aesKey()`.
 
-## Builtins Overview
+## Namespace Members Overview
 
 ### Binary Conversion and Randomness
 
-- `crypto_blob(value, inputEncoding = "utf8")`
-- `crypto_random_bytes(count, output = "blob")`
-- `crypto_uuid()`
+- `crypto.blob(value, inputEncoding = "utf8")`
+- `crypto.randomBytes(count, output = "blob")`
+- `crypto.uuid()`
 
 `output` can be `blob`, `bytes`, `hex`, `base64`, `base32`, or `utf8`.
 
 Example.
 
 ```cfs
-var raw = crypto_random_bytes(16);
+var raw = crypto.randomBytes(16);
 print(raw.hex());
 print(raw.base64());
 ```
 
 ### Hashing and HMAC
 
-- `crypto_hash(value, algorithm = "sha256", inputEncoding = "utf8", output = "hex")`
-- `crypto_hmac(key, value, algorithm = "sha256", inputEncoding = "utf8", output = "hex")`
-- `crypto_fixed_time_equals(left, right, leftEncoding = "auto", rightEncoding = "auto")`
+- `crypto.hash(value, algorithm = "sha256", inputEncoding = "utf8", output = "hex")`
+- `crypto.hmac(key, value, algorithm = "sha256", inputEncoding = "utf8", output = "hex")`
+- `crypto.fixedTimeEquals(left, right, leftEncoding = "auto", rightEncoding = "auto")`
 
 Supported hash families are `md5`, `sha1`, `sha256`, `sha384`, and `sha512`.
 
 Example.
 
 ```cfs
-print(crypto_hash("abc"));
-print(crypto_hmac("secret", "payload"));
+print(crypto.hash("abc"));
+print(crypto.hmac("secret", "payload"));
 ```
 
 ### Password Derivation
 
-- `crypto_pbkdf2(password, salt, iterations, length, algorithm = "sha256", output = "hex")`
+- `crypto.pbkdf2(password, salt, iterations, length, algorithm = "sha256", output = "hex")`
 
 The `iterations` parameter must be at least 10000 to prevent insecure configurations. This is the right tool when you need deterministic key material from a password and a salt.
 
 ```cfs
-var salt = crypto_random_bytes(16);
-var key = crypto_pbkdf2("passphrase", salt, 100000, 32, "sha256", "blob");
+var salt = crypto.randomBytes(16);
+var key = crypto.pbkdf2("passphrase", salt, 100000, 32, "sha256", "blob");
 print(key.base64());
 ```
 
 ### AES GCM
 
-- `crypto_aes_key(size = 32, output = "blob")`
-- `crypto_aes_gcm_encrypt(key, plaintext, nonce = null, aad = null, inputEncoding = "utf8", output = "base64")`
-- `crypto_aes_gcm_decrypt(key, payload, inputEncoding = "base64", output = "utf8")`
+- `crypto.aesKey(size = 32, output = "blob")`
+- `crypto.aesGcmEncrypt(key, plaintext, nonce = null, aad = null, inputEncoding = "utf8", output = "base64")`
+- `crypto.aesGcmDecrypt(key, payload, inputEncoding = "base64", output = "utf8")`
 
-`crypto_aes_gcm_encrypt` returns a dictionary with these keys.
+`crypto.aesGcmEncrypt` returns a dictionary with these keys.
 
 - `algorithm`
 - `encoding`
@@ -84,17 +84,17 @@ print(key.base64());
 Example.
 
 ```cfs
-var key = crypto_aes_key();
-var packet = crypto_aes_gcm_encrypt(key, "hello crypto");
-var plain = crypto_aes_gcm_decrypt(key, packet);
+var key = crypto.aesKey();
+var packet = crypto.aesGcmEncrypt(key, "hello crypto");
+var plain = crypto.aesGcmDecrypt(key, packet);
 print(plain);
 ```
 
 ### JWT
 
-- `crypto_jwt_sign(payload, key, algorithm = "hs256", headers = optional)`
-- `crypto_jwt_decode(token)`
-- `crypto_jwt_verify(token, key, algorithm = optional, verifyTime = true, clockSkewSeconds = 0)`
+- `crypto.jwtSign(payload, key, algorithm = "hs256", headers = optional)`
+- `crypto.jwtDecode(token)`
+- `crypto.jwtVerify(token, key, algorithm = optional, verifyTime = true, clockSkewSeconds = 0)`
 
 Supported JWT signing algorithms are `hs256`, `hs384`, `hs512`, `rs256`, `rs384`, `rs512`, `ps256`, `ps384`, `ps512`, `es256`, `es384`, `es512`, and `eddsa`.
 
@@ -105,49 +105,49 @@ The key depends on the algorithm family.
 - ECDSA JWTs use an `EcdsaHandle` or an X509 certificate that exposes an ECDSA key.
 - EdDSA JWTs use an `Ed25519Handle`.
 
-`crypto_jwt_decode` returns a dictionary with `header`, `payload`, `signature`, `signing_input`, and `algorithm`.
+`crypto.jwtDecode` returns a dictionary with `header`, `payload`, `signature`, `signing_input`, and `algorithm`.
 
-`crypto_jwt_verify` returns the same structure plus `valid` and optionally `reason`.
+`crypto.jwtVerify` returns the same structure plus `valid` and optionally `reason`.
 
 Example.
 
 ```cfs
-var token = crypto_jwt_sign({"sub": "user1", "exp": 4102444800}, "secret");
-var checked = crypto_jwt_verify(token, "secret");
+var token = crypto.jwtSign({"sub": "user1", "exp": 4102444800}, "secret");
+var checked = crypto.jwtVerify(token, "secret");
 print(checked.valid);
 ```
 
 An Ed25519 based JWT looks like this.
 
 ```cfs
-var signer = crypto_ed25519();
-var token = crypto_jwt_sign({"sub": "api-client"}, signer, "eddsa");
-var checked = crypto_jwt_verify(token, signer, "eddsa");
+var signer = crypto.ed25519();
+var token = crypto.jwtSign({"sub": "api-client"}, signer, "eddsa");
+var checked = crypto.jwtVerify(token, signer, "eddsa");
 print(checked.valid);
 ```
 
 ### HOTP and TOTP
 
-- `crypto_totp_secret(size = 20, output = "base32")`
-- `crypto_hotp(secret, counter, digits = 6, algorithm = "sha1", inputEncoding = "base32")`
-- `crypto_totp(secret, unixSeconds = now, digits = 6, period = 30, algorithm = "sha1", inputEncoding = "base32")`
-- `crypto_totp_verify(secret, code, unixSeconds = now, digits = 6, period = 30, window = 1, algorithm = "sha1", inputEncoding = "base32")`
+- `crypto.totpSecret(size = 20, output = "base32")`
+- `crypto.hotp(secret, counter, digits = 6, algorithm = "sha1", inputEncoding = "base32")`
+- `crypto.totp(secret, unixSeconds = now, digits = 6, period = 30, algorithm = "sha1", inputEncoding = "base32")`
+- `crypto.totpVerify(secret, code, unixSeconds = now, digits = 6, period = 30, window = 1, algorithm = "sha1", inputEncoding = "base32")`
 
 HOTP and TOTP accept secrets as base32 by default because that is the common provisioning format. The same functions also work with `blob`, `bytes`, `hex`, or `base64` inputs if you pass the matching `inputEncoding`.
 
 Example.
 
 ```cfs
-var secret = crypto_totp_secret();
-var code = crypto_totp(secret);
+var secret = crypto.totpSecret();
+var code = crypto.totp(secret);
 print(code);
-print(crypto_totp_verify(secret, code));
+print(crypto.totpVerify(secret, code));
 ```
 
 ### RSA
 
-- `crypto_rsa(bits = 2048)`
-- `crypto_rsa_from_pem(pem)`
+- `crypto.rsa(bits = 2048)`
+- `crypto.rsaFromPem(pem)`
 
 RSA handles support these intrinsics.
 
@@ -168,15 +168,15 @@ Supported signature paddings are `pkcs1` and `pss`.
 Example.
 
 ```cfs
-var rsa = crypto_rsa(2048);
+var rsa = crypto.rsa(2048);
 var sig = rsa.sign("signed text");
 print(rsa.verify("signed text", sig));
 ```
 
 ### ECDSA
 
-- `crypto_ecdsa(curve = "nistP256")`
-- `crypto_ecdsa_from_pem(pem)`
+- `crypto.ecdsa(curve = "nistP256")`
+- `crypto.ecdsaFromPem(pem)`
 
 ECDSA handles support these intrinsics.
 
@@ -194,15 +194,15 @@ Supported curves are `nistP256`, `nistP384`, and `nistP521`.
 Example.
 
 ```cfs
-var ecdsa = crypto_ecdsa();
+var ecdsa = crypto.ecdsa();
 var sig = ecdsa.sign("hello");
 print(ecdsa.verify("hello", sig));
 ```
 
 ### Ed25519
 
-- `crypto_ed25519()`
-- `crypto_ed25519_from_pem(pem)`
+- `crypto.ed25519()`
+- `crypto.ed25519FromPem(pem)`
 
 Ed25519 handles support these intrinsics.
 
@@ -218,15 +218,15 @@ Ed25519 uses a fixed signature format and does not ask for a separate hash param
 Example.
 
 ```cfs
-var signer = crypto_ed25519();
+var signer = crypto.ed25519();
 var signature = signer.sign("payload");
 print(signer.verify("payload", signature));
 ```
 
 ### X25519
 
-- `crypto_x25519()`
-- `crypto_x25519_from_pem(pem)`
+- `crypto.x25519()`
+- `crypto.x25519FromPem(pem)`
 
 X25519 handles support these intrinsics.
 
@@ -241,8 +241,8 @@ X25519 handles support these intrinsics.
 Example.
 
 ```cfs
-var alice = crypto_x25519();
-var bob = crypto_x25519();
+var alice = crypto.x25519();
+var bob = crypto.x25519();
 
 var shared1 = alice.derive(bob);
 var shared2 = bob.derive(alice);
@@ -252,11 +252,11 @@ print(shared1 == shared2);
 
 ### X509 Certificates
 
-- `crypto_x509_self_signed(subject, key, options = optional)`
-- `crypto_x509_from_pem(certPem, keyPem = optional)`
-- `crypto_x509_from_pfx(data, password = "", inputEncoding = "base64")`
+- `crypto.x509SelfSigned(subject, key, options = optional)`
+- `crypto.x509FromPem(certPem, keyPem = optional)`
+- `crypto.x509FromPfx(data, password = "", inputEncoding = "base64")`
 
-`crypto_x509_self_signed` accepts an RSA or ECDSA key handle and an optional options dictionary. These options are currently supported.
+`crypto.x509SelfSigned` accepts an RSA or ECDSA key handle and an optional options dictionary. These options are currently supported.
 
 - `hash`
 - `days`
@@ -291,8 +291,8 @@ X509 handles support these intrinsics.
 Example.
 
 ```cfs
-var rsa = crypto_rsa();
-var cert = crypto_x509_self_signed("CN=demo.local", rsa, {
+var rsa = crypto.rsa();
+var cert = crypto.x509SelfSigned("CN=demo.local", rsa, {
     "dns": ["demo.local"],
     "enhanced_usage": ["serverAuth"]
 });
@@ -334,11 +334,11 @@ print(blob.hash());
 RSA and ECDSA handles export PEM directly. Public keys are exported as SubjectPublicKeyInfo PEM. Private keys are exported as PKCS#8 PEM.
 
 ```cfs
-var rsa = crypto_rsa();
+var rsa = crypto.rsa();
 var publicPem = rsa.public_pem();
 var privatePem = rsa.private_pem();
 
-var imported = crypto_rsa_from_pem(privatePem);
+var imported = crypto.rsaFromPem(privatePem);
 print(imported.has_private());
 ```
 
@@ -347,10 +347,10 @@ print(imported.has_private());
 - Strings are treated as UTF 8 unless you explicitly pass `hex` or `base64`.
 - Base32 is available as both input and output format now, which makes OTP secrets and provisioning style data much cleaner.
 - If you already have raw binary in CFGS, keep it as `CryptoBlob` or a byte array instead of bouncing through text.
-- `crypto_fixed_time_equals` is the correct comparison for signatures, MACs, tokens, and derived secrets.
+- `crypto.fixedTimeEquals` is the correct comparison for signatures, MACs, tokens, and derived secrets.
 - `md5` and `sha1` exist for compatibility. For new work, prefer `sha256` or stronger.
-- For symmetric encryption, use `crypto_aes_key()` instead of hand written password strings whenever possible.
-- JWT verification can enforce `iat`, `nbf`, and `exp` automatically through `crypto_jwt_verify`.
+- For symmetric encryption, use `crypto.aesKey()` instead of hand written password strings whenever possible.
+- JWT verification can enforce `iat`, `nbf`, and `exp` automatically through `crypto.jwtVerify`.
 - X509 creation is intentionally focused on self signed workflows and certificate packaging inside scripts.
 
 ## Minimal End to End Example
@@ -359,12 +359,12 @@ print(imported.has_private());
 import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Security.Crypto.dll";
 
-var key = crypto_aes_key();
-var packet = crypto_aes_gcm_encrypt(key, "secret");
+var key = crypto.aesKey();
+var packet = crypto.aesGcmEncrypt(key, "secret");
 print(packet.cipher);
-print(crypto_aes_gcm_decrypt(key, packet));
+print(crypto.aesGcmDecrypt(key, packet));
 
-var rsa = crypto_rsa();
+var rsa = crypto.rsa();
 var sig = rsa.sign("payload");
 print(rsa.verify("payload", sig));
 ```

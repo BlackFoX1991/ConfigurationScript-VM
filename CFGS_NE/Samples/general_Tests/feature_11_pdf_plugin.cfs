@@ -19,7 +19,7 @@ func main() {
     fdelete(pdfPath);
     fdelete(xmlPath);
 
-    var doc = pdf_new("PDF Plugin Smoke");
+    var doc = pdf.new("PDF Plugin Smoke");
     assert_eq("doc_type", typeof(doc), "PdfDocumentHandle");
     assert_eq("initial_page_count", doc.page_count(), 0);
 
@@ -41,7 +41,7 @@ func main() {
 
     doc.save(pdfPath);
 
-    var loaded = pdf_load(pdfPath);
+    var loaded = pdf.load(pdfPath);
     assert_eq("loaded_page_count", loaded.page_count(), 1);
     assert_eq("loaded_attachment_count", loaded.attachments().len(), 1);
     assert_eq("loaded_attachment_name", loaded.attachments()[0]["name"], "factur-x.xml");

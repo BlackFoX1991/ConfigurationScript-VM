@@ -4,7 +4,7 @@ namespace CFGS.EdgePartial;
 
 public sealed class EdgePartialPlugin : IVmPlugin
 {
-    public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+    public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
     {
         builtins.Register(new BuiltinDescriptor("edge_partial_before_throw", 0, 0, (args, instr) => 1));
         intrinsics.Register(typeof(string), new IntrinsicDescriptor("edge_partial_intr_before_throw", 0, 0, (recv, args, instr) => recv));

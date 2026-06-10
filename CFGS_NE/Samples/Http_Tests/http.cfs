@@ -1,4 +1,4 @@
-ï»¿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
 # CFGS HTTP server sample.
 # Run it, open http://localhost:8080/, and call /exit to stop it.
@@ -77,7 +77,7 @@ func home() {
     + "<div class='grid'>"
 
     + "  <section class='card'>"
-    + "    <h3>Ãœbersicht</h3>"
+    + "    <h3>Übersicht</h3>"
     + "    <p class='muted'>Klicke eine Route oder nutze die Formulare. Ergebnisse erscheinen unten im <code>Response</code>.</p>"
     + "    <div class='row'>"
     + "      <a class='btn ghost' href='/echo?name=World'>/echo?name=World</a>"
@@ -102,7 +102,7 @@ func home() {
 
     + "  <section class='card'>"
     + "    <h3>/mirror</h3>"
-    + "    <p class='muted'>Spiegelt den Request-Body. Content-Type frei wÃ¤hlbar.</p>"
+    + "    <p class='muted'>Spiegelt den Request-Body. Content-Type frei wählbar.</p>"
     + "    <div class='row'><select id='ctype'>"
     + "      <option>text/plain; charset=utf-8</option>"
     + "      <option>application/json</option>"
@@ -117,10 +117,10 @@ func home() {
     + "<section class='card' style='margin-top:16px'>"
     + "  <h3>Response</h3>"
     + "  <p class='muted'>Ausgabe der letzten Anfrage (Status, Content-Type &amp; Body):</p>"
-    + "  <pre id='frameOut'>Noch keine Anfrage ausgefÃ¼hrt.</pre>"
+    + "  <pre id='frameOut'>Noch keine Anfrage ausgeführt.</pre>"
     + "</section>"
 
-    + "<footer>CFGS_HTTP â€¢ Demo UI â€¢ dot-Style Intrinsics</footer>";
+    + "<footer>CFGS_HTTP • Demo UI • dot-Style Intrinsics</footer>";
 }
 
 func qv(q, key, def) {
@@ -133,10 +133,10 @@ async func main()
 {
     print("Starte Server auf http://localhost:" + str(PORT) + "/");
     print("Beenden ueber GET /exit");
-    var srv = http_server(PORT).start();   # dot-style start()
+    var srv = http.server(PORT).start();   # dot-style start()
 
-    var enc = urlencode("a b&c=1");
-    var dec = urldecode(enc);
+    var enc = http.urlencode("a b&c=1");
+    var dec = http.urldecode(enc);
     print("urlencode/urldecode: " + enc + " -> " + dec);
 
     # Loop
@@ -174,7 +174,7 @@ async func main()
             }
             else if (method == "GET" && path == "/getbin") {
                 try {
-                    var r = await http_get("https://httpbin.org/uuid", {"User-Agent":"CFGS_HTTP/1.0"});
+                    var r = await http.get("https://httpbin.org/uuid", {"User-Agent":"CFGS_HTTP/1.0"});
                     if (r.status == 200) {
                         srv.respond(req.id, 200, r.body, {"Content-Type":"application/json"});
                     } else {

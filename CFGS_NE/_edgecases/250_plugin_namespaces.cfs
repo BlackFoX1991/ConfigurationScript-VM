@@ -1,0 +1,44 @@
+import "edge_assert.cfs";
+import "CFGS.Security.Crypto.dll";
+import "CFGS.Xml.dll";
+import "CFGS.Pdf.dll";
+import "CFGS.Web.Http.dll";
+import "CFGS.Microsoft.SQL.dll";
+
+use std.crypto;
+use std.xml;
+use std.pdf;
+use std.http;
+use std.sql;
+
+edge_begin("250_plugin_namespaces");
+
+edge_eq("crypto_namespace_callable", typeof(crypto.hash), "BuiltinCallable");
+edge_eq("crypto_namespace_hash_len", len(crypto.hash("abc", "sha256", "utf8", "hex")), 64);
+edge_eq("crypto_use_hash_len", len(hash("abc", "sha256", "utf8", "hex")), 64);
+
+var doc = xml.new("root");
+edge_eq("xml_namespace_doc_type", typeof(doc), "XmlDocumentHandle");
+edge_eq("xml_namespace_root_name", doc.root().name(), "root");
+
+var parsed = parse("<root><item id=\"1\" /></root>");
+edge_eq("xml_use_parse_root_name", parsed.root().name(), "root");
+
+var pdfDoc = pdf.new("Namespace Smoke");
+edge_eq("pdf_namespace_doc_type", typeof(pdfDoc), "PdfDocumentHandle");
+edge_eq("pdf_namespace_page_count", pdfDoc.page_count(), 0);
+
+edge_eq("http_namespace_callable", typeof(http.get), "BuiltinCallable");
+edge_eq("http_namespace_url_roundtrip", http.urldecode(http.urlencode("a b&c=1")), "a b&c=1");
+edge_eq("http_use_url_roundtrip", urldecode(urlencode("x y")), "x y");
+
+edge_eq("sql_namespace_callable", typeof(sql.connect), "BuiltinCallable");
+edge_eq("sql_use_connect_callable", typeof(connect), "BuiltinCallable");
+
+edge_throws("crypto_global_alias_removed", func() { return crypto_hash("abc"); });
+edge_throws("xml_global_alias_removed", func() { return xml_new("root"); });
+edge_throws("pdf_global_alias_removed", func() { return pdf_new("title"); });
+edge_throws("http_global_alias_removed", func() { return http_get("https://example.invalid"); });
+edge_throws("sql_global_alias_removed", func() { return sql_connect("Server=127.0.0.1;"); });
+
+edge_finish("250_plugin_namespaces");

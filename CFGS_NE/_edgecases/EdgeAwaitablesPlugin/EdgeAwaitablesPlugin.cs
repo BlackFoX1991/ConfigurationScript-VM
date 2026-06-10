@@ -7,7 +7,7 @@ namespace CFGS.EdgeAwaitables;
 
 public sealed class EdgeAwaitablesPlugin : IVmPlugin
 {
-    public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+    public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
     {
         builtins.Register(new BuiltinDescriptor("edge_task_void_delay", 1, 1, (args, instr) =>
         {

@@ -18,6 +18,11 @@ namespace CFGS_VM.VMCore
         IIntrinsicRegistry Intrinsics { get; }
 
         /// <summary>
+        /// Gets the namespace registry abstraction.
+        /// </summary>
+        INamespaceRegistry Namespaces { get; }
+
+        /// <summary>
         /// Loads every plugin DLL in the supplied directory into the VM binding layer.
         /// </summary>
         void LoadPluginsFrom(string directory);

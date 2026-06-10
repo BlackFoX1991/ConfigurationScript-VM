@@ -11,15 +11,15 @@ import "dist/Debug/net10.0/CFGS.Xml.dll";
 
 It exposes XML documents and XML nodes as handles. That keeps the full XML model available, including attributes, namespaces, comments, CDATA, processing instructions, and XPath.
 
-## Builtins
+## Namespace Members
 
-- `xml_parse(text)`
-- `xml_load(path)`
-- `xml_new(rootName = optional, namespaceUri = optional, prefix = optional)`
-- `xml_escape(text)`
-- `xml_unescape(text)`
+- `xml.parse(text)`
+- `xml.load(path)`
+- `xml.new(rootName = optional, namespaceUri = optional, prefix = optional)`
+- `xml.escape(text)`
+- `xml.unescape(text)`
 
-`xml_load` and `save` use file I O and respect the runtime file I O switch.
+`xml.load` and `save` use file I O and respect the runtime file I O switch.
 
 ## Document Intrinsics
 
@@ -63,7 +63,7 @@ An `XmlNodeHandle` supports:
 import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Xml.dll";
 
-var doc = xml_new("config");
+var doc = xml.new("config");
 doc.declaration("1.0", "utf-8");
 
 var root = doc.root();
@@ -85,7 +85,7 @@ print(doc.to_string(true));
 XPath namespace prefixes are passed as a dictionary.
 
 ```cfs
-var doc = xml_parse("<x:root xmlns:x=\"urn:test\"><x:item id=\"1\" /></x:root>");
+var doc = xml.parse("<x:root xmlns:x=\"urn:test\"><x:item id=\"1\" /></x:root>");
 var item = doc.select("/x:root/x:item", {"x": "urn:test"});
 print(item.attr("id"));
 ```

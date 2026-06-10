@@ -1,4 +1,4 @@
-﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "../../../dist/Debug/net10.0/CFGS.Web.Http.dll";
 import "../../../dist/Debug/net10.0/CFGS.Microsoft.SQL.dll";
 
@@ -23,22 +23,22 @@ func finish(tag) {
 
 async func main() {
     # -----------------------------------------------------------------------
-    # plugin builtins are visible
+    # plugin namespace members are visible
     # -----------------------------------------------------------------------
     assert_eq("plugin_builtin_print", typeof(print), "BuiltinCallable");
-    assert_eq("plugin_builtin_http_get", typeof(http_get), "BuiltinCallable");
-    assert_eq("plugin_builtin_http_server", typeof(http_server), "BuiltinCallable");
-    assert_eq("plugin_builtin_sql_connect", typeof(sql_connect), "BuiltinCallable");
+    assert_eq("plugin_namespace_http_get", typeof(http.get), "BuiltinCallable");
+    assert_eq("plugin_namespace_http_server", typeof(http.server), "BuiltinCallable");
+    assert_eq("plugin_namespace_sql_connect", typeof(sql.connect), "BuiltinCallable");
 
     # -----------------------------------------------------------------------
     # web plugin basics (no external network dependency)
     # -----------------------------------------------------------------------
     var text = "a b&c=1";
-    var enc = urlencode(text);
-    var dec = urldecode(enc);
+    var enc = http.urlencode(text);
+    var dec = http.urldecode(enc);
     assert_eq("http_url_roundtrip", dec, text);
 
-    var srv = http_server(19081);
+    var srv = http.server(19081);
     assert_eq("http_server_handle_type", typeof(srv), "ServerHandle");
     assert_eq("http_server_running_initial", srv.is_running(), false);
 
@@ -63,7 +63,7 @@ async func main() {
     # -----------------------------------------------------------------------
     # sql plugin basics
     # -----------------------------------------------------------------------
-    var probe = sql_connect("Server=127.0.0.1;Database=master;User Id=sa;Password=bad;Connect Timeout=1;Encrypt=False;TrustServerCertificate=True;");
+    var probe = sql.connect("Server=127.0.0.1;Database=master;User Id=sa;Password=bad;Connect Timeout=1;Encrypt=False;TrustServerCertificate=True;");
     assert_eq("sql_connect_returns_task", typeof(probe), "Task<Object>");
 
     var sql_failed = false;

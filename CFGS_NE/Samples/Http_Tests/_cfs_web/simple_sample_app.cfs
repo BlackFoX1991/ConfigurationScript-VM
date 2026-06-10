@@ -60,7 +60,7 @@ func home(ctx) {
                 "."
             ]),
             Dom.h("p", {"class":"session"}, "Besuche in dieser Session: " + str(visits))
-        ], "Diese Route ist praktisch fuer erste Tests mit `http_get(...)`.")
+        ], "Diese Route ist praktisch fuer erste Tests mit `http.get(...)`.")
     ]));
 }
 

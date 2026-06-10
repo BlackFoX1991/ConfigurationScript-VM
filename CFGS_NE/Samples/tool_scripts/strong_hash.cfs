@@ -21,21 +21,21 @@ export class StrongHash(algorithm = "sha512", output = "hex") {
     }
 
     func digest(value, inputEncoding = "utf8") {
-        return crypto_hash(value, this.algorithm, inputEncoding, this.output);
+        return crypto.hash(value, this.algorithm, inputEncoding, this.output);
     }
 
     func verify(value, expected, inputEncoding = "utf8", expectedEncoding = "auto") {
         var actual = this.digest(value, inputEncoding);
-        return crypto_fixed_time_equals(actual, expected, this.output, expectedEncoding);
+        return crypto.fixedTimeEquals(actual, expected, this.output, expectedEncoding);
     }
 
     func hmac(key, value, inputEncoding = "utf8") {
-        return crypto_hmac(key, value, this.algorithm, inputEncoding, this.output);
+        return crypto.hmac(key, value, this.algorithm, inputEncoding, this.output);
     }
 
     func verify_hmac(key, value, expected, inputEncoding = "utf8", expectedEncoding = "auto") {
         var actual = this.hmac(key, value, inputEncoding);
-        return crypto_fixed_time_equals(actual, expected, this.output, expectedEncoding);
+        return crypto.fixedTimeEquals(actual, expected, this.output, expectedEncoding);
     }
 
     func file_digest(path) {
@@ -45,29 +45,29 @@ export class StrongHash(algorithm = "sha512", output = "hex") {
 
     static func sha512(value, inputEncoding = "utf8", output = "hex") {
         type.assert_output(output);
-        return crypto_hash(value, "sha512", inputEncoding, output);
+        return crypto.hash(value, "sha512", inputEncoding, output);
     }
 
     static func sha256(value, inputEncoding = "utf8", output = "hex") {
         type.assert_output(output);
-        return crypto_hash(value, "sha256", inputEncoding, output);
+        return crypto.hash(value, "sha256", inputEncoding, output);
     }
 
     static func keyed(key, value, inputEncoding = "utf8", output = "hex") {
         type.assert_output(output);
-        return crypto_hmac(key, value, "sha512", inputEncoding, output);
+        return crypto.hmac(key, value, "sha512", inputEncoding, output);
     }
 
     static func verify_keyed(key, value, expected, inputEncoding = "utf8", expectedEncoding = "auto", output = "hex") {
         var actual = type.keyed(key, value, inputEncoding, output);
-        return crypto_fixed_time_equals(actual, expected, output, expectedEncoding);
+        return crypto.fixedTimeEquals(actual, expected, output, expectedEncoding);
     }
 
     static func password(password, iterations = 310000, keyBytes = 64) {
         type.assert_password_cost(iterations, keyBytes);
 
-        var salt = crypto_random_bytes(type.DefaultSaltBytes, "blob");
-        var hash = crypto_pbkdf2(password, salt, iterations, keyBytes, type.DefaultPasswordAlgorithm, "hex");
+        var salt = crypto.randomBytes(type.DefaultSaltBytes, "blob");
+        var hash = crypto.pbkdf2(password, salt, iterations, keyBytes, type.DefaultPasswordAlgorithm, "hex");
 
         return {
             "scheme": "pbkdf2",
@@ -95,9 +95,9 @@ export class StrongHash(algorithm = "sha512", output = "hex") {
 
         type.assert_password_cost(record.iterations, record.keyBytes);
 
-        var salt = crypto_blob(record.salt, "base64");
-        var actual = crypto_pbkdf2(password, salt, record.iterations, record.keyBytes, record.algorithm, "hex");
-        return crypto_fixed_time_equals(actual, record.hash, "hex", "hex");
+        var salt = crypto.blob(record.salt, "base64");
+        var actual = crypto.pbkdf2(password, salt, record.iterations, record.keyBytes, record.algorithm, "hex");
+        return crypto.fixedTimeEquals(actual, record.hash, "hex", "hex");
     }
 
     static func assert_hash_algorithm(algorithm) {

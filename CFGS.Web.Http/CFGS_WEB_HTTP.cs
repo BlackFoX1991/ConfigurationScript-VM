@@ -43,12 +43,44 @@ namespace CFGS.Web.Http
         /// </summary>
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+        public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
-            RegisterBuiltins(builtins);
+            BuiltinRegistry namespaceBuiltins = new();
+            RegisterBuiltins(namespaceBuiltins);
+            RegisterNamespaces(namespaces, namespaceBuiltins);
             RegisterServerIntrinsics(intrinsics);
             RegisterRequestBodyIntrinsics(intrinsics);
+        }
 
+        private static void RegisterNamespaces(INamespaceRegistry namespaces, BuiltinRegistry namespaceBuiltins)
+        {
+            Dictionary<string, BuiltinDescriptor> descriptors = namespaceBuiltins.Snapshot()
+                .ToDictionary(static descriptor => descriptor.Name, StringComparer.Ordinal);
+
+            (string MemberName, BuiltinDescriptor Descriptor)[] members =
+            [
+                ("server", descriptors["http_server"]),
+                ("get", descriptors["http_get"]),
+                ("post", descriptors["http_post"]),
+                ("put", descriptors["http_put"]),
+                ("delete", descriptors["http_delete"]),
+                ("patch", descriptors["http_patch"]),
+                ("head", descriptors["http_head"]),
+                ("download", descriptors["http_download"]),
+                ("urlencode", descriptors["urlencode"]),
+                ("urldecode", descriptors["urldecode"])
+            ];
+
+            namespaces.Register(NamespaceDescriptor.FromDescriptors("http", members));
+            namespaces.Register(NamespaceDescriptor.FromDescriptors("std.http", members));
+        }
+
+        /// <summary>
+        /// The RegisterBuiltins
+        /// </summary>
+        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
+        private static void RegisterBuiltins(IBuiltinRegistry builtins)
+        {
             builtins.Register(new BuiltinDescriptor("http_server", 1, 3, (args, instr) =>
             {
                 int port = Convert.ToInt32(args[0], CultureInfo.InvariantCulture);
@@ -72,14 +104,7 @@ namespace CFGS.Web.Http
 
                 return new ServerHandle(port, maxRequestBodySize, streamBodies);
             }));
-        }
 
-        /// <summary>
-        /// The RegisterBuiltins
-        /// </summary>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
-        private static void RegisterBuiltins(IBuiltinRegistry builtins)
-        {
             builtins.Register(new BuiltinDescriptor("http_get", 1, 3, (args, instr) =>
             {
                 string url = args[0]?.ToString() ?? "";

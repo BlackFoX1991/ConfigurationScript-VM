@@ -1,6 +1,7 @@
 using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.Analytic.Ex;
+using CFGS_VM.VMCore.Plugin;
 
 namespace CFGS_VM.Analytic.Modules
 {
@@ -47,6 +48,12 @@ namespace CFGS_VM.Analytic.Modules
         private readonly Dictionary<string, HashSet<string>> _namespaceDeclaredTypeNamesByPath = new(StringComparer.Ordinal);
         private readonly HashSet<string> _globalTopLevelValueNames = new(StringComparer.Ordinal);
         private readonly HashSet<string> _globalTopLevelTypeNames = new(StringComparer.Ordinal);
+        private readonly INamespaceRegistry? _namespaces;
+
+        public UseNamespaceResolver(INamespaceRegistry? namespaces = null)
+        {
+            _namespaces = namespaces;
+        }
 
         public List<Stmt> Resolve(List<Stmt> syntaxStatements, List<Stmt> resolvedStatements)
         {
@@ -60,6 +67,7 @@ namespace CFGS_VM.Analytic.Modules
             string currentOrigin = useStatements[0].OriginFile;
 
             BuildNamespaceModel(resolvedStatements);
+            RegisterNamespaceRegistryModel();
             BuildGlobalTopLevelSurfaces(resolvedStatements);
 
             Dictionary<string, List<NamespaceMemberInfo>> useLookup = BuildUseLookup(useStatements);
@@ -213,6 +221,33 @@ namespace CFGS_VM.Analytic.Modules
         {
             EnsureNamespaceBuckets(namespacePath);
             _namespaceMembersByPath[namespacePath].TryAdd(name, new NamespaceMemberInfo(name, qualifiedPath, kind));
+        }
+
+        private void RegisterNamespaceRegistryModel()
+        {
+            if (_namespaces is null)
+                return;
+
+            foreach (NamespaceDescriptor descriptor in _namespaces.Snapshot())
+                RegisterNamespaceDescriptor(descriptor);
+        }
+
+        private void RegisterNamespaceDescriptor(NamespaceDescriptor descriptor)
+        {
+            string[] parts = descriptor.Path.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                return;
+
+            for (int i = 1; i < parts.Length; i++)
+            {
+                string parentPath = string.Join(".", parts.Take(i));
+                string childName = parts[i];
+                AddNamespaceMember(parentPath, childName, $"{parentPath}.{childName}", NamespaceMemberKind.Namespace);
+            }
+
+            EnsureNamespaceBuckets(descriptor.Path);
+            foreach (string member in descriptor.Members)
+                AddNamespaceMember(descriptor.Path, member, $"{descriptor.Path}.{member}", NamespaceMemberKind.Function);
         }
 
         private Dictionary<string, List<NamespaceMemberInfo>> BuildUseLookup(IEnumerable<UseNamespaceStmt> useStatements)

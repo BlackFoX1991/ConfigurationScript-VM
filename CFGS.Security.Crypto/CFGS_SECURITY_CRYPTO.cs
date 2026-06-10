@@ -257,13 +257,15 @@ namespace CFGS.Security.Crypto
     {
         public static bool AllowCrypto { get; set; } = true;
 
-        public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+        public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
-            RegisterBuiltins(builtins);
-            RegisterAdvancedBuiltins(builtins);
-            RegisterJwtAndOtpBuiltins(builtins);
-            RegisterX509Builtins(builtins);
-            RegisterModernCurveBuiltins(builtins);
+            BuiltinRegistry namespaceBuiltins = new();
+            RegisterBuiltins(namespaceBuiltins);
+            RegisterAdvancedBuiltins(namespaceBuiltins);
+            RegisterJwtAndOtpBuiltins(namespaceBuiltins);
+            RegisterX509Builtins(namespaceBuiltins);
+            RegisterModernCurveBuiltins(namespaceBuiltins);
+            RegisterNamespaces(namespaces, namespaceBuiltins);
             RegisterBlobIntrinsics(intrinsics);
             RegisterStringIntrinsics(intrinsics);
             RegisterArrayIntrinsics(intrinsics);
@@ -272,6 +274,47 @@ namespace CFGS.Security.Crypto
             RegisterX509Intrinsics(intrinsics);
             RegisterEd25519Intrinsics(intrinsics);
             RegisterX25519Intrinsics(intrinsics);
+        }
+
+        private static void RegisterNamespaces(INamespaceRegistry namespaces, BuiltinRegistry namespaceBuiltins)
+        {
+            Dictionary<string, BuiltinDescriptor> descriptors = namespaceBuiltins.Snapshot()
+                .ToDictionary(static descriptor => descriptor.Name, StringComparer.Ordinal);
+
+            (string MemberName, BuiltinDescriptor Descriptor)[] members =
+            [
+                ("blob", descriptors["crypto_blob"]),
+                ("randomBytes", descriptors["crypto_random_bytes"]),
+                ("uuid", descriptors["crypto_uuid"]),
+                ("hash", descriptors["crypto_hash"]),
+                ("hmac", descriptors["crypto_hmac"]),
+                ("fixedTimeEquals", descriptors["crypto_fixed_time_equals"]),
+                ("pbkdf2", descriptors["crypto_pbkdf2"]),
+                ("aesKey", descriptors["crypto_aes_key"]),
+                ("aesGcmEncrypt", descriptors["crypto_aes_gcm_encrypt"]),
+                ("aesGcmDecrypt", descriptors["crypto_aes_gcm_decrypt"]),
+                ("rsa", descriptors["crypto_rsa"]),
+                ("rsaFromPem", descriptors["crypto_rsa_from_pem"]),
+                ("ecdsa", descriptors["crypto_ecdsa"]),
+                ("ecdsaFromPem", descriptors["crypto_ecdsa_from_pem"]),
+                ("jwtSign", descriptors["crypto_jwt_sign"]),
+                ("jwtDecode", descriptors["crypto_jwt_decode"]),
+                ("jwtVerify", descriptors["crypto_jwt_verify"]),
+                ("hotp", descriptors["crypto_hotp"]),
+                ("totpSecret", descriptors["crypto_totp_secret"]),
+                ("totp", descriptors["crypto_totp"]),
+                ("totpVerify", descriptors["crypto_totp_verify"]),
+                ("x509SelfSigned", descriptors["crypto_x509_self_signed"]),
+                ("x509FromPem", descriptors["crypto_x509_from_pem"]),
+                ("x509FromPfx", descriptors["crypto_x509_from_pfx"]),
+                ("ed25519", descriptors["crypto_ed25519"]),
+                ("ed25519FromPem", descriptors["crypto_ed25519_from_pem"]),
+                ("x25519", descriptors["crypto_x25519"]),
+                ("x25519FromPem", descriptors["crypto_x25519_from_pem"])
+            ];
+
+            namespaces.Register(NamespaceDescriptor.FromDescriptors("crypto", members));
+            namespaces.Register(NamespaceDescriptor.FromDescriptors("std.crypto", members));
         }
 
         private static void RegisterBuiltins(IBuiltinRegistry builtins)

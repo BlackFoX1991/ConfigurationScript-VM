@@ -417,6 +417,7 @@ try {
     Run-ExpectContains -Name "247_tobyte_tobytes" -ScriptArgs @((Edge-Path "_edgecases\247_tobyte_tobytes.cfs")) -Expected "EDGE_OK:247_tobyte_tobytes"
     Run-ExpectContains -Name "248_encoding_builtins" -ScriptArgs @((Edge-Path "_edgecases\248_encoding_builtins.cfs")) -Expected "EDGE_OK:248_encoding_builtins"
     Run-ExpectContains -Name "249_standard_library_namespaces" -ScriptArgs @((Edge-Path "_edgecases\249_standard_library_namespaces.cfs")) -Expected "EDGE_OK:249_standard_library_namespaces"
+    Run-ExpectContains -Name "250_plugin_namespaces" -ScriptArgs @((Edge-Path "_edgecases\250_plugin_namespaces.cfs")) -Expected "EDGE_OK:250_plugin_namespaces"
     Run-ExpectContains -Name "714_native_interop_valid" -ScriptArgs @((Edge-Path "_edgecases\714_native_interop_valid.cfs")) -Expected "EDGE_OK:714_native_interop_valid"
     Run-ExpectContains -Name "301_try_throw_finally" -ScriptArgs @((Edge-Path "_edgecases\301_try_throw_finally.cfs")) -Expected "EDGE_OK:301_try_throw_finally"
     Run-ExpectContains -Name "402_import_named_and_file" -ScriptArgs @((Edge-Path "_edgecases\402_import_named_and_file.cfs")) -Expected "EDGE_OK:402_import_named_and_file"

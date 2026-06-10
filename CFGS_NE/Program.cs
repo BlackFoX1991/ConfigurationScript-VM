@@ -98,7 +98,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v5.6.2";
+    public const string Version = "v6.0.0";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -899,7 +899,13 @@ public class Program
             : Path.GetFullPath(name);
         vm.NativeAssemblyBaseDirectory = workingDirectory ?? Environment.CurrentDirectory;
 
-        CompiledScript compiled = CfgsCompiler.CompileSource(name, source, vm.LoadPlugin, workingDirectory, Version);
+        CompiledScript compiled = CfgsCompiler.CompileSource(
+            name,
+            source,
+            loadPluginDll: vm.LoadPlugin,
+            namespaces: vm.Namespaces,
+            workingDirectory: workingDirectory,
+            compilerVersion: Version);
         vm.LoadCompiledScript(compiled);
 
         if (debug)
@@ -924,7 +930,11 @@ public class Program
             : outputPath!;
 
         VM compileVm = new();
-        CompiledScript compiled = CfgsCompiler.CompileFile(inputPath, compileVm.LoadPlugin, Version);
+        CompiledScript compiled = CfgsCompiler.CompileFile(
+            inputPath,
+            loadPluginDll: compileVm.LoadPlugin,
+            namespaces: compileVm.Namespaces,
+            compilerVersion: Version);
         CfbFile.Save(compiled, output);
         Console.WriteLine($"[CFB] compiled '{inputPath}' -> '{output}'");
     }
@@ -941,7 +951,11 @@ public class Program
         else
         {
             VM checkVm = new();
-            _ = CfgsCompiler.CompileFile(inputPath, checkVm.LoadPlugin, Version);
+            _ = CfgsCompiler.CompileFile(
+                inputPath,
+                loadPluginDll: checkVm.LoadPlugin,
+                namespaces: checkVm.Namespaces,
+                compilerVersion: Version);
         }
 
         if (json)

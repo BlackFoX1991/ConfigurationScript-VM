@@ -4,7 +4,7 @@ import "CFGS.Web.Http.dll";
 
 edge_begin("232_plugin_http_server_async");
 
-var srv = http_server(19081);
+var srv = http.server(19081);
 edge_eq("server_handle_type", typeof(srv), "ServerHandle");
 edge_eq("server_running_initial", srv.is_running(), false);
 

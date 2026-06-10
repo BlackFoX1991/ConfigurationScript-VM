@@ -150,11 +150,50 @@ namespace CFGS_VM.VMCore.Plugin
             }
         }
 
+        private sealed class StagedNamespaceRegistry : INamespaceRegistry
+        {
+            private readonly INamespaceRegistry _baseRegistry;
+            private readonly Dictionary<string, NamespaceDescriptor> _staged = new(StringComparer.Ordinal);
+
+            public StagedNamespaceRegistry(INamespaceRegistry baseRegistry)
+            {
+                _baseRegistry = baseRegistry;
+            }
+
+            public void Register(NamespaceDescriptor descriptor)
+            {
+                if (_staged.ContainsKey(descriptor.Path))
+                    throw new InvalidOperationException($"Duplicate namespace '{descriptor.Path}'.");
+                _staged[descriptor.Path] = descriptor;
+            }
+
+            public bool TryGet(string path, out NamespaceDescriptor descriptor)
+            {
+                if (_staged.TryGetValue(path, out descriptor!))
+                    return true;
+                return _baseRegistry.TryGet(path, out descriptor!);
+            }
+
+            public bool Contains(string path)
+                => _staged.ContainsKey(path) || _baseRegistry.Contains(path);
+
+            public bool TryGetRoot(string name, out object value)
+                => _baseRegistry.TryGetRoot(name, out value!);
+
+            public bool Remove(string path)
+                => _staged.Remove(path);
+
+            public IReadOnlyList<NamespaceDescriptor> Snapshot()
+                => _staged.Values.ToList();
+        }
+
         private static void RollbackRegistrations(
             IBuiltinRegistry builtins,
             IIntrinsicRegistry intrinsics,
+            INamespaceRegistry namespaces,
             IReadOnlyList<string> appliedBuiltins,
-            IReadOnlyList<(Type ReceiverType, string Name)> appliedIntrinsics)
+            IReadOnlyList<(Type ReceiverType, string Name)> appliedIntrinsics,
+            IReadOnlyList<string> appliedNamespaces)
         {
             for (int i = appliedBuiltins.Count - 1; i >= 0; i--)
                 _ = builtins.Remove(appliedBuiltins[i]);
@@ -164,17 +203,23 @@ namespace CFGS_VM.VMCore.Plugin
                 (Type receiverType, string name) = appliedIntrinsics[i];
                 _ = intrinsics.RemoveExact(receiverType, name);
             }
+
+            for (int i = appliedNamespaces.Count - 1; i >= 0; i--)
+                _ = namespaces.Remove(appliedNamespaces[i]);
         }
 
         private static void CommitStagedRegistrations(
             StagedBuiltinRegistry stagedBuiltins,
             StagedIntrinsicRegistry stagedIntrinsics,
+            StagedNamespaceRegistry stagedNamespaces,
             IBuiltinRegistry builtins,
             IIntrinsicRegistry intrinsics,
+            INamespaceRegistry namespaces,
             LoaderState state)
         {
             IReadOnlyList<BuiltinDescriptor> builtinsToAdd = stagedBuiltins.Snapshot();
             IReadOnlyList<(Type ReceiverType, IntrinsicDescriptor Descriptor)> intrinsicsToAdd = stagedIntrinsics.Snapshot();
+            IReadOnlyList<NamespaceDescriptor> namespacesToAdd = stagedNamespaces.Snapshot();
 
             lock (state.SyncRoot)
             {
@@ -190,8 +235,15 @@ namespace CFGS_VM.VMCore.Plugin
                         throw new InvalidOperationException($"Duplicate intrinsic '{entry.Descriptor.Name}' for {entry.ReceiverType.Name}.");
                 }
 
+                foreach (NamespaceDescriptor n in namespacesToAdd)
+                {
+                    if (namespaces.Contains(n.Path))
+                        throw new InvalidOperationException($"Duplicate namespace '{n.Path}'.");
+                }
+
                 List<string> appliedBuiltins = new();
                 List<(Type ReceiverType, string Name)> appliedIntrinsics = new();
+                List<string> appliedNamespaces = new();
 
                 try
                 {
@@ -206,10 +258,16 @@ namespace CFGS_VM.VMCore.Plugin
                         intrinsics.Register(entry.ReceiverType, entry.Descriptor);
                         appliedIntrinsics.Add((entry.ReceiverType, entry.Descriptor.Name));
                     }
+
+                    foreach (NamespaceDescriptor n in namespacesToAdd)
+                    {
+                        namespaces.Register(n);
+                        appliedNamespaces.Add(n.Path);
+                    }
                 }
                 catch
                 {
-                    RollbackRegistrations(builtins, intrinsics, appliedBuiltins, appliedIntrinsics);
+                    RollbackRegistrations(builtins, intrinsics, namespaces, appliedBuiltins, appliedIntrinsics, appliedNamespaces);
                     throw;
                 }
             }
@@ -221,7 +279,7 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="directoryPath">The directoryPath<see cref="string"/></param>
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        public static void LoadDirectory(string directoryPath, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+        public static void LoadDirectory(string directoryPath, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
             if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
             {
@@ -236,7 +294,7 @@ namespace CFGS_VM.VMCore.Plugin
             {
                 try
                 {
-                    LoadDll(dll, builtins, intrinsics);
+                    LoadDll(dll, builtins, intrinsics, namespaces);
                 }
                 catch (Exception ex)
                 {
@@ -255,7 +313,7 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="dllPath">The dllPath<see cref="string"/></param>
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        public static void LoadDll(string dllPath, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+        public static void LoadDll(string dllPath, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
             ArgumentNullException.ThrowIfNull(builtins);
             ArgumentNullException.ThrowIfNull(intrinsics);
@@ -293,7 +351,7 @@ namespace CFGS_VM.VMCore.Plugin
                     LogInfo($"DLL already loaded in this VM: {full}");
                 }
 
-                LoadFromAssembly(asm, builtins, intrinsics, state);
+                LoadFromAssembly(asm, builtins, intrinsics, namespaces, state);
             }
             catch (Exception ex)
             {
@@ -308,10 +366,10 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="asm">The asm<see cref="Assembly"/></param>
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        public static void LoadFromAssembly(Assembly asm, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
-            => LoadFromAssembly(asm, builtins, intrinsics, GetState(builtins));
+        public static void LoadFromAssembly(Assembly asm, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
+            => LoadFromAssembly(asm, builtins, intrinsics, namespaces, GetState(builtins));
 
-        private static void LoadFromAssembly(Assembly asm, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, LoaderState state)
+        private static void LoadFromAssembly(Assembly asm, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces, LoaderState state)
         {
             if (asm == null) return;
 
@@ -377,8 +435,9 @@ namespace CFGS_VM.VMCore.Plugin
                         IVmPlugin plugin = (IVmPlugin)Activator.CreateInstance(t)!;
                         StagedBuiltinRegistry stagedBuiltins = new(builtins);
                         StagedIntrinsicRegistry stagedIntrinsics = new(intrinsics);
-                        plugin.Register(stagedBuiltins, stagedIntrinsics);
-                        CommitStagedRegistrations(stagedBuiltins, stagedIntrinsics, builtins, intrinsics, state);
+                        StagedNamespaceRegistry stagedNamespaces = new(namespaces);
+                        plugin.Register(stagedBuiltins, stagedIntrinsics, stagedNamespaces);
+                        CommitStagedRegistrations(stagedBuiltins, stagedIntrinsics, stagedNamespaces, builtins, intrinsics, namespaces, state);
 
                         pluginActivated++;
                         pluginTypeActivated = true;
@@ -416,6 +475,7 @@ namespace CFGS_VM.VMCore.Plugin
                 int intrinsicCount = 0;
                 StagedBuiltinRegistry stagedAttrBuiltins = new(builtins);
                 StagedIntrinsicRegistry stagedAttrIntrinsics = new(intrinsics);
+                StagedNamespaceRegistry stagedAttrNamespaces = new(namespaces);
 
                 foreach (Type t in types)
                 {
@@ -495,7 +555,7 @@ namespace CFGS_VM.VMCore.Plugin
                     }
                 }
 
-                CommitStagedRegistrations(stagedAttrBuiltins, stagedAttrIntrinsics, builtins, intrinsics, state);
+                CommitStagedRegistrations(stagedAttrBuiltins, stagedAttrIntrinsics, stagedAttrNamespaces, builtins, intrinsics, namespaces, state);
 
                 if (Verbose && (builtinCount > 0 || intrinsicCount > 0))
                     LogInfo($"Attribute registration summary for '{AsmName(asm)}': builtins={builtinCount}, intrinsics={intrinsicCount}");
@@ -514,8 +574,8 @@ namespace CFGS_VM.VMCore.Plugin
         /// </summary>
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        public static void LoadThisAssembly(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
-            => LoadFromAssembly(typeof(PluginLoader).Assembly, builtins, intrinsics);
+        public static void LoadThisAssembly(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
+            => LoadFromAssembly(typeof(PluginLoader).Assembly, builtins, intrinsics, namespaces);
 
         /// <summary>
         /// The LoadFromAssemblyContaining
@@ -523,8 +583,8 @@ namespace CFGS_VM.VMCore.Plugin
         /// <typeparam name="T"></typeparam>
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        public static void LoadFromAssemblyContaining<T>(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
-            => LoadFromAssembly(typeof(T).Assembly, builtins, intrinsics);
+        public static void LoadFromAssemblyContaining<T>(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
+            => LoadFromAssembly(typeof(T).Assembly, builtins, intrinsics, namespaces);
 
         /// <summary>
         /// The LoadCurrentDomain
@@ -532,14 +592,14 @@ namespace CFGS_VM.VMCore.Plugin
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         /// <param name="filter">The filter<see cref="Func{Assembly, bool}?"/></param>
-        public static void LoadCurrentDomain(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, Func<Assembly, bool>? filter = null)
+        public static void LoadCurrentDomain(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces, Func<Assembly, bool>? filter = null)
         {
             foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 try
                 {
                     if (filter == null || filter(asm))
-                        LoadFromAssembly(asm, builtins, intrinsics);
+                        LoadFromAssembly(asm, builtins, intrinsics, namespaces);
                 }
                 catch (Exception ex)
                 {

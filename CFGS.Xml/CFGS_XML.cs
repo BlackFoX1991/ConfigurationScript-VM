@@ -12,11 +12,31 @@ public sealed class CFGS_XML : IVmPlugin
 {
     public static bool AllowFileIO { get; set; } = true;
 
-    public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics)
+    public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
     {
-        RegisterBuiltins(builtins);
+        BuiltinRegistry namespaceBuiltins = new();
+        RegisterBuiltins(namespaceBuiltins);
+        RegisterNamespaces(namespaces, namespaceBuiltins);
         RegisterDocumentIntrinsics(intrinsics);
         RegisterNodeIntrinsics(intrinsics);
+    }
+
+    private static void RegisterNamespaces(INamespaceRegistry namespaces, BuiltinRegistry namespaceBuiltins)
+    {
+        Dictionary<string, BuiltinDescriptor> descriptors = namespaceBuiltins.Snapshot()
+            .ToDictionary(static descriptor => descriptor.Name, StringComparer.Ordinal);
+
+        (string MemberName, BuiltinDescriptor Descriptor)[] members =
+        [
+            ("parse", descriptors["xml_parse"]),
+            ("load", descriptors["xml_load"]),
+            ("new", descriptors["xml_new"]),
+            ("escape", descriptors["xml_escape"]),
+            ("unescape", descriptors["xml_unescape"])
+        ];
+
+        namespaces.Register(NamespaceDescriptor.FromDescriptors("xml", members));
+        namespaces.Register(NamespaceDescriptor.FromDescriptors("std.xml", members));
     }
 
     private static void RegisterBuiltins(IBuiltinRegistry builtins)

@@ -1,14 +1,16 @@
 import "edge_assert.cfs";
+use std.regex;
+use console;
 
 edge_begin("249_standard_library_namespaces");
 
-var re = regex();
 var firstMatch = regex.match("abc 42 def", "\\d+");
 edge_eq("regex_namespace_match_value", firstMatch["matched"], "42");
 edge_eq("regex_namespace_match_index", firstMatch["index"], 4);
 edge_eq("regex_namespace_matches_len", len(regex.matches("a1 b22", "\\d+")), 2);
 edge_eq("regex_namespace_replace", regex.replace("a b", "\\s+", "-"), "a-b");
-edge_eq("regex_namespace_test", re.test("abc42", "\\d+"), true);
+edge_eq("regex_namespace_test", regex.test("abc42", "\\d+"), true);
+edge_eq("regex_use_test", test("abc42", "\\d+"), true);
 edge_eq("regex_namespace_split", regex.split("a,b", ",")[1], "b");
 
 var obj = json.parse("{\"a\":1,\"b\":[2,3]}");
@@ -24,6 +26,7 @@ edge_eq("math_namespace_pow", math.pow(2, 4), 16);
 edge_true("math_namespace_pi", math.pi() > 3);
 
 edge_eq("console_namespace_put_empty", console.put(""), 1);
+edge_eq("console_use_put_empty", put(""), 1);
 
 var sourcePath = "_tmp_standard_library_namespaces.bin";
 var copyPath = "_tmp_standard_library_namespaces_copy.bin";
@@ -38,5 +41,7 @@ edge_eq("fs_namespace_copy", fs.copy(sourcePath, copyPath, true), copyPath);
 edge_true("fs_namespace_copy_exists", fs.exists(copyPath));
 edge_eq("fs_namespace_delete_copy", fs.fdelete(copyPath), 1);
 edge_eq("fs_namespace_delete_source", fs.fdelete(sourcePath), 1);
+edge_throws("regex_factory_removed", func() { return regex(); });
+edge_throws("console_factory_removed", func() { return console(); });
 
 edge_finish("249_standard_library_namespaces");
