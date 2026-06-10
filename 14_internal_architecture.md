@@ -71,7 +71,7 @@ The compiler can also hand this bytecode off as an in-memory `CompiledScript`. T
 - `ObjectRuntime`
   - Owns instances, static types, member access, visibility, const checks, and lifecycle handling.
 - `BindingRuntime`
-  - Owns builtin and intrinsic registries plus plugin loading.
+  - Owns builtin, intrinsic, and native namespace registries plus plugin loading.
 - `ValueOps`
   - Owns numeric operators, comparisons, and truthiness.
 - `ExceptionRuntime`
@@ -106,7 +106,7 @@ The productive compiler now uses a lightweight `BoundProgram` handoff between sy
 - `NamespaceLowerer` rewrites namespace syntax into explicit top-level runtime-shape statements.
   - Namespace roots and nested paths become ordinary `VarDecl` and `AssignExprStmt` nodes that ensure the dictionary/object path exists.
   - Namespace bodies are wrapped in a scoped `BlockStmt` with a synthetic namespace temp such as `__ns_scope_*`.
-  - Parser-only namespace import alias nodes such as `NamespaceImportAliasStmt` and `ImportAliasDeclStmt` are rewritten into ordinary alias declarations and indexed assignments.
+  - Parser-only namespace import alias nodes such as `NamespaceImportAliasStmt` and `ImportAliasDeclStmt` are rewritten into ordinary alias declarations and indexed assignments. Native namespace roots registered by the host or plugins are resolved later through the namespace registry, not by parser side effects.
 - `ParamLowerer` rewrites function sugar into ordinary statements inside function bodies.
   - Default parameters become `if (param == null) param = <default>` style initialization statements at the start of the body.
   - Destructure parameters become explicit `DestructureDeclStmt` nodes against the synthetic parameter variable.

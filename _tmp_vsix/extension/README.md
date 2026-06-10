@@ -18,6 +18,8 @@ Visual Studio Code support for ConfigurationScript (`.cfs`) with the bundled CFG
 - Signature Help
 - Semantic Tokens
 - Workspace Symbols
+- Native namespace member completion for standard and plugin namespaces
+- Header-only `use namespace` analysis
 - Formatting
 - Document Links
 - Selection Ranges

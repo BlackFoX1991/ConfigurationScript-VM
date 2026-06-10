@@ -367,8 +367,11 @@ CFGS supports source imports, module imports, named imports, alias imports, name
 Import resolution searches documented locations in order:
 
 1. the script directory
-2. the current working directory
-3. the directory of the running CLI executable
+2. the nearest restored `.cfgs/plugins` directory from the script directory
+3. the current working directory
+4. the nearest restored `.cfgs/plugins` directory from the current working directory
+5. the directory of the running CLI executable
+6. the `plugins` directory below the running CLI executable
 
 Exported declarations define the public import surface of a module.
 
@@ -384,13 +387,15 @@ Native .NET imports use the form `import native "path.dll" as Alias;`. The alias
 
 DLL imports load plugins through the VM plugin loader.
 
-Plugins MAY register builtins and intrinsics.
+Plugins MAY register native CFGS namespace roots, builtins, and intrinsics.
+
+New plugin APIs SHOULD prefer namespaced members for public script-facing functions. Native namespace roots are accessed through dot syntax and MAY participate in header-only `use namespace` resolution when the host exposes them through the namespace registry.
 
 Plugin registration errors MUST fail clearly.
 
 Plugin-provided values MUST obey the VM call and await contracts when exposed to CFGS code.
 
-Host integrations such as file I/O, HTTP, SQL, XML, PDF, crypto, and custom plugins are outside the core syntax, but their exposed builtins and intrinsics MUST follow the same runtime value and error conventions.
+Host integrations such as file I/O, HTTP, SQL, XML, PDF, crypto, and custom plugins are outside the core syntax, but their exposed namespace members, builtins, and intrinsics MUST follow the same runtime value and error conventions.
 
 Native .NET interop MAY expose public CLR types, constructors, fields, properties, methods, indexers, delegates, and events directly. Hosts that support this feature MUST keep it separate from plugin registration: loading a native interop assembly MUST NOT imply automatic builtin or intrinsic registration unless the same assembly is also loaded through the plugin import path.
 
@@ -509,7 +514,11 @@ Check mode is enabled with `-check`, `--check`, or `check`. It validates a sourc
 
 When check mode is combined with `--json`, successful checks emit an empty JSON diagnostic array and failed checks emit a JSON diagnostic array.
 
-The REPL evaluates submitted snippets in a shared VM session.
+The REPL evaluates submitted snippets in a shared VM session. It preserves global variable state and plugin registrations across snippets while replacing snippet-local bytecode and function declarations for each submission.
+
+REPL commands MUST use the `$` prefix so command words cannot collide with normal script input. Examples include `$help`, `$exit`, and `$debug`.
+
+If a REPL snippet only declares a parameterless `main` function and has no imperative top-level statements, the REPL MAY auto-invoke `main` once for that submission.
 
 REPL plugin autoloading is active only in REPL mode and reads `repl_plugins.json` from the application path.
 

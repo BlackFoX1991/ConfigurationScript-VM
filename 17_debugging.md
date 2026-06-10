@@ -237,7 +237,7 @@ CFB files contain bytecode metadata and source locations. They do not store loca
 
 ## REPL Notes
 
-The REPL still supports the `debug` command, which toggles normal debug log mode.
+The REPL supports the `$debug` command, which toggles normal debug log mode. REPL commands use the `$` prefix so they do not collide with normal script input.
 
 Interactive debugger mode is a CLI startup option. If the REPL is started with `-di`, every submitted snippet runs under the interactive debugger.
 

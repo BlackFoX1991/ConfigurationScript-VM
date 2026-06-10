@@ -12,7 +12,7 @@ If you want the codebase-level structure behind that implementation, continue wi
 
 - `CFGS_NE` contains the language frontend, compiler, runtime, and CLI.
 - `CFGS.StandardLibrary` contains the standard builtins and intrinsics.
-- `CFGS.Web.Http` contains HTTP builtins and the built in HTTP server handle.
+- `CFGS.Web.Http` contains the `http` namespace and the built in HTTP server handle.
 - `CFGS.Microsoft.SQL` contains SQL support.
 - `Documentation` contains the German documentation.
 - `documentation_en` contains the English documentation.

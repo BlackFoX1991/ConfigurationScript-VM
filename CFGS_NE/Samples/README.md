@@ -16,7 +16,7 @@ dotnet dist\Debug\net10.0\CFGS_VM.dll CFGS_NE\Samples\general_Tests\feature_08_a
 
 Recommended entry points.
 
-- `general_Tests/feature_01_core_control_classes.cfs` through `feature_09_binary_bytes.cfs` are the current feature-oriented reference set.
+- `general_Tests/feature_01_core_control_classes.cfs` through `feature_11_pdf_plugin.cfs` are the current feature-oriented reference set, including standard language features, plugin namespaces, XML, and PDF.
 - `Interop_Tests/native_basic.cfs` and `Interop_Tests/native_static_and_enums.cfs` are the starting points for native .NET interop.
 - `general_Tests/destructuring.cfs`, `foreach.cfs`, and `small_test.cfs` are compact focused examples.
 - `Class_Tests/classes.cfs` and `Class_Tests/inheritance.cfs` are the clearest OOP samples from the older set.

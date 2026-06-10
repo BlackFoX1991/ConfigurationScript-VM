@@ -2,7 +2,7 @@
 
 Native .NET interop lets a CFGS script load a regular .NET assembly and use public CLR types directly from script code.
 
-This is separate from the plugin system. Plugins are still the official way to register CFGS builtins and intrinsics. Native interop is for cases where you want to call existing .NET classes, constructors, static members, instance members, and methods without writing a CFGS-specific plugin wrapper first.
+This is separate from the plugin system. Plugins are still the official way to register CFGS namespace members, builtins, and intrinsics. Native interop is for cases where you want to call existing .NET classes, constructors, static members, instance members, and methods without writing a CFGS-specific plugin wrapper first.
 
 ## Importing an Assembly
 
@@ -157,7 +157,7 @@ That keeps CFB files portable and avoids leaking build-machine paths.
 
 Use a plugin when you want a stable CFGS-facing API.
 
-- You want clean builtins or intrinsics with CFGS names.
+- You want clean namespace members, builtins, or intrinsics with CFGS names.
 - You need custom argument validation or domain-specific error messages.
 - You want to hide CLR implementation details.
 - You need controlled async or non-blocking behavior.

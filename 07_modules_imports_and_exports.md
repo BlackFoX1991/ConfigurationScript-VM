@@ -8,7 +8,7 @@ CFGS has two import worlds.
 2. Plugin assemblies from `.dll` files.
 3. Native .NET assemblies through `import native`.
 
-For `.cfs`, the focus is exported language symbols. For `.dll`, the focus is runtime extensions such as builtins and intrinsics.
+For `.cfs`, the focus is exported language symbols. For `.dll`, the focus is runtime extensions such as native CFGS namespaces, builtins, and intrinsics.
 
 Native .NET interop is different from plugin loading: it gives the script an alias that can walk public CLR namespaces, types, constructors, static members, instance members, fields, properties, and methods directly.
 
@@ -176,6 +176,7 @@ Important details.
 - DLLs do not support named import.
 - DLLs do not support namespace import.
 - The import loads and activates plugins in the assembly.
+- Plugins may register native CFGS namespaces, builtins, and intrinsics.
 - Attribute based builtins and intrinsics inside that assembly are registered as well.
 
 ## Native .NET Imports
