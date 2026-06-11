@@ -1,0 +1,5 @@
+class SharedBox() {
+    static var seed = 0;
+}
+
+SharedBox["k"] = 1;

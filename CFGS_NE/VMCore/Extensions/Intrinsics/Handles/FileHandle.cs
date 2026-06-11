@@ -7,10 +7,15 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
         public string Path { get; }
         public int Mode { get; }
         private FileStream? _fs;
-        private StreamReader? _reader;
+        private readonly Encoding _textEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false);
+        private Decoder? _decoder;
         private StreamWriter? _writer;
         private readonly bool _canRead;
         private readonly bool _canWrite;
+        private readonly byte[] _singleByte = new byte[1];
+        private readonly char[] _decodedChars = new char[2];
+        private char? _pendingChar;
+        private bool _textReadInitialized;
 
         public bool IsOpen => _fs != null;
 
@@ -22,7 +27,7 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
             _canRead = canRead;
             _canWrite = canWrite;
             if (canRead)
-                _reader = new StreamReader(_fs, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+                _decoder = _textEncoding.GetDecoder();
             if (canWrite)
                 _writer = new StreamWriter(_fs, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), bufferSize: 1024, leaveOpen: true) { AutoFlush = false };
         }
@@ -34,15 +39,15 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
             try { _writer?.Flush(); }
             catch (ObjectDisposedException) { }
             catch (IOException) { }
-            _writer?.Dispose(); _reader?.Dispose(); _fs?.Dispose();
-            _writer = null; _reader = null; _fs = null;
+            _writer?.Dispose(); _fs?.Dispose();
+            _writer = null; _decoder = null; _fs = null;
             GC.SuppressFinalize(this);
         }
         ~FileHandle() { Dispose(); }
 
         private FileStream FS => _fs ?? throw new ObjectDisposedException(nameof(FileHandle));
         private StreamWriter Writer => _writer ?? throw new InvalidOperationException("file not opened for writing");
-        private StreamReader Reader => _reader ?? throw new InvalidOperationException("file not opened for reading");
+        private Decoder Decoder => _decoder ?? throw new InvalidOperationException("file not opened for reading");
 
         private void EnsureReadable()
         {
@@ -60,14 +65,69 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
         {
             EnsureReadable();
             _writer?.Flush();
-            _reader?.DiscardBufferedData();
+            ResetTextDecoder();
         }
 
         private void PrepareRawWrite()
         {
             EnsureWritable();
             _writer?.Flush();
-            _reader?.DiscardBufferedData();
+            ResetTextDecoder();
+        }
+
+        private void ResetTextDecoder()
+        {
+            _decoder?.Reset();
+            _pendingChar = null;
+            _textReadInitialized = false;
+        }
+
+        private void EnsureTextReadInitialized()
+        {
+            if (_textReadInitialized)
+                return;
+
+            _textReadInitialized = true;
+            if (FS.Position != 0 || FS.Length < 3)
+                return;
+
+            Span<byte> bom = stackalloc byte[3];
+            int read = FS.Read(bom);
+            if (read == 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF)
+                return;
+
+            FS.Position = 0;
+        }
+
+        private char? ReadDecodedChar()
+        {
+            EnsureReadable();
+            _writer?.Flush();
+
+            if (_pendingChar is char pending)
+            {
+                _pendingChar = null;
+                return pending;
+            }
+
+            EnsureTextReadInitialized();
+
+            while (true)
+            {
+                int next = FS.ReadByte();
+                if (next < 0)
+                    return null;
+
+                _singleByte[0] = (byte)next;
+                int chars = Decoder.GetChars(_singleByte, 0, 1, _decodedChars, 0, flush: false);
+                if (chars == 0)
+                    continue;
+
+                if (chars > 1)
+                    _pendingChar = _decodedChars[1];
+
+                return _decodedChars[0];
+            }
         }
 
         public void Write(string s) { Writer.Write(s); }
@@ -75,11 +135,37 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
         public string Read(int count)
         {
             if (count <= 0) return string.Empty;
-            char[] buf = new char[count];
-            int read = Reader.Read(buf, 0, count);
-            return new string(buf, 0, read);
+            StringBuilder sb = new(count);
+            while (sb.Length < count)
+            {
+                char? ch = ReadDecodedChar();
+                if (ch is null)
+                    break;
+
+                sb.Append(ch.Value);
+            }
+
+            return sb.ToString();
         }
-        public string ReadLine() => Reader.ReadLine() ?? "";
+        public string ReadLine()
+        {
+            StringBuilder sb = new();
+            while (true)
+            {
+                char? ch = ReadDecodedChar();
+                if (ch is null)
+                    return sb.ToString();
+
+                if (ch.Value == '\n')
+                {
+                    if (sb.Length > 0 && sb[^1] == '\r')
+                        sb.Length--;
+                    return sb.ToString();
+                }
+
+                sb.Append(ch.Value);
+            }
+        }
         public void Flush() => Writer.Flush();
         public int ReadByte()
         {
@@ -139,12 +225,12 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
             return FS.Length;
         }
 
-        public bool Eof() => Reader.EndOfStream && FS.Position >= FS.Length;
+        public bool Eof() => _pendingChar is null && FS.Position >= FS.Length;
         public long Seek(long offset, SeekOrigin origin)
         {
             _writer?.Flush();
             long position = FS.Seek(offset, origin);
-            _reader?.DiscardBufferedData();
+            ResetTextDecoder();
             return position;
         }
 

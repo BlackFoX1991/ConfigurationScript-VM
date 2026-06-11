@@ -58,4 +58,15 @@ edge_eq("binary_set_position_alias", binaryReader.setPosition(2), 2);
 edge_eq("binary_read_after_position_alias", binaryReader.readByte(), 67);
 binaryReader.close();
 
+var mixedPath = "_tmp_file_handle_text_byte_position.bin";
+var mixedWriter = fopen(mixedPath, 2);
+mixedWriter.writeBytes([65, 66, 67, 68]);
+mixedWriter.close();
+
+var mixedReader = fopen(mixedPath, 0);
+edge_eq("mixed_text_read_first_char", mixedReader.read(1), "A");
+edge_eq("mixed_position_after_text_read", mixedReader.position(), 1);
+edge_eq("mixed_byte_after_text_read", mixedReader.readByte(), 66);
+mixedReader.close();
+
 edge_finish("246_file_handle_byte_position");
