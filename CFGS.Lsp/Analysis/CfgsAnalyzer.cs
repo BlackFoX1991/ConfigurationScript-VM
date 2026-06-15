@@ -1501,6 +1501,7 @@ internal sealed class CfgsAnalyzer
         => symbolKind switch
         {
             5 => 7,
+            7 => 10,
             11 => 8,
             6 => 2,
             10 => 13,
@@ -1736,6 +1737,9 @@ internal sealed class CfgsAnalyzer
     {
         Dictionary<string, CfgsCompletionItem> items = new(StringComparer.Ordinal);
 
+        foreach (CfgsCompletionItem item in GetCfgsVariableMemberCompletions(result, prefix, typedPrefix))
+            items.TryAdd(item.Label, item);
+
         foreach (string nativeAccessPath in TryResolveNativeVariableAccessPaths(prefix, result.SourceText, result.Origin, new HashSet<string>(StringComparer.Ordinal)))
         {
             foreach (CfgsCompletionItem item in TryGetNativePathCompletions(nativeAccessPath, result.SourceText, result.Origin))
@@ -1750,6 +1754,44 @@ internal sealed class CfgsAnalyzer
 
         foreach (CfgsCompletionItem item in GetImportedPluginDotCompletions(result, prefix, typedPrefix))
             items.TryAdd(item.Label, item);
+
+        return items.Values.OrderBy(static item => item.Label, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static IReadOnlyList<CfgsCompletionItem> GetCfgsVariableMemberCompletions(CfgsAnalysisResult result, string variableName, string typedPrefix)
+    {
+        CfgsSymbol? variableSymbol = result.SemanticModel.Symbols
+            .Where(symbol =>
+                symbol.Kind is 13 or 14 &&
+                string.Equals(symbol.Name, variableName, StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(symbol.ValueTypeQualifiedName))
+            .OrderByDescending(symbol => symbol.SelectionRange.Start.Line)
+            .FirstOrDefault();
+
+        if (variableSymbol is null)
+            return [];
+
+        string typePrefix = variableSymbol.ValueTypeQualifiedName! + ".";
+        Dictionary<string, CfgsCompletionItem> items = new(StringComparer.Ordinal);
+        foreach (CfgsSymbol symbol in result.SemanticModel.Symbols.Concat(result.AllSymbols))
+        {
+            if (symbol.IsSynthetic ||
+                string.IsNullOrWhiteSpace(symbol.QualifiedName) ||
+                !symbol.QualifiedName.StartsWith(typePrefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string memberName = symbol.QualifiedName[typePrefix.Length..];
+            if (string.IsNullOrWhiteSpace(memberName) ||
+                memberName.Contains('.', StringComparison.Ordinal) ||
+                !MatchesCompletionPrefix(memberName, typedPrefix))
+            {
+                continue;
+            }
+
+            items.TryAdd(memberName, new CfgsCompletionItem(memberName, ToCompletionKind(symbol.Kind), symbol.Detail));
+        }
 
         return items.Values.OrderBy(static item => item.Label, StringComparer.OrdinalIgnoreCase).ToList();
     }
@@ -2721,6 +2763,8 @@ internal sealed class CfgsAnalyzer
                 children.Add(CreateSimpleSymbol(field.Key, qualifiedName, classDecl.Line, classDecl.Col, classDecl.OriginFile, kind, $"{prefix} {field.Key}"));
             }
 
+            children.AddRange(classDecl.Properties.Select(property => CreatePropertySymbol(property, qualifiedName)));
+            children.AddRange(classDecl.StaticProperties.Select(property => CreatePropertySymbol(property, qualifiedName)));
             children.AddRange(classDecl.Methods.Select(method => CreateFunctionSymbol(method, qualifiedName, isMethod: true)));
             children.AddRange(classDecl.StaticMethods.Select(method => CreateFunctionSymbol(method, qualifiedName, isMethod: true)));
             children.AddRange(classDecl.Enums.Select(@enum => CreateEnumSymbol(@enum, qualifiedName)));
@@ -2811,6 +2855,22 @@ internal sealed class CfgsAnalyzer
                 isMethod ? 6 : 12,
                 signature,
                 signature,
+                []);
+        }
+
+        private CfgsSymbol CreatePropertySymbol(PropertyDeclStmt property, string? containerName)
+        {
+            string qualifiedName = Qualify(containerName, property.Name);
+            string detail = property.IsStatic ? $"static property {property.Name}" : $"property {property.Name}";
+            return CreateSymbol(
+                property.Name,
+                qualifiedName,
+                property.Line,
+                property.Col,
+                property.OriginFile,
+                7,
+                detail,
+                detail,
                 []);
         }
 

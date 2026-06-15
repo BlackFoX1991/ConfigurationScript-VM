@@ -384,10 +384,24 @@ internal sealed class CfgsSemanticModelBuilder
             RegisterClassMember(qualifiedClassName, method.Name, methodSymbol, isStatic: false, valueTypeQualifiedName: null);
         }
 
+        foreach (PropertyDeclStmt property in classDecl.Properties)
+        {
+            string? valueTypeQualifiedName = TryInferValueTypeQualifiedName(property.Initializer, scope);
+            CfgsSymbol propertySymbol = DeclareClassPropertySymbol(property, qualifiedClassName, isStatic: false, valueTypeQualifiedName);
+            RegisterClassMember(qualifiedClassName, property.Name, propertySymbol, isStatic: false, valueTypeQualifiedName);
+        }
+
         foreach (FuncDeclStmt staticMethod in classDecl.StaticMethods)
         {
             CfgsSymbol methodSymbol = DeclareFunctionSymbol(staticMethod, scope, qualifiedClassName, isMethod: true, synthetic: false);
             RegisterClassMember(qualifiedClassName, staticMethod.Name, methodSymbol, isStatic: true, valueTypeQualifiedName: null);
+        }
+
+        foreach (PropertyDeclStmt staticProperty in classDecl.StaticProperties)
+        {
+            string? valueTypeQualifiedName = TryInferValueTypeQualifiedName(staticProperty.Initializer, scope);
+            CfgsSymbol propertySymbol = DeclareClassPropertySymbol(staticProperty, qualifiedClassName, isStatic: true, valueTypeQualifiedName);
+            RegisterClassMember(qualifiedClassName, staticProperty.Name, propertySymbol, isStatic: true, valueTypeQualifiedName);
         }
 
         foreach (ClassDeclStmt nestedClass in classDecl.NestedClasses)
@@ -414,6 +428,18 @@ internal sealed class CfgsSemanticModelBuilder
             if (staticFieldValue is not null)
                 VisitExpr(staticFieldValue, scope);
             TrackMemberValueType(qualifiedClassName, staticFieldName, staticFieldValue, scope);
+        }
+
+        foreach (PropertyDeclStmt property in classDecl.Properties)
+        {
+            if (property.Initializer is not null)
+                VisitExpr(property.Initializer, scope);
+        }
+
+        foreach (PropertyDeclStmt staticProperty in classDecl.StaticProperties)
+        {
+            if (staticProperty.Initializer is not null)
+                VisitExpr(staticProperty.Initializer, scope);
         }
 
         string? outerClassQualifiedName = classDecl.IsNested ? containerQualifiedName : null;
@@ -1441,6 +1467,7 @@ internal sealed class CfgsSemanticModelBuilder
         => symbolKind switch
         {
             5 => 7,
+            7 => 10,
             11 => 8,
             6 => 2,
             10 => 13,
@@ -2966,6 +2993,26 @@ internal sealed class CfgsSemanticModelBuilder
             signature,
             valueTypeQualifiedName,
             callTargetSymbolId);
+    }
+
+    private CfgsSymbol DeclareClassPropertySymbol(PropertyDeclStmt property, string containerQualifiedName, bool isStatic, string? valueTypeQualifiedName)
+    {
+        string detail = isStatic ? $"static property {property.Name}" : $"property {property.Name}";
+        return CreateSymbol(
+            property,
+            property.Name,
+            Qualify(containerQualifiedName, property.Name),
+            7,
+            property.OriginFile,
+            property.Line,
+            property.Col,
+            detail,
+            detail,
+            [],
+            synthetic: false,
+            addOccurrence: true,
+            signature: null,
+            valueTypeQualifiedName);
     }
 
     private void DeclareValueSymbol(Node node, SemanticScope scope, string? containerQualifiedName, int kind, string prefix, bool synthetic, CfgsSignature? signature, string? valueTypeQualifiedName, string? callTargetSymbolId)
