@@ -1,4 +1,6 @@
 using System.Text;
+using System.Reflection;
+using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using CFGS_VM.Analytic;
 using CFGS_VM.Analytic.Core;
@@ -6,8 +8,10 @@ using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Lowering;
 using CFGS_VM.Analytic.Modules;
 using CFGS_VM.Analytic.Tree;
+using CFGS_VM.Tooling;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Plugin;
 
 namespace CFGS.Lsp;
 
@@ -840,42 +844,38 @@ internal sealed class CfgsAnalyzer
 
     public IReadOnlyList<CfgsTextEdit> FormatDocument(CfgsAnalysisResult result, int tabSize, bool insertSpaces)
     {
-        string[] lines = result.SourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
-        string indent = insertSpaces ? new string(' ', tabSize) : "\t";
-        List<CfgsTextEdit> edits = [];
-        int depth = 0;
+        CfgsFormatResult formatted = CfgsFormatter.Format(result.SourceText, new CfgsFormatOptions(tabSize, !insertSpaces));
+        if (!formatted.Changed)
+            return [];
 
-        for (int i = 0; i < lines.Length; i++)
-        {
-            string trimmed = lines[i].Trim();
-            if (string.IsNullOrWhiteSpace(trimmed))
-                continue;
+        return
+        [
+            new CfgsTextEdit(
+                result.DocumentUri,
+                new RangeInfo(new PositionInfo(0, 0), GetDocumentEndPosition(result.SourceText)),
+                formatted.Text)
+        ];
+    }
 
-            if (trimmed.StartsWith('}') ||
-                trimmed.StartsWith("+#", StringComparison.Ordinal))
-                depth = Math.Max(depth - 1, 0);
+    private static PositionInfo GetDocumentEndPosition(string text)
+    {
+        string normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        int lastNewline = normalized.LastIndexOf('\n');
+        if (lastNewline < 0)
+            return new PositionInfo(0, normalized.Length);
 
-            string expectedIndent = string.Concat(Enumerable.Repeat(indent, depth));
-            string formatted = expectedIndent + trimmed;
-
-            if (!string.Equals(lines[i], formatted, StringComparison.Ordinal))
-            {
-                edits.Add(new CfgsTextEdit(
-                    result.DocumentUri,
-                    new RangeInfo(new PositionInfo(i, 0), new PositionInfo(i, lines[i].Length)),
-                    formatted));
-            }
-
-            if (trimmed.EndsWith('{') ||
-                trimmed.StartsWith("#+", StringComparison.Ordinal))
-                depth++;
-        }
-
-        return edits;
+        int line = normalized.Count(static ch => ch == '\n');
+        return new PositionInfo(line, normalized.Length - lastNewline - 1);
     }
 
     public IReadOnlyList<CfgsCompletionItem> GetCompletions(CfgsAnalysisResult result, int line, int character)
     {
+        if (TryFindImportPathCompletionRequest(result.SourceText, line, character, out ImportPathCompletionRequest importPathRequest))
+            return GetImportPathCompletions(result, importPathRequest);
+
+        if (TryFindNamedImportCompletionRequest(result.SourceText, line, character, out NamedImportCompletionRequest namedImportRequest))
+            return GetNamedImportCompletions(result, namedImportRequest);
+
         MemberCompletionRequest? request = TryFindMemberCompletionRequest(result.SourceText, line, character);
         if (request is not null)
         {
@@ -885,18 +885,32 @@ internal sealed class CfgsAnalyzer
 
             string? completionPrefix = GetDotContainerPrefix(result.SourceText, line, request.Value.TargetCharacter);
             if (completionPrefix is not null)
+            {
+                IReadOnlyList<CfgsCompletionItem> metadataItems = GetMetadataDotCompletions(result, completionPrefix, request.Value.TypedPrefix);
+                if (metadataItems.Count > 0)
+                    return metadataItems;
+
                 return GetDotCompletions(result, completionPrefix, request.Value.TypedPrefix);
+            }
         }
 
         string? prefix = GetDotPrefix(result.SourceText, line, character);
         if (prefix is not null)
-            return GetDotCompletions(result, prefix);
+        {
+            IReadOnlyList<CfgsCompletionItem> metadataItems = GetMetadataDotCompletions(result, prefix, typedPrefix: "");
+            if (metadataItems.Count > 0)
+                return metadataItems;
 
-        return GetCompletions(result);
+            return GetDotCompletions(result, prefix);
+        }
+
+        return AddImportedPluginTopLevelCompletions(result, GetCompletions(result));
     }
 
     public bool ShouldIncludeSnippetCompletions(CfgsAnalysisResult result, int line, int character)
-        => TryFindMemberCompletionRequest(result.SourceText, line, character) is null &&
+        => !TryFindImportPathCompletionRequest(result.SourceText, line, character, out _) &&
+           !TryFindNamedImportCompletionRequest(result.SourceText, line, character, out _) &&
+           TryFindMemberCompletionRequest(result.SourceText, line, character) is null &&
            GetDotPrefix(result.SourceText, line, character) is null;
 
     public IReadOnlyList<CfgsCompletionItem> GetSnippetCompletions()
@@ -1718,6 +1732,534 @@ internal sealed class CfgsAnalyzer
         return null;
     }
 
+    private IReadOnlyList<CfgsCompletionItem> GetMetadataDotCompletions(CfgsAnalysisResult result, string prefix, string typedPrefix)
+    {
+        Dictionary<string, CfgsCompletionItem> items = new(StringComparer.Ordinal);
+
+        foreach (string nativeAccessPath in TryResolveNativeVariableAccessPaths(prefix, result.SourceText, result.Origin, new HashSet<string>(StringComparer.Ordinal)))
+        {
+            foreach (CfgsCompletionItem item in TryGetNativePathCompletions(nativeAccessPath, result.SourceText, result.Origin))
+            {
+                if (MatchesCompletionPrefix(item.Label, typedPrefix))
+                    items.TryAdd(item.Label, item);
+            }
+        }
+
+        foreach (CfgsCompletionItem item in GetNativeInteropDotCompletions(result, prefix, typedPrefix))
+            items.TryAdd(item.Label, item);
+
+        foreach (CfgsCompletionItem item in GetImportedPluginDotCompletions(result, prefix, typedPrefix))
+            items.TryAdd(item.Label, item);
+
+        return items.Values.OrderBy(static item => item.Label, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private IReadOnlyList<CfgsCompletionItem> AddImportedPluginTopLevelCompletions(CfgsAnalysisResult result, IReadOnlyList<CfgsCompletionItem> baseItems)
+    {
+        Dictionary<string, CfgsCompletionItem> items = baseItems.ToDictionary(static item => item.Label, static item => item, StringComparer.Ordinal);
+
+        foreach (PluginCompletionIndex plugin in GetImportedPluginIndexes(result))
+        {
+            foreach (string root in plugin.NamespaceRoots)
+                items.TryAdd(root, new CfgsCompletionItem(root, 9, "plugin namespace"));
+
+            foreach (BuiltinDescriptor builtin in plugin.Builtins)
+                items.TryAdd(builtin.Name, new CfgsCompletionItem(builtin.Name, 3, $"plugin builtin: {FormatArity(builtin.Name, builtin.ArityMin, builtin.ArityMax)}"));
+        }
+
+        return items.Values.OrderBy(static item => item.Label, StringComparer.Ordinal).ToList();
+    }
+
+    private IReadOnlyList<CfgsCompletionItem> GetImportedPluginDotCompletions(CfgsAnalysisResult result, string prefix, string typedPrefix)
+    {
+        Dictionary<string, CfgsCompletionItem> items = new(StringComparer.Ordinal);
+        foreach (PluginCompletionIndex plugin in GetImportedPluginIndexes(result))
+        {
+            foreach (NamespaceDescriptor descriptor in plugin.Namespaces)
+            {
+                AddPluginNamespaceCompletionItems(descriptor, prefix, typedPrefix, items);
+            }
+        }
+
+        return items.Values.OrderBy(static item => item.Label, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static void AddPluginNamespaceCompletionItems(
+        NamespaceDescriptor descriptor,
+        string prefix,
+        string typedPrefix,
+        Dictionary<string, CfgsCompletionItem> items)
+    {
+        if (string.Equals(descriptor.Path, prefix, StringComparison.Ordinal))
+        {
+            foreach (string member in descriptor.Members)
+            {
+                if (MatchesCompletionPrefix(member, typedPrefix))
+                    items.TryAdd(member, new CfgsCompletionItem(member, 2, $"plugin namespace member: {descriptor.Path}.{member}"));
+            }
+
+            return;
+        }
+
+        string searchPrefix = prefix + ".";
+        if (!descriptor.Path.StartsWith(searchPrefix, StringComparison.Ordinal))
+            return;
+
+        string remainder = descriptor.Path[searchPrefix.Length..];
+        int dot = remainder.IndexOf('.');
+        string child = dot < 0 ? remainder : remainder[..dot];
+        if (!string.IsNullOrWhiteSpace(child) && MatchesCompletionPrefix(child, typedPrefix))
+            items.TryAdd(child, new CfgsCompletionItem(child, 9, $"plugin namespace: {searchPrefix}{child}"));
+    }
+
+    private IReadOnlyList<CfgsCompletionItem> GetNativeInteropDotCompletions(CfgsAnalysisResult result, string prefix, string typedPrefix)
+    {
+        string[] parts = prefix.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return [];
+
+        NativeImportInfo? import = GetNativeImports(result).FirstOrDefault(i => string.Equals(i.Alias, parts[0], StringComparison.Ordinal));
+        if (import is null)
+            return [];
+
+        NativeAssemblyIndex? index = NativeAssemblyIndex.TryCreate(import.Value.Path);
+        if (index is null)
+            return [];
+
+        string container = parts.Length == 1 ? string.Empty : string.Join(".", parts.Skip(1));
+        if (container.StartsWith(NativeAssemblyIndex.NativePathPrefix, StringComparison.Ordinal))
+            container = container[(NativeAssemblyIndex.NativePathPrefix.Length)..];
+        return index.GetCompletions(container, typedPrefix);
+    }
+
+    public static IReadOnlyList<string> TryGetNativeReturnTypePaths(string expressionPath, string sourceText, string origin)
+    {
+        if (string.IsNullOrWhiteSpace(expressionPath))
+            return [];
+
+        string[] parts = expressionPath.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+            return [];
+
+        string alias = parts[0];
+        string? assemblyPath = GetNativeImportPath(sourceText, origin, alias);
+        if (assemblyPath is null)
+            return [];
+
+        NativeAssemblyIndex? index = NativeAssemblyIndex.TryCreate(assemblyPath);
+        if (index is null)
+            return [];
+
+        string memberPath = string.Join(".", parts.Skip(1));
+        return index.GetReturnTypePaths(memberPath)
+            .Select(path => NativeAssemblyIndex.CreateNativePath(alias, path))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    public static IReadOnlyList<CfgsCompletionItem> TryGetNativePathCompletions(string nativeAccessPath, string sourceText, string origin)
+    {
+        if (string.IsNullOrWhiteSpace(nativeAccessPath))
+            return [];
+
+        int firstDot = nativeAccessPath.IndexOf('.');
+        if (firstDot <= 0)
+            return [];
+
+        string alias = nativeAccessPath[..firstDot];
+        string container = nativeAccessPath[(firstDot + 1)..];
+        if (!container.StartsWith(NativeAssemblyIndex.NativePathPrefix, StringComparison.Ordinal))
+            return [];
+
+        string? assemblyPath = GetNativeImportPath(sourceText, origin, alias);
+        if (assemblyPath is null)
+            return [];
+
+        NativeAssemblyIndex? index = NativeAssemblyIndex.TryCreate(assemblyPath);
+        return index?.GetCompletions(container, typedPrefix: "") ?? [];
+    }
+
+    private static IReadOnlyList<string> TryResolveNativeVariableAccessPaths(string variableName, string sourceText, string origin, HashSet<string> seen)
+    {
+        if (string.IsNullOrWhiteSpace(variableName) || variableName.Contains('.', StringComparison.Ordinal) || !seen.Add(variableName))
+            return [];
+
+        List<string> results = [];
+        foreach (string assignedExpression in FindAssignedExpressions(variableName, sourceText))
+        {
+            foreach (string resolved in TryResolveNativeExpressionAccessPaths(assignedExpression, sourceText, origin, seen))
+                results.Add(resolved);
+        }
+
+        return results.Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    private static IReadOnlyList<string> TryResolveNativeExpressionAccessPaths(string expression, string sourceText, string origin, HashSet<string> seen)
+    {
+        string normalized = expression.Trim();
+        if (normalized.Length == 0)
+            return [];
+
+        Match callMatch = Regex.Match(normalized, @"^(?<target>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\(");
+        string targetPath = callMatch.Success ? callMatch.Groups["target"].Value : normalized;
+        targetPath = targetPath.Trim().TrimEnd(';');
+
+        List<string> direct = TryGetNativeReturnTypePaths(targetPath, sourceText, origin).ToList();
+        if (direct.Count > 0)
+            return direct;
+
+        string[] parts = targetPath.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+            return [];
+
+        string root = parts[0];
+        string suffix = string.Join(".", parts.Skip(1));
+        List<string> viaVariable = [];
+        foreach (string rootAccessPath in TryResolveNativeVariableAccessPaths(root, sourceText, origin, seen))
+        {
+            string expressionPath = $"{rootAccessPath}.{suffix}";
+            viaVariable.AddRange(TryGetNativeReturnTypePaths(expressionPath, sourceText, origin));
+            if (viaVariable.Count == 0 && expressionPath.Contains(NativeAssemblyIndex.NativePathPrefix, StringComparison.Ordinal))
+                viaVariable.Add(expressionPath);
+        }
+
+        return viaVariable.Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    private static IEnumerable<string> FindAssignedExpressions(string variableName, string sourceText)
+    {
+        string escaped = Regex.Escape(variableName);
+        string pattern = $@"(?:^|[;\r\n])\s*(?:(?:var|const)\s+)?{escaped}\s*=\s*(?<expr>[^;\r\n]+)";
+        foreach (Match match in Regex.Matches(sourceText, pattern, RegexOptions.CultureInvariant))
+        {
+            string expr = match.Groups["expr"].Value.Trim();
+            if (!string.IsNullOrWhiteSpace(expr))
+                yield return expr;
+        }
+    }
+
+    private IReadOnlyList<CfgsCompletionItem> GetImportPathCompletions(CfgsAnalysisResult result, ImportPathCompletionRequest request)
+    {
+        string typedPath = request.TypedPath.Replace('\\', '/');
+        int separator = typedPath.LastIndexOf('/');
+        string directoryPart = separator >= 0 ? typedPath[..(separator + 1)] : string.Empty;
+        string segmentPrefix = separator >= 0 ? typedPath[(separator + 1)..] : typedPath;
+        string? baseDirectory = ResolveCompletionDirectory(result.Origin, directoryPart);
+        if (baseDirectory is null || !Directory.Exists(baseDirectory))
+            return [];
+
+        Dictionary<string, CfgsCompletionItem> items = new(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (string directory in Directory.EnumerateDirectories(baseDirectory))
+            {
+                string name = Path.GetFileName(directory);
+                if (string.IsNullOrWhiteSpace(name) || !name.StartsWith(segmentPrefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string insertText = name[segmentPrefix.Length..] + "/";
+                items.TryAdd(name + "/", new CfgsCompletionItem(name + "/", 19, "directory", insertText));
+            }
+
+            foreach (string file in Directory.EnumerateFiles(baseDirectory))
+            {
+                string extension = Path.GetExtension(file);
+                if (!string.Equals(extension, ".cfs", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(extension, ".dll", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(extension, ".cfb", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string name = Path.GetFileName(file);
+                if (string.IsNullOrWhiteSpace(name) || !name.StartsWith(segmentPrefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string insertText = name[segmentPrefix.Length..];
+                int kind = string.Equals(extension, ".dll", StringComparison.OrdinalIgnoreCase) ? 17 : 17;
+                items.TryAdd(name, new CfgsCompletionItem(name, kind, extension.Equals(".dll", StringComparison.OrdinalIgnoreCase) ? "DLL import" : "CFGS source file", insertText));
+            }
+        }
+        catch (IOException)
+        {
+            return [];
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return [];
+        }
+
+        return items.Values.OrderBy(static item => item.Label, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private IReadOnlyList<CfgsCompletionItem> GetNamedImportCompletions(CfgsAnalysisResult result, NamedImportCompletionRequest request)
+    {
+        string? resolved = ResolveImportPath(result.Origin, request.ImportPath);
+        if (resolved is null || !File.Exists(resolved) || !string.Equals(Path.GetExtension(resolved), ".cfs", StringComparison.OrdinalIgnoreCase))
+            return [];
+
+        HashSet<string> alreadyImported = request.AlreadyImported;
+        return ExtractExportedSymbols(resolved)
+            .Where(item => MatchesCompletionPrefix(item.Label, request.TypedPrefix) && !alreadyImported.Contains(item.Label))
+            .OrderBy(static item => item.Label, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static IReadOnlyList<CfgsCompletionItem> ExtractExportedSymbols(string path)
+    {
+        string source;
+        try
+        {
+            source = File.ReadAllText(path);
+        }
+        catch
+        {
+            return [];
+        }
+
+        List<CfgsCompletionItem> result = [];
+        string[] lines = source.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        foreach (string line in lines)
+        {
+            Match match = Regex.Match(
+                line,
+                @"^\s*export\s+(?:public\s+|private\s+|protected\s+)?(?:(?<async>async)\s+)?(?<kind>func|class|interface|enum|var|const)\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)",
+                RegexOptions.CultureInvariant);
+            if (!match.Success)
+                continue;
+
+            string name = match.Groups["name"].Value;
+            string kind = match.Groups["kind"].Value;
+            int completionKind = kind switch
+            {
+                "func" => 3,
+                "class" => 7,
+                "interface" => 8,
+                "enum" => 13,
+                "const" => 21,
+                _ => 6
+            };
+            result.Add(new CfgsCompletionItem(name, completionKind, $"exported {kind} from {Path.GetFileName(path)}"));
+        }
+
+        return result
+            .GroupBy(static item => item.Label, StringComparer.Ordinal)
+            .Select(static group => group.First())
+            .ToList();
+    }
+
+    private IReadOnlyList<PluginCompletionIndex> GetImportedPluginIndexes(CfgsAnalysisResult result)
+    {
+        List<PluginCompletionIndex> indexes = [];
+        foreach (string pluginPath in GetImportedPluginPaths(result.SourceText, result.Origin))
+        {
+            PluginCompletionIndex? index = PluginCompletionIndex.TryCreate(pluginPath);
+            if (index is not null)
+                indexes.Add(index);
+        }
+
+        return indexes;
+    }
+
+    private static IEnumerable<string> GetImportedPluginPaths(string sourceText, string origin)
+    {
+        foreach (Match match in Regex.Matches(sourceText, @"^\s*import\s+(?!native\b)[""'](?<path>[^""']+\.dll)[""']", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+        {
+            string rawPath = match.Groups["path"].Value;
+            string? resolved = ResolveImportPath(origin, rawPath);
+            if (!string.IsNullOrWhiteSpace(resolved) && File.Exists(resolved))
+                yield return resolved!;
+        }
+    }
+
+    private static IReadOnlyList<NativeImportInfo> GetNativeImports(CfgsAnalysisResult result)
+    {
+        List<NativeImportInfo> imports = [];
+        foreach (Match match in Regex.Matches(result.SourceText, @"^\s*import\s+native\s+[""'](?<path>[^""']+)[""']\s+as\s+(?<alias>[A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+        {
+            string rawPath = match.Groups["path"].Value;
+            string? resolved = ResolveImportPath(result.Origin, rawPath);
+            if (!string.IsNullOrWhiteSpace(resolved) && File.Exists(resolved))
+                imports.Add(new NativeImportInfo(match.Groups["alias"].Value, resolved!));
+        }
+
+        return imports;
+    }
+
+    private static string? GetNativeImportPath(string sourceText, string origin, string alias)
+    {
+        foreach (Match match in Regex.Matches(sourceText, @"^\s*import\s+native\s+[""'](?<path>[^""']+)[""']\s+as\s+(?<alias>[A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+        {
+            if (!string.Equals(match.Groups["alias"].Value, alias, StringComparison.Ordinal))
+                continue;
+
+            string? resolved = ResolveImportPath(origin, match.Groups["path"].Value);
+            if (!string.IsNullOrWhiteSpace(resolved) && File.Exists(resolved))
+                return resolved;
+        }
+
+        return null;
+    }
+
+    private static string? ResolveCompletionDirectory(string origin, string directoryPart)
+    {
+        string? sourceDir = Path.GetDirectoryName(origin);
+        if (string.IsNullOrWhiteSpace(sourceDir))
+            return null;
+
+        string normalized = directoryPart.Replace('/', Path.DirectorySeparatorChar);
+        string candidate = Path.IsPathFullyQualified(normalized)
+            ? normalized
+            : Path.Combine(sourceDir, normalized);
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(candidate);
+        }
+        catch
+        {
+            return null;
+        }
+
+        return fullPath;
+    }
+
+    private static string? ResolveImportPath(string origin, string rawPath)
+    {
+        if (string.IsNullOrWhiteSpace(rawPath))
+            return null;
+
+        if (Uri.TryCreate(rawPath, UriKind.Absolute, out Uri? uri) && uri.IsFile)
+            return File.Exists(uri.LocalPath) ? Path.GetFullPath(uri.LocalPath) : null;
+
+        if (Path.IsPathFullyQualified(rawPath))
+        {
+            string full = Path.GetFullPath(rawPath);
+            return File.Exists(full) ? full : null;
+        }
+
+        string? sourceDir = Path.GetDirectoryName(origin);
+        List<string> searchDirs = [];
+        if (!string.IsNullOrWhiteSpace(sourceDir))
+        {
+            searchDirs.Add(sourceDir!);
+            searchDirs.AddRange(GetPackagePluginDirectories(sourceDir!));
+        }
+
+        string? workingDirectory = FrontendPipeline.TryGetWorkingDirectory(origin);
+        if (!string.IsNullOrWhiteSpace(workingDirectory))
+        {
+            searchDirs.Add(workingDirectory!);
+            searchDirs.AddRange(GetPackagePluginDirectories(workingDirectory!));
+        }
+
+        searchDirs.Add(Directory.GetCurrentDirectory());
+        searchDirs.Add(AppContext.BaseDirectory);
+        searchDirs.Add(Path.Combine(AppContext.BaseDirectory, "plugins"));
+
+        foreach (string dir in searchDirs.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            string candidate = Path.GetFullPath(Path.Combine(dir, rawPath.Replace('/', Path.DirectorySeparatorChar)));
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> GetPackagePluginDirectories(string startDirectory)
+    {
+        string? current = startDirectory;
+        while (!string.IsNullOrWhiteSpace(current))
+        {
+            string packagePluginDirectory = Path.Combine(current, ".cfgs", "plugins");
+            if (Directory.Exists(packagePluginDirectory))
+                yield return packagePluginDirectory;
+
+            current = Path.GetDirectoryName(current);
+        }
+    }
+
+    private static string GetLineText(string sourceText, int line)
+    {
+        string normalized = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        string[] lines = normalized.Split('\n');
+        return line >= 0 && line < lines.Length ? lines[line] : string.Empty;
+    }
+
+    private static bool TryFindImportPathCompletionRequest(string sourceText, int line, int character, out ImportPathCompletionRequest request)
+    {
+        request = default;
+        string lineText = GetLineText(sourceText, line);
+        int cursor = Math.Clamp(character, 0, lineText.Length);
+        int quoteStart = -1;
+        char quote = '\0';
+        for (int i = cursor - 1; i >= 0; i--)
+        {
+            if (lineText[i] is '"' or '\'')
+            {
+                quoteStart = i;
+                quote = lineText[i];
+                break;
+            }
+        }
+
+        if (quoteStart < 0)
+            return false;
+
+        int quoteEnd = lineText.IndexOf(quote, quoteStart + 1);
+        if (quoteEnd >= 0 && quoteEnd < cursor)
+            return false;
+
+        string beforeQuote = lineText[..quoteStart];
+        if (!Regex.IsMatch(beforeQuote, @"\b(import|from|native)\s*$", RegexOptions.CultureInvariant))
+            return false;
+
+        request = new ImportPathCompletionRequest(lineText[(quoteStart + 1)..cursor]);
+        return true;
+    }
+
+    private static bool TryFindNamedImportCompletionRequest(string sourceText, int line, int character, out NamedImportCompletionRequest request)
+    {
+        request = default;
+        string lineText = GetLineText(sourceText, line);
+        int cursor = Math.Clamp(character, 0, lineText.Length);
+        int openBrace = lineText.LastIndexOf('{', Math.Max(0, cursor - 1));
+        int closeBrace = lineText.IndexOf('}', openBrace >= 0 ? openBrace : 0);
+        if (openBrace < 0 || closeBrace < 0 || cursor <= openBrace || cursor > closeBrace)
+            return false;
+
+        Match pathMatch = Regex.Match(lineText[(closeBrace + 1)..], @"\bfrom\s+[""'](?<path>[^""']+)[""']");
+        if (!pathMatch.Success)
+            return false;
+
+        string importPath = pathMatch.Groups["path"].Value;
+        string inside = lineText[(openBrace + 1)..cursor];
+        int lastComma = inside.LastIndexOf(',');
+        string current = lastComma >= 0 ? inside[(lastComma + 1)..] : inside;
+        current = current.TrimStart();
+        string typedPrefix = Regex.Match(current, @"[A-Za-z_][A-Za-z0-9_]*$").Value;
+
+        HashSet<string> alreadyImported = new(StringComparer.Ordinal);
+        string fullInside = lineText[(openBrace + 1)..closeBrace];
+        foreach (Match nameMatch in Regex.Matches(fullInside, @"\b[A-Za-z_][A-Za-z0-9_]*\b"))
+        {
+            string value = nameMatch.Value;
+            if (!string.Equals(value, "as", StringComparison.Ordinal))
+                alreadyImported.Add(value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(typedPrefix))
+            alreadyImported.Remove(typedPrefix);
+
+        request = new NamedImportCompletionRequest(importPath, typedPrefix, alreadyImported);
+        return true;
+    }
+
+    private static bool MatchesCompletionPrefix(string value, string typedPrefix)
+        => string.IsNullOrWhiteSpace(typedPrefix) || value.StartsWith(typedPrefix, StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatArity(string name, int min, int max)
+        => max < 0 ? $"{name}({min}+ args)" : min == max ? $"{name}({min} args)" : $"{name}({min}..{max} args)";
+
     private static MemberCompletionRequest? TryFindMemberCompletionRequest(string sourceText, int line, int character)
     {
         string[] lines = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
@@ -2504,6 +3046,347 @@ internal sealed record CfgsCompletionItem(
     int Kind,
     string Detail,
     string? InsertText = null);
+
+internal readonly record struct ImportPathCompletionRequest(string TypedPath);
+
+internal readonly record struct NamedImportCompletionRequest(
+    string ImportPath,
+    string TypedPrefix,
+    HashSet<string> AlreadyImported);
+
+internal readonly record struct NativeImportInfo(string Alias, string Path);
+
+internal sealed class PluginCompletionIndex
+{
+    private static readonly Dictionary<string, PluginCompletionIndex?> Cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object SyncRoot = new();
+
+    public IReadOnlyList<BuiltinDescriptor> Builtins { get; }
+
+    public IReadOnlyList<(Type ReceiverType, IntrinsicDescriptor Descriptor)> Intrinsics { get; }
+
+    public IReadOnlyList<NamespaceDescriptor> Namespaces { get; }
+
+    public IReadOnlyList<string> NamespaceRoots { get; }
+
+    private PluginCompletionIndex(
+        IReadOnlyList<BuiltinDescriptor> builtins,
+        IReadOnlyList<(Type ReceiverType, IntrinsicDescriptor Descriptor)> intrinsics,
+        IReadOnlyList<NamespaceDescriptor> namespaces)
+    {
+        Builtins = builtins;
+        Intrinsics = intrinsics;
+        Namespaces = namespaces;
+        NamespaceRoots = namespaces
+            .Select(static ns => ns.Path.Split('.', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault())
+            .Where(static root => !string.IsNullOrWhiteSpace(root))
+            .Select(static root => root!)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static root => root, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    public static PluginCompletionIndex? TryCreate(string path)
+    {
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch
+        {
+            return null;
+        }
+
+        lock (SyncRoot)
+        {
+            if (Cache.TryGetValue(fullPath, out PluginCompletionIndex? cached))
+                return cached;
+
+            try
+            {
+                BuiltinRegistry builtins = new();
+                IntrinsicRegistry intrinsics = new();
+                NamespaceRegistry namespaces = new();
+                PluginLoader.LoadDll(fullPath, builtins, intrinsics, namespaces);
+                PluginCompletionIndex index = new(builtins.Snapshot(), intrinsics.Snapshot(), namespaces.Snapshot());
+                Cache[fullPath] = index;
+                return index;
+            }
+            catch
+            {
+                Cache[fullPath] = null;
+                return null;
+            }
+        }
+    }
+}
+
+internal sealed class NativeAssemblyIndex
+{
+    public const string NativePathPrefix = "native::";
+
+    private static readonly Dictionary<string, NativeAssemblyIndex?> Cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object SyncRoot = new();
+
+    private readonly Dictionary<string, Type> _typesByPath;
+    private readonly HashSet<string> _namespaces;
+
+    private NativeAssemblyIndex(IEnumerable<Type> types)
+    {
+        _typesByPath = new Dictionary<string, Type>(StringComparer.Ordinal);
+        _namespaces = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (Type type in types)
+        {
+            string path = GetCfgsTypePath(type);
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+
+            _typesByPath[path] = type;
+            string? ns = type.Namespace;
+            while (!string.IsNullOrWhiteSpace(ns))
+            {
+                _namespaces.Add(ns!);
+                int dot = ns!.LastIndexOf('.');
+                ns = dot < 0 ? null : ns[..dot];
+            }
+        }
+    }
+
+    public static NativeAssemblyIndex? TryCreate(string assemblyPath)
+    {
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(assemblyPath);
+        }
+        catch
+        {
+            return null;
+        }
+
+        lock (SyncRoot)
+        {
+            if (Cache.TryGetValue(fullPath, out NativeAssemblyIndex? cached))
+                return cached;
+
+            try
+            {
+                CompletionAssemblyLoadContext context = new(fullPath);
+                Assembly assembly = context.LoadFromAssemblyPath(fullPath);
+                Type[] types;
+                try
+                {
+                    types = assembly.GetExportedTypes();
+                }
+                catch (ReflectionTypeLoadException ex)
+                {
+                    types = ex.Types.Where(static type => type is not null).Cast<Type>().Where(static type => type.IsPublic || type.IsNestedPublic).ToArray();
+                }
+
+                NativeAssemblyIndex index = new(types);
+                Cache[fullPath] = index;
+                return index;
+            }
+            catch
+            {
+                Cache[fullPath] = null;
+                return null;
+            }
+        }
+    }
+
+    public IReadOnlyList<CfgsCompletionItem> GetCompletions(string container, string typedPrefix)
+    {
+        bool preferInstanceMembers = container.Contains(NativePathPrefix, StringComparison.Ordinal);
+        string nativeContainer = StripNativePathPrefix(container);
+        Dictionary<string, CfgsCompletionItem> items = new(StringComparer.Ordinal);
+
+        if (_typesByPath.TryGetValue(nativeContainer, out Type? type))
+        {
+            AddTypeMemberCompletions(type, typedPrefix, items, preferInstanceMembers);
+            return items.Values.OrderBy(static item => item.Label, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        string searchPrefix = string.IsNullOrWhiteSpace(nativeContainer) ? string.Empty : nativeContainer + ".";
+        foreach (string ns in _namespaces)
+        {
+            if (!ns.StartsWith(searchPrefix, StringComparison.Ordinal))
+                continue;
+
+            string remainder = ns[searchPrefix.Length..];
+            if (string.IsNullOrWhiteSpace(remainder))
+                continue;
+
+            string child = GetDirectChild(remainder);
+            if (MatchesNativeCompletionPrefix(child, typedPrefix))
+                items.TryAdd(child, new CfgsCompletionItem(child, 9, $"native namespace: {searchPrefix}{child}"));
+        }
+
+        foreach ((string path, Type nativeType) in _typesByPath)
+        {
+            if (!path.StartsWith(searchPrefix, StringComparison.Ordinal))
+                continue;
+
+            string remainder = path[searchPrefix.Length..];
+            if (string.IsNullOrWhiteSpace(remainder) || remainder.Contains('.', StringComparison.Ordinal))
+                continue;
+
+            if (MatchesNativeCompletionPrefix(remainder, typedPrefix))
+                items.TryAdd(remainder, new CfgsCompletionItem(remainder, ToNativeCompletionKind(nativeType), $"native type: {nativeType.FullName ?? nativeType.Name}"));
+        }
+
+        return items.Values.OrderBy(static item => item.Label, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    public IReadOnlyList<string> GetReturnTypePaths(string memberPath)
+    {
+        bool preferInstanceMembers = memberPath.Contains(NativePathPrefix, StringComparison.Ordinal);
+        string normalized = StripNativePathPrefix(memberPath);
+        if (normalized.EndsWith(".new", StringComparison.Ordinal))
+        {
+            string typePath = normalized[..^4];
+            return _typesByPath.ContainsKey(typePath) ? [typePath] : [];
+        }
+
+        foreach ((string typePath, Type type) in _typesByPath.OrderByDescending(static entry => entry.Key.Length))
+        {
+            string prefix = typePath + ".";
+            if (!normalized.StartsWith(prefix, StringComparison.Ordinal))
+                continue;
+
+            string memberName = normalized[prefix.Length..];
+            if (memberName.Contains('.', StringComparison.Ordinal))
+                continue;
+
+            List<string> returnTypes = [];
+            BindingFlags flags = BindingFlags.Public | (preferInstanceMembers ? BindingFlags.Instance : BindingFlags.Static);
+            foreach (MemberInfo member in type.GetMember(memberName, flags))
+            {
+                Type? returnType = member switch
+                {
+                    MethodInfo method when !method.IsSpecialName => method.ReturnType,
+                    PropertyInfo property => property.PropertyType,
+                    FieldInfo field => field.FieldType,
+                    _ => null
+                };
+
+                string? returnPath = TryGetKnownTypePath(returnType);
+                if (!string.IsNullOrWhiteSpace(returnPath))
+                    returnTypes.Add(returnPath!);
+            }
+
+            return returnTypes.Distinct(StringComparer.Ordinal).ToList();
+        }
+
+        return [];
+    }
+
+    public static string CreateNativePath(string alias, string typePath)
+        => $"{alias}.{NativePathPrefix}{typePath}";
+
+    private static void AddTypeMemberCompletions(Type type, string typedPrefix, Dictionary<string, CfgsCompletionItem> items, bool preferInstanceMembers)
+    {
+        if (!preferInstanceMembers &&
+            type.GetConstructors(BindingFlags.Public | BindingFlags.Instance).Length > 0 &&
+            MatchesNativeCompletionPrefix("new", typedPrefix))
+        {
+            items.TryAdd("new", new CfgsCompletionItem("new", 2, $"constructor: {type.Name}.new(...)"));
+        }
+
+        foreach (Type nested in type.GetNestedTypes(BindingFlags.Public))
+        {
+            if (MatchesNativeCompletionPrefix(nested.Name, typedPrefix))
+                items.TryAdd(nested.Name, new CfgsCompletionItem(nested.Name, ToNativeCompletionKind(nested), $"nested native type: {nested.FullName ?? nested.Name}"));
+        }
+
+        BindingFlags memberFlags = BindingFlags.Public | (preferInstanceMembers ? BindingFlags.Instance : BindingFlags.Static);
+        foreach (MemberInfo member in type.GetMembers(memberFlags))
+        {
+            if (member is MethodInfo method && method.IsSpecialName)
+                continue;
+
+            string name = member.Name;
+            if (!MatchesNativeCompletionPrefix(name, typedPrefix))
+                continue;
+
+            int kind = member switch
+            {
+                MethodInfo => 2,
+                PropertyInfo => 10,
+                FieldInfo => 5,
+                EventInfo => 23,
+                _ => 6
+            };
+            string mode = preferInstanceMembers ? "instance" : "static";
+            items.TryAdd(name, new CfgsCompletionItem(name, kind, $"native {mode} {member.MemberType.ToString().ToLowerInvariant()}: {type.Name}.{name}"));
+        }
+
+        if (!preferInstanceMembers && type.IsEnum)
+        {
+            foreach (string name in Enum.GetNames(type))
+            {
+                if (MatchesNativeCompletionPrefix(name, typedPrefix))
+                    items.TryAdd(name, new CfgsCompletionItem(name, 20, $"enum member: {type.Name}.{name}"));
+            }
+        }
+    }
+
+    private static string GetDirectChild(string remainder)
+    {
+        int dot = remainder.IndexOf('.');
+        return dot < 0 ? remainder : remainder[..dot];
+    }
+
+    private static string GetCfgsTypePath(Type type)
+    {
+        string fullName = type.FullName ?? type.Name;
+        return fullName.Replace('+', '.');
+    }
+
+    private string? TryGetKnownTypePath(Type? type)
+    {
+        if (type is null || type == typeof(void))
+            return null;
+
+        Type normalized = Nullable.GetUnderlyingType(type) ?? type;
+        if (normalized.IsArray)
+            normalized = normalized.GetElementType() ?? normalized;
+
+        string path = GetCfgsTypePath(normalized);
+        return _typesByPath.ContainsKey(path) ? path : null;
+    }
+
+    private static string StripNativePathPrefix(string path)
+    {
+        int marker = path.IndexOf(NativePathPrefix, StringComparison.Ordinal);
+        return marker < 0 ? path : path[(marker + NativePathPrefix.Length)..];
+    }
+
+    private static int ToNativeCompletionKind(Type type)
+        => type.IsEnum ? 13 : type.IsInterface ? 8 : 7;
+
+    private static bool MatchesNativeCompletionPrefix(string value, string typedPrefix)
+        => string.IsNullOrWhiteSpace(typedPrefix) || value.StartsWith(typedPrefix, StringComparison.OrdinalIgnoreCase);
+
+    private sealed class CompletionAssemblyLoadContext : AssemblyLoadContext
+    {
+        private readonly AssemblyDependencyResolver _resolver;
+
+        public CompletionAssemblyLoadContext(string mainAssemblyPath)
+            : base(isCollectible: false)
+        {
+            _resolver = new AssemblyDependencyResolver(mainAssemblyPath);
+        }
+
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            string? path = _resolver.ResolveAssemblyToPath(assemblyName);
+            return path is null ? null : LoadFromAssemblyPath(path);
+        }
+    }
+}
 
 internal readonly record struct MemberCompletionRequest(
     int TargetLine,

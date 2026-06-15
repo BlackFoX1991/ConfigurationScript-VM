@@ -1,0 +1,121 @@
+{
+  "name": "cfgs-vscode",
+  "displayName": "CFGS Language Tools",
+  "description": "Visual Studio Code support for ConfigurationScript with CFGS LSP, formatter, and linter integration.",
+  "version": "0.5.0",
+  "publisher": "blackfox1991",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters"
+  ],
+  "activationEvents": [
+    "onLanguage:cfgs",
+    "onCommand:cfgs.restartServer",
+    "onCommand:cfgs.lintFile",
+    "onCommand:cfgs.lintWorkspace",
+    "onCommand:cfgs.formatFile"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configurationDefaults": {
+      "files.associations": {
+        "*.cfs": "cfgs"
+      },
+      "[cfgs]": {
+        "editor.defaultFormatter": "blackfox1991.cfgs-vscode"
+      }
+    },
+    "languages": [
+      {
+        "id": "cfgs",
+        "aliases": [
+          "CFGS",
+          "ConfigurationScript"
+        ],
+        "extensions": [
+          ".cfs"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cfgs",
+        "scopeName": "source.cfgs",
+        "path": "./syntaxes/cfgs.tmGrammar.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "cfgs.restartServer",
+        "title": "CFGS: Restart Language Server"
+      },
+      {
+        "command": "cfgs.lintFile",
+        "title": "CFGS: Lint Current File"
+      },
+      {
+        "command": "cfgs.lintWorkspace",
+        "title": "CFGS: Lint Workspace"
+      },
+      {
+        "command": "cfgs.formatFile",
+        "title": "CFGS: Format Current File"
+      }
+    ],
+    "configuration": {
+      "title": "CFGS",
+      "properties": {
+        "cfgs.server.command": {
+          "type": "string",
+          "default": "",
+          "description": "Optional command used to start the CFGS language server."
+        },
+        "cfgs.server.args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional arguments used to start the CFGS language server."
+        },
+        "cfgs.server.cwd": {
+          "type": "string",
+          "default": "",
+          "description": "Optional working directory for the CFGS language server process."
+        },
+        "cfgs.cli.command": {
+          "type": "string",
+          "default": "",
+          "description": "Optional command used to run CFGS CLI tooling. Leave empty to auto-detect the bundled or workspace VM."
+        },
+        "cfgs.cli.args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional base arguments for the CFGS CLI command."
+        },
+        "cfgs.lint.onSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run CFGS lint on the saved file."
+        },
+        "cfgs.lint.fixOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run CFGS lint --fix on save before diagnostics are refreshed."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check": "node --check extension.js",
+    "package": "node scripts/package-vsix.js"
+  }
+}

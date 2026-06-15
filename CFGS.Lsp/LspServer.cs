@@ -351,6 +351,8 @@ internal sealed class LspServer
                         (int line, int character) = GetPosition(parameters);
                         DocumentState state = EnsureDocument(uri);
                         CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        if (!ReferenceEquals(analysis, state.Analysis))
+                            analysis = analysis with { SourceText = state.Text };
                         List<object> items = _analyzer.GetCompletions(analysis, line, character)
                             .Select(ToCompletionPayload).ToList();
                         if (_analyzer.ShouldIncludeSnippetCompletions(analysis, line, character))
@@ -1345,7 +1347,8 @@ internal sealed class LspServer
     {
         label = item.Label,
         kind = item.Kind,
-        detail = item.Detail
+        detail = item.Detail,
+        insertText = item.InsertText
     };
 
     private static object ToSnippetCompletionPayload(CfgsCompletionItem item) => new

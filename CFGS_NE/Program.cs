@@ -8,6 +8,7 @@ using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.Packaging;
+using CFGS_VM.Tooling;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -98,7 +99,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v6.1.1";
+    public const string Version = "v6.3.0";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -133,6 +134,8 @@ public class Program
 [                   ansi    1 or 0 to en/dis-able                              ]
 [ Compile  : -c file.cfs [-o file.cfb]                                         ]
 [ Check    : -check file.cfs [--json]                                          ]
+[ Lint     : -lint file-or-folder [--json] [--warnings-as-errors]              ]
+[ Format   : -format file-or-folder [--write|--check] [--json]                 ]
 [ Packages : init | install plugin.dll | restore                               ]
 [------------------------------ REPL INFO -------------------------------------]
 [ $help shows help, $exit/$quit leaves REPL                                    ]
@@ -173,6 +176,27 @@ public class Program
         catch (ArgumentException ex)
         {
             Console.Error.WriteLine($"[CFGS] invalid package command: {ex.Message}");
+            Environment.ExitCode = 1;
+            return;
+        }
+
+        try
+        {
+            if (TryGetLintArguments(args, out LintCliCommand lintCommand))
+            {
+                Environment.ExitCode = RunLintCommand(lintCommand);
+                return;
+            }
+
+            if (TryGetFormatArguments(args, out FormatCliCommand formatCommand))
+            {
+                Environment.ExitCode = RunFormatCommand(formatCommand);
+                return;
+            }
+        }
+        catch (ArgumentException ex)
+        {
+            Console.Error.WriteLine($"[CFGS] invalid tooling command: {ex.Message}");
             Environment.ExitCode = 1;
             return;
         }
@@ -453,6 +477,156 @@ public class Program
         return checkMode;
     }
 
+    private sealed class LintCliCommand
+    {
+        public string? Input { get; set; }
+        public bool Json { get; set; }
+        public bool WarningsAsErrors { get; set; }
+        public bool Fix { get; set; }
+        public bool AllowTabs { get; set; }
+        public int MaxLineLength { get; set; } = 140;
+        public int IndentSize { get; set; } = 4;
+        public bool WarningsAsErrorsSet { get; set; }
+        public bool AllowTabsSet { get; set; }
+        public bool MaxLineLengthSet { get; set; }
+        public bool IndentSizeSet { get; set; }
+    }
+
+    private static bool TryGetLintArguments(string[] args, out LintCliCommand command)
+    {
+        command = new LintCliCommand();
+        if (args.Length == 0)
+            return false;
+
+        string first = args[0].Trim();
+        if (!string.Equals(first, "-lint", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(first, "--lint", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(first, "lint", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        for (int i = 1; i < args.Length; i++)
+        {
+            string arg = args[i].Trim();
+            switch (arg)
+            {
+                case "--json":
+                case "-json":
+                    command.Json = true;
+                    break;
+
+                case "--warnings-as-errors":
+                    command.WarningsAsErrors = true;
+                    command.WarningsAsErrorsSet = true;
+                    break;
+
+                case "--fix":
+                    command.Fix = true;
+                    break;
+
+                case "--allow-tabs":
+                    command.AllowTabs = true;
+                    command.AllowTabsSet = true;
+                    break;
+
+                case "--max-line-length":
+                    string max = ReadOptionValue(args, ref i, arg);
+                    if (!int.TryParse(max, NumberStyles.Integer, CultureInfo.InvariantCulture, out int maxLineLength) || maxLineLength <= 0)
+                        throw new ArgumentException($"invalid value for {arg}: {max}");
+                    command.MaxLineLength = maxLineLength;
+                    command.MaxLineLengthSet = true;
+                    break;
+
+                case "--indent":
+                case "--indent-size":
+                    string indent = ReadOptionValue(args, ref i, arg);
+                    if (!int.TryParse(indent, NumberStyles.Integer, CultureInfo.InvariantCulture, out int indentSize) || indentSize <= 0)
+                        throw new ArgumentException($"invalid value for {arg}: {indent}");
+                    command.IndentSize = indentSize;
+                    command.IndentSizeSet = true;
+                    break;
+
+                default:
+                    if (command.Input is null && !arg.StartsWith("-", StringComparison.Ordinal))
+                        command.Input = args[i];
+                    break;
+            }
+        }
+
+        return true;
+    }
+
+    private sealed class FormatCliCommand
+    {
+        public string? Input { get; set; }
+        public bool Json { get; set; }
+        public bool Write { get; set; }
+        public bool Check { get; set; }
+        public bool UseTabs { get; set; }
+        public int IndentSize { get; set; } = 4;
+        public bool UseTabsSet { get; set; }
+        public bool IndentSizeSet { get; set; }
+    }
+
+    private static bool TryGetFormatArguments(string[] args, out FormatCliCommand command)
+    {
+        command = new FormatCliCommand();
+        if (args.Length == 0)
+            return false;
+
+        string first = args[0].Trim();
+        if (!string.Equals(first, "-format", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(first, "--format", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(first, "format", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        for (int i = 1; i < args.Length; i++)
+        {
+            string arg = args[i].Trim();
+            switch (arg)
+            {
+                case "--json":
+                case "-json":
+                    command.Json = true;
+                    break;
+
+                case "--write":
+                case "-w":
+                    command.Write = true;
+                    break;
+
+                case "--check":
+                    command.Check = true;
+                    break;
+
+                case "--tabs":
+                    command.UseTabs = true;
+                    command.UseTabsSet = true;
+                    break;
+
+                case "--spaces":
+                    command.UseTabs = false;
+                    command.UseTabsSet = true;
+                    break;
+
+                case "--indent":
+                case "--indent-size":
+                    string indent = ReadOptionValue(args, ref i, arg);
+                    if (!int.TryParse(indent, NumberStyles.Integer, CultureInfo.InvariantCulture, out int indentSize) || indentSize <= 0)
+                        throw new ArgumentException($"invalid value for {arg}: {indent}");
+                    command.IndentSize = indentSize;
+                    command.IndentSizeSet = true;
+                    break;
+
+                default:
+                    if (command.Input is null && !arg.StartsWith("-", StringComparison.Ordinal))
+                        command.Input = args[i];
+                    break;
+            }
+        }
+
+        return true;
+    }
+
     private sealed class PackageCliCommand
     {
         public string Command { get; init; } = string.Empty;
@@ -614,6 +788,277 @@ public class Program
 
         return 0;
     }
+
+    private static int RunLintCommand(LintCliCommand command)
+    {
+        if (string.IsNullOrWhiteSpace(command.Input))
+        {
+            Console.Error.WriteLine("missing input file or directory for lint");
+            return 1;
+        }
+
+        ApplyToolingConfig(command.Input, command);
+
+        IReadOnlyList<string> files = CollectCfgsFiles(command.Input);
+        if (files.Count == 0)
+        {
+            Console.Error.WriteLine($"no .cfs files found for lint input '{command.Input}'");
+            return 1;
+        }
+
+        CfgsLintOptions options = new(command.MaxLineLength, command.WarningsAsErrors, command.Fix, command.AllowTabs, command.IndentSize);
+        List<CfgsToolDiagnostic> diagnostics = [];
+        foreach (string file in files)
+        {
+            CfgsLintResult result = CfgsLinter.LintFile(file, options, Version);
+            if (command.Fix && result.Fixed && result.FixedText is not null)
+            {
+                File.WriteAllText(file, result.FixedText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                if (!command.Json)
+                    Console.WriteLine($"[LINT] fixed: {file}");
+
+                CfgsLintOptions postFixOptions = options with { Fix = false };
+                result = CfgsLinter.LintFile(file, postFixOptions, Version);
+            }
+
+            diagnostics.AddRange(result.Diagnostics);
+        }
+
+        if (command.Json)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(diagnostics.Select(ToDiagnosticJsonPayload), new JsonSerializerOptions { WriteIndented = true }));
+        }
+        else
+        {
+            foreach (CfgsToolDiagnostic diagnostic in diagnostics.OrderBy(static d => d.SourceFile, StringComparer.OrdinalIgnoreCase).ThenBy(static d => d.Line).ThenBy(static d => d.Column))
+                Console.WriteLine(FormatToolDiagnostic(diagnostic));
+
+            int errors = diagnostics.Count(static d => d.Severity == CfgsToolDiagnosticSeverity.Error);
+            int warnings = diagnostics.Count(static d => d.Severity == CfgsToolDiagnosticSeverity.Warning);
+            int infos = diagnostics.Count(static d => d.Severity == CfgsToolDiagnosticSeverity.Info);
+            Console.WriteLine($"[LINT] files={files.Count}, errors={errors}, warnings={warnings}, info={infos}");
+        }
+
+        return diagnostics.Any(static d => d.Severity is CfgsToolDiagnosticSeverity.Error or CfgsToolDiagnosticSeverity.Warning)
+            ? 1
+            : 0;
+    }
+
+    private static int RunFormatCommand(FormatCliCommand command)
+    {
+        if (string.IsNullOrWhiteSpace(command.Input))
+        {
+            Console.Error.WriteLine("missing input file or directory for format");
+            return 1;
+        }
+
+        ApplyToolingConfig(command.Input, command);
+
+        IReadOnlyList<string> files = CollectCfgsFiles(command.Input);
+        if (files.Count == 0)
+        {
+            Console.Error.WriteLine($"no .cfs files found for format input '{command.Input}'");
+            return 1;
+        }
+
+        if (!command.Write && !command.Check && files.Count > 1)
+        {
+            Console.Error.WriteLine("formatting multiple files requires --write or --check");
+            return 1;
+        }
+
+        CfgsFormatOptions options = new(command.IndentSize, command.UseTabs);
+        List<object> jsonResults = [];
+        bool anyChanged = false;
+
+        foreach (string file in files)
+        {
+            try
+            {
+                ValidateCfgsFile(file);
+                string source = File.ReadAllText(file);
+                CfgsFormatResult result = CfgsFormatter.Format(source, options);
+                anyChanged |= result.Changed;
+
+                if (command.Write && result.Changed)
+                    File.WriteAllText(file, result.Text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                else if (!command.Check && !command.Write && !command.Json)
+                    Console.Write(result.Text);
+
+                jsonResults.Add(new
+                {
+                    file,
+                    changed = result.Changed,
+                    written = command.Write && result.Changed
+                });
+
+                if (!command.Json && (command.Write || command.Check))
+                {
+                    string status = result.Changed
+                        ? command.Write ? "formatted" : "needs format"
+                        : "ok";
+                    Console.WriteLine($"[FORMAT] {status}: {file}");
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorDiagnostic diag = ErrorDiagnostics.FromException(ex, file);
+                CfgsToolDiagnostic diagnostic = new(
+                    diag.Code,
+                    CfgsToolDiagnosticSeverity.Error,
+                    diag.Message,
+                    diag.SourceFile ?? file,
+                    Math.Max(1, diag.Line ?? 1),
+                    Math.Max(1, diag.Column ?? 1),
+                    Math.Max(1, diag.SpanLength ?? 1));
+
+                if (command.Json)
+                    jsonResults.Add(new { file, error = ToDiagnosticJsonPayload(diagnostic) });
+                else
+                    Console.Error.WriteLine(FormatToolDiagnostic(diagnostic));
+
+                return 1;
+            }
+        }
+
+        if (command.Json)
+            Console.WriteLine(JsonSerializer.Serialize(jsonResults, new JsonSerializerOptions { WriteIndented = true }));
+
+        if (command.Check && anyChanged)
+            return 1;
+
+        return 0;
+    }
+
+    private static void ValidateCfgsFile(string file)
+    {
+        VM vm = new();
+        _ = CfgsCompiler.CompileFile(
+            file,
+            loadPluginDll: vm.LoadPlugin,
+            namespaces: vm.Namespaces,
+            compilerVersion: Version);
+    }
+
+    private static IReadOnlyList<string> CollectCfgsFiles(string input)
+    {
+        string fullPath = Path.GetFullPath(input);
+        if (File.Exists(fullPath))
+            return string.Equals(Path.GetExtension(fullPath), ".cfs", StringComparison.OrdinalIgnoreCase)
+                ? [fullPath]
+                : [];
+
+        if (!Directory.Exists(fullPath))
+            return [];
+
+        return Directory
+            .EnumerateFiles(fullPath, "*.cfs", SearchOption.AllDirectories)
+            .Where(static p => !IsGeneratedOrBuildPath(p))
+            .OrderBy(static p => p, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsGeneratedOrBuildPath(string path)
+    {
+        string normalized = path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        string separator = Path.DirectorySeparatorChar.ToString();
+        return normalized.Contains($"{separator}bin{separator}", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains($"{separator}obj{separator}", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains($"{separator}dist{separator}", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains($"{separator}dist_release{separator}", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains($"{separator}.git{separator}", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains($"{separator}.vs{separator}", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FormatToolDiagnostic(CfgsToolDiagnostic diagnostic)
+        => $"{diagnostic.SourceFile}:{diagnostic.Line}:{diagnostic.Column}: {diagnostic.SeverityName} {diagnostic.Code}: {diagnostic.Message}";
+
+    private static object ToDiagnosticJsonPayload(CfgsToolDiagnostic diagnostic)
+        => new
+        {
+            code = diagnostic.Code,
+            severity = diagnostic.SeverityName,
+            message = diagnostic.Message,
+            source = diagnostic.SourceFile,
+            line = diagnostic.Line,
+            column = diagnostic.Column,
+            spanLength = diagnostic.SpanLength
+        };
+
+    private static void ApplyToolingConfig(string input, LintCliCommand command)
+    {
+        using JsonDocument? config = TryReadToolingConfig(input);
+        if (config is null)
+            return;
+
+        JsonElement tooling = config.RootElement.GetProperty("tooling");
+        if (!command.MaxLineLengthSet && TryGetToolingProperty(tooling, "maxLineLength", out JsonElement maxLineLength) && maxLineLength.TryGetInt32(out int max) && max > 0)
+            command.MaxLineLength = max;
+        if (!command.WarningsAsErrorsSet && TryGetToolingProperty(tooling, "warningsAsErrors", out JsonElement warningsAsErrors) && warningsAsErrors.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            command.WarningsAsErrors = warningsAsErrors.GetBoolean();
+        if (!command.AllowTabsSet && TryGetToolingProperty(tooling, "allowTabs", out JsonElement allowTabs) && allowTabs.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            command.AllowTabs = allowTabs.GetBoolean();
+        if (!command.IndentSizeSet && TryGetToolingProperty(tooling, "indentSize", out JsonElement indentSize) && indentSize.TryGetInt32(out int indent) && indent > 0)
+            command.IndentSize = indent;
+    }
+
+    private static void ApplyToolingConfig(string input, FormatCliCommand command)
+    {
+        using JsonDocument? config = TryReadToolingConfig(input);
+        if (config is null)
+            return;
+
+        JsonElement tooling = config.RootElement.GetProperty("tooling");
+        if (!command.IndentSizeSet && TryGetToolingProperty(tooling, "indentSize", out JsonElement indentSize) && indentSize.TryGetInt32(out int indent) && indent > 0)
+            command.IndentSize = indent;
+        if (!command.UseTabsSet && TryGetToolingProperty(tooling, "useTabs", out JsonElement useTabs) && useTabs.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            command.UseTabs = useTabs.GetBoolean();
+    }
+
+    private static JsonDocument? TryReadToolingConfig(string input)
+    {
+        string fullInput = Path.GetFullPath(input);
+        string? dir = Directory.Exists(fullInput) ? fullInput : Path.GetDirectoryName(fullInput);
+
+        while (!string.IsNullOrWhiteSpace(dir))
+        {
+            string manifestPath = Path.Combine(dir, CfgsPackageManager.ManifestFileName);
+            if (File.Exists(manifestPath))
+            {
+                try
+                {
+                    JsonDocument document = JsonDocument.Parse(File.ReadAllText(manifestPath), new JsonDocumentOptions
+                    {
+                        AllowTrailingCommas = true,
+                        CommentHandling = JsonCommentHandling.Skip
+                    });
+
+                    if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                        document.RootElement.TryGetProperty("tooling", out JsonElement tooling) &&
+                        tooling.ValueKind == JsonValueKind.Object)
+                        return document;
+
+                    document.Dispose();
+                    return null;
+                }
+                catch (JsonException)
+                {
+                    return null;
+                }
+                catch (IOException)
+                {
+                    return null;
+                }
+            }
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return null;
+    }
+
+    private static bool TryGetToolingProperty(JsonElement tooling, string name, out JsonElement value)
+        => tooling.TryGetProperty(name, out value);
 
     private static void LoadReplPluginsFromApplicationPath(VM replVm)
     {

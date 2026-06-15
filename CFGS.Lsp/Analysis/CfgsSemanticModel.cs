@@ -1294,6 +1294,9 @@ internal sealed class CfgsSemanticModelBuilder
         if (!seenPaths.Add(containerPath))
             return;
 
+        foreach (CfgsCompletionItem nativeItem in CfgsAnalyzer.TryGetNativePathCompletions(containerPath, _sources.DocumentText, _sources.DocumentOrigin))
+            items.TryAdd(nativeItem.Label, nativeItem);
+
         AddDynamicCompletionItems(containerPath, items);
 
         if (TryResolveByExactName(containerPath, out CfgsSymbol? exact))
@@ -2167,7 +2170,12 @@ internal sealed class CfgsSemanticModelBuilder
                     returnedAccessPaths.AddRange(accessPaths);
                 }
 
+                returnedAccessPaths.AddRange(TryResolveNativeReturnAccessPaths(callExpr.Target, scope));
+
                 return DistinctValues(returnedAccessPaths);
+
+            case MethodCallExpr methodCallExpr:
+                return TryResolveNativeMethodReturnAccessPaths(methodCallExpr, scope);
 
             case VarExpr varExpr:
                 List<string> varPaths = [];
@@ -2218,6 +2226,51 @@ internal sealed class CfgsSemanticModelBuilder
 
             default:
                 return [];
+        }
+    }
+
+    private IReadOnlyList<string> TryResolveNativeReturnAccessPaths(Expr? target, SemanticScope scope)
+    {
+        string? expressionPath = TryGetExpressionPath(target, scope);
+        if (string.IsNullOrWhiteSpace(expressionPath))
+            return [];
+
+        return CfgsAnalyzer.TryGetNativeReturnTypePaths(expressionPath!, _sources.DocumentText, _sources.DocumentOrigin);
+    }
+
+    private IReadOnlyList<string> TryResolveNativeMethodReturnAccessPaths(MethodCallExpr methodCallExpr, SemanticScope scope)
+    {
+        string? targetPath = TryGetExpressionPath(methodCallExpr.Target, scope);
+        if (string.IsNullOrWhiteSpace(targetPath))
+            return [];
+
+        return CfgsAnalyzer.TryGetNativeReturnTypePaths($"{targetPath}.{methodCallExpr.Method}", _sources.DocumentText, _sources.DocumentOrigin);
+    }
+
+    private string? TryGetExpressionPath(Expr? expr, SemanticScope scope)
+    {
+        switch (expr)
+        {
+            case VarExpr varExpr:
+                if (scope.TryGetResolvedAccessPaths(varExpr.Name, out IReadOnlyCollection<string> accessPaths) &&
+                    accessPaths.Count == 1)
+                {
+                    return accessPaths.First();
+                }
+
+                return varExpr.Name;
+
+            case GetFieldExpr getFieldExpr:
+                string? targetPath = TryGetExpressionPath(getFieldExpr.Target, scope);
+                return string.IsNullOrWhiteSpace(targetPath) ? null : $"{targetPath}.{getFieldExpr.Field}";
+
+            case IndexExpr indexExpr
+                when TryGetIndexMemberName(indexExpr.Index, out string? indexMemberName):
+                string? indexTargetPath = TryGetExpressionPath(indexExpr.Target, scope);
+                return string.IsNullOrWhiteSpace(indexTargetPath) ? null : $"{indexTargetPath}.{indexMemberName}";
+
+            default:
+                return null;
         }
     }
 
@@ -2449,6 +2502,12 @@ internal sealed class CfgsSemanticModelBuilder
 
             case ObjectInitExpr objectInitExpr:
                 return TryInferValueTypeQualifiedName(objectInitExpr.Target, scope);
+
+            case CallExpr callExpr:
+                return TryResolveNativeReturnAccessPaths(callExpr.Target, scope).FirstOrDefault();
+
+            case MethodCallExpr methodCallExpr:
+                return TryResolveNativeMethodReturnAccessPaths(methodCallExpr, scope).FirstOrDefault();
 
             case VarExpr varExpr:
                 if (scope.ResolveContextualQualifier(varExpr.Name) is string contextual)
@@ -3588,6 +3647,10 @@ internal sealed class CfgsSemanticModelBuilder
         private readonly Dictionary<string, string> _sourceCache = OperatingSystem.IsWindows()
             ? new(StringComparer.OrdinalIgnoreCase)
             : new(StringComparer.Ordinal);
+
+        public string DocumentOrigin => _documentOrigin;
+
+        public string DocumentText => _sourceCache[_documentOrigin];
 
         public SemanticSourceResolver(string documentUri, string documentOrigin, string documentText, IReadOnlyDictionary<string, string>? openDocumentSources)
         {

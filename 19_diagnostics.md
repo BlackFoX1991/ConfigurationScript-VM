@@ -71,6 +71,7 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS3000`-`CFGS3999`: runtime diagnostics.
 - `CFGS4000`-`CFGS4999`: import, module, and plugin diagnostics.
 - `CFGS5000`-`CFGS5999`: CFB and bytecode diagnostics.
+- `CFGS8000`-`CFGS8999`: linter, formatter, and source style diagnostics.
 - `CFGS9000`-`CFGS9999`: host and system diagnostics.
 
 ## Common Codes
@@ -103,7 +104,94 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS3004`: argument or call-shape error.
 - `CFGS4001`: import resolution error.
 - `CFGS5000`: CFB or bytecode artifact error.
+- `CFGS8000`: tooling input error.
+- `CFGS8001`: trailing whitespace.
+- `CFGS8002`: tab indentation warning.
+- `CFGS8003`: line length warning.
+- `CFGS8004`: excessive blank lines.
+- `CFGS8005`: missing final newline.
+- `CFGS8011`: unused local variable or parameter.
+- `CFGS8012`: unreachable statement after terminating control flow.
+- `CFGS8013`: top-level function is never called in the same file.
+- `CFGS8014`: async function does not await anything.
 - `CFGS9000`: host or system error.
+
+## Lint Mode
+
+Lint mode validates `.cfs` files and emits compiler diagnostics plus source style diagnostics.
+
+```powershell
+dotnet run --project CFGS_NE -- -lint .\script.cfs
+dotnet run --project CFGS_NE -- -lint .\src --json
+dotnet run --project CFGS_NE -- -lint .\src --fix
+```
+
+Text output uses this shape.
+
+```text
+script.cfs:3:18: warning CFGS8001: trailing whitespace
+[LINT] files=1, errors=0, warnings=1, info=0
+```
+
+JSON output uses a compact diagnostic array.
+
+```json
+[
+  {
+    "code": "CFGS8001",
+    "severity": "warning",
+    "message": "trailing whitespace",
+    "source": "script.cfs",
+    "line": 3,
+    "column": 18,
+    "spanLength": 1
+  }
+]
+```
+
+Warnings and errors return a non-zero process exit code. Informational diagnostics alone do not fail the command.
+
+`--fix` applies only safe source-style fixes and then lints the updated source again. It can remove trailing whitespace, collapse excessive blank lines, add a missing final newline, and convert leading tabs to spaces unless `--allow-tabs` is set. Semantic diagnostics such as `CFGS8011`-`CFGS8014` are reported but are not auto-fixed.
+
+Lint options may be set in the nearest `cfgs.json`:
+
+```json
+{
+  "tooling": {
+    "maxLineLength": 140,
+    "warningsAsErrors": false,
+    "allowTabs": false,
+    "indentSize": 4
+  }
+}
+```
+
+The CLI options `--max-line-length`, `--warnings-as-errors`, `--allow-tabs`, and `--indent` override those defaults.
+
+## Format Mode
+
+Format mode validates the file first, then normalizes indentation. It does not execute user code.
+
+```powershell
+dotnet run --project CFGS_NE -- -format .\script.cfs
+dotnet run --project CFGS_NE -- -format .\script.cfs --write
+dotnet run --project CFGS_NE -- -format .\src --check
+```
+
+`--write` updates files in place. `--check` returns a non-zero exit code when a file would change. `--json` emits per-file formatter results for tooling.
+
+Formatter defaults may also be set in `cfgs.json`:
+
+```json
+{
+  "tooling": {
+    "indentSize": 4,
+    "useTabs": false
+  }
+}
+```
+
+The CLI options `--indent`, `--tabs`, and `--spaces` override those defaults.
 
 ## Suggestions
 

@@ -1,6 +1,6 @@
 # Visual Studio Code and LSP
 
-This repository now contains a basic CFGS language server and a matching Visual Studio Code extension.
+This repository now contains a CFGS language server and a matching Visual Studio Code extension.
 
 ## Included Components
 
@@ -12,6 +12,8 @@ This repository now contains a basic CFGS language server and a matching Visual 
 ## Current Features
 
 - Syntax and compile diagnostics while editing `.cfs` files
+- Linter diagnostics through the CFGS CLI
+- Format Document support through the shared CFGS formatter
 - Document symbols
 - Go to definition for indexed top-level symbols, local bindings, class members reached through `this`, `type`, and `super`, and simple chained member access inferred from obvious constructors and aliases
 - Hover for indexed top-level symbols, local bindings, class members reached through `this`, `type`, and `super`, and simple chained member access inferred from obvious constructors and aliases
@@ -26,6 +28,12 @@ This repository now contains a basic CFGS language server and a matching Visual 
 - Quick fixes for common local import diagnostics such as missing `from` strings, missing local module files, and missing exports in local imported files
 - Signature help for functions and constructors
 - Keyword, symbol, namespace, and native namespace member completion
+- Import path completion for `.cfs`, `.dll`, `.cfb`, and directories inside import strings
+- Named import completion from exported `.cfs` module symbols in `import { ... } from "module.cfs"`
+- Native .NET interop completion for imported assembly aliases, namespaces, public types, constructors, enum values, and static members
+- Plugin metadata completion for imported plugin DLL namespace roots, namespace members, and registered builtins
+- Commands for `CFGS: Lint Current File`, `CFGS: Lint Workspace`, `CFGS: Format Current File`, and `CFGS: Restart Language Server`
+- Optional lint-on-save and lint-fix-on-save settings
 - Basic syntax highlighting and editor language configuration
 
 ## Current Analysis Path
@@ -85,16 +93,17 @@ By default the extension resolves the server in this order:
 After building the language server once, create an installable `.vsix` package with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File vscode-cfgs\scripts\package-vsix.ps1
+cd vscode-cfgs
+npm run package
 ```
 
 The package is written to:
 
 ```text
-artifacts/blackfox1991.cfgs-vscode-0.3.3.vsix
+vscode-cfgs/cfgs-vscode-0.5.0.vsix
 ```
 
-The packaged extension includes the built CFGS language server under `extension/server`, so it can start directly after installation as long as `dotnet` is available on the machine.
+The packaged extension includes the built CFGS language server under `extension/server` when `dist/Debug/net10.0/CFGS.Lsp.dll` exists before packaging. It can then start directly after installation as long as `dotnet` is available on the machine.
 
 ## Optional VS Code Settings
 
@@ -103,6 +112,10 @@ The extension exposes these settings if you want to launch the server differentl
 - `cfgs.server.command`
 - `cfgs.server.args`
 - `cfgs.server.cwd`
+- `cfgs.cli.command`
+- `cfgs.cli.args`
+- `cfgs.lint.onSave`
+- `cfgs.lint.fixOnSave`
 
 ## Notes
 
@@ -113,4 +126,6 @@ The extension exposes these settings if you want to launch the server differentl
 - Document highlights are intentionally document-local; workspace-wide symbol navigation still belongs to references and rename.
 - Semantic tokens reuse the same symbol model as navigation features, so semantic highlighting tracks imported and unsaved symbols consistently.
 - Quick fixes are intentionally conservative and currently target only reliable local import problems, not arbitrary compiler errors or remote/http imports.
+- Import path completion resolves paths from the current script location and normal CFGS import search locations. Plugin metadata completion loads imported plugin DLLs for descriptor discovery, so plugins should keep registration side effects minimal.
+- Native .NET completion is reflection-based and covers assembly namespaces, public types, constructors, enum values, static members, constructor result types, factory/member-call return types, and native instance members when the return type is visible in the imported assembly.
 - The extension does not require `npm install` because the client is plain JavaScript and uses only the built-in `vscode` API.

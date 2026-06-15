@@ -449,6 +449,7 @@ Diagnostic code ranges are:
 - `CFGS3000`-`CFGS3999` for runtime diagnostics
 - `CFGS4000`-`CFGS4999` for import, module, and plugin diagnostics
 - `CFGS5000`-`CFGS5999` for CFB and bytecode diagnostics
+- `CFGS8000`-`CFGS8999` for linter, formatter, and source style diagnostics
 - `CFGS9000`-`CFGS9999` for host/system diagnostics
 
 CLI diagnostics SHOULD preserve the original category and message while prefixing the stable diagnostic code.
@@ -513,6 +514,14 @@ The host MAY support a project manifest named `cfgs.json` and a lockfile named `
 Check mode is enabled with `-check`, `--check`, or `check`. It validates a source `.cfs` file by compiling it and validates a `.cfb` file by loading the binary artifact. Check mode MUST NOT execute the script.
 
 When check mode is combined with `--json`, successful checks emit an empty JSON diagnostic array and failed checks emit a JSON diagnostic array.
+
+Lint mode is enabled with `-lint`, `--lint`, or `lint`. It validates `.cfs` source files without executing them and MAY add source style diagnostics such as trailing whitespace, indentation, blank-line, final-newline, and line-length diagnostics. It MAY also add conservative AST diagnostics such as unused locals, unreachable statements, top-level functions that are never called in the same file, and async functions without await expressions. Lint mode MAY accept a file or a directory. Directory linting discovers `.cfs` files recursively while ignoring common build output directories.
+
+Lint fix mode is enabled with `--fix`. It MUST only apply safe source-style changes that do not require semantic rewrites, such as trimming trailing whitespace, normalizing excessive blank lines, converting leading tabs according to the configured indentation policy, and adding a final newline.
+
+Format mode is enabled with `-format`, `--format`, or `format`. It validates `.cfs` source files before applying formatting. The formatter MUST NOT execute user code. A conforming formatter MAY start with indentation and spacing normalization and expand toward deeper AST-aware formatting over time. `--check` MUST report whether formatting would change files without writing them.
+
+Tooling defaults MAY be read from the nearest `cfgs.json` `tooling` object. Supported defaults include line length, warning promotion, tab policy, indentation size, and formatter tab usage. Explicit CLI flags MUST override manifest defaults.
 
 The REPL evaluates submitted snippets in a shared VM session. It preserves global variable state and plugin registrations across snippets while replacing snippet-local bytecode and function declarations for each submission.
 

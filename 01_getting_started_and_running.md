@@ -14,9 +14,8 @@ If you want the codebase-level structure behind that implementation, continue wi
 - `CFGS.StandardLibrary` contains the standard builtins and intrinsics.
 - `CFGS.Web.Http` contains the `http` namespace and the built in HTTP server handle.
 - `CFGS.Microsoft.SQL` contains SQL support.
-- `Documentation` contains the German documentation.
-- `documentation_en` contains the English documentation.
-- `CFGS_NE/Samples` and `CFGS_NE/_edgecases` are strong references for real language usage.
+- The root `*.md` files contain the current English documentation set.
+- `CFGS_NE/Samples` and `CFGS_NE/Edgecases` are strong references for real language usage.
 - `14_internal_architecture.md` documents the productive parser, compiler, VM, and LSP architecture.
 
 ## Building the Project
@@ -86,6 +85,8 @@ The built in REPL help also describes these interactions.
 - `-di`, `-debugger`, or `--debugger` starts the interactive VM debugger.
 - `-check <file.cfs|file.cfb>`, `--check <file.cfs|file.cfb>`, or `check <file.cfs|file.cfb>` validates a source or CFB file without running it.
 - `--json` with `-check` emits diagnostics as a JSON array for tools and CI.
+- `-lint <file-or-folder>`, `--lint <file-or-folder>`, or `lint <file-or-folder>` runs compile validation plus style diagnostics for `.cfs` files.
+- `-format <file-or-folder>`, `--format <file-or-folder>`, or `format <file-or-folder>` formats `.cfs` files.
 - `init` creates a `cfgs.json` package manifest in the current project.
 - `install <plugin.dll>` adds a local plugin dependency and restores it.
 - `restore` reads `cfgs.json`, copies plugin artifacts into `.cfgs/plugins`, and updates `cfgs.lock.json`.
@@ -100,6 +101,44 @@ In debug mode the CLI writes a `log_file.log` into the current working directory
 In interactive debugger mode the VM stops before instructions and accepts commands such as `step`, `next`, `continue`, `break`, `locals`, `globals`, `stack`, `callstack`, and `print`. For details, see [Debugging CFGS Scripts](17_debugging.md).
 For diagnostic codes, source spans, and machine-readable check output, see [Diagnostics and Error Codes](19_diagnostics.md).
 For `cfgs.json`, lockfiles, and restore/install workflows, see [Package and Dependency Management](20_package_dependency_management.md).
+
+## Linting and Formatting
+
+Use the linter to validate source files without executing them and to catch common style issues.
+
+```powershell
+dotnet run --project CFGS_NE -- -lint .\script.cfs
+dotnet run --project CFGS_NE -- -lint .\src --json
+dotnet run --project CFGS_NE -- -lint .\src --fix
+```
+
+The linter checks compiler diagnostics, trailing whitespace, tab indentation, excessive blank lines, missing final newlines, long lines, unused locals and parameters, unreachable statements, top-level functions that are never called in the same file, and async functions that do not await anything. Warnings produce a non-zero exit code so the command can be used in CI. `--warnings-as-errors` promotes style warnings to errors in the diagnostic payload.
+
+`--fix` applies safe source-style fixes before reporting the final diagnostics: trailing whitespace is removed, excessive blank lines are collapsed, leading tabs are converted to spaces unless `--allow-tabs` is set, and the final newline is added when missing. Use `--max-line-length <n>` to change the line length hint and `--indent <n>` to control tab-to-space conversion.
+
+Use the formatter to normalize indentation.
+
+```powershell
+dotnet run --project CFGS_NE -- -format .\script.cfs
+dotnet run --project CFGS_NE -- -format .\script.cfs --write
+dotnet run --project CFGS_NE -- -format .\src --check
+```
+
+Without `--write` or `--check`, formatting a single file prints the formatted source to stdout. Formatting a folder requires `--write` or `--check`. `--check` returns a non-zero exit code when at least one file would change. Use `--indent <n>` to choose the space width and `--tabs` to indent with tabs.
+
+Projects may configure tooling defaults in the nearest `cfgs.json` through a `tooling` object. CLI flags always override the manifest.
+
+```json
+{
+  "tooling": {
+    "maxLineLength": 140,
+    "warningsAsErrors": false,
+    "allowTabs": false,
+    "indentSize": 4,
+    "useTabs": false
+  }
+}
+```
 
 ## Working Directory During Execution
 
