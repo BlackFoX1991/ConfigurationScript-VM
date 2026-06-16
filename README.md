@@ -32,6 +32,7 @@ If you are opening CFGS for the first time, this is the best reading order.
 19. [Diagnostics and Error Codes](19_diagnostics.md)
 20. [Package and Dependency Management](20_package_dependency_management.md)
 21. [Native .NET Interop](21_native_dotnet_interop.md)
+22. [Embedding CFGS in .NET Applications](22_embedding_api.md)
 
 ## Complete Feature Index
 
@@ -57,6 +58,7 @@ The following topics are covered completely across the English documentation set
 - Plugin development. `IVmPlugin`. `INamespaceRegistry`. `NamespaceDescriptor`. `NativeCallOptions`. `BuiltinDescriptor`. `IntrinsicDescriptor`. Attribute based registration. `BuiltinAttribute`. `IntrinsicAttribute`. Packaging and importing.
 - Package management. `cfgs.json`. `cfgs.lock.json`. Local plugin install. Restore into `.cfgs/plugins`. Reproducible plugin hashes.
 - Native .NET interop. `import native`. Namespace and type access. Constructors through `.new`. Static and instance member access. CFB-safe assembly references.
+- Embedding API. Referencing the CFGS assembly from .NET, compiling source, files, and CFB artifacts, running top-level code, reading and writing globals, injecting host services, invoking functions and script members, constructing script classes, typed host conversions, permission controls, and preloading plugins.
 - Tooling. `-check`, `-lint`, and `-format` for syntax validation, style and semantic lint diagnostics, `--fix`, JSON output, CI checks, manifest-driven tooling defaults, and automatic indentation.
 - Language specification. Normative processing model, lexical rules, scoping, values, expressions, OOP, modules, async, errors, CLI execution, CFB artifacts, debugging, and compatibility rules.
 

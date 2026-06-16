@@ -46,7 +46,7 @@ namespace CFGS_VM.VMCore
         /// <param name="debugging">The debugging<see cref="bool"/></param>
         /// <param name="lastPos">The lastPos<see cref="int"/></param>
         /// <returns>The <see cref="RunStopReason"/></returns>
-        private RunStopReason RunUntilAwaitOrHalt(bool debugging = false, int lastPos = 0, int minRouteCallDepth = 0)
+        private RunStopReason RunUntilAwaitOrHalt(bool debugging = false, int lastPos = 0, int minRouteCallDepth = 0, CancellationToken ct = default)
         {
             if (_program is null || _program.Count == 0)
                 return RunStopReason.Halted;
@@ -64,6 +64,8 @@ namespace CFGS_VM.VMCore
 
                 while (_ip < _program.Count)
                 {
+                    ct.ThrowIfCancellationRequested();
+
                     try
                     {
                         Instruction instr = _program[_ip];
@@ -230,7 +232,7 @@ namespace CFGS_VM.VMCore
             {
                 ct.ThrowIfCancellationRequested();
 
-                RunStopReason reason = RunUntilAwaitOrHalt(debugging, startIp);
+                RunStopReason reason = RunUntilAwaitOrHalt(debugging, startIp, ct: ct);
                 if (reason == RunStopReason.Halted)
                     return;
 

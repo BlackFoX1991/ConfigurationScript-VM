@@ -239,6 +239,10 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public static bool AllowFileIO { get; set; } = true;
 
+        public bool AllowNativeInterop { get; set; } = true;
+
+        public bool AllowPluginLoading { get; set; } = true;
+
         /// <summary>
         private bool _isDebugging;
 
@@ -362,7 +366,12 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.PUSH_CONST:
                     if (instr.Operand is Interop.NativeAssemblyReference nativeAssemblyReference)
+                    {
+                        if (!AllowNativeInterop)
+                            throw new VMException("Runtime error: native .NET interop is disabled for this VM.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
                         _stack.Push(Interop.NativeInterop.LoadAssembly(nativeAssemblyReference, NativeAssemblyBaseDirectory));
+                    }
                     else
                         _stack.Push(instr.Operand!);
                     break;

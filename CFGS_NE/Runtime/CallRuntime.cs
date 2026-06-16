@@ -15,7 +15,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Invokes a named top-level CFGS function after the module body has finished loading.
         /// </summary>
-        public async Task<object?> InvokeGlobalFunctionAsync(string name, List<object>? args = null, string? originFile = null)
+        public async Task<object?> InvokeGlobalFunctionAsync(string name, List<object>? args = null, string? originFile = null, CancellationToken ct = default)
         {
             if (!Functions.TryGetValue(name, out FunctionInfo? func))
             {
@@ -42,19 +42,19 @@ namespace CFGS_VM.VMCore
             if (TryStartHotAsyncCall(closure, args, receiver: null, accessType: null, syntheticCall, out Task<object?> startedTask))
                 return await startedTask.ConfigureAwait(false);
 
-            return InvokeClosureSync(closure, args, syntheticCall);
+            return InvokeClosureSync(closure, args, syntheticCall, ct: ct);
         }
 
         /// <summary>
         /// Invokes a CFGS closure synchronously from within an intrinsic/builtin.
         /// </summary>
-        public object? InvokeClosureSync(Closure closure, List<object> args, Instruction instr)
-            => InvokeClosureSync(closure, args, instr, receiver: null, accessType: null);
+        public object? InvokeClosureSync(Closure closure, List<object> args, Instruction instr, CancellationToken ct = default)
+            => InvokeClosureSync(closure, args, instr, receiver: null, accessType: null, ct);
 
         /// <summary>
         /// Invokes a CFGS closure synchronously with an optional implicit receiver.
         /// </summary>
-        public object? InvokeClosureSync(Closure closure, List<object> args, Instruction instr, object? receiver, StaticInstance? accessType)
+        public object? InvokeClosureSync(Closure closure, List<object> args, Instruction instr, object? receiver, StaticInstance? accessType, CancellationToken ct = default)
         {
             if (_program is null || _program.Count == 0)
                 throw new VMException("Cannot invoke closure: no program loaded.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -64,7 +64,7 @@ namespace CFGS_VM.VMCore
             _scopes.Add(callEnv);
             _callStack.Push(new CallFrame(_program.Count, callerDepth, receiver, accessType, false));
 
-            RunStopReason reason = RunUntilAwaitOrHalt(false, closure.Address, _callStack.Count);
+            RunStopReason reason = RunUntilAwaitOrHalt(false, closure.Address, _callStack.Count, ct);
 
             if (reason == RunStopReason.AwaitPending)
                 throw new VMException("Runtime error: callback function must not use await.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);

@@ -29,13 +29,23 @@ namespace CFGS_VM.VMCore
         /// Loads every plugin DLL in the supplied directory into the VM binding registries.
         /// </summary>
         public void LoadPluginsFrom(string directory)
-            => PluginLoader.LoadDirectory(directory, _builtins, _intrinsics, _namespaces);
+        {
+            if (!AllowPluginLoading)
+                throw new InvalidOperationException("Plugin loading is disabled for this VM.");
+
+            PluginLoader.LoadDirectory(directory, _builtins, _intrinsics, _namespaces);
+        }
 
         /// <summary>
         /// Loads a single plugin DLL into the VM binding registries.
         /// </summary>
         public void LoadPlugin(string dllPath)
-            => PluginLoader.LoadDll(dllPath, _builtins, _intrinsics, _namespaces);
+        {
+            if (!AllowPluginLoading)
+                throw new InvalidOperationException("Plugin loading is disabled for this VM.");
+
+            PluginLoader.LoadDll(dllPath, _builtins, _intrinsics, _namespaces);
+        }
 
         /// <summary>
         /// Tries to bind a builtin by name.
