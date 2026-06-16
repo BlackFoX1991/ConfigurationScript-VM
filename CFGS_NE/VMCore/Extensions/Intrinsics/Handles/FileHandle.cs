@@ -130,6 +130,19 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
             }
         }
 
+        private void ConsumeLineFeedAfterCarriageReturn()
+        {
+            if (_pendingChar is not null || FS.Position >= FS.Length)
+                return;
+
+            long position = FS.Position;
+            int next = FS.ReadByte();
+            if (next == '\n')
+                return;
+
+            FS.Position = position;
+        }
+
         public void Write(string s) { Writer.Write(s); }
         public void Writeln(string s) { Writer.WriteLine(s); }
         public string Read(int count)
@@ -160,6 +173,12 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Handles
                 {
                     if (sb.Length > 0 && sb[^1] == '\r')
                         sb.Length--;
+                    return sb.ToString();
+                }
+
+                if (ch.Value == '\r')
+                {
+                    ConsumeLineFeedAfterCarriageReturn();
                     return sb.ToString();
                 }
 

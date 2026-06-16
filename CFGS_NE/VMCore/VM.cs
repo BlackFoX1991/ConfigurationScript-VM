@@ -467,6 +467,9 @@ namespace CFGS_VM.VMCore
                 case OpCode.NEW_DICT:
                     return HandleNewDictionaryInstruction(instr);
 
+                case OpCode.NEW_DICT_INTERNAL:
+                    return HandleNewDictionaryInstruction(instr, allowReservedIntrinsicKeys: true);
+
                 case OpCode.NEW_ENUM:
                     {
                         if (instr.Operand is null) break;

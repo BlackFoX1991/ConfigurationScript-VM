@@ -439,5 +439,10 @@
         /// Defines the YIELD
         /// </summary>
         YIELD,
+
+        /// <summary>
+        /// Defines the NEW_DICT_INTERNAL
+        /// </summary>
+        NEW_DICT_INTERNAL,
     }
 }

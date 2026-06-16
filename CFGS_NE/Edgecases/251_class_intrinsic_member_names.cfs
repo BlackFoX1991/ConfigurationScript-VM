@@ -1,0 +1,82 @@
+import "edge_assert.cfs";
+
+edge_begin("class_intrinsic_member_names");
+
+class FieldBox() {
+    var get = 10;
+    var values = 20;
+
+    func getValue() {
+        return this.get;
+    }
+
+    func valuesValue() {
+        return this.values;
+    }
+}
+
+class ConstFieldBox() {
+    const values = 25;
+
+    func valuesValue() {
+        return this.values;
+    }
+}
+
+class MethodBox() {
+    func get() {
+        return 30;
+    }
+
+    func values() {
+        return 40;
+    }
+}
+
+class StaticFieldBox() {
+    static var get = 50;
+    static var values = 60;
+
+    static func getStaticValue() {
+        return type.get;
+    }
+
+    static func valuesStaticValue() {
+        return type.values;
+    }
+}
+
+class StaticConstFieldBox() {
+    static const values = 65;
+
+    static func valuesStaticValue() {
+        return type.values;
+    }
+}
+
+class StaticMethodBox() {
+    static func getStatic() {
+        return 70;
+    }
+
+    static func valuesStatic() {
+        return 80;
+    }
+}
+
+var fieldBox = new FieldBox();
+var constFieldBox = new ConstFieldBox();
+var methodBox = new MethodBox();
+
+edge_eq("instance_field_get", fieldBox.getValue(), 10);
+edge_eq("instance_field_values", fieldBox.valuesValue(), 20);
+edge_eq("instance_const_field_values", constFieldBox.valuesValue(), 25);
+edge_eq("instance_method_get", methodBox.get(), 30);
+edge_eq("instance_method_values", methodBox.values(), 40);
+edge_eq("static_field_get", StaticFieldBox.getStaticValue(), 50);
+edge_eq("static_field_values", StaticFieldBox.valuesStaticValue(), 60);
+edge_eq("static_const_field_values", StaticConstFieldBox.valuesStaticValue(), 65);
+edge_eq("static_method_get", StaticMethodBox.getStatic(), 70);
+edge_eq("static_method_values", StaticMethodBox.valuesStatic(), 80);
+
+edge_finish("class_intrinsic_member_names");

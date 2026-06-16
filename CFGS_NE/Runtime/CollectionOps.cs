@@ -304,13 +304,17 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// The NormalizeDictionaryWriteKey
         /// </summary>
-        private string NormalizeDictionaryWriteKey(Dictionary<string, object> dict, object? idxObj, Instruction instr)
+        private string NormalizeDictionaryWriteKey(
+            Dictionary<string, object> dict,
+            object? idxObj,
+            Instruction instr,
+            bool allowReservedIntrinsicKeys = false)
         {
             string key = idxObj?.ToString() ?? string.Empty;
             if (key.Length == 0)
                 throw new VMException("Runtime error: dictionary key cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            if (IsReservedIntrinsicName(dict, key))
+            if (!allowReservedIntrinsicKeys && IsReservedIntrinsicName(dict, key))
                 throw new VMException($"Runtime error: key '{key}' is reserved for dictionary intrinsics", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             return key;
@@ -521,7 +525,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Handles the NEW_DICT opcode.
         /// </summary>
-        private StepResult HandleNewDictionaryInstruction(Instruction instr)
+        private StepResult HandleNewDictionaryInstruction(Instruction instr, bool allowReservedIntrinsicKeys = false)
         {
             if (instr.Operand is null)
                 return StepResult.Next;
@@ -541,7 +545,7 @@ namespace CFGS_VM.VMCore
             Dictionary<string, object> dict = CaptureMutableCollectionOwnership(new Dictionary<string, object>(dcount));
             for (int i = 0; i < dcount; i++)
             {
-                string key = NormalizeDictionaryWriteKey(dict, pairs[i].key, instr);
+                string key = NormalizeDictionaryWriteKey(dict, pairs[i].key, instr, allowReservedIntrinsicKeys);
                 dict[key] = pairs[i].val;
             }
 

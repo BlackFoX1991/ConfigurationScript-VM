@@ -92,7 +92,7 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.PUSH_STR, property.Name, property.Line, property.Col, property.OriginFile));
                 _insns.Add(new Instruction(OpCode.PUSH_CONST, CreateRuntimePropertyDescriptor(property), property.Line, property.Col, property.OriginFile));
             }
-            _insns.Add(new Instruction(OpCode.NEW_DICT, propertyList.Count, node.Line, node.Col, node.OriginFile));
+            _insns.Add(new Instruction(OpCode.NEW_DICT_INTERNAL, propertyList.Count, node.Line, node.Col, node.OriginFile));
             _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, node.Line, node.Col, node.OriginFile));
         }
 
@@ -318,7 +318,7 @@ namespace CFGS_VM.VMCore
                     _insns.Add(new Instruction(OpCode.PUSH_STR, memberName, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_INT, visCode, cds.Line, cds.Col, cds.OriginFile));
                 }
-                _insns.Add(new Instruction(OpCode.NEW_DICT, instanceVisibilityEntries.Count, cds.Line, cds.Col, cds.OriginFile));
+                _insns.Add(new Instruction(OpCode.NEW_DICT_INTERNAL, instanceVisibilityEntries.Count, cds.Line, cds.Col, cds.OriginFile));
                 _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
 
                 List<(string Name, int Code)> staticVisibilityEntries = EnumerateDeclaredStaticVisibilityEntries(cds);
@@ -329,7 +329,7 @@ namespace CFGS_VM.VMCore
                     _insns.Add(new Instruction(OpCode.PUSH_STR, memberName, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_INT, visCode, cds.Line, cds.Col, cds.OriginFile));
                 }
-                _insns.Add(new Instruction(OpCode.NEW_DICT, staticVisibilityEntries.Count, cds.Line, cds.Col, cds.OriginFile));
+                _insns.Add(new Instruction(OpCode.NEW_DICT_INTERNAL, staticVisibilityEntries.Count, cds.Line, cds.Col, cds.OriginFile));
                 _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
 
                 EmitPropertyDescriptorMap("__props_inst", cds.Properties, cds);
@@ -344,7 +344,7 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(OpCode.PUSH_STR, cfName, cds.Line, cds.Col, cds.OriginFile));
                         _insns.Add(new Instruction(OpCode.PUSH_INT, 1, cds.Line, cds.Col, cds.OriginFile));
                     }
-                    _insns.Add(new Instruction(OpCode.NEW_DICT, cds.ConstFields.Count, cds.Line, cds.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.NEW_DICT_INTERNAL, cds.ConstFields.Count, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
                 }
 
@@ -357,7 +357,7 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(OpCode.PUSH_STR, cfName, cds.Line, cds.Col, cds.OriginFile));
                         _insns.Add(new Instruction(OpCode.PUSH_INT, 1, cds.Line, cds.Col, cds.OriginFile));
                     }
-                    _insns.Add(new Instruction(OpCode.NEW_DICT, cds.StaticConstFields.Count, cds.Line, cds.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.NEW_DICT_INTERNAL, cds.StaticConstFields.Count, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
                 }
 

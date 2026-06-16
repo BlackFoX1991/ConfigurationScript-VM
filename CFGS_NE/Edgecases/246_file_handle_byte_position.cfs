@@ -69,4 +69,26 @@ edge_eq("mixed_position_after_text_read", mixedReader.position(), 1);
 edge_eq("mixed_byte_after_text_read", mixedReader.readByte(), 66);
 mixedReader.close();
 
+var crPath = "_tmp_file_handle_readline_cr.bin";
+var crWriter = fopen(crPath, 2);
+crWriter.writeBytes([65, 13, 66]);
+crWriter.close();
+
+var crReader = fopen(crPath, 0);
+edge_eq("readline_cr_only_first", crReader.readline(), "A");
+edge_eq("readline_cr_only_position", crReader.position(), 2);
+edge_eq("readline_cr_only_second", crReader.readline(), "B");
+crReader.close();
+
+var crlfPath = "_tmp_file_handle_readline_crlf.bin";
+var crlfWriter = fopen(crlfPath, 2);
+crlfWriter.writeBytes([65, 13, 10, 66]);
+crlfWriter.close();
+
+var crlfReader = fopen(crlfPath, 0);
+edge_eq("readline_crlf_first", crlfReader.readline(), "A");
+edge_eq("readline_crlf_position", crlfReader.position(), 3);
+edge_eq("readline_crlf_second", crlfReader.readline(), "B");
+crlfReader.close();
+
 edge_finish("246_file_handle_byte_position");
