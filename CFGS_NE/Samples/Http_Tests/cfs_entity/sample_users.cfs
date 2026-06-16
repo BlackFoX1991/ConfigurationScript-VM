@@ -1,0 +1,45 @@
+import "entity.cfs";
+
+use Cfs.Entity;
+
+export func user_model() {
+    return new EntityModel("dbo", "CfgsEntityUsers")
+        .key("Id", "Id", "INT", true)
+        .required("Name", "Name", "NVARCHAR(120)")
+        .required("Email", "Email", "NVARCHAR(256)")
+        .column("IsActive", "IsActive", "BIT", false, "1")
+        .column("CreatedAtUtc", "CreatedAtUtc", "DATETIME2", false, "SYSUTCDATETIME()");
+}
+
+export async func run_user_sample(connection_string) {
+    var users_model = user_model();
+    var db = new DbContext(connection_string);
+
+    await db.open();
+    await db.migrate_async([users_model]);
+
+    var users = db.entity_set(users_model);
+
+    var entry = users.add({
+        "Name": "Ada Lovelace",
+        "Email": "ada@example.test",
+        "IsActive": true
+    });
+
+    await db.save_changes_async();
+
+    var ada = await users.find_async(entry.get("Id"));
+    entry.set_value("Email", "ada.lovelace@example.test");
+    await db.save_changes_async();
+
+    var active = await users.query()
+        .where_eq("IsActive", true)
+        .order_by("Id", SortDirection["Desc"])
+        .top(20)
+        .to_list_async();
+
+    return {
+        "created": ada,
+        "active": active
+    };
+}

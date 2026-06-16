@@ -1,0 +1,1209 @@
+import "../dist/Debug/net10.0/CFGS.Microsoft.SQL.dll";
+import "../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
+
+namespace Cfs.Entity {
+    enum EntityState {
+        Unchanged = 0,
+        Added = 1,
+        Modified = 2,
+        Deleted = 3
+    }
+
+    enum SortDirection {
+        Asc = 0,
+        Desc = 1
+    }
+
+    interface IEntityContext {
+        async func open();
+        async func save_changes_async();
+    }
+
+    interface IEntitySet {
+        func query();
+        async func all_async();
+        async func find_async(id);
+    }
+
+    interface IEntityEntry {
+        func get(prop);
+        func set_value(prop, value);
+        func mark_deleted();
+    }
+
+    interface IEntityMigration {
+        func create_table_sql();
+    }
+
+    class SqlName() {
+        static func quote(name) {
+            if (name == null || str(name).trim() == "") {
+                throw "SQL identifier must not be empty.";
+            }
+            return "[" + str(name).replace("]", "]]") + "]";
+        }
+
+        static func table(schema, table) {
+            return SqlName.quote(schema == null || str(schema).trim() == "" ? "dbo" : schema) + "." + SqlName.quote(table);
+        }
+
+        static func literal(value) {
+            if (value == null) { return "NULL"; }
+            return "N'" + str(value).replace("'", "''") + "'";
+        }
+
+        static func join(values, separator) {
+            var result = "";
+            var i = 0;
+            while (i < len(values)) {
+                if (i > 0) { result = result + separator; }
+                result = result + values[i];
+                i = i + 1;
+            }
+            return result;
+        }
+    }
+
+    class EntityModel(schema, table) : IEntityMigration {
+        public property schema { get; private set; } = "dbo";
+        public property table { get; private set; } = "";
+        public property columns { get; private set; } = [];
+        public property by_property { get; private set; } = {};
+        public property key_property { get; private set; } = null;
+        public property key_column { get; private set; } = null;
+
+        public property full_name {
+            get { return SqlName.table(this.schema, this.table); }
+        }
+
+        func init(schema, table) {
+            this.schema = schema == null || str(schema).trim() == "" ? "dbo" : str(schema);
+            this.table = str(table);
+        }
+
+        func key(prop, column = null, sql_type = "INT", identity = true) {
+            var col = this._add_column(prop, column, sql_type, false, false, null);
+            col["key"] = true;
+            col["identity"] = identity == true;
+            this.key_property = col["property"];
+            this.key_column = col["column"];
+            return this;
+        }
+
+        func column(prop, column = null, sql_type = "NVARCHAR(MAX)", nullable = true, default_value = null) {
+            this._add_column(prop, column, sql_type, nullable, false, default_value);
+            return this;
+        }
+
+        func required(prop, column = null, sql_type = "NVARCHAR(MAX)", default_value = null) {
+            return this.column(prop, column, sql_type, false, default_value);
+        }
+
+        func computed(prop, column = null, sql_type = "NVARCHAR(MAX)") {
+            this._add_column(prop, column, sql_type, true, true, null);
+            return this;
+        }
+
+        private func _add_column(prop, column, sql_type, nullable, read_only, default_value) {
+            var prop_name = str(prop);
+            if (prop_name.trim() == "") { throw "Entity property must not be empty."; }
+            if (this.by_property[prop_name] != null) { throw "Entity property already exists: " + prop_name; }
+
+            var col = {
+                "property": prop_name,
+                "column": column == null || str(column).trim() == "" ? prop_name : str(column),
+                "sql_type": sql_type == null || str(sql_type).trim() == "" ? "NVARCHAR(MAX)" : str(sql_type),
+                "nullable": nullable == true,
+                "read_only": read_only == true,
+                "default": default_value,
+                "key": false,
+                "identity": false
+            };
+
+            this.columns[] = col;
+            this.by_property[prop_name] = col;
+            return col;
+        }
+
+        func column_for(prop) {
+            var col = this.by_property[str(prop)];
+            if (col == null) { throw "Unknown entity property: " + str(prop); }
+            return col;
+        }
+
+        func insert_columns() {
+            var result = [];
+            foreach (var col in this.columns) {
+                if (col["read_only"] != true && col["identity"] != true) {
+                    result[] = col;
+                }
+            }
+            return result;
+        }
+
+        func update_columns() {
+            var result = [];
+            foreach (var col in this.columns) {
+                if (col["read_only"] != true && col["key"] != true && col["identity"] != true) {
+                    result[] = col;
+                }
+            }
+            return result;
+        }
+
+        func select_list(properties = null) {
+            var cols = [];
+            if (properties == null) {
+                foreach (var col in this.columns) {
+                    cols[] = SqlName.quote(col["column"]) + " AS " + SqlName.quote(col["property"]);
+                }
+            } else {
+                foreach (var selected_prop in properties) {
+                    var selected = this.column_for(selected_prop);
+                    cols[] = SqlName.quote(selected["column"]) + " AS " + SqlName.quote(selected["property"]);
+                }
+            }
+
+            return len(cols) == 0 ? "*" : SqlName.join(cols, ", ");
+        }
+
+        func create_table_sql() {
+            var parts = [];
+            foreach (var col in this.columns) {
+                var line = SqlName.quote(col["column"]) + " " + col["sql_type"];
+                if (col["identity"] == true) { line = line + " IDENTITY(1,1)"; }
+                line = line + (col["nullable"] == true && col["key"] != true ? " NULL" : " NOT NULL");
+                if (col["default"] != null) { line = line + " DEFAULT " + col["default"]; }
+                if (col["key"] == true) {
+                    line = line + " CONSTRAINT " + SqlName.quote("PK_" + this.table) + " PRIMARY KEY";
+                }
+                parts[] = line;
+            }
+
+            return "IF OBJECT_ID(" + SqlName.literal(this.schema + "." + this.table) + ", N'U') IS NULL BEGIN CREATE TABLE " +
+                this.full_name + " (" + SqlName.join(parts, ", ") + "); END";
+        }
+    }
+
+    class EntityEntry(model, data, state) : IEntityEntry {
+        public property model { get; private set; } = null;
+        public property data { get; private set; } = {};
+        public property original_data { get; private set; } = {};
+        public property state { get; set; } = EntityState["Unchanged"];
+
+        func init(model, data, state) {
+            this.model = model;
+            this.data = data == null ? {} : data;
+            this.original_data = EntityMaps.copy(this.data);
+            this.state = state == null ? EntityState["Unchanged"] : state;
+        }
+
+        func get(prop) {
+            return this.data[str(prop)];
+        }
+
+        func set_value(prop, value) {
+            this.data[str(prop)] = value;
+            if (this.state == EntityState["Unchanged"]) {
+                this.state = EntityState["Modified"];
+            }
+            return this;
+        }
+
+        func mark_deleted() {
+            this.state = EntityState["Deleted"];
+            return this;
+        }
+    }
+
+    class EntityMaps() {
+        static func copy(values) {
+            var result = {};
+            if (values == null) { return result; }
+            foreach (var k, v in values) {
+                result[k] = v;
+            }
+            return result;
+        }
+
+        static func key_value(model, values) {
+            if (model.key_property == null) {
+                throw "Entity model has no key: " + model.table;
+            }
+            return values[model.key_property];
+        }
+
+        static func params_for_columns(columns, values, start_index = 0) {
+            var result = {
+                "sql": [],
+                "params": {},
+                "next": start_index
+            };
+
+            var i = start_index;
+            foreach (var col in columns) {
+                var name = "p" + str(i);
+                result["sql"][] = "@" + name;
+                result["params"][name] = values[col["property"]];
+                i = i + 1;
+            }
+
+            result["next"] = i;
+            return result;
+        }
+    }
+
+    class EntityQuery(source_set) {
+        public property source_set { get; private set; } = null;
+        public property filters { get; private set; } = [];
+        public property parameters { get; private set; } = {};
+        public property param_index { get; set; } = 0;
+        public property order_sql { get; set; } = "";
+        public property take_count { get; set; } = null;
+        public property selected_properties { get; set; } = null;
+
+        func init(source_set) {
+            this.source_set = source_set;
+        }
+
+        func select(properties) {
+            this.selected_properties = properties;
+            return this;
+        }
+
+        func top(count) {
+            this.take_count = count;
+            return this;
+        }
+
+        func where_sql(sql_text, params = null) {
+            if (sql_text == null || str(sql_text).trim() == "") {
+                return this;
+            }
+
+            this.filters[] = "(" + str(sql_text) + ")";
+            if (params != null) {
+                foreach (var k, v in params) {
+                    this.parameters[k] = v;
+                }
+            }
+            return this;
+        }
+
+        func where_eq(prop, value) {
+            var col = this.source_set.model.column_for(prop);
+            var name = this._next_param(value);
+            this.filters[] = SqlName.quote(col["column"]) + " = @" + name;
+            return this;
+        }
+
+        func where_like(prop, value) {
+            var col = this.source_set.model.column_for(prop);
+            var name = this._next_param(value);
+            this.filters[] = SqlName.quote(col["column"]) + " LIKE @" + name;
+            return this;
+        }
+
+        func order_by(prop, direction = SortDirection["Asc"]) {
+            var col = this.source_set.model.column_for(prop);
+            this.order_sql = " ORDER BY " + SqlName.quote(col["column"]) + (direction == SortDirection["Desc"] || direction == true ? " DESC" : " ASC");
+            return this;
+        }
+
+        async func to_list_async() {
+            await this.source_set.context.open();
+            return await this.source_set.context.conn.query_async(this.to_sql(false), this.parameters);
+        }
+
+        async func first_or_null_async() {
+            this.top(1);
+            var rows = await this.to_list_async();
+            return len(rows) == 0 ? null : rows[0];
+        }
+
+        async func count_async() {
+            await this.source_set.context.open();
+            return await this.source_set.context.conn.execute_scalar_async(this.to_sql(true), this.parameters);
+        }
+
+        func to_sql(count_only = false) {
+            var sql_text = count_only
+                ? "SELECT COUNT(*) FROM " + this.source_set.model.full_name
+                : "SELECT " + (this.take_count == null ? "" : "TOP (" + str(this.take_count) + ") ") +
+                    this.source_set.model.select_list(this.selected_properties) + " FROM " + this.source_set.model.full_name;
+
+            if (len(this.filters) > 0) {
+                sql_text = sql_text + " WHERE " + SqlName.join(this.filters, " AND ");
+            }
+
+            if (count_only != true) {
+                sql_text = sql_text + this.order_sql;
+            }
+
+            return sql_text;
+        }
+
+        private func _next_param(value) {
+            var name = "q" + str(this.param_index);
+            this.param_index = this.param_index + 1;
+            this.parameters[name] = value;
+            return name;
+        }
+    }
+
+    class DbSet(context, model) : IEntitySet {
+        public property context { get; private set; } = null;
+        public property model { get; private set; } = null;
+
+        func init(context, model) {
+            this.context = context;
+            this.model = model;
+        }
+
+        func query() {
+            return new EntityQuery(this);
+        }
+
+        async func all_async() {
+            return await this.query().to_list_async();
+        }
+
+        async func top_async(count) {
+            return await this.query().top(count).to_list_async();
+        }
+
+        async func find_async(id) {
+            if (this.model.key_property == null) {
+                throw "Cannot find entity without key: " + this.model.table;
+            }
+            return await this.query().where_eq(this.model.key_property, id).first_or_null_async();
+        }
+
+        func add(values) {
+            return this.context.add(this.model, values);
+        }
+
+        func update(values) {
+            return this.context.update(this.model, values);
+        }
+
+        func remove_entity(values) {
+            return this.context.remove_entity(this.model, values);
+        }
+
+        async func insert_async(values) {
+            var entry = new EntityEntry(this.model, values, EntityState["Added"]);
+            return await this.context._insert_async(entry);
+        }
+
+        async func update_async(values) {
+            var entry = new EntityEntry(this.model, values, EntityState["Modified"]);
+            return await this.context._update_async(entry);
+        }
+
+        async func delete_async(id) {
+            var values = {};
+            values[this.model.key_property] = id;
+            var entry = new EntityEntry(this.model, values, EntityState["Deleted"]);
+            return await this.context._delete_async(entry);
+        }
+    }
+
+    interface IMigration {
+        property id { get; }
+        property name { get; }
+        property checksum { get; }
+        async func up(db);
+        async func down(db);
+        func snapshot();
+    }
+
+    class Migration(id, name, up_action, down_action, snapshot_value) : IMigration {
+        public property id { get; private set; } = "";
+        public property name { get; private set; } = "";
+        public property checksum { get; private set; } = "";
+        public property up_action { get; private set; } = null;
+        public property down_action { get; private set; } = null;
+        public property snapshot_value { get; private set; } = null;
+
+        func init(id, name, up_action = null, down_action = null, snapshot_value = null) {
+            this.id = str(id);
+            this.name = name == null || str(name).trim() == "" ? this.id : str(name);
+            this.up_action = up_action;
+            this.down_action = down_action;
+            this.snapshot_value = snapshot_value;
+            this.checksum = MigrationTools.simple_checksum(this.id + "|" + this.name + "|" + tojson(snapshot_value));
+        }
+
+        async func up(db) {
+            if (this.up_action == null) {
+                throw "Migration has no up action: " + this.id;
+            }
+            return await this.up_action(db);
+        }
+
+        async func down(db) {
+            if (this.down_action == null) {
+                throw "Migration has no down action: " + this.id;
+            }
+            return await this.down_action(db);
+        }
+
+        func snapshot() {
+            return this.snapshot_value;
+        }
+    }
+
+    class MigrationTools() {
+        static func utc_sql_now() {
+            return "SYSUTCDATETIME()";
+        }
+
+        static func normalize_snapshot(snapshot) {
+            if (snapshot == null) { return null; }
+            if (typeof(snapshot) == "String") { return fromjson(snapshot); }
+            return snapshot;
+        }
+
+        static func snapshot_text(snapshot) {
+            if (snapshot == null) { return ""; }
+            if (typeof(snapshot) == "String") { return snapshot; }
+            return tojson(snapshot);
+        }
+
+        static func simple_checksum(value) {
+            var text = value == null ? "" : str(value);
+            var sum = 0;
+            var i = 0;
+            while (i < len(text)) {
+                sum = (sum + (text.substr(i, 1)[0] & 0xFFFF)) % 2147483647;
+                i = i + 1;
+            }
+            return str(len(text)) + ":" + str(sum);
+        }
+
+        static func migration_key(row) {
+            if (row == null) { return null; }
+            return row["Id"] == null ? row["id"] : row["Id"];
+        }
+    }
+
+    class ModelSnapshot() {
+        static func from_models(models) {
+            var snap = {
+                "version": 1,
+                "tables": []
+            };
+
+            foreach (var model in models) {
+                snap["tables"][] = ModelSnapshot.from_model(model);
+            }
+
+            return snap;
+        }
+
+        static func from_model(model) {
+            var table = {
+                "schema": model.schema,
+                "table": model.table,
+                "key_property": model.key_property,
+                "key_column": model.key_column,
+                "columns": []
+            };
+
+            foreach (var col in model.columns) {
+                table["columns"][] = {
+                    "property": col["property"],
+                    "column": col["column"],
+                    "sql_type": col["sql_type"],
+                    "nullable": col["nullable"],
+                    "read_only": col["read_only"],
+                    "default": col["default"],
+                    "key": col["key"],
+                    "identity": col["identity"]
+                };
+            }
+
+            return table;
+        }
+
+        static func table_key(table) {
+            return table["schema"] + "." + table["table"];
+        }
+
+        static func table_map(snapshot) {
+            var map = {};
+            if (snapshot == null || snapshot["tables"] == null) { return map; }
+
+            foreach (var table in snapshot["tables"]) {
+                map[ModelSnapshot.table_key(table)] = table;
+            }
+            return map;
+        }
+
+        static func column_map(table) {
+            var map = {};
+            if (table == null || table["columns"] == null) { return map; }
+
+            foreach (var col in table["columns"]) {
+                map[col["column"]] = col;
+            }
+            return map;
+        }
+
+        static func checksum(snapshot) {
+            return MigrationTools.simple_checksum(MigrationTools.snapshot_text(snapshot));
+        }
+    }
+
+    class MigrationOperation(kind, target, sql_text, destructive, reason) {
+        public property kind { get; private set; } = "";
+        public property target { get; private set; } = "";
+        public property sql_text { get; private set; } = null;
+        public property destructive { get; private set; } = false;
+        public property reason { get; private set; } = null;
+
+        func init(kind, target, sql_text = null, destructive = false, reason = null) {
+            this.kind = str(kind);
+            this.target = str(target);
+            this.sql_text = sql_text;
+            this.destructive = destructive == true;
+            this.reason = reason;
+        }
+
+        property executable {
+            get { return this.sql_text != null && this.destructive != true; }
+        }
+    }
+
+    class MigrationPlan(old_snapshot, new_snapshot) {
+        public property old_snapshot { get; private set; } = null;
+        public property new_snapshot { get; private set; } = null;
+        public property ops { get; private set; } = [];
+
+        func init(old_snapshot, new_snapshot) {
+            this.old_snapshot = old_snapshot;
+            this.new_snapshot = new_snapshot;
+        }
+
+        func add(kind, target, sql_text = null, destructive = false, reason = null) {
+            this.ops[] = new MigrationOperation(kind, target, sql_text, destructive, reason);
+            return this;
+        }
+
+        func has_changes() {
+            return len(this.ops) > 0;
+        }
+
+        func executable_sql() {
+            var sql = [];
+            foreach (var op in this.ops) {
+                if (op.executable) {
+                    sql[] = op.sql_text;
+                }
+            }
+            return sql;
+        }
+
+        func blocked_operations() {
+            var blocked = [];
+            foreach (var op in this.ops) {
+                if (!op.executable) {
+                    blocked[] = op;
+                }
+            }
+            return blocked;
+        }
+    }
+
+    class MigrationSafety() {
+        static func suffix_for(table, reason) {
+            var raw = table["table"] + "_" + reason + "_" + ModelSnapshot.checksum(table);
+            return raw.replace(":", "_").replace(".", "_").replace("-", "_").replace(" ", "_");
+        }
+
+        static func object_literal(schema, table) {
+            return SqlName.literal(schema + "." + table);
+        }
+
+        static func create_table_sql(table, physical_table) {
+            var parts = [];
+            foreach (var col in table["columns"]) {
+                var line = ModelDiffer.column_sql(col, false);
+                if (col["key"] == true) {
+                    line = line + " CONSTRAINT " + SqlName.quote("PK_" + physical_table) + " PRIMARY KEY";
+                }
+                parts[] = line;
+            }
+
+            return "CREATE TABLE " + SqlName.table(table["schema"], physical_table) + " (" + SqlName.join(parts, ", ") + ")";
+        }
+
+        static func common_insert_columns(old_table, new_table) {
+            var old_cols = ModelSnapshot.column_map(old_table);
+            var cols = [];
+            foreach (var col in new_table["columns"]) {
+                if (old_cols[col["column"]] != null && col["read_only"] != true) {
+                    cols[] = col;
+                }
+            }
+            return cols;
+        }
+
+        static func has_identity(cols) {
+            foreach (var col in cols) {
+                if (col["identity"] == true) { return true; }
+            }
+            return false;
+        }
+
+        static func copy_sql(old_table, new_table, temp_table) {
+            var cols = MigrationSafety.common_insert_columns(old_table, new_table);
+            if (len(cols) == 0) { return ""; }
+
+            var names = [];
+            foreach (var col in cols) {
+                names[] = SqlName.quote(col["column"]);
+            }
+
+            var target = SqlName.table(new_table["schema"], temp_table);
+            var source = SqlName.table(old_table["schema"], old_table["table"]);
+            var list = SqlName.join(names, ", ");
+            var sql_text = "";
+
+            if (MigrationSafety.has_identity(cols)) {
+                sql_text = sql_text + "SET IDENTITY_INSERT " + target + " ON; ";
+            }
+
+            sql_text = sql_text + "INSERT INTO " + target + " (" + list + ") SELECT " + list + " FROM " + source + "; ";
+
+            if (MigrationSafety.has_identity(cols)) {
+                sql_text = sql_text + "SET IDENTITY_INSERT " + target + " OFF; ";
+            }
+
+            return sql_text;
+        }
+
+        static func archive_table_sql(table) {
+            var archive = "__CfgsEntityArchive_" + MigrationSafety.suffix_for(table, "drop");
+            var source_literal = MigrationSafety.object_literal(table["schema"], table["table"]);
+            var archive_literal = MigrationSafety.object_literal(table["schema"], archive);
+
+            return "IF OBJECT_ID(" + archive_literal + ", N'U') IS NOT NULL THROW 51000, 'CFGS Entity archive table already exists.', 1; " +
+                "EXEC sp_rename N'" + table["schema"] + "." + table["table"] + "', N'" + archive + "';";
+        }
+
+        static func rebuild_table_sql(old_table, new_table) {
+            var temp = "__CfgsEntityNew_" + MigrationSafety.suffix_for(new_table, "rebuild");
+            var archive = "__CfgsEntityArchive_" + MigrationSafety.suffix_for(old_table, "rebuild");
+            var temp_literal = MigrationSafety.object_literal(new_table["schema"], temp);
+            var archive_literal = MigrationSafety.object_literal(old_table["schema"], archive);
+
+            return "IF OBJECT_ID(" + archive_literal + ", N'U') IS NOT NULL THROW 51000, 'CFGS Entity archive table already exists.', 1; " +
+                "IF OBJECT_ID(" + temp_literal + ", N'U') IS NOT NULL DROP TABLE " + SqlName.table(new_table["schema"], temp) + "; " +
+                MigrationSafety.create_table_sql(new_table, temp) + "; " +
+                MigrationSafety.copy_sql(old_table, new_table, temp) +
+                "EXEC sp_rename N'" + old_table["schema"] + "." + old_table["table"] + "', N'" + archive + "'; " +
+                "EXEC sp_rename N'" + new_table["schema"] + "." + temp + "', N'" + new_table["table"] + "';";
+        }
+
+        static func can_add_column_without_data_loss(col) {
+            return col["nullable"] == true || col["default"] != null || col["identity"] == true;
+        }
+    }
+
+    class ModelDiffer() {
+        static func diff(old_snapshot, new_snapshot) {
+            var old_snap = MigrationTools.normalize_snapshot(old_snapshot);
+            var new_snap = MigrationTools.normalize_snapshot(new_snapshot);
+            var plan = new MigrationPlan(old_snap, new_snap);
+            var old_tables = ModelSnapshot.table_map(old_snap);
+            var new_tables = ModelSnapshot.table_map(new_snap);
+
+            foreach (var table in new_snap["tables"]) {
+                var key = ModelSnapshot.table_key(table);
+                var old_table = old_tables[key];
+                if (old_table == null) {
+                    plan.add("create_table", key, ModelDiffer.create_table_sql_from_snapshot(table));
+                } else {
+                    ModelDiffer.diff_table(plan, old_table, table);
+                }
+            }
+
+            foreach (var old_key, old_table2 in old_tables) {
+                if (new_tables[old_key] == null) {
+                    plan.add(
+                        "archive_table",
+                        old_key,
+                        MigrationSafety.archive_table_sql(old_table2),
+                        false,
+                        "Table was removed from the model; the old table is renamed to a CFGS Entity archive table."
+                    );
+                }
+            }
+
+            return plan;
+        }
+
+        static func diff_table(plan, old_table, new_table) {
+            var old_cols = ModelSnapshot.column_map(old_table);
+            var new_cols = ModelSnapshot.column_map(new_table);
+            var table_name = SqlName.table(new_table["schema"], new_table["table"]);
+            var rebuild_required = false;
+            var blocked_required_column = false;
+
+            foreach (var scan_col in new_table["columns"]) {
+                var scan_old = old_cols[scan_col["column"]];
+                if (scan_old == null && !MigrationSafety.can_add_column_without_data_loss(scan_col)) {
+                    blocked_required_column = true;
+                } else if (scan_old != null && ModelDiffer.column_changed(scan_old, scan_col)) {
+                    rebuild_required = true;
+                }
+            }
+
+            foreach (var old_col_name_scan, old_col_scan in old_cols) {
+                if (new_cols[old_col_name_scan] == null) {
+                    rebuild_required = true;
+                }
+            }
+
+            if (blocked_required_column) {
+                plan.add(
+                    "blocked_required_column",
+                    ModelSnapshot.table_key(new_table),
+                    null,
+                    true,
+                    "A new NOT NULL column without a default cannot be populated safely for existing rows."
+                );
+                return;
+            }
+
+            if (rebuild_required) {
+                plan.add(
+                    "rebuild_table",
+                    ModelSnapshot.table_key(new_table),
+                    MigrationSafety.rebuild_table_sql(old_table, new_table),
+                    false,
+                    "Table is rebuilt through a temporary table and the previous table is archived."
+                );
+                return;
+            }
+
+            foreach (var col in new_table["columns"]) {
+                var old_col = old_cols[col["column"]];
+                if (old_col == null) {
+                    plan.add(
+                        "add_column",
+                        ModelSnapshot.table_key(new_table) + "." + col["column"],
+                        "ALTER TABLE " + table_name + " ADD " + ModelDiffer.column_sql(col, false)
+                    );
+                }
+            }
+        }
+
+        static func column_changed(old_col, new_col) {
+            return old_col["sql_type"] != new_col["sql_type"] ||
+                old_col["nullable"] != new_col["nullable"] ||
+                old_col["default"] != new_col["default"] ||
+                old_col["key"] != new_col["key"] ||
+                old_col["identity"] != new_col["identity"];
+        }
+
+        static func column_sql(col, include_key = true) {
+            var line = SqlName.quote(col["column"]) + " " + col["sql_type"];
+            if (col["identity"] == true) { line = line + " IDENTITY(1,1)"; }
+            line = line + (col["nullable"] == true && col["key"] != true ? " NULL" : " NOT NULL");
+            if (col["default"] != null) { line = line + " DEFAULT " + col["default"]; }
+            if (include_key == true && col["key"] == true) { line = line + " PRIMARY KEY"; }
+            return line;
+        }
+
+        static func create_table_sql_from_snapshot(table) {
+            var parts = [];
+            foreach (var col in table["columns"]) {
+                var line = ModelDiffer.column_sql(col, false);
+                if (col["key"] == true) {
+                    line = line + " CONSTRAINT " + SqlName.quote("PK_" + table["table"]) + " PRIMARY KEY";
+                }
+                parts[] = line;
+            }
+
+            return "CREATE TABLE " + SqlName.table(table["schema"], table["table"]) + " (" + SqlName.join(parts, ", ") + ")";
+        }
+    }
+
+    class MigrationRunner(context, migrations) {
+        public property context { get; private set; } = null;
+        public property migrations { get; private set; } = [];
+        public property history_schema { get; private set; } = "dbo";
+        public property history_table { get; private set; } = "__CfgsEntityMigrations";
+
+        func init(context, migrations = []) {
+            this.context = context;
+            this.migrations = migrations == null ? [] : migrations;
+        }
+
+        property history_name {
+            get { return SqlName.table(this.history_schema, this.history_table); }
+        }
+
+        async func ensure_history_async() {
+            await this.context.open();
+            await this.context.conn.execute_nonquery_async(
+                "IF OBJECT_ID(N'dbo.__CfgsEntityMigrations', N'U') IS NULL BEGIN CREATE TABLE " + this.history_name + " (" +
+                "[Id] NVARCHAR(150) NOT NULL CONSTRAINT [PK___CfgsEntityMigrations] PRIMARY KEY, " +
+                "[Name] NVARCHAR(250) NOT NULL, " +
+                "[Checksum] NVARCHAR(128) NOT NULL, " +
+                "[AppliedAtUtc] DATETIME2 NOT NULL CONSTRAINT [DF___CfgsEntityMigrations_AppliedAtUtc] DEFAULT SYSUTCDATETIME(), " +
+                "[Snapshot] NVARCHAR(MAX) NULL" +
+                "); END"
+            );
+            return true;
+        }
+
+        async func applied_async() {
+            await this.ensure_history_async();
+            return await this.context.conn.query_async(
+                "SELECT [Id], [Name], [Checksum], CONVERT(varchar(33), [AppliedAtUtc], 126) AS [AppliedAtUtc], [Snapshot] " +
+                "FROM " + this.history_name + " ORDER BY [Id]"
+            );
+        }
+
+        async func applied_map_async() {
+            var rows = await this.applied_async();
+            var map = {};
+            foreach (var row in rows) {
+                map[MigrationTools.migration_key(row)] = row;
+            }
+            return map;
+        }
+
+        async func pending_async() {
+            var applied = await this.applied_map_async();
+            var pending = [];
+            foreach (var migration in this.migrations) {
+                if (applied[migration.id] == null) {
+                    pending[] = migration;
+                }
+            }
+            return pending;
+        }
+
+        async func migrate_async() {
+            await this.ensure_history_async();
+            var pending = await this.pending_async();
+            var applied_count = 0;
+            foreach (var migration in pending) {
+                await this.apply_migration_async(migration);
+                applied_count = applied_count + 1;
+            }
+            return applied_count;
+        }
+
+        async func apply_migration_async(migration) {
+            await this.context.open();
+            this.context.conn.begin();
+            try {
+                await migration.up(this.context);
+                await this.record_async(migration);
+                this.context.conn.commit();
+                return true;
+            } catch (e) {
+                this.context.conn.rollback();
+                throw e;
+            }
+        }
+
+        async func record_async(migration) {
+            var snapshot_text = MigrationTools.snapshot_text(migration.snapshot());
+            await this.context.conn.execute_nonquery_async(
+                "INSERT INTO " + this.history_name + " ([Id], [Name], [Checksum], [Snapshot]) VALUES (@id, @name, @checksum, @snapshot)",
+                {
+                    "id": migration.id,
+                    "name": migration.name,
+                    "checksum": migration.checksum,
+                    "snapshot": snapshot_text == "" ? null : snapshot_text
+                }
+            );
+            return true;
+        }
+
+        async func last_applied_async() {
+            await this.ensure_history_async();
+            var rows = await this.context.conn.query_async(
+                "SELECT TOP (1) [Id], [Name], [Checksum], CONVERT(varchar(33), [AppliedAtUtc], 126) AS [AppliedAtUtc], [Snapshot] " +
+                "FROM " + this.history_name + " ORDER BY [Id] DESC"
+            );
+            return len(rows) == 0 ? null : rows[0];
+        }
+
+        func migration_by_id(id) {
+            foreach (var migration in this.migrations) {
+                if (migration.id == id) { return migration; }
+            }
+            return null;
+        }
+
+        async func rollback_last_async() {
+            var row = await this.last_applied_async();
+            if (row == null) { return false; }
+
+            var migration = this.migration_by_id(MigrationTools.migration_key(row));
+            if (migration == null) {
+                throw "Cannot rollback migration because it is not registered: " + MigrationTools.migration_key(row);
+            }
+
+            this.context.conn.begin();
+            try {
+                await migration.down(this.context);
+                await this.context.conn.execute_nonquery_async(
+                    "DELETE FROM " + this.history_name + " WHERE [Id] = @id",
+                    {"id": migration.id}
+                );
+                this.context.conn.commit();
+                return true;
+            } catch (e) {
+                this.context.conn.rollback();
+                throw e;
+            }
+        }
+
+        async func latest_snapshot_async() {
+            var row = await this.last_applied_async();
+            if (row == null || row["Snapshot"] == null || str(row["Snapshot"]).trim() == "") {
+                return null;
+            }
+            return fromjson(row["Snapshot"]);
+        }
+
+        async func plan_from_models_async(models) {
+            var old_snapshot = await this.latest_snapshot_async();
+            var new_snapshot = ModelSnapshot.from_models(models);
+            return ModelDiffer.diff(old_snapshot, new_snapshot);
+        }
+
+        async func apply_model_plan_async(id, name, models) {
+            var plan = await this.plan_from_models_async(models);
+            var blocked = plan.blocked_operations();
+            if (len(blocked) > 0) {
+                throw "Migration plan contains blocked operations. Add defaults or create a manual migration for values the ORM cannot infer.";
+            }
+
+            var sql_batch = plan.executable_sql();
+            if (len(sql_batch) == 0) { return 0; }
+
+            var snapshot = ModelSnapshot.from_models(models);
+            var migration = new Migration(
+                id,
+                name,
+                async func(db) {
+                    foreach (var sql_text in sql_batch) {
+                        await db.conn.execute_nonquery_async(sql_text);
+                    }
+                    return true;
+                },
+                null,
+                snapshot
+            );
+
+            await this.apply_migration_async(migration);
+            return len(sql_batch);
+        }
+    }
+
+    class DatabaseFacade(context) {
+        public property context { get; private set; } = null;
+
+        func init(context) {
+            this.context = context;
+        }
+
+        func migrations(migrations = []) {
+            return new MigrationRunner(this.context, migrations);
+        }
+
+        func snapshot(models) {
+            return ModelSnapshot.from_models(models);
+        }
+
+        func diff(old_snapshot, new_snapshot) {
+            return ModelDiffer.diff(old_snapshot, new_snapshot);
+        }
+
+        async func migrate_async(migrations) {
+            return await this.migrations(migrations).migrate_async();
+        }
+
+        async func update_schema_async(id, name, models) {
+            return await this.migrations([]).apply_model_plan_async(id, name, models);
+        }
+    }
+
+    class DbContext(connection_string) : IEntityContext {
+        public property connection_string { get; private set; } = "";
+        public property conn { get; set; } = null;
+        public property tracked_entries { get; set; } = [];
+        public property sets { get; private set; } = {};
+        public property database { get; private set; } = null;
+
+        func init(connection_string) {
+            this.connection_string = str(connection_string);
+            this.database = new DatabaseFacade(this);
+        }
+
+        async func open() {
+            if (this.conn == null || this.conn.is_open() != true) {
+                this.conn = await sql.connect(this.connection_string);
+            }
+            return this;
+        }
+
+        func entity_set(model) {
+            var name = model.schema + "." + model.table;
+            if (this.sets[name] == null) {
+                this.sets[name] = new DbSet(this, model);
+            }
+            return this.sets[name];
+        }
+
+        func add(model, values) {
+            var entry = new EntityEntry(model, values, EntityState["Added"]);
+            this.tracked_entries[] = entry;
+            return entry;
+        }
+
+        func attach(model, values) {
+            var entry = new EntityEntry(model, values, EntityState["Unchanged"]);
+            this.tracked_entries[] = entry;
+            return entry;
+        }
+
+        func update(model, values) {
+            var entry = new EntityEntry(model, values, EntityState["Modified"]);
+            this.tracked_entries[] = entry;
+            return entry;
+        }
+
+        func remove_entity(model, values) {
+            var entry = new EntityEntry(model, values, EntityState["Deleted"]);
+            this.tracked_entries[] = entry;
+            return entry;
+        }
+
+        async func save_changes_async() {
+            await this.open();
+
+            var affected = 0;
+            this.conn.begin();
+            try {
+                foreach (var entry in this.tracked_entries) {
+                    if (entry.state == EntityState["Added"]) {
+                        var inserted = await this._insert_async(entry);
+                        affected = affected + (inserted == null ? 0 : 1);
+                        entry.state = EntityState["Unchanged"];
+                    } else if (entry.state == EntityState["Modified"]) {
+                        affected = affected + await this._update_async(entry);
+                        entry.state = EntityState["Unchanged"];
+                    } else if (entry.state == EntityState["Deleted"]) {
+                        affected = affected + await this._delete_async(entry);
+                        entry.state = EntityState["Unchanged"];
+                    }
+                }
+                this.conn.commit();
+                this.tracked_entries = [];
+                return affected;
+            } catch (e) {
+                this.conn.rollback();
+                throw e;
+            }
+        }
+
+        async func migrate_async(models) {
+            return await this.database.update_schema_async("auto_" + ModelSnapshot.checksum(ModelSnapshot.from_models(models)), "Auto model update", models);
+        }
+
+        async func transaction_async(work) {
+            await this.open();
+            this.conn.begin();
+            try {
+                var result = await work(this);
+                this.conn.commit();
+                return result;
+            } catch (e) {
+                this.conn.rollback();
+                throw e;
+            }
+        }
+
+        async func close_async() {
+            if (this.conn != null && this.conn.is_open() == true) {
+                this.conn.close();
+            }
+            return true;
+        }
+
+        async func _insert_async(entry) {
+            await this.open();
+            var cols = entry.model.insert_columns();
+            var mapped = EntityMaps.params_for_columns(cols, entry.data, 0);
+
+            var names = [];
+            foreach (var col in cols) {
+                names[] = SqlName.quote(col["column"]);
+            }
+
+            var insert_sql = "INSERT INTO " + entry.model.full_name + " (" + SqlName.join(names, ", ") + ") VALUES (" +
+                SqlName.join(mapped["sql"], ", ") + ")";
+
+            if (entry.model.key_property != null && entry.model.by_property[entry.model.key_property]["identity"] == true) {
+                var id = await this.conn.execute_scalar_async(insert_sql + "; SELECT CAST(SCOPE_IDENTITY() AS INT);", mapped["params"]);
+                entry.data[entry.model.key_property] = id;
+                return id;
+            }
+
+            return await this.conn.execute_nonquery_async(insert_sql, mapped["params"]);
+        }
+
+        async func _update_async(entry) {
+            await this.open();
+            var cols = entry.model.update_columns();
+            var sets = [];
+            var params = {};
+            var i = 0;
+            foreach (var col in cols) {
+                var name = "p" + str(i);
+                sets[] = SqlName.quote(col["column"]) + " = @" + name;
+                params[name] = entry.data[col["property"]];
+                i = i + 1;
+            }
+
+            var key_col = entry.model.column_for(entry.model.key_property);
+            params["id"] = EntityMaps.key_value(entry.model, entry.data);
+
+            return await this.conn.execute_nonquery_async(
+                "UPDATE " + entry.model.full_name + " SET " + SqlName.join(sets, ", ") +
+                " WHERE " + SqlName.quote(key_col["column"]) + " = @id",
+                params
+            );
+        }
+
+        async func _delete_async(entry) {
+            await this.open();
+            var key_col = entry.model.column_for(entry.model.key_property);
+            return await this.conn.execute_nonquery_async(
+                "DELETE FROM " + entry.model.full_name + " WHERE " + SqlName.quote(key_col["column"]) + " = @id",
+                {"id": EntityMaps.key_value(entry.model, entry.data)}
+            );
+        }
+    }
+
+    func entity(schema, table) {
+        return new EntityModel(schema, table);
+    }
+
+    async func connect(connection_string) {
+        var ctx = new DbContext(connection_string);
+        await ctx.open();
+        return ctx;
+    }
+}
