@@ -1,0 +1,13 @@
+import "edge_assert.cfs";
+import "_imports/mod_dedup_consumer_a.cfs";
+import "_imports/mod_dedup_consumer_b.cfs";
+
+edge_begin("542_module_namespace_service_reimport_dedup");
+
+var a = new Dedup.Services.ServiceA("A");
+
+edge_eq("shared_service_reimport", a.name(), "A");
+edge_eq("consumer_a", Dedup.Consumers.consumerA(), "consumer-a");
+edge_eq("consumer_b", Dedup.Consumers.consumerB(), "consumer-b");
+
+edge_finish("542_module_namespace_service_reimport_dedup");

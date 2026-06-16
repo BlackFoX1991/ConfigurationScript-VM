@@ -1,0 +1,7 @@
+import "mod_dedup_service_a.cfs";
+
+namespace Dedup.Consumers {
+    func consumerA() {
+        return "consumer-a";
+    }
+}

@@ -45,7 +45,7 @@ namespace CFGS_VM.Analytic.Modules
         public List<Stmt> ResolveImports(List<Stmt> statements)
         {
             List<Stmt> resolved = new();
-            Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols = new(StringComparer.Ordinal);
+            Dictionary<string, ImportedTopLevelSymbol> seenImportedTopLevelSymbols = new(StringComparer.Ordinal);
             Dictionary<string, string> knownTopLevelKinds = new(StringComparer.Ordinal);
             HashSet<string> knownNamespaceRoots = new(StringComparer.Ordinal);
 
@@ -157,7 +157,7 @@ namespace CFGS_VM.Analytic.Modules
         private void ResolveBareImport(
             BareImportSyntaxStmt bareImport,
             List<Stmt> resolved,
-            Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols,
+            Dictionary<string, ImportedTopLevelSymbol> seenImportedTopLevelSymbols,
             Dictionary<string, string> knownTopLevelKinds,
             HashSet<string> knownNamespaceRoots)
         {
@@ -184,7 +184,7 @@ namespace CFGS_VM.Analytic.Modules
         private void ResolveNamespaceImport(
             NamespaceImportSyntaxStmt namespaceImport,
             List<Stmt> resolved,
-            Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols,
+            Dictionary<string, ImportedTopLevelSymbol> seenImportedTopLevelSymbols,
             Dictionary<string, string> knownTopLevelKinds,
             HashSet<string> knownNamespaceRoots)
         {
@@ -225,7 +225,7 @@ namespace CFGS_VM.Analytic.Modules
         private void ResolveNamedImport(
             NamedImportSyntaxStmt namedImport,
             List<Stmt> resolved,
-            Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols,
+            Dictionary<string, ImportedTopLevelSymbol> seenImportedTopLevelSymbols,
             Dictionary<string, string> knownTopLevelKinds,
             HashSet<string> knownNamespaceRoots)
         {
@@ -285,7 +285,7 @@ namespace CFGS_VM.Analytic.Modules
         private void ResolveDefaultImport(
             DefaultImportSyntaxStmt defaultImport,
             List<Stmt> resolved,
-            Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols,
+            Dictionary<string, ImportedTopLevelSymbol> seenImportedTopLevelSymbols,
             Dictionary<string, string> knownTopLevelKinds,
             HashSet<string> knownNamespaceRoots)
         {
@@ -385,7 +385,7 @@ namespace CFGS_VM.Analytic.Modules
 
         private static void IndexImportedTopLevelSymbols(
             IEnumerable<Stmt> stmts,
-            Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols)
+            Dictionary<string, ImportedTopLevelSymbol> seenImportedTopLevelSymbols)
         {
             foreach (Stmt stmt in stmts)
             {
@@ -393,14 +393,22 @@ namespace CFGS_VM.Analytic.Modules
                     continue;
 
                 string origin = TopLevelSymbolFacts.NormalizeOriginKey(stmt.OriginFile);
-                if (!seenImportedTopLevelSymbols.ContainsKey(name))
-                    seenImportedTopLevelSymbols[name] = (kind ?? "symbol", origin);
+                string currentKind = kind ?? "symbol";
+
+                if (!seenImportedTopLevelSymbols.TryGetValue(name, out ImportedTopLevelSymbol? seen))
+                {
+                    seenImportedTopLevelSymbols[name] = new ImportedTopLevelSymbol(currentKind, origin);
+                    continue;
+                }
+
+                if (TopLevelSymbolFacts.CanMergeTopLevelSymbols(currentKind, seen.Kind))
+                    seen.AddOrigin(origin);
             }
         }
 
         private static List<Stmt> FilterDuplicateTopLevel(
             List<Stmt> stmts,
-            Dictionary<string, (string Kind, string Origin)> seenImportedTopLevelSymbols,
+            Dictionary<string, ImportedTopLevelSymbol> seenImportedTopLevelSymbols,
             bool allowIdempotentSameOrigin)
         {
             List<Stmt> filtered = new(stmts.Count);
@@ -419,24 +427,26 @@ namespace CFGS_VM.Analytic.Modules
 
                 if (localSeen.TryGetValue(name, out (string Kind, string Origin) localPrevious))
                 {
-                    if (TopLevelSymbolFacts.CanMergeTopLevelSymbols(currentKind, localPrevious.Kind))
+                    if (!TopLevelSymbolFacts.CanMergeTopLevelSymbols(currentKind, localPrevious.Kind))
                     {
-                        filtered.Add(stmt);
-                        continue;
+                        throw new ParserException(
+                            TopLevelSymbolFacts.DuplicateTopLevelMessage(name, currentKind, localPrevious.Kind),
+                            stmt.Line,
+                            stmt.Col,
+                            stmt.OriginFile);
                     }
-
-                    throw new ParserException(
-                        TopLevelSymbolFacts.DuplicateTopLevelMessage(name, currentKind, localPrevious.Kind),
-                        stmt.Line,
-                        stmt.Col,
-                        stmt.OriginFile);
+                }
+                else
+                {
+                    localSeen[name] = (currentKind, currentOrigin);
                 }
 
-                localSeen[name] = (currentKind, currentOrigin);
-
-                if (seenImportedTopLevelSymbols.TryGetValue(name, out (string Kind, string Origin) previous))
+                if (seenImportedTopLevelSymbols.TryGetValue(name, out ImportedTopLevelSymbol? previous))
                 {
-                    if (allowIdempotentSameOrigin && string.Equals(previous.Origin, currentOrigin, StringComparison.Ordinal))
+                    // Bei wiederholten Imports ist die Datei-Identität wichtiger als der reine Name:
+                    // Namespaces dürfen aus mehreren Dateien zusammenwachsen, dieselbe Datei darf aber
+                    // nicht erneut dieselben Klassen/Interfaces/Funktionen in den finalen AST eintragen.
+                    if (allowIdempotentSameOrigin && previous.HasOrigin(currentOrigin))
                         continue;
 
                     if (TopLevelSymbolFacts.CanMergeTopLevelSymbols(currentKind, previous.Kind))
@@ -456,6 +466,25 @@ namespace CFGS_VM.Analytic.Modules
             }
 
             return filtered;
+        }
+
+        private sealed class ImportedTopLevelSymbol
+        {
+            private readonly HashSet<string> _origins = new(StringComparer.Ordinal);
+
+            public ImportedTopLevelSymbol(string kind, string origin)
+            {
+                Kind = kind;
+                _origins.Add(origin);
+            }
+
+            public string Kind { get; }
+
+            public bool HasOrigin(string origin)
+                => _origins.Contains(origin);
+
+            public void AddOrigin(string origin)
+                => _origins.Add(origin);
         }
 
         private static bool HasExplicitExports(IEnumerable<Stmt> imported)

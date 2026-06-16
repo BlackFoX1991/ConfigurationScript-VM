@@ -1,0 +1,17 @@
+namespace Dedup.Contracts {
+    interface INamed {
+        func name();
+    }
+
+    class Marker(value) {
+        var value = "";
+
+        func init(value) {
+            this.value = value;
+        }
+
+        func label() {
+            return this.value;
+        }
+    }
+}

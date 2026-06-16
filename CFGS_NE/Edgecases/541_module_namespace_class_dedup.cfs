@@ -1,0 +1,17 @@
+import "edge_assert.cfs";
+import "_imports/mod_dedup_service_a.cfs";
+import "_imports/mod_dedup_service_b.cfs";
+
+edge_begin("541_module_namespace_class_dedup");
+
+var marker = new Dedup.Contracts.Marker("core");
+var a = new Dedup.Services.ServiceA("A");
+var b = new Dedup.Services.ServiceB("B");
+
+edge_eq("shared_class_once", marker.label(), "core");
+edge_true("service_a_contract", a is Dedup.Contracts.INamed);
+edge_true("service_b_contract", b is Dedup.Contracts.INamed);
+edge_eq("service_a_name", a.name(), "A");
+edge_eq("service_b_name", b.name(), "B");
+
+edge_finish("541_module_namespace_class_dedup");

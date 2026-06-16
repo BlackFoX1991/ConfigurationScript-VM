@@ -1,0 +1,15 @@
+import "mod_dedup_contracts.cfs";
+
+namespace Dedup.Services {
+    class ServiceA(value) : Dedup.Contracts.INamed {
+        var value = "";
+
+        func init(value) {
+            this.value = value;
+        }
+
+        func name() {
+            return this.value;
+        }
+    }
+}
