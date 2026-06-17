@@ -41,6 +41,14 @@ async func main() {
     var srv = http.server(19081);
     assert_eq("http_server_handle_type", typeof(srv), "ServerHandle");
     assert_eq("http_server_running_initial", srv.is_running(), false);
+    assert_eq("http_server_scheme_default", srv.scheme(), "http");
+    assert_eq("http_server_is_https_default", srv.is_https(), false);
+    assert_eq("http_server_url_default", srv.url(), "http://localhost:19081/");
+
+    var configuredSrv = http.server(19082, {"host":"localhost", "https":false, "protocols":"http1", "maxBodyBytes":4096});
+    assert_eq("http_server_options_handle_type", typeof(configuredSrv), "ServerHandle");
+    assert_eq("http_server_options_url", configuredSrv.url(), "http://localhost:19082/");
+    assert_eq("http_server_options_close", await configuredSrv.close_async(), 1);
 
     var pollTask = srv.poll_async(1500);
     assert_eq("http_server_poll_async_task", typeof(pollTask), "Task<Object>");

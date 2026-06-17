@@ -4,10 +4,12 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using CFGS_VM.VMCore;
 
@@ -81,28 +83,11 @@ namespace CFGS.Web.Http
         /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         private static void RegisterBuiltins(IBuiltinRegistry builtins)
         {
-            builtins.Register(new BuiltinDescriptor("http_server", 1, 3, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("http_server", 1, 4, (args, instr) =>
             {
                 int port = Convert.ToInt32(args[0], CultureInfo.InvariantCulture);
-                long maxRequestBodySize = DefaultMaxRequestBodySize;
-                bool streamBodies = false;
-
-                if (args.Count >= 2)
-                {
-                    if (args[1] is string or char)
-                    {
-                        streamBodies = string.Equals(args[1]?.ToString(), "stream", StringComparison.OrdinalIgnoreCase);
-                    }
-                    else
-                    {
-                        maxRequestBodySize = Convert.ToInt64(args[1], CultureInfo.InvariantCulture);
-                    }
-                }
-
-                if (args.Count >= 3)
-                    streamBodies = string.Equals(args[2]?.ToString(), "stream", StringComparison.OrdinalIgnoreCase);
-
-                return new ServerHandle(port, maxRequestBodySize, streamBodies);
+                ServerOptions options = ParseServerOptions(args.Skip(1), instr);
+                return new ServerHandle(port, options);
             }));
 
             builtins.Register(new BuiltinDescriptor("http_get", 1, 3, (args, instr) =>
@@ -505,6 +490,9 @@ namespace CFGS.Web.Http
             intrinsics.Register(T, new IntrinsicDescriptor("start_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).StartAsync(), NativeCallOptions.Awaitable));
             intrinsics.Register(T, new IntrinsicDescriptor("stop_async", 0, 0, (recv, a, i) => ((ServerHandle)recv).StopAsync(), NativeCallOptions.Awaitable));
             intrinsics.Register(T, new IntrinsicDescriptor("is_running", 0, 0, (recv, a, i) => ((ServerHandle)recv).IsRunning));
+            intrinsics.Register(T, new IntrinsicDescriptor("is_https", 0, 0, (recv, a, i) => ((ServerHandle)recv).IsHttps));
+            intrinsics.Register(T, new IntrinsicDescriptor("scheme", 0, 0, (recv, a, i) => ((ServerHandle)recv).Scheme));
+            intrinsics.Register(T, new IntrinsicDescriptor("url", 0, 0, (recv, a, i) => ((ServerHandle)recv).Url));
             intrinsics.Register(T, new IntrinsicDescriptor("pending_count", 0, 0, (recv, a, i) => ((ServerHandle)recv).PendingCount));
 
             intrinsics.Register(T, new IntrinsicDescriptor("poll", 0, 1, (recv, a, i) =>
@@ -581,6 +569,174 @@ namespace CFGS.Web.Http
             }));
         }
 
+        internal sealed class ServerOptions
+        {
+            public long MaxRequestBodySize { get; set; } = DefaultMaxRequestBodySize;
+            public bool StreamBodies { get; set; }
+            public bool UseHttps { get; set; }
+            public string Host { get; set; } = "localhost";
+            public string? CertificatePath { get; set; }
+            public string? CertificatePassword { get; set; }
+            public string Protocols { get; set; } = "http1";
+            public HttpProtocols ResolvedProtocols { get; set; } = HttpProtocols.Http1;
+        }
+
+        private static ServerOptions ParseServerOptions(IEnumerable<object?> args, Instruction instr)
+        {
+            ServerOptions options = new();
+
+            foreach (object? arg in args)
+            {
+                if (arg is null)
+                    continue;
+
+                if (arg is Dictionary<string, object> dict)
+                {
+                    ApplyServerOptions(options, dict, instr);
+                    continue;
+                }
+
+                if (arg is string or char)
+                {
+                    string text = arg.ToString() ?? "";
+                    if (string.Equals(text, "stream", StringComparison.OrdinalIgnoreCase))
+                    {
+                        options.StreamBodies = true;
+                        continue;
+                    }
+
+                    if (string.Equals(text, "https", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(text, "tls", StringComparison.OrdinalIgnoreCase))
+                    {
+                        options.UseHttps = true;
+                        continue;
+                    }
+
+                    throw NewVmException(instr, $"Runtime error: unknown http.server option '{text}'");
+                }
+
+                options.MaxRequestBodySize = Convert.ToInt64(arg, CultureInfo.InvariantCulture);
+            }
+
+            ValidateServerOptions(options, instr);
+            return options;
+        }
+
+        private static void ApplyServerOptions(ServerOptions options, Dictionary<string, object> values, Instruction instr)
+        {
+            foreach (KeyValuePair<string, object> kv in values)
+            {
+                string key = NormalizeOptionKey(kv.Key);
+                object? value = kv.Value;
+
+                switch (key)
+                {
+                    case "https":
+                    case "tls":
+                    case "ssl":
+                    case "usehttps":
+                        options.UseHttps = ToBool(value, instr, kv.Key);
+                        break;
+                    case "cert":
+                    case "certificate":
+                    case "certificatepath":
+                    case "certpath":
+                    case "pfx":
+                    case "pfxpath":
+                        options.CertificatePath = value?.ToString();
+                        break;
+                    case "certificatepassword":
+                    case "certpassword":
+                    case "pfxpassword":
+                    case "password":
+                        options.CertificatePassword = value?.ToString();
+                        break;
+                    case "host":
+                    case "bind":
+                    case "address":
+                    case "ip":
+                        options.Host = value?.ToString() ?? "";
+                        break;
+                    case "protocol":
+                    case "protocols":
+                        options.Protocols = value?.ToString() ?? "";
+                        break;
+                    case "stream":
+                    case "streambodies":
+                    case "streambody":
+                        options.StreamBodies = ToBool(value, instr, kv.Key);
+                        break;
+                    case "maxrequestbodysize":
+                    case "maxbodysize":
+                    case "maxbodybytes":
+                    case "maxbytes":
+                        options.MaxRequestBodySize = Convert.ToInt64(value, CultureInfo.InvariantCulture);
+                        break;
+                    default:
+                        throw NewVmException(instr, $"Runtime error: unknown http.server option '{kv.Key}'");
+                }
+            }
+
+            ValidateServerOptions(options, instr);
+        }
+
+        private static void ValidateServerOptions(ServerOptions options, Instruction instr)
+        {
+            if (options.MaxRequestBodySize <= 0)
+                throw NewVmException(instr, "Runtime error: http.server max request body size must be > 0");
+
+            options.Host = string.IsNullOrWhiteSpace(options.Host) ? "localhost" : options.Host.Trim();
+            options.Protocols = string.IsNullOrWhiteSpace(options.Protocols) ? "http1" : NormalizeOptionKey(options.Protocols);
+
+            options.ResolvedProtocols = ResolveProtocols(options.Protocols, instr);
+
+            if (options.UseHttps && string.IsNullOrWhiteSpace(options.CertificatePath))
+                throw NewVmException(instr, "Runtime error: http.server HTTPS needs certificatePath / certPath / pfxPath");
+        }
+
+        private static string NormalizeOptionKey(string key)
+        {
+            return key.Trim()
+                .Replace("_", "", StringComparison.Ordinal)
+                .Replace("-", "", StringComparison.Ordinal)
+                .Replace(" ", "", StringComparison.Ordinal)
+                .ToLowerInvariant();
+        }
+
+        private static bool ToBool(object? value, Instruction instr, string optionName)
+        {
+            if (value is bool b)
+                return b;
+
+            string text = value?.ToString()?.Trim() ?? "";
+            if (bool.TryParse(text, out bool parsed))
+                return parsed;
+
+            if (text == "1" || string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase) || string.Equals(text, "on", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (text == "0" || string.Equals(text, "no", StringComparison.OrdinalIgnoreCase) || string.Equals(text, "off", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            throw NewVmException(instr, $"Runtime error: http.server option '{optionName}' needs a boolean value");
+        }
+
+        private static HttpProtocols ResolveProtocols(string protocols, Instruction instr)
+        {
+            return protocols switch
+            {
+                "http1" or "http11" or "http/1.1" => HttpProtocols.Http1,
+                "http2" or "h2" or "http/2" => HttpProtocols.Http2,
+                "http1andhttp2" or "http1http2" or "http1+http2" or "http/1.1+http/2" => HttpProtocols.Http1AndHttp2,
+                _ => throw NewVmException(instr, $"Runtime error: unsupported http.server protocol option '{protocols}'")
+            };
+        }
+
+        private static VMException NewVmException(Instruction instr, string message)
+        {
+            return new VMException(message, instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+        }
+
         /// <summary>
         /// Defines the <see cref="ServerHandle" />
         /// </summary>
@@ -592,6 +748,11 @@ namespace CFGS.Web.Http
             private readonly int _port;
             private readonly long _maxRequestBodySize;
             private readonly bool _streamBodies;
+            private readonly bool _useHttps;
+            private readonly string _host;
+            private readonly string? _certificatePath;
+            private readonly string? _certificatePassword;
+            private readonly HttpProtocols _protocols;
             private volatile bool _running;
             private WebApplication? _app;
             private static readonly ConcurrentDictionary<int, ServerHandle> ActiveByPort = new();
@@ -797,17 +958,25 @@ namespace CFGS.Web.Http
                 }
             }
 
-            public ServerHandle(int port, long maxRequestBodySize = DefaultMaxRequestBodySize, bool streamBodies = false)
+            internal ServerHandle(int port, ServerOptions options)
             {
                 if (port <= 0 || port > 65535) throw new ArgumentOutOfRangeException(nameof(port));
-                if (maxRequestBodySize <= 0) throw new ArgumentOutOfRangeException(nameof(maxRequestBodySize));
+                if (options.MaxRequestBodySize <= 0) throw new ArgumentOutOfRangeException(nameof(options.MaxRequestBodySize));
                 _port = port;
-                _maxRequestBodySize = maxRequestBodySize;
-                _streamBodies = streamBodies;
+                _maxRequestBodySize = options.MaxRequestBodySize;
+                _streamBodies = options.StreamBodies;
+                _useHttps = options.UseHttps;
+                _host = options.Host;
+                _certificatePath = options.CertificatePath;
+                _certificatePassword = options.CertificatePassword;
+                _protocols = options.ResolvedProtocols;
             }
 
             public bool IsRunning => _running;
             public int PendingCount => _queue.Count;
+            public bool IsHttps => _useHttps;
+            public string Scheme => _useHttps ? "https" : "http";
+            public string Url => $"{Scheme}://{DisplayHost(_host)}:{_port}/";
 
             public void Start()
             {
@@ -841,7 +1010,7 @@ namespace CFGS.Web.Http
                 {
                     ActiveByPort.TryRemove(_port, out _);
                     throw new VMException(
-                        $"Cannot start HTTP server on http://localhost:{_port}/: {FlattenMessage(ex)}",
+                        $"Cannot start HTTP server on {Url}: {FlattenMessage(ex)}",
                         0, 0, "", VM.IsDebugging, VM.DebugStream!
                     );
                 }
@@ -944,6 +1113,73 @@ namespace CFGS.Web.Http
                 return _inflight.TryGetValue(id, out PendingRequest? pending) ? pending.Request : null;
             }
 
+            private void ConfigureEndpoint(KestrelServerOptions options)
+            {
+                void ConfigureListen(ListenOptions listenOptions)
+                {
+                    listenOptions.Protocols = _protocols;
+                    if (_useHttps)
+                        listenOptions.UseHttps(LoadCertificate());
+                }
+
+                if (IsAnyHost(_host))
+                {
+                    options.ListenAnyIP(_port, ConfigureListen);
+                    return;
+                }
+
+                if (IsLocalhost(_host))
+                {
+                    options.ListenLocalhost(_port, ConfigureListen);
+                    return;
+                }
+
+                if (IPAddress.TryParse(_host, out IPAddress? address))
+                {
+                    options.Listen(address, _port, ConfigureListen);
+                    return;
+                }
+
+                throw new InvalidOperationException($"unsupported server host '{_host}'. Use localhost, *, 0.0.0.0, ::, or a concrete IP address.");
+            }
+
+            private X509Certificate2 LoadCertificate()
+            {
+                string path = Path.GetFullPath(_certificatePath ?? "");
+                if (!File.Exists(path))
+                    throw new FileNotFoundException("HTTPS certificate file was not found", path);
+
+                X509Certificate2 certificate = X509CertificateLoader.LoadPkcs12FromFile(path, _certificatePassword, X509KeyStorageFlags.DefaultKeySet);
+                if (!certificate.HasPrivateKey)
+                    throw new InvalidOperationException("HTTPS certificate needs a private key");
+
+                return certificate;
+            }
+
+            private static bool IsAnyHost(string host)
+            {
+                return host == "*" ||
+                       host == "+" ||
+                       host == "0.0.0.0" ||
+                       host == "::" ||
+                       string.Equals(host, "any", StringComparison.OrdinalIgnoreCase);
+            }
+
+            private static bool IsLocalhost(string host)
+            {
+                return string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(host, "::1", StringComparison.OrdinalIgnoreCase);
+            }
+
+            private static string DisplayHost(string host)
+            {
+                string display = IsAnyHost(host) ? "0.0.0.0" : host;
+                return display.Contains(":", StringComparison.Ordinal) && !display.StartsWith("[", StringComparison.Ordinal)
+                    ? $"[{display}]"
+                    : display;
+            }
+
             private WebApplication BuildApplication()
             {
                 WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
@@ -951,7 +1187,7 @@ namespace CFGS.Web.Http
                 builder.WebHost.ConfigureKestrel(options =>
                 {
                     options.AddServerHeader = false;
-                    options.ListenLocalhost(_port, listenOptions => listenOptions.Protocols = HttpProtocols.Http1);
+                    ConfigureEndpoint(options);
                 });
 
                 WebApplication app = builder.Build();
@@ -1151,6 +1387,9 @@ namespace CFGS.Web.Http
                 {
                     ["id"] = id,
                     ["method"] = req.Method ?? "GET",
+                    ["scheme"] = req.Scheme ?? "http",
+                    ["is_https"] = req.IsHttps,
+                    ["host"] = req.Host.HasValue ? req.Host.Value : "",
                     ["path"] = req.Path.HasValue ? req.Path.Value! : "/",
                     ["query"] = ParseQuery(req.QueryString.HasValue ? req.QueryString.Value : ""),
                     ["headers"] = headers,
@@ -1160,6 +1399,7 @@ namespace CFGS.Web.Http
                     ["body_too_large"] = body.TooLarge,
                     ["body_bytes_truncated"] = body.TooLarge,
                     ["body_limit"] = body.Limit,
+                    ["local"] = BuildLocal(connection),
                     ["remote"] = BuildRemote(connection)
                 };
             }
@@ -1181,6 +1421,9 @@ namespace CFGS.Web.Http
                 {
                     ["id"] = id,
                     ["method"] = req.Method ?? "GET",
+                    ["scheme"] = req.Scheme ?? "http",
+                    ["is_https"] = req.IsHttps,
+                    ["host"] = req.Host.HasValue ? req.Host.Value : "",
                     ["path"] = req.Path.HasValue ? req.Path.Value! : "/",
                     ["query"] = ParseQuery(req.QueryString.HasValue ? req.QueryString.Value : ""),
                     ["headers"] = headers,
@@ -1192,6 +1435,7 @@ namespace CFGS.Web.Http
                     ["body_limit"] = maxBodySize,
                     ["body_stream"] = new RequestBodyHandle(req.Body, maxBodySize, cancellationToken),
                     ["body_streaming"] = true,
+                    ["local"] = BuildLocal(connection),
                     ["remote"] = BuildRemote(connection)
                 };
             }
@@ -1272,6 +1516,15 @@ namespace CFGS.Web.Http
                 if (connection.RemotePort > 0)
                     return connection.RemoteIpAddress + ":" + connection.RemotePort.ToString(CultureInfo.InvariantCulture);
                 return connection.RemoteIpAddress.ToString();
+            }
+
+            private static string BuildLocal(ConnectionInfo connection)
+            {
+                if (connection.LocalIpAddress == null)
+                    return "";
+                if (connection.LocalPort > 0)
+                    return connection.LocalIpAddress + ":" + connection.LocalPort.ToString(CultureInfo.InvariantCulture);
+                return connection.LocalIpAddress.ToString();
             }
 
             private static string FlattenMessage(Exception ex)
