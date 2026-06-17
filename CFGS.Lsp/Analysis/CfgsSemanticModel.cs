@@ -3129,7 +3129,7 @@ internal sealed class CfgsSemanticModelBuilder
             fullRange,
             selectionRange,
             detail,
-            CreateHoverText(hoverHeader, uri),
+            CfgsHoverText.Create(hoverHeader, uri, qualifiedName, kind, detail),
             children,
             synthetic,
             symbolId,
@@ -3246,19 +3246,6 @@ internal sealed class CfgsSemanticModelBuilder
                 .ToList();
             _completionTargets.Add(new CfgsResolvedCompletionTarget(uri, end, items));
         }
-    }
-
-    private static string CreateHoverText(string header, string uri)
-    {
-        StringBuilder sb = new();
-        sb.AppendLine("```cfgs");
-        sb.AppendLine(header);
-        sb.AppendLine("```");
-        sb.AppendLine();
-        sb.Append("Defined in `");
-        sb.Append(uri);
-        sb.Append('`');
-        return sb.ToString();
     }
 
     private static string Qualify(string? containerQualifiedName, string name)

@@ -2901,22 +2901,9 @@ internal sealed class CfgsAnalyzer
                 selectionRange,
                 selectionRange,
                 detail,
-                CreateHoverText(hoverHeader, uri),
+                CfgsHoverText.Create(hoverHeader, uri, qualifiedName, kind, detail),
                 children,
                 IsSynthetic: false);
-        }
-
-        private static string CreateHoverText(string header, string uri)
-        {
-            StringBuilder sb = new();
-            sb.AppendLine("```cfgs");
-            sb.AppendLine(header);
-            sb.AppendLine("```");
-            sb.AppendLine();
-            sb.Append("Defined in `");
-            sb.Append(uri);
-            sb.Append('`');
-            return sb.ToString();
         }
 
         private bool IsCurrentDocument(string originFile)

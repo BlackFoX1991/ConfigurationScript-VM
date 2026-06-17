@@ -16,7 +16,8 @@ internal static class Program
             DidChangePublishesLatestDiagnosticsAfterDebounce,
             CompletionReturnsLanguageItems,
             FormattingReturnsDocumentEdit,
-            HoverFindsFunctionSymbol
+            HoverFindsFunctionSymbol,
+            HoverIncludesQualifiedContainerDetails
         ];
 
         List<string> failures = [];
@@ -133,6 +134,35 @@ var answer = add(1, 2);
 
         string value = hover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
         AssertTrue(value.Contains("add", StringComparison.Ordinal), "hover does not describe the function symbol");
+    }
+
+    private static void HoverIncludesQualifiedContainerDetails()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+namespace Demo.App {
+    class Runner() {
+        func run() {
+            return 1;
+        }
+    }
+}
+""";
+        string uri = CreateDocumentUri("hover-details.cfs");
+        client.DidOpen(uri, source);
+        _ = client.WaitForDiagnostics(uri);
+
+        JsonElement hover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 2, character = 14 }
+        });
+
+        string value = hover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(value.Contains("Symbol: `Demo.App.Runner.run`", StringComparison.Ordinal), "hover does not include the qualified symbol name");
+        AssertTrue(value.Contains("Namespace: `Demo.App`", StringComparison.Ordinal), "hover does not include the namespace path");
+        AssertTrue(value.Contains("Type/Class: `Runner`", StringComparison.Ordinal), "hover does not include the owning type name");
+        AssertTrue(value.Contains("Container: `Demo.App.Runner`", StringComparison.Ordinal), "hover does not include the containing namespace/class path");
     }
 
     private static string CreateDocumentUri(string fileName)
