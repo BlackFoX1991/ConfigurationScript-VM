@@ -116,6 +116,7 @@
   },
   "scripts": {
     "check": "node --check extension.js",
+    "smoke": "node scripts/smoke-extension.js",
     "package": "node scripts/package-vsix.js"
   }
 }

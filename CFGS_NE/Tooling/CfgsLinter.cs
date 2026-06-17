@@ -36,6 +36,7 @@ internal static class CfgsLinter
         AddStyleDiagnostics(fullPath, sourceText, diagnostics, options);
         AddCompileDiagnostic(fullPath, diagnostics, compilerVersion);
         AddAstDiagnostics(fullPath, sourceText, diagnostics);
+        ApplySuppressions(sourceText, diagnostics);
 
         string? fixedText = null;
         bool fixedChanged = false;
@@ -238,6 +239,8 @@ internal static class CfgsLinter
         private readonly Stack<Scope> _scopes = new();
         private readonly Dictionary<string, Declaration> _functions = new(StringComparer.Ordinal);
         private readonly HashSet<string> _calledFunctions = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _externallyReachableFunctions = new(StringComparer.Ordinal);
+        private int _namespaceDepth;
 
         public AstLintWalker(string path, List<CfgsToolDiagnostic> diagnostics)
         {
@@ -279,7 +282,8 @@ internal static class CfgsLinter
             {
                 if (!function.Name.StartsWith('_') &&
                     !string.Equals(function.Name, "main", StringComparison.Ordinal) &&
-                    !_calledFunctions.Contains(function.Name))
+                    !_calledFunctions.Contains(function.Name) &&
+                    !_externallyReachableFunctions.Contains(function.Name))
                     Add("CFGS8013", CfgsToolDiagnosticSeverity.Info, $"function '{function.Name}' is never called in this file", function.Line, function.Column);
             }
         }
@@ -298,7 +302,11 @@ internal static class CfgsLinter
                     break;
                 case FuncDeclStmt f:
                     if (_scopes.Peek().IsTopLevel)
+                    {
                         _functions.TryAdd(f.Name, new Declaration(f.Name, f.Line, f.Col));
+                        if (_namespaceDepth > 0)
+                            _externallyReachableFunctions.Add(f.Name);
+                    }
                     VisitFunction(f.Name, f.IsAsync, f.Parameters, f.RestParameter, f.Body, f.Line, f.Col);
                     break;
                 case ExprStmt e:
@@ -399,7 +407,15 @@ internal static class CfgsLinter
                     _scopes.Pop();
                     break;
                 case NamespaceDeclStmt n:
-                    VisitStatements(n.BodyStatements, isTopLevel: true);
+                    _namespaceDepth++;
+                    try
+                    {
+                        VisitStatements(n.BodyStatements, isTopLevel: true);
+                    }
+                    finally
+                    {
+                        _namespaceDepth--;
+                    }
                     break;
                 case ClassDeclStmt c:
                     foreach (FuncDeclStmt method in c.Methods)
@@ -416,6 +432,8 @@ internal static class CfgsLinter
                         VisitStatement(nested);
                     break;
                 case ExportStmt e:
+                    if (e.Inner is FuncDeclStmt exportedFunction)
+                        _externallyReachableFunctions.Add(exportedFunction.Name);
                     VisitStatement(e.Inner);
                     break;
             }
@@ -630,5 +648,95 @@ internal static class CfgsLinter
         }
 
         private sealed record Declaration(string Name, int Line, int Column, bool IsParameter = false);
+    }
+
+    private static void ApplySuppressions(string sourceText, List<CfgsToolDiagnostic> diagnostics)
+    {
+        LintSuppressions suppressions = LintSuppressions.Parse(sourceText);
+        if (suppressions.IsEmpty)
+            return;
+
+        diagnostics.RemoveAll(suppressions.IsSuppressed);
+    }
+
+    private sealed class LintSuppressions
+    {
+        private readonly HashSet<string> _globalCodes = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<int, HashSet<string>> _lineCodes = new();
+
+        public bool IsEmpty => _globalCodes.Count == 0 && _lineCodes.Count == 0;
+
+        public static LintSuppressions Parse(string sourceText)
+        {
+            LintSuppressions result = new();
+            string normalized = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+            string[] lines = normalized.Split('\n');
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                int commentStart = line.IndexOf('#');
+                if (commentStart < 0)
+                    continue;
+
+                string comment = line[commentStart..].Trim();
+                if (comment.StartsWith("# lint:disable-next-line", StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (string code in ParseCodes(comment["# lint:disable-next-line".Length..]))
+                        result.AddLine(i + 2, code);
+                    continue;
+                }
+
+                if (comment.StartsWith("# lint:disable-line", StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (string code in ParseCodes(comment["# lint:disable-line".Length..]))
+                        result.AddLine(i + 1, code);
+                    continue;
+                }
+
+                if (comment.StartsWith("# lint:disable", StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (string code in ParseCodes(comment["# lint:disable".Length..]))
+                        result._globalCodes.Add(code);
+                }
+            }
+
+            return result;
+        }
+
+        public bool IsSuppressed(CfgsToolDiagnostic diagnostic)
+        {
+            if (ContainsCode(_globalCodes, diagnostic.Code))
+                return true;
+
+            return _lineCodes.TryGetValue(diagnostic.Line, out HashSet<string>? codes) &&
+                   ContainsCode(codes, diagnostic.Code);
+        }
+
+        private void AddLine(int line, string code)
+        {
+            if (!_lineCodes.TryGetValue(line, out HashSet<string>? codes))
+            {
+                codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _lineCodes[line] = codes;
+            }
+
+            codes.Add(code);
+        }
+
+        private static bool ContainsCode(HashSet<string> codes, string diagnosticCode)
+            => codes.Contains("all") || codes.Contains(diagnosticCode);
+
+        private static IEnumerable<string> ParseCodes(string raw)
+        {
+            string[] parts = raw
+                .Split([',', ' ', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            if (parts.Length == 0)
+                yield return "all";
+
+            foreach (string part in parts)
+                yield return part;
+        }
     }
 }

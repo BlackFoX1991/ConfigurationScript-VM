@@ -24,7 +24,10 @@ public static class CfgsFormatter
                 continue;
 
             string raw = lines[i];
-            string trimmed = NormalizeInlineSpacing(raw.Trim());
+            string rawTrimmed = raw.Trim();
+            string trimmed = ShouldPreserveCommentLine(rawTrimmed, inBlockComment)
+                ? rawTrimmed
+                : NormalizeInlineSpacing(rawTrimmed);
 
             if (trimmed.Length == 0)
             {
@@ -155,7 +158,13 @@ public static class CfgsFormatter
                 string op = ReadOperator(line, i);
                 if (op.Length > 0)
                 {
-                    if (ShouldSpaceOperator(op, prev, next))
+                    if (IsUnaryOperator(op) && IsUnaryContext(sb))
+                    {
+                        sb.Append(op);
+                        while (i + op.Length < line.Length && char.IsWhiteSpace(line[i + op.Length]))
+                            i++;
+                    }
+                    else if (ShouldSpaceOperator(op, prev, next))
                     {
                         TrimTrailingSpaces(sb);
                         if (sb.Length > 0)
@@ -191,6 +200,11 @@ public static class CfgsFormatter
     private static bool IsOperatorStart(char ch)
         => ch is '=' or '!' or '<' or '>' or '+' or '-' or '*' or '/' or '%' or '&' or '|' or '^' or '?';
 
+    private static bool ShouldPreserveCommentLine(string trimmed, bool inBlockComment)
+        => inBlockComment ||
+           trimmed.StartsWith('#') ||
+           trimmed.StartsWith("+#", StringComparison.Ordinal);
+
     private static string ReadOperator(string line, int index)
     {
         foreach (string op in new[] { "==", "!=", "<=", ">=", "&&", "||", "??", "+=", "-=", "*=", "/=", "%=", "<<", ">>", "++", "--", "=>", "**" })
@@ -205,16 +219,45 @@ public static class CfgsFormatter
 
     private static bool ShouldSpaceOperator(string op, char prev, char next)
     {
-        if (op is "++" or "--" or "." or "=>" || op == "?")
+        if (op is "++" or "--" or "." or "=>")
             return false;
 
-        if ((op is "+" or "-") && (prev is '\0' or '(' or '[' or '{' or ',' or ':' or '=' or '<' or '>' or '!' or '?' or '+' or '-' or '*' or '/' or '%'))
+        if ((op is "+" or "-" or "!") && (prev is '\0' or '(' or '[' or '{' or ',' or ':' or '=' or '<' or '>' or '!' or '?' or '+' or '-' or '*' or '/' or '%'))
             return false;
 
         if (op == "*" && next == '[')
             return false;
 
         return true;
+    }
+
+    private static bool IsUnaryOperator(string op)
+        => op is "+" or "-" or "!";
+
+    private static bool IsUnaryContext(StringBuilder sb)
+    {
+        int index = sb.Length - 1;
+        while (index >= 0 && char.IsWhiteSpace(sb[index]))
+            index--;
+
+        if (index < 0)
+            return true;
+
+        char previous = sb[index];
+        if (previous is '(' or '[' or '{' or ',' or ':' or '=' or '<' or '>' or '!' or '?' or '+' or '-' or '*' or '/' or '%')
+            return true;
+
+        string token = ReadTrailingIdentifier(sb, index);
+        return token is "return" or "throw" or "yield" or "await" or "case";
+    }
+
+    private static string ReadTrailingIdentifier(StringBuilder sb, int endIndex)
+    {
+        int start = endIndex;
+        while (start >= 0 && (char.IsLetterOrDigit(sb[start]) || sb[start] == '_'))
+            start--;
+
+        return sb.ToString(start + 1, endIndex - start);
     }
 
     private static void TrimTrailingSpaces(StringBuilder sb)

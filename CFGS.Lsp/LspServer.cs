@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -13,10 +14,15 @@ internal sealed class LspServer
     private readonly Stream _input;
     private readonly Stream _output;
     private readonly JsonSerializerOptions _jsonOptions = new();
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _pendingAnalysisByUri = OperatingSystem.IsWindows()
+        ? new(StringComparer.OrdinalIgnoreCase)
+        : new(StringComparer.Ordinal);
     private readonly Dictionary<string, DocumentState> _documents = OperatingSystem.IsWindows()
         ? new(StringComparer.OrdinalIgnoreCase)
         : new(StringComparer.Ordinal);
 
+    private static readonly TimeSpan DidChangeAnalysisDebounce = TimeSpan.FromMilliseconds(150);
     private string? _workspaceRootPath;
     private bool _shutdownRequested;
 
@@ -551,6 +557,7 @@ internal sealed class LspServer
 
         DocumentState state = new(uri, text, version);
         _documents[uri] = state;
+        CancelPendingAnalysis(uri);
         await AnalyzeAndPublishAsync(state, cancellationToken);
     }
 
@@ -570,12 +577,13 @@ internal sealed class LspServer
                 state.Text = textEl.GetString() ?? string.Empty;
         }
 
-        await AnalyzeAndPublishAsync(state, cancellationToken);
+        ScheduleAnalyzeAndPublish(state, cancellationToken);
     }
 
     private async Task HandleDidCloseAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         string uri = GetTextDocumentUri(parameters);
+        CancelPendingAnalysis(uri);
         if (_documents.Remove(uri, out DocumentState? state))
         {
             foreach (string publishedUri in state.PublishedDiagnosticUris)
@@ -631,6 +639,44 @@ internal sealed class LspServer
             await PublishDiagnosticsAsync(staleUri, [], cancellationToken);
 
         state.PublishedDiagnosticUris = nextUris;
+    }
+
+    private void ScheduleAnalyzeAndPublish(DocumentState state, CancellationToken cancellationToken)
+    {
+        CancelPendingAnalysis(state.Uri);
+        CancellationTokenSource pending = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _pendingAnalysisByUri[state.Uri] = pending;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(DidChangeAnalysisDebounce, pending.Token);
+                await AnalyzeAndPublishAsync(state, pending.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                if (_pendingAnalysisByUri.TryGetValue(state.Uri, out CancellationTokenSource? current) &&
+                    ReferenceEquals(current, pending))
+                {
+                    _pendingAnalysisByUri.TryRemove(state.Uri, out _);
+                }
+
+                pending.Dispose();
+            }
+        }, CancellationToken.None);
+    }
+
+    private void CancelPendingAnalysis(string uri)
+    {
+        if (_pendingAnalysisByUri.TryRemove(uri, out CancellationTokenSource? pending))
+        {
+            pending.Cancel();
+            pending.Dispose();
+        }
     }
 
     private static CfgsAnalysisResult GetInteractiveAnalysis(DocumentState state)
@@ -1294,9 +1340,17 @@ internal sealed class LspServer
         byte[] jsonBytes = JsonSerializer.SerializeToUtf8Bytes(payload, _jsonOptions);
         byte[] headerBytes = Encoding.ASCII.GetBytes($"Content-Length: {jsonBytes.Length}\r\n\r\n");
 
-        await _output.WriteAsync(headerBytes, cancellationToken);
-        await _output.WriteAsync(jsonBytes, cancellationToken);
-        await _output.FlushAsync(cancellationToken);
+        await _sendLock.WaitAsync(cancellationToken);
+        try
+        {
+            await _output.WriteAsync(headerBytes, cancellationToken);
+            await _output.WriteAsync(jsonBytes, cancellationToken);
+            await _output.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
     }
 
     private static object ToDiagnosticPayload(CfgsDiagnostic diagnostic) => new

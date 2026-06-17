@@ -1,0 +1,399 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
+
+namespace CFGS.Lsp.Tests;
+
+internal static class Program
+{
+    private static int Main()
+    {
+        TestCase[] tests =
+        [
+            InitializeAdvertisesCoreCapabilities,
+            DidOpenPublishesDiagnostics,
+            DidChangePublishesLatestDiagnosticsAfterDebounce,
+            CompletionReturnsLanguageItems,
+            FormattingReturnsDocumentEdit,
+            HoverFindsFunctionSymbol
+        ];
+
+        List<string> failures = [];
+        foreach (TestCase test in tests)
+        {
+            try
+            {
+                test();
+                Console.WriteLine($"PASS {test.Method.Name}");
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{test.Method.Name}: {ex.Message}");
+                Console.WriteLine($"FAIL {test.Method.Name}: {ex.Message}");
+            }
+        }
+
+        Console.WriteLine($"LSP_TEST_SUMMARY:TOTAL={tests.Length}:PASSED={tests.Length - failures.Count}:FAILED={failures.Count}");
+        return failures.Count == 0 ? 0 : 1;
+    }
+
+    private static void InitializeAdvertisesCoreCapabilities()
+    {
+        using LspTestClient client = LspTestClient.Start();
+        JsonElement result = client.Initialize();
+        JsonElement capabilities = result.GetProperty("capabilities");
+
+        AssertTrue(capabilities.GetProperty("hoverProvider").GetBoolean(), "hover provider is not advertised");
+        AssertTrue(capabilities.GetProperty("definitionProvider").GetBoolean(), "definition provider is not advertised");
+        AssertTrue(capabilities.GetProperty("documentFormattingProvider").GetBoolean(), "formatting provider is not advertised");
+        AssertEqual(JsonValueKind.Object, capabilities.GetProperty("completionProvider").ValueKind, "completion provider is missing");
+        AssertEqual(JsonValueKind.Object, capabilities.GetProperty("semanticTokensProvider").ValueKind, "semantic tokens provider is missing");
+    }
+
+    private static void DidOpenPublishesDiagnostics()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string uri = CreateDocumentUri("broken.cfs");
+        client.DidOpen(uri, "var value = ;\n");
+
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertTrue(diagnostics.GetArrayLength() > 0, "expected diagnostics for broken source");
+        AssertFalse(string.IsNullOrWhiteSpace(diagnostics[0].GetProperty("message").GetString()), "diagnostic message is empty");
+    }
+
+    private static void CompletionReturnsLanguageItems()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string uri = CreateDocumentUri("completion.cfs");
+        client.DidOpen(uri, "\n");
+        _ = client.WaitForDiagnostics(uri);
+
+        JsonElement completions = client.SendRequest("textDocument/completion", new
+        {
+            textDocument = new { uri },
+            position = new { line = 0, character = 0 }
+        });
+
+        AssertEqual(JsonValueKind.Array, completions.ValueKind, "completion result must be an array");
+        AssertTrue(completions.EnumerateArray().Any(item => item.GetProperty("label").GetString() == "func"), "keyword completion 'func' missing");
+    }
+
+    private static void DidChangePublishesLatestDiagnosticsAfterDebounce()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string uri = CreateDocumentUri("change.cfs");
+        client.DidOpen(uri, "var value = ;\n");
+
+        JsonElement firstDiagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertTrue(firstDiagnostics.GetArrayLength() > 0, "expected initial diagnostics for broken source");
+
+        client.DidChange(uri, 2, "var value = 1;\n");
+        JsonElement nextDiagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertEqual(0, nextDiagnostics.GetArrayLength(), "expected diagnostics to clear after valid debounced change");
+    }
+
+    private static void FormattingReturnsDocumentEdit()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string uri = CreateDocumentUri("format.cfs");
+        client.DidOpen(uri, "func add(a,b){\nvar total=a+b;\n}\n");
+        _ = client.WaitForDiagnostics(uri);
+
+        JsonElement edits = client.SendRequest("textDocument/formatting", new
+        {
+            textDocument = new { uri },
+            options = new { tabSize = 4, insertSpaces = true }
+        });
+
+        AssertEqual(JsonValueKind.Array, edits.ValueKind, "formatting result must be an array");
+        AssertTrue(edits.GetArrayLength() == 1, "formatting should return a single full-document edit");
+        AssertTrue(edits[0].GetProperty("newText").GetString()?.Contains("var total = a + b;", StringComparison.Ordinal) == true, "format edit did not normalize spacing");
+    }
+
+    private static void HoverFindsFunctionSymbol()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+func add(a, b) {
+    return a + b;
+}
+
+var answer = add(1, 2);
+""";
+        string uri = CreateDocumentUri("hover.cfs");
+        client.DidOpen(uri, source);
+        _ = client.WaitForDiagnostics(uri);
+
+        JsonElement hover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 4, character = 13 }
+        });
+
+        string value = hover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(value.Contains("add", StringComparison.Ordinal), "hover does not describe the function symbol");
+    }
+
+    private static string CreateDocumentUri(string fileName)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "cfgs-lsp-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        return new Uri(Path.Combine(directory, fileName)).AbsoluteUri;
+    }
+
+    private static void AssertEqual<T>(T expected, T actual, string message)
+    {
+        if (!EqualityComparer<T>.Default.Equals(expected, actual))
+            throw new InvalidOperationException($"{message}. Expected '{expected}', got '{actual}'.");
+    }
+
+    private static void AssertTrue(bool condition, string message)
+    {
+        if (!condition)
+            throw new InvalidOperationException(message);
+    }
+
+    private static void AssertFalse(bool condition, string message)
+        => AssertTrue(!condition, message);
+
+    private delegate void TestCase();
+}
+
+internal sealed class LspTestClient : IDisposable
+{
+    private readonly Process _process;
+    private readonly Stream _stdout;
+    private readonly Stream _stdin;
+    private readonly ConcurrentQueue<JsonElement> _notifications = new();
+    private int _nextId;
+    private bool _disposed;
+
+    private LspTestClient(Process process)
+    {
+        _process = process;
+        _stdout = process.StandardOutput.BaseStream;
+        _stdin = process.StandardInput.BaseStream;
+    }
+
+    public static LspTestClient Start()
+    {
+        string serverPath = Path.Combine(AppContext.BaseDirectory, "CFGS.Lsp.dll");
+        if (!File.Exists(serverPath))
+            throw new FileNotFoundException("CFGS.Lsp.dll was not found in the test output directory.", serverPath);
+
+        Process process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            ArgumentList = { serverPath },
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        }) ?? throw new InvalidOperationException("failed to start CFGS.Lsp");
+
+        return new LspTestClient(process);
+    }
+
+    public static LspTestClient StartInitialized()
+    {
+        LspTestClient client = Start();
+        client.Initialize();
+        client.SendNotification("initialized", new { });
+        return client;
+    }
+
+    public JsonElement Initialize()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-lsp-tests-root");
+        Directory.CreateDirectory(root);
+        return SendRequest("initialize", new
+        {
+            processId = Environment.ProcessId,
+            rootUri = new Uri(root).AbsoluteUri,
+            capabilities = new { }
+        });
+    }
+
+    public void DidOpen(string uri, string text)
+    {
+        SendNotification("textDocument/didOpen", new
+        {
+            textDocument = new
+            {
+                uri,
+                languageId = "cfgs",
+                version = 1,
+                text
+            }
+        });
+    }
+
+    public void DidChange(string uri, int version, string text)
+    {
+        SendNotification("textDocument/didChange", new
+        {
+            textDocument = new
+            {
+                uri,
+                version
+            },
+            contentChanges = new[]
+            {
+                new
+                {
+                    text
+                }
+            }
+        });
+    }
+
+    public JsonElement WaitForDiagnostics(string uri)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            JsonElement message = ReadMessage();
+            if (message.TryGetProperty("method", out JsonElement method) &&
+                method.GetString() == "textDocument/publishDiagnostics")
+            {
+                JsonElement parameters = message.GetProperty("params");
+                if (string.Equals(parameters.GetProperty("uri").GetString(), uri, StringComparison.OrdinalIgnoreCase))
+                    return parameters.Clone();
+            }
+
+            _notifications.Enqueue(message.Clone());
+        }
+
+        throw new TimeoutException($"timed out waiting for diagnostics for {uri}");
+    }
+
+    public JsonElement SendRequest(string method, object parameters)
+    {
+        int id = Interlocked.Increment(ref _nextId);
+        WriteMessage(new
+        {
+            jsonrpc = "2.0",
+            id,
+            method,
+            @params = parameters
+        });
+
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            JsonElement message = ReadMessage();
+            if (message.TryGetProperty("id", out JsonElement responseId) && responseId.GetInt32() == id)
+            {
+                if (message.TryGetProperty("error", out JsonElement error))
+                    throw new InvalidOperationException(error.GetProperty("message").GetString());
+
+                return message.TryGetProperty("result", out JsonElement result)
+                    ? result.Clone()
+                    : JsonDocument.Parse("null").RootElement.Clone();
+            }
+
+            _notifications.Enqueue(message.Clone());
+        }
+
+        throw new TimeoutException($"timed out waiting for LSP response to {method}");
+    }
+
+    public void SendNotification(string method, object parameters)
+    {
+        WriteMessage(new
+        {
+            jsonrpc = "2.0",
+            method,
+            @params = parameters
+        });
+    }
+
+    private void WriteMessage(object payload)
+    {
+        byte[] body = JsonSerializer.SerializeToUtf8Bytes(payload);
+        byte[] header = Encoding.ASCII.GetBytes($"Content-Length: {body.Length}\r\n\r\n");
+        _stdin.Write(header);
+        _stdin.Write(body);
+        _stdin.Flush();
+    }
+
+    private JsonElement ReadMessage()
+    {
+        string header = ReadHeader();
+        int length = ParseContentLength(header);
+        byte[] body = ReadExactly(length);
+        return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
+    private string ReadHeader()
+    {
+        List<byte> bytes = [];
+        while (true)
+        {
+            int next = _stdout.ReadByte();
+            if (next < 0)
+                throw new EndOfStreamException("LSP server closed stdout.");
+
+            bytes.Add((byte)next);
+            int count = bytes.Count;
+            if (count >= 4 &&
+                bytes[count - 4] == '\r' &&
+                bytes[count - 3] == '\n' &&
+                bytes[count - 2] == '\r' &&
+                bytes[count - 1] == '\n')
+            {
+                return Encoding.ASCII.GetString(bytes.ToArray());
+            }
+        }
+    }
+
+    private byte[] ReadExactly(int length)
+    {
+        byte[] buffer = new byte[length];
+        int offset = 0;
+        while (offset < length)
+        {
+            int read = _stdout.Read(buffer, offset, length - offset);
+            if (read <= 0)
+                throw new EndOfStreamException("LSP server closed stdout while sending a message body.");
+            offset += read;
+        }
+
+        return buffer;
+    }
+
+    private static int ParseContentLength(string header)
+    {
+        foreach (string line in header.Split("\r\n", StringSplitOptions.RemoveEmptyEntries))
+        {
+            int colon = line.IndexOf(':');
+            if (colon > 0 && string.Equals(line[..colon], "Content-Length", StringComparison.OrdinalIgnoreCase))
+                return int.Parse(line[(colon + 1)..].Trim(), System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        throw new FormatException("LSP message header did not contain Content-Length.");
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        try
+        {
+            SendRequest("shutdown", new { });
+            SendNotification("exit", new { });
+        }
+        catch
+        {
+        }
+
+        if (!_process.WaitForExit(1000))
+            _process.Kill(entireProcessTree: true);
+
+        _process.Dispose();
+    }
+}
