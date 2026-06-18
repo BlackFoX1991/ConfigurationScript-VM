@@ -431,6 +431,13 @@ internal static class CfgsLinter
                     foreach (ClassDeclStmt nested in c.NestedClasses)
                         VisitStatement(nested);
                     break;
+                case InterfaceDeclStmt i:
+                    foreach (InterfaceMethodDecl method in i.Methods)
+                    {
+                        if (method.Body is not null)
+                            VisitFunction(method.Name, method.IsAsync, method.Parameters, method.RestParameter, method.Body, method.Line, method.Col);
+                    }
+                    break;
                 case ExportStmt e:
                     if (e.Inner is FuncDeclStmt exportedFunction)
                         _externallyReachableFunctions.Add(exportedFunction.Name);

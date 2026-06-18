@@ -67,6 +67,8 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private Dictionary<InterfaceDeclStmt, Dictionary<string, InterfacePropertyDecl>> _interfacePropertyContractCache => _context.InterfacePropertyContractCache;
 
+        private Dictionary<InterfaceDeclStmt, Dictionary<string, InterfaceIndexerDecl>> _interfaceIndexerContractCache => _context.InterfaceIndexerContractCache;
+
         /// <summary>
         /// Defines the _currentClass
         /// </summary>

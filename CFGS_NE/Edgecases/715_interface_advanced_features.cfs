@@ -1,0 +1,88 @@
+import "edge_assert.cfs";
+
+edge_begin("715_interface_advanced_features");
+
+interface INamed {
+    property name { get; }
+    func label() {
+        return "name:" + this.name;
+    }
+}
+
+interface IFactory {
+    static property kind { get; }
+    static func describe();
+}
+
+interface IBag {
+    index get(key);
+    index set(key, value);
+}
+
+interface IExplicitRunner {
+    func run(value);
+}
+
+class NamedThing : INamed {
+    property name { get; } = "cfgs";
+}
+
+class FactoryThing : IFactory {
+    static property kind { get; } = "factory";
+    static func describe() { return type.kind + ":ok"; }
+}
+
+class Bag : IBag {
+    var data = {};
+
+    func get_index(key) {
+        return this.data[key];
+    }
+
+    func set_index(key, value) {
+        this.data[key] = value;
+    }
+}
+
+class StructuralThing {
+    property name { get; } = "shape";
+    func label() {
+        return "shape:" + this.name;
+    }
+}
+
+class ExplicitRunner : IExplicitRunner {
+    func IExplicitRunner.run(value) {
+        return "explicit:" + str(value);
+    }
+}
+
+func main() {
+    var named = new NamedThing();
+    edge_eq("default_interface_method", named.label(), "name:cfgs");
+    edge_true("nominal_interface_is", named is INamed);
+
+    edge_eq("static_interface_property", FactoryThing.kind, "factory");
+    edge_eq("static_interface_method", FactoryThing.describe(), "factory:ok");
+
+    var bag = new Bag();
+    bag["id"] = 42;
+    edge_eq("interface_index_get_set", bag["id"], 42);
+
+    var structural = new StructuralThing();
+    edge_true("structural_interface_is", structural is INamed);
+    edge_true("implements_builtin", implements(structural, INamed));
+    edge_eq("interfaces_builtin_nominal_count", len(interfaces(named)), 1);
+
+    var meta = interfaceof(INamed);
+    edge_eq("interfaceof_name", meta["name"], "INamed");
+    edge_eq("interfaceof_methods", len(meta["methods"]), 1);
+    edge_eq("interfaceof_properties", len(meta["properties"]), 1);
+
+    var runner = new ExplicitRunner();
+    edge_eq("explicit_interface_call", interface_call(runner, IExplicitRunner, "run", [7]), "explicit:7");
+}
+
+main();
+
+edge_finish("715_interface_advanced_features");

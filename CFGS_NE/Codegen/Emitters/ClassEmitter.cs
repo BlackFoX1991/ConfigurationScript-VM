@@ -248,7 +248,7 @@ namespace CFGS_VM.VMCore
                 foreach (FuncDeclStmt func in cds.Methods)
                 {
                     _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, func.Line, func.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, func.Name, func.Line, func.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.PUSH_STR, func.RuntimeMemberName, func.Line, func.Col, cds.OriginFile));
 
                     List<string> methodParams = new(func.Parameters);
                     methodParams.Insert(0, "this");
@@ -412,7 +412,7 @@ namespace CFGS_VM.VMCore
                 foreach (FuncDeclStmt func in cds.StaticMethods)
                 {
                     _insns.Add(new Instruction(OpCode.DUP, null, func.Line, func.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, func.Name, func.Line, func.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.PUSH_STR, func.RuntimeMemberName, func.Line, func.Col, cds.OriginFile));
 
                     List<string> methodParams = new(func.Parameters);
                     methodParams.Insert(0, "type");

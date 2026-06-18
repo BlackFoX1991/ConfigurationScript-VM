@@ -65,7 +65,10 @@ namespace CFGS_VM.VMCore
         private void CopyBindingsTo(IVmBindingRuntime target)
         {
             foreach (BuiltinDescriptor descriptor in _builtins.Snapshot())
-                target.Builtins.Register(descriptor);
+            {
+                if (!target.Builtins.Contains(descriptor.Name))
+                    target.Builtins.Register(descriptor);
+            }
 
             foreach ((Type ReceiverType, IntrinsicDescriptor Descriptor) entry in _intrinsics.Snapshot())
                 target.Intrinsics.Register(entry.ReceiverType, entry.Descriptor);

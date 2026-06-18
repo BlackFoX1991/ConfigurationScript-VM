@@ -309,7 +309,7 @@ The runtime and compiler validate these calls strictly. Unknown named arguments,
 
 ## Interfaces
 
-CFGS also supports interface declarations with method signatures and property signatures.
+CFGS also supports interface declarations with method signatures, property signatures, default methods, static contracts, and indexer contracts.
 
 ```cfs
 interface IAnimal {
@@ -332,9 +332,13 @@ interface INamed {
 Important rules.
 
 - Interfaces may inherit from one or more interfaces with `:`.
-- Interface bodies may contain `func ...;`, `async func ...;`, and `property ... { ... }` signatures.
-- Interface members are instance methods and instance properties only. No fields, no static members, no default bodies.
+- Interface bodies may contain `func ...;`, `async func ...;`, `property ... { ... }`, `static func ...;`, `static property ... { ... }`, default method bodies, and index contracts.
+- Interface fields are not allowed.
 - Interface properties declare accessor shape only. Example: `property x { get; }` or `property x { get; set; }`.
+- Static interface contracts must be implemented by public static class members.
+- A default interface method body is copied into an implementing class when the class does not provide its own method.
+- Indexer contracts use `index get(key);` and `index set(key, value);`. Implementing classes provide public `get_index(key)` and `set_index(key, value)` methods, and `obj[key]` dispatches to them.
+- Explicit interface methods use `func IFace.member(...) { ... }`. They are stored under the interface-qualified member name and can be invoked with `interface_call(obj, IFace, "member", [args...])`.
 - Signature compatibility checks include arity, optional/default parameter shape, rest-parameter usage, and `async`.
 - Property compatibility checks include the required accessor set and public accessor visibility where the interface requires it.
 - CFGS does not use a separate `implements` keyword. Interface names go directly into the class header after `:`.
@@ -459,6 +463,69 @@ These implementations compile because the signatures match the contracts exactly
 - `write` keeps the same required argument count, optional/default parameter shape, and rest parameter.
 - `fetch` stays `async` and keeps the same optional parameter shape.
 
+### Default Methods, Static Contracts, and Indexers
+
+```cfs
+interface INamed {
+    property name { get; }
+
+    func label() {
+        return "name:" + this.name;
+    }
+}
+
+interface IFactory {
+    static property kind { get; }
+    static func describe();
+}
+
+interface IBag {
+    index get(key);
+    index set(key, value);
+}
+
+class Product() : INamed, IFactory, IBag {
+    static property kind { get; } = "product";
+    property name { get; } = "cfgs";
+    var values = {};
+
+    static func describe() {
+        return type.kind;
+    }
+
+    func get_index(key) {
+        return this.values[key];
+    }
+
+    func set_index(key, value) {
+        this.values[key] = value;
+    }
+}
+
+var product = new Product();
+product["id"] = 42;
+print(product.label());
+print(product["id"]);
+```
+
+Default methods may use `this` when they are instance methods. Static default methods may use `type`.
+
+### Interface Reflection and Structural Checks
+
+`interfaces(value)` returns the nominal interfaces attached to a class instance or type. `implements(value, iface)` performs the same runtime assignability check as `value is iface`. For interfaces, that includes nominal implementations and structural matches. `interfaceof(iface)` returns metadata for an interface declaration, including bases, methods, properties, and indexers. `interface_call(obj, iface, name, args)` invokes an explicit interface method first and falls back to a normal method with the same name.
+
+```cfs
+class StructuralName() {
+    property name { get; } = "shape";
+    func label() { return "name:" + this.name; }
+}
+
+var item = new StructuralName();
+print(item is INamed);
+print(implements(item, INamed));
+print(interfaceof(INamed)["methods"]);
+```
+
 ### Common Invalid Interface Declarations
 
 The following forms are rejected.
@@ -467,13 +534,6 @@ The following forms are rejected.
 # invalid: interface bodies cannot contain fields
 interface IBadFields {
     var value = 0;
-}
-
-# invalid: interface bodies cannot contain method bodies
-interface IBadBody {
-    func run() {
-        return 1;
-    }
 }
 
 # invalid: interface property accessors cannot have bodies
@@ -485,9 +545,15 @@ interface IBadProperty {
     }
 }
 
-# invalid: interface members are instance methods and instance properties only
-interface IBadStatic {
+# invalid: static interface contracts require static class implementations
+interface IStaticFactory {
     static func make();
+}
+
+class WrongStaticFactory() : IStaticFactory {
+    func make() {
+        return 1;
+    }
 }
 ```
 
@@ -518,10 +584,11 @@ class WrongOrder() : IClosable, Base() {
 
 Why they fail.
 
-- `HiddenCloser` fails because interface methods must be implemented as public instance methods.
-- Interface properties likewise require public instance accessors where the contract requires them.
+- `HiddenCloser` fails because interface methods must be implemented as public methods.
+- Interface properties likewise require public accessors where the contract requires them.
 - `IWrong` fails because interfaces may only inherit from interfaces, never from classes.
 - `WrongOrder` fails because a base class must appear before interfaces in the class header.
+- `WrongStaticFactory` fails because a `static func` contract cannot be implemented by an instance method.
 
 ## Interfaces in Namespaces
 

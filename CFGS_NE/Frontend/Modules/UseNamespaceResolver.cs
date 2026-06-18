@@ -732,6 +732,7 @@ namespace CFGS_VM.Analytic.Modules
                 interfaceDecl.Name,
                 interfaceDecl.Methods,
                 interfaceDecl.Properties,
+                interfaceDecl.Indexers,
                 new List<string>(interfaceDecl.BaseInterfaces),
                 interfaceDecl.Line,
                 interfaceDecl.Col,

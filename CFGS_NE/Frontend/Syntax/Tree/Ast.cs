@@ -1567,6 +1567,14 @@ namespace CFGS_VM.Analytic.Tree
         /// </summary>
         public bool IsAsync { get; }
 
+        public bool IsStatic { get; }
+
+        public BlockStmt? Body { get; }
+
+        public List<FunctionParameterSpec> ParameterSpecs { get; set; }
+
+        public bool HasDefaultBody => Body != null;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="InterfaceMethodDecl"/> class.
         /// </summary>
@@ -1578,7 +1586,18 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="file">The file<see cref="string"/></param>
         /// <param name="isAsync">The isAsync<see cref="bool"/></param>
-        public InterfaceMethodDecl(string name, List<string> parameters, int minArgs, string? restParameter, int line, int col, string file, bool isAsync = false)
+        public InterfaceMethodDecl(
+            string name,
+            List<string> parameters,
+            int minArgs,
+            string? restParameter,
+            int line,
+            int col,
+            string file,
+            bool isAsync = false,
+            bool isStatic = false,
+            BlockStmt? body = null,
+            List<FunctionParameterSpec>? parameterSpecs = null)
             : base(line, col, file)
         {
             Name = name;
@@ -1586,6 +1605,31 @@ namespace CFGS_VM.Analytic.Tree
             MinArgs = minArgs;
             RestParameter = restParameter;
             IsAsync = isAsync;
+            IsStatic = isStatic;
+            Body = body;
+            ParameterSpecs = parameterSpecs ?? new List<FunctionParameterSpec>();
+        }
+    }
+
+    public sealed class InterfaceIndexerDecl : Node
+    {
+        public bool IsSetter { get; }
+
+        public List<string> Parameters { get; }
+
+        public int MinArgs { get; }
+
+        public string? RestParameter { get; }
+
+        public string ContractMethodName => IsSetter ? "set_index" : "get_index";
+
+        public InterfaceIndexerDecl(bool isSetter, List<string> parameters, int minArgs, string? restParameter, int line, int col, string file)
+            : base(line, col, file)
+        {
+            IsSetter = isSetter;
+            Parameters = parameters;
+            MinArgs = minArgs;
+            RestParameter = restParameter;
         }
     }
 
@@ -1609,6 +1653,8 @@ namespace CFGS_VM.Analytic.Tree
         /// </summary>
         public List<InterfacePropertyDecl> Properties { get; }
 
+        public List<InterfaceIndexerDecl> Indexers { get; }
+
         /// <summary>
         /// Gets the BaseInterfaces.
         /// </summary>
@@ -1624,12 +1670,21 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="file">The file<see cref="string"/></param>
-        public InterfaceDeclStmt(string name, List<InterfaceMethodDecl> methods, List<InterfacePropertyDecl> properties, List<string>? baseInterfaces, int line, int col, string file)
+        public InterfaceDeclStmt(
+            string name,
+            List<InterfaceMethodDecl> methods,
+            List<InterfacePropertyDecl> properties,
+            List<InterfaceIndexerDecl>? indexers,
+            List<string>? baseInterfaces,
+            int line,
+            int col,
+            string file)
             : base(line, col, file)
         {
             Name = name;
             Methods = methods;
             Properties = properties;
+            Indexers = indexers ?? new List<InterfaceIndexerDecl>();
             BaseInterfaces = baseInterfaces ?? new List<string>();
         }
     }
@@ -1659,16 +1714,19 @@ namespace CFGS_VM.Analytic.Tree
         /// </summary>
         public bool HasInit { get; }
 
+        public bool IsStatic { get; }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="InterfacePropertyDecl"/> class.
         /// </summary>
-        public InterfacePropertyDecl(string name, bool hasGetter, bool hasSetter, bool hasInit, int line, int col, string file)
+        public InterfacePropertyDecl(string name, bool hasGetter, bool hasSetter, bool hasInit, int line, int col, string file, bool isStatic = false)
             : base(line, col, file)
         {
             Name = name;
             HasGetter = hasGetter;
             HasSetter = hasSetter;
             HasInit = hasInit;
+            IsStatic = isStatic;
         }
     }
 
@@ -2620,6 +2678,10 @@ namespace CFGS_VM.Analytic.Tree
         /// </summary>
         public string Name;
 
+        public string? ExplicitInterfaceName { get; }
+
+        public string RuntimeMemberName => string.IsNullOrWhiteSpace(ExplicitInterfaceName) ? Name : $"{ExplicitInterfaceName}.{Name}";
+
         /// <summary>
         /// Defines the Parameters
         /// </summary>
@@ -2672,9 +2734,11 @@ namespace CFGS_VM.Analytic.Tree
             int col,
             string fname,
             bool isAsync = false,
-            List<FunctionParameterSpec>? parameterSpecs = null) : base(line, col, fname)
+            List<FunctionParameterSpec>? parameterSpecs = null,
+            string? explicitInterfaceName = null) : base(line, col, fname)
         {
             Name = name;
+            ExplicitInterfaceName = explicitInterfaceName;
             Parameters = parameters;
             Body = body;
             MinArgs = minArgs;

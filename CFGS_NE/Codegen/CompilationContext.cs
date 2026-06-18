@@ -35,6 +35,8 @@ namespace CFGS_VM.VMCore.Codegen
 
         public Dictionary<InterfaceDeclStmt, Dictionary<string, InterfacePropertyDecl>> InterfacePropertyContractCache { get; } = new();
 
+        public Dictionary<InterfaceDeclStmt, Dictionary<string, InterfaceIndexerDecl>> InterfaceIndexerContractCache { get; } = new();
+
         public Dictionary<ClassDeclStmt, (HashSet<string> InstanceMembers, HashSet<string> StaticMembers)> ClassMemberSetCache { get; } = new();
 
         public void Reset()
@@ -50,6 +52,7 @@ namespace CFGS_VM.VMCore.Codegen
             InterfaceQualifiedPaths.Clear();
             InterfaceContractCache.Clear();
             InterfacePropertyContractCache.Clear();
+            InterfaceIndexerContractCache.Clear();
             ClassMemberSetCache.Clear();
         }
     }

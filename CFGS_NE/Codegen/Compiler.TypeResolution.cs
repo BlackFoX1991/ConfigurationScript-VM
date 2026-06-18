@@ -155,7 +155,7 @@ namespace CFGS_VM.VMCore
                 foreach (KeyValuePair<string, InterfaceMethodDecl> kv in baseContract)
                 {
                     if (contract.TryGetValue(kv.Key, out InterfaceMethodDecl? existing) &&
-                        !MethodShapeRules.HaveCompatibleShapes(existing, kv.Value))
+                        (existing.IsStatic != kv.Value.IsStatic || !MethodShapeRules.HaveCompatibleShapes(existing, kv.Value)))
                     {
                         throw new CompilerException(
                             $"incompatible inherited method '{kv.Key}' in interface '{iface.Name}': expected arity {MethodShapeRules.DescribeArity(existing)}, got {MethodShapeRules.DescribeArity(kv.Value)}",
@@ -169,7 +169,7 @@ namespace CFGS_VM.VMCore
             foreach (InterfaceMethodDecl method in iface.Methods)
             {
                 if (contract.TryGetValue(method.Name, out InterfaceMethodDecl? inherited) &&
-                    !MethodShapeRules.HaveCompatibleShapes(inherited, method))
+                    (inherited.IsStatic != method.IsStatic || !MethodShapeRules.HaveCompatibleShapes(inherited, method)))
                 {
                     throw new CompilerException(
                         $"incompatible method '{method.Name}' in interface '{iface.Name}': expected arity {MethodShapeRules.DescribeArity(inherited)}, got {MethodShapeRules.DescribeArity(method)}",
@@ -228,6 +228,15 @@ namespace CFGS_VM.VMCore
 
         private static InterfacePropertyDecl MergeInterfacePropertyRequirements(InterfacePropertyDecl left, InterfacePropertyDecl right)
         {
+            if (left.IsStatic != right.IsStatic)
+            {
+                throw new CompilerException(
+                    $"incompatible inherited property '{left.Name}': static and instance contracts cannot be merged",
+                    right.Line,
+                    right.Col,
+                    right.OriginFile);
+            }
+
             return new InterfacePropertyDecl(
                 left.Name,
                 left.HasGetter || right.HasGetter,
@@ -235,7 +244,58 @@ namespace CFGS_VM.VMCore
                 left.HasInit || right.HasInit,
                 left.Line,
                 left.Col,
-                left.OriginFile);
+                left.OriginFile,
+                left.IsStatic);
         }
+
+        internal Dictionary<string, InterfaceIndexerDecl> GetOrBuildInterfaceIndexerContract(InterfaceDeclStmt iface)
+        {
+            if (_interfaceIndexerContractCache.TryGetValue(iface, out Dictionary<string, InterfaceIndexerDecl>? cached))
+                return cached;
+
+            Dictionary<string, InterfaceIndexerDecl> contract = new(StringComparer.Ordinal);
+
+            foreach (string baseName in iface.BaseInterfaces)
+            {
+                if (!TryResolveBaseInterfaceDecl(iface, baseName, out InterfaceDeclStmt baseIface))
+                    continue;
+
+                foreach (KeyValuePair<string, InterfaceIndexerDecl> kv in GetOrBuildInterfaceIndexerContract(baseIface))
+                {
+                    if (contract.TryGetValue(kv.Key, out InterfaceIndexerDecl? existing) &&
+                        !HaveCompatibleIndexerShapes(existing, kv.Value))
+                    {
+                        throw new CompilerException(
+                            $"incompatible inherited index {(kv.Value.IsSetter ? "set" : "get")} contract in interface '{iface.Name}'",
+                            kv.Value.Line, kv.Value.Col, kv.Value.OriginFile);
+                    }
+
+                    contract[kv.Key] = kv.Value;
+                }
+            }
+
+            foreach (InterfaceIndexerDecl indexer in iface.Indexers)
+            {
+                string key = indexer.ContractMethodName;
+                if (contract.TryGetValue(key, out InterfaceIndexerDecl? inherited) &&
+                    !HaveCompatibleIndexerShapes(inherited, indexer))
+                {
+                    throw new CompilerException(
+                        $"incompatible index {(indexer.IsSetter ? "set" : "get")} contract in interface '{iface.Name}'",
+                        indexer.Line, indexer.Col, indexer.OriginFile);
+                }
+
+                contract[key] = indexer;
+            }
+
+            _interfaceIndexerContractCache[iface] = contract;
+            return contract;
+        }
+
+        private static bool HaveCompatibleIndexerShapes(InterfaceIndexerDecl expected, InterfaceIndexerDecl actual)
+            => expected.IsSetter == actual.IsSetter &&
+               expected.MinArgs == actual.MinArgs &&
+               expected.Parameters.Count == actual.Parameters.Count &&
+               !string.IsNullOrWhiteSpace(expected.RestParameter) == !string.IsNullOrWhiteSpace(actual.RestParameter);
     }
 }

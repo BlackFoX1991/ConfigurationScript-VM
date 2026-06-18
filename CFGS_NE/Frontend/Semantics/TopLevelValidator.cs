@@ -20,6 +20,7 @@ namespace CFGS_VM.Analytic.Semantics
                 HashSet<string> seenMethods = new(StringComparer.Ordinal);
                 HashSet<string> seenProperties = new(StringComparer.Ordinal);
                 HashSet<string> seenBases = new(StringComparer.Ordinal);
+                HashSet<string> seenIndexers = new(StringComparer.Ordinal);
 
                 foreach (string baseName in iface.BaseInterfaces)
                 {
@@ -72,6 +73,28 @@ namespace CFGS_VM.Analytic.Semantics
                             property.Line,
                             property.Col,
                             property.OriginFile);
+                    }
+                }
+
+                foreach (InterfaceIndexerDecl indexer in iface.Indexers)
+                {
+                    string name = indexer.ContractMethodName;
+                    if (!seenIndexers.Add(name))
+                    {
+                        throw new CompilerException(
+                            $"duplicate index {(indexer.IsSetter ? "set" : "get")} contract in interface '{iface.Name}'",
+                            indexer.Line,
+                            indexer.Col,
+                            indexer.OriginFile);
+                    }
+
+                    if (seenMethods.Contains(name) || seenProperties.Contains(name))
+                    {
+                        throw new CompilerException(
+                            $"index {(indexer.IsSetter ? "set" : "get")} contract in interface '{iface.Name}' conflicts with member '{name}'",
+                            indexer.Line,
+                            indexer.Col,
+                            indexer.OriginFile);
                     }
                 }
             }

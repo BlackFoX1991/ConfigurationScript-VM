@@ -98,7 +98,7 @@ namespace CFGS_VM.Analytic.Semantics
                 foreach (string name in current.Fields.Keys)
                     instanceMembers.Add(name);
                 foreach (FuncDeclStmt method in current.Methods)
-                    instanceMembers.Add(method.Name);
+                    instanceMembers.Add(method.RuntimeMemberName);
                 foreach (PropertyDeclStmt property in current.Properties)
                     instanceMembers.Add(property.Name);
 
@@ -112,7 +112,7 @@ namespace CFGS_VM.Analytic.Semantics
                 foreach (string name in current.StaticFields.Keys)
                     staticMembers.Add(name);
                 foreach (FuncDeclStmt method in current.StaticMethods)
-                    staticMembers.Add(method.Name);
+                    staticMembers.Add(method.RuntimeMemberName);
                 foreach (PropertyDeclStmt property in current.StaticProperties)
                     staticMembers.Add(property.Name);
                 foreach (EnumDeclStmt enumDecl in current.Enums)
@@ -583,7 +583,7 @@ namespace CFGS_VM.Analytic.Semantics
                     return true;
                 }
 
-                if (decl.Methods.Any(m => string.Equals(m.Name, memberName, StringComparison.Ordinal)))
+                if (decl.Methods.Any(m => string.Equals(m.RuntimeMemberName, memberName, StringComparison.Ordinal)))
                 {
                     visibility = GetOrDefaultVisibility(decl.MethodVisibility, memberName);
                     return true;
@@ -611,7 +611,7 @@ namespace CFGS_VM.Analytic.Semantics
                 return true;
             }
 
-            if (decl.StaticMethods.Any(m => string.Equals(m.Name, memberName, StringComparison.Ordinal)))
+            if (decl.StaticMethods.Any(m => string.Equals(m.RuntimeMemberName, memberName, StringComparison.Ordinal)))
             {
                 visibility = GetOrDefaultVisibility(decl.StaticMethodVisibility, memberName);
                 return true;

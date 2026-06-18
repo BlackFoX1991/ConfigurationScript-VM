@@ -6,6 +6,7 @@ using CFGS_VM.VMCore.Extensions.Intrinsics.Core;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Interop;
 using CFGS_VM.VMCore.Plugin;
+using System.Globalization;
 using System.Numerics;
 using System.Linq;
 
@@ -361,6 +362,175 @@ namespace CFGS_VM.VMCore
             }
 
             return false;
+        }
+
+        private bool StructurallyImplementsInterface(ClassInstance instance, StaticInstance instanceType, StaticInstance targetInterface)
+        {
+            if (!IsInterfaceType(targetInterface))
+                return false;
+
+            return StructurallyImplementsInterfaceCore(instance, instanceType, targetInterface, new HashSet<StaticInstance>());
+        }
+
+        private bool StructurallyImplementsInterfaceCore(
+            ClassInstance instance,
+            StaticInstance instanceType,
+            StaticInstance iface,
+            HashSet<StaticInstance> visited)
+        {
+            if (!visited.Add(iface))
+                return true;
+
+            foreach (StaticInstance baseIface in EnumerateDirectInterfaces(iface))
+            {
+                if (!StructurallyImplementsInterfaceCore(instance, instanceType, baseIface, visited))
+                    return false;
+            }
+
+            return StructuralMethodsMatch(instance, instanceType, iface) &&
+                   StructuralPropertiesMatch(instance, instanceType, iface) &&
+                   StructuralIndexersMatch(instance, instanceType, iface);
+        }
+
+        private bool StructuralMethodsMatch(ClassInstance instance, StaticInstance instanceType, StaticInstance iface)
+        {
+            foreach (Dictionary<string, object> method in ReadInterfaceMetadataList(iface, "__interface_methods"))
+            {
+                string name = MetadataString(method, "name");
+                bool isStatic = MetadataBool(method, "static");
+                int arity = MetadataInt(method, "arity");
+                int minArgs = MetadataInt(method, "minArgs");
+                bool isAsync = MetadataBool(method, "async");
+
+                object? member;
+                StaticInstance? ownerType;
+                if (isStatic)
+                {
+                    if (!TryResolveStaticMemberInHierarchy(instanceType, name, out StaticInstance staticOwner, out member) ||
+                        member is not Closure staticClosure ||
+                        !IsPublicMember(staticOwner, expectInstance: false, name) ||
+                        !ClosureShapeMatches(staticClosure, arity, minArgs, isAsync))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    if (!TryResolveInstanceMemberInHierarchy(instance, name, out _, out ownerType, out member) ||
+                        member is not Closure closure ||
+                        ownerType == null ||
+                        !IsPublicMember(ownerType, expectInstance: true, name) ||
+                        !ClosureShapeMatches(closure, arity, minArgs, isAsync))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private bool StructuralPropertiesMatch(ClassInstance instance, StaticInstance instanceType, StaticInstance iface)
+        {
+            foreach (Dictionary<string, object> property in ReadInterfaceMetadataList(iface, "__interface_properties"))
+            {
+                string name = MetadataString(property, "name");
+                bool isStatic = MetadataBool(property, "static");
+
+                if (isStatic)
+                {
+                    if (!TryResolveStaticPropertyInHierarchy(instanceType, name, out StaticInstance ownerType, out _))
+                        return false;
+
+                    if (!IsPublicMember(ownerType, expectInstance: false, name))
+                        return false;
+                }
+                else
+                {
+                    if (!TryResolveInstancePropertyInHierarchy(instance, name, out _, out StaticInstance ownerType, out _))
+                        return false;
+
+                    if (!IsPublicMember(ownerType, expectInstance: true, name))
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool StructuralIndexersMatch(ClassInstance instance, StaticInstance instanceType, StaticInstance iface)
+        {
+            foreach (Dictionary<string, object> indexer in ReadInterfaceMetadataList(iface, "__interface_indexers"))
+            {
+                string methodName = MetadataString(indexer, "method");
+                int arity = MetadataInt(indexer, "arity");
+                int minArgs = MetadataInt(indexer, "minArgs");
+
+                if (!TryResolveInstanceMemberInHierarchy(instance, methodName, out _, out StaticInstance? ownerType, out object? member) ||
+                    member is not Closure closure ||
+                    ownerType == null ||
+                    !IsPublicMember(ownerType, expectInstance: true, methodName) ||
+                    !ClosureShapeMatches(closure, arity, minArgs, isAsync: false))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static IEnumerable<Dictionary<string, object>> ReadInterfaceMetadataList(StaticInstance iface, string slot)
+        {
+            if (!TryGetStaticField(iface, slot, out object? raw) || raw is not List<object> entries)
+                yield break;
+
+            foreach (object? entry in SnapshotList(entries))
+            {
+                if (entry is Dictionary<string, object> dict)
+                    yield return dict;
+            }
+        }
+
+        private static string MetadataString(Dictionary<string, object> metadata, string key)
+            => metadata.TryGetValue(key, out object? value) ? value?.ToString() ?? string.Empty : string.Empty;
+
+        private static bool MetadataBool(Dictionary<string, object> metadata, string key)
+            => metadata.TryGetValue(key, out object? value) && IsTruthyMetadataValue(value);
+
+        private static int MetadataInt(Dictionary<string, object> metadata, string key)
+            => metadata.TryGetValue(key, out object? value) ? Convert.ToInt32(value, CultureInfo.InvariantCulture) : 0;
+
+        private static bool IsTruthyMetadataValue(object? value)
+            => value switch
+            {
+                bool b => b,
+                int i => i != 0,
+                long l => l != 0,
+                short s => s != 0,
+                byte b => b != 0,
+                BigInteger bi => bi != BigInteger.Zero,
+                _ => value != null
+            };
+
+        private static bool ClosureShapeMatches(Closure closure, int arity, int minArgs, bool isAsync)
+        {
+            int receiverOffset = closure.Parameters.Count > 0 &&
+                (string.Equals(closure.Parameters[0], "this", StringComparison.Ordinal) ||
+                 string.Equals(closure.Parameters[0], "type", StringComparison.Ordinal))
+                ? 1
+                : 0;
+
+            return closure.Parameters.Count - receiverOffset == arity &&
+                   Math.Max(0, closure.MinArgs - receiverOffset) == minArgs &&
+                   closure.IsAsync == isAsync;
+        }
+
+        private static bool IsPublicMember(StaticInstance ownerType, bool expectInstance, string memberName)
+        {
+            if (!TryGetDeclaredVisibilityCode(ownerType, expectInstance, memberName, out int visCode))
+                return true;
+
+            return NormalizeVisibilityCode(visCode) == VisibilityPublic;
         }
 
         /// <summary>
@@ -753,6 +923,37 @@ namespace CFGS_VM.VMCore
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
+        private bool TryInvokeInstanceIndexerGetter(ClassInstance obj, object? idxObj, Instruction instr, out object? value)
+        {
+            value = null;
+            if (!TryResolveInstanceMemberInHierarchy(obj, "get_index", out _, out StaticInstance? ownerType, out object? member) ||
+                member is not Closure closure)
+            {
+                return false;
+            }
+
+            if (ownerType != null && TryGetDeclaredVisibilityCode(ownerType, expectInstance: true, "get_index", out int visCode))
+                EnforceRuntimeVisibility(ownerType, visCode, "get_index", isStatic: false, instr);
+
+            value = InvokeClosureSync(closure, new List<object> { idxObj! }, instr, obj, ownerType);
+            return true;
+        }
+
+        private bool TryInvokeInstanceIndexerSetter(ClassInstance obj, object? idxObj, object value, Instruction instr)
+        {
+            if (!TryResolveInstanceMemberInHierarchy(obj, "set_index", out _, out StaticInstance? ownerType, out object? member) ||
+                member is not Closure closure)
+            {
+                return false;
+            }
+
+            if (ownerType != null && TryGetDeclaredVisibilityCode(ownerType, expectInstance: true, "set_index", out int visCode))
+                EnforceRuntimeVisibility(ownerType, visCode, "set_index", isStatic: false, instr);
+
+            InvokeClosureSync(closure, new List<object> { idxObj!, value }, instr, obj, ownerType);
+            return true;
+        }
+
         /// <summary>
         /// The ReadInstanceProperty
         /// </summary>
@@ -1008,9 +1209,6 @@ namespace CFGS_VM.VMCore
 
                 case ClassInstance obj:
                     {
-                        if (!IsMemberAccessInstruction(instr))
-                            throw CreateIndexException(target, idxObj, instr);
-
                         MarkCurrentAsyncSharedStateHazard();
                         string key = idxObj?.ToString() ?? "";
 
@@ -1023,6 +1221,14 @@ namespace CFGS_VM.VMCore
                                 instr.OriginFile,
                                 IsDebugging,
                                 DebugStream!);
+                        }
+
+                        if (!IsMemberAccessInstruction(instr))
+                        {
+                            if (TryInvokeInstanceIndexerGetter(obj, idxObj, instr, out object? indexValue))
+                                return indexValue!;
+
+                            throw CreateIndexException(target, idxObj!, instr);
                         }
 
                         if (key == "outer")
@@ -1223,6 +1429,9 @@ namespace CFGS_VM.VMCore
                             writeMode != PropertyWriteMode.Init &&
                             !IsMemberAccessInstruction(instr))
                         {
+                            if (TryInvokeInstanceIndexerSetter(obj, idxObj, value, instr))
+                                break;
+
                             throw new VMException("Runtime error: class instances are not indexable; use dot access for members.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 

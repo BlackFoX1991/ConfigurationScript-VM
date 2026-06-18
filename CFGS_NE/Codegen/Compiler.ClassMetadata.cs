@@ -104,7 +104,7 @@ namespace CFGS_VM.VMCore
                 entries.Add((name, ToVisibilityCode(GetOrDefaultVisibility(decl.FieldVisibility, name))));
 
             foreach (FuncDeclStmt method in decl.Methods)
-                entries.Add((method.Name, ToVisibilityCode(GetOrDefaultVisibility(decl.MethodVisibility, method.Name))));
+                entries.Add((method.RuntimeMemberName, ToVisibilityCode(GetOrDefaultVisibility(decl.MethodVisibility, method.RuntimeMemberName))));
 
             foreach (PropertyDeclStmt property in decl.Properties)
                 entries.Add((property.Name, ToVisibilityCode(GetPropertyOverallVisibility(property))));
@@ -126,7 +126,7 @@ namespace CFGS_VM.VMCore
                 entries.Add((name, ToVisibilityCode(GetOrDefaultVisibility(decl.StaticFieldVisibility, name))));
 
             foreach (FuncDeclStmt method in decl.StaticMethods)
-                entries.Add((method.Name, ToVisibilityCode(GetOrDefaultVisibility(decl.StaticMethodVisibility, method.Name))));
+                entries.Add((method.RuntimeMemberName, ToVisibilityCode(GetOrDefaultVisibility(decl.StaticMethodVisibility, method.RuntimeMemberName))));
 
             foreach (PropertyDeclStmt property in decl.StaticProperties)
                 entries.Add((property.Name, ToVisibilityCode(GetPropertyOverallVisibility(property))));
@@ -153,8 +153,8 @@ namespace CFGS_VM.VMCore
 
             foreach (FuncDeclStmt method in decl.Methods)
             {
-                classInfo.InstanceMembers.Add(method.Name);
-                classInfo.InstanceVisibility[method.Name] = GetOrDefaultVisibility(decl.MethodVisibility, method.Name);
+                classInfo.InstanceMembers.Add(method.RuntimeMemberName);
+                classInfo.InstanceVisibility[method.RuntimeMemberName] = GetOrDefaultVisibility(decl.MethodVisibility, method.RuntimeMemberName);
             }
 
             foreach (PropertyDeclStmt property in decl.Properties)
@@ -172,8 +172,8 @@ namespace CFGS_VM.VMCore
 
             foreach (FuncDeclStmt method in decl.StaticMethods)
             {
-                classInfo.StaticMembers.Add(method.Name);
-                classInfo.StaticVisibility[method.Name] = GetOrDefaultVisibility(decl.StaticMethodVisibility, method.Name);
+                classInfo.StaticMembers.Add(method.RuntimeMemberName);
+                classInfo.StaticVisibility[method.RuntimeMemberName] = GetOrDefaultVisibility(decl.StaticMethodVisibility, method.RuntimeMemberName);
             }
 
             foreach (PropertyDeclStmt property in decl.StaticProperties)

@@ -656,6 +656,18 @@ namespace CFGS_VM.Analytic.Core
             string name = _current.Value.ToString() ?? "";
             Eat(TokenType.Ident);
 
+            string? explicitInterfaceName = null;
+            if (_current.Type == TokenType.Dot)
+            {
+                explicitInterfaceName = name;
+                Eat(TokenType.Dot);
+                if (_current.Type != TokenType.Ident)
+                    throw new ParserException("expected method name after explicit interface qualifier", _current.Line, _current.Column, _current.Filename);
+
+                name = _current.Value.ToString() ?? "";
+                Eat(TokenType.Ident);
+            }
+
             EnterFunctionContext(isAsync);
             List<string> parameters;
             int minArgs;
@@ -672,7 +684,7 @@ namespace CFGS_VM.Analytic.Core
                 ExitFunctionContext(isAsync);
             }
 
-            return new FuncDeclStmt(name, parameters, body, minArgs, restParameter, line, col, file, isAsync, parameterSpecs);
+            return new FuncDeclStmt(name, parameters, body, minArgs, restParameter, line, col, file, isAsync, parameterSpecs, explicitInterfaceName);
         }
 
         /// <summary>

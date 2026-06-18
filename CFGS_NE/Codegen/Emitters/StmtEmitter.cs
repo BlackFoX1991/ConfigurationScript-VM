@@ -13,6 +13,83 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
+        private void EmitInterfaceMethodMetadata(InterfaceDeclStmt ids)
+        {
+            _insns.Add(new Instruction(OpCode.DUP, null, ids.Line, ids.Col, ids.OriginFile));
+            _insns.Add(new Instruction(OpCode.PUSH_STR, "__interface_methods", ids.Line, ids.Col, ids.OriginFile));
+
+            foreach (InterfaceMethodDecl method in ids.Methods)
+            {
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "name", method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, method.Name, method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "static", method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, method.IsStatic ? 1 : 0, method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "async", method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, method.IsAsync ? 1 : 0, method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "default", method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, method.HasDefaultBody ? 1 : 0, method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "arity", method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, method.Parameters.Count, method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "minArgs", method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, method.MinArgs, method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "rest", method.Line, method.Col, method.OriginFile));
+                if (string.IsNullOrWhiteSpace(method.RestParameter))
+                    _insns.Add(new Instruction(OpCode.PUSH_NULL, null, method.Line, method.Col, method.OriginFile));
+                else
+                    _insns.Add(new Instruction(OpCode.PUSH_STR, method.RestParameter, method.Line, method.Col, method.OriginFile));
+                _insns.Add(new Instruction(OpCode.NEW_DICT_INTERNAL, 7, method.Line, method.Col, method.OriginFile));
+            }
+
+            _insns.Add(new Instruction(OpCode.NEW_ARRAY, ids.Methods.Count, ids.Line, ids.Col, ids.OriginFile));
+            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
+        }
+
+        private void EmitInterfacePropertyMetadata(InterfaceDeclStmt ids)
+        {
+            _insns.Add(new Instruction(OpCode.DUP, null, ids.Line, ids.Col, ids.OriginFile));
+            _insns.Add(new Instruction(OpCode.PUSH_STR, "__interface_properties", ids.Line, ids.Col, ids.OriginFile));
+
+            foreach (InterfacePropertyDecl property in ids.Properties)
+            {
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "name", property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, property.Name, property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "static", property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, property.IsStatic ? 1 : 0, property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "get", property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, property.HasGetter ? 1 : 0, property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "set", property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, property.HasSetter ? 1 : 0, property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "init", property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, property.HasInit ? 1 : 0, property.Line, property.Col, property.OriginFile));
+                _insns.Add(new Instruction(OpCode.NEW_DICT_INTERNAL, 5, property.Line, property.Col, property.OriginFile));
+            }
+
+            _insns.Add(new Instruction(OpCode.NEW_ARRAY, ids.Properties.Count, ids.Line, ids.Col, ids.OriginFile));
+            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
+        }
+
+        private void EmitInterfaceIndexerMetadata(InterfaceDeclStmt ids)
+        {
+            _insns.Add(new Instruction(OpCode.DUP, null, ids.Line, ids.Col, ids.OriginFile));
+            _insns.Add(new Instruction(OpCode.PUSH_STR, "__interface_indexers", ids.Line, ids.Col, ids.OriginFile));
+
+            foreach (InterfaceIndexerDecl indexer in ids.Indexers)
+            {
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "kind", indexer.Line, indexer.Col, indexer.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, indexer.IsSetter ? "set" : "get", indexer.Line, indexer.Col, indexer.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "method", indexer.Line, indexer.Col, indexer.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, indexer.ContractMethodName, indexer.Line, indexer.Col, indexer.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "arity", indexer.Line, indexer.Col, indexer.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, indexer.Parameters.Count, indexer.Line, indexer.Col, indexer.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_STR, "minArgs", indexer.Line, indexer.Col, indexer.OriginFile));
+                _insns.Add(new Instruction(OpCode.PUSH_INT, indexer.MinArgs, indexer.Line, indexer.Col, indexer.OriginFile));
+                _insns.Add(new Instruction(OpCode.NEW_DICT_INTERNAL, 4, indexer.Line, indexer.Col, indexer.OriginFile));
+            }
+
+            _insns.Add(new Instruction(OpCode.NEW_ARRAY, ids.Indexers.Count, ids.Line, ids.Col, ids.OriginFile));
+            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
+        }
+
         /// <summary>
         /// The CompileStmt
         /// </summary>
@@ -224,6 +301,10 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.NEW_ARRAY, ids.BaseInterfaces.Count, ids.Line, ids.Col, ids.OriginFile));
                             _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
                         }
+
+                        EmitInterfaceMethodMetadata(ids);
+                        EmitInterfacePropertyMetadata(ids);
+                        EmitInterfaceIndexerMetadata(ids);
 
                         _insns.Add(new Instruction(OpCode.VAR_DECL, ids.Name, ids.Line, ids.Col, ids.OriginFile));
                         break;

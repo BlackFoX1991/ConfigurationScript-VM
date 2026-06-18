@@ -1030,6 +1030,135 @@ namespace CFGS_VM.VMCore
         public VM()
         {
             _debugStream = new MemoryStream();
+            RegisterInterfaceReflectionBuiltins();
+        }
+
+        private void RegisterInterfaceReflectionBuiltins()
+        {
+            RegisterCoreBuiltinIfMissing(new BuiltinDescriptor("interfaces", 1, 1, (args, instr) => GetInterfaceList(args[0])));
+            RegisterCoreBuiltinIfMissing(new BuiltinDescriptor("implements", 2, 2, (args, instr) => ImplementsRuntimeType(args[0], args[1])));
+            RegisterCoreBuiltinIfMissing(new BuiltinDescriptor("interfaceof", 1, 1, (args, instr) => GetInterfaceMetadata(args[0])));
+            RegisterCoreBuiltinIfMissing(new BuiltinDescriptor("interface_call", 3, 4, (args, instr) => InterfaceCall(args, instr)!));
+        }
+
+        private void RegisterCoreBuiltinIfMissing(BuiltinDescriptor descriptor)
+        {
+            if (!_builtins.Contains(descriptor.Name))
+                _builtins.Register(descriptor);
+        }
+
+        private List<object> GetInterfaceList(object? value)
+        {
+            StaticInstance? type = value switch
+            {
+                ClassInstance instance when TryGetStaticType(instance, out StaticInstance instanceType) => instanceType,
+                StaticInstance staticType => staticType,
+                _ => null
+            };
+
+            List<object> result = new();
+            if (type == null)
+                return result;
+
+            HashSet<StaticInstance> seen = new();
+            StaticInstance? current = type;
+            while (current != null)
+            {
+                foreach (StaticInstance iface in EnumerateDirectInterfaces(current))
+                    AddInterfaceRecursive(iface, seen, result);
+
+                current = TryGetStaticField(current, "__base", out object? baseObj) && baseObj is StaticInstance baseType
+                    ? baseType
+                    : null;
+            }
+
+            return result;
+        }
+
+        private static void AddInterfaceRecursive(StaticInstance iface, HashSet<StaticInstance> seen, List<object> result)
+        {
+            if (!seen.Add(iface))
+                return;
+
+            result.Add(iface);
+            foreach (StaticInstance baseIface in EnumerateDirectInterfaces(iface))
+                AddInterfaceRecursive(baseIface, seen, result);
+        }
+
+        private bool ImplementsRuntimeType(object? value, object? target)
+        {
+            if (target is not StaticInstance targetType)
+                return false;
+
+            if (value is ClassInstance instance && TryGetStaticType(instance, out StaticInstance instanceType))
+            {
+                return IsInterfaceType(targetType)
+                    ? ImplementsInterface(instanceType, targetType) || StructurallyImplementsInterface(instance, instanceType, targetType)
+                    : IsSameOrDerivedStaticType(instanceType, targetType);
+            }
+
+            if (value is StaticInstance staticType)
+            {
+                return IsInterfaceType(targetType)
+                    ? ImplementsInterface(staticType, targetType)
+                    : IsSameOrDerivedStaticType(staticType, targetType);
+            }
+
+            return false;
+        }
+
+        private Dictionary<string, object> GetInterfaceMetadata(object? value)
+        {
+            if (value is not StaticInstance iface || !IsInterfaceType(iface))
+                return new Dictionary<string, object>();
+
+            Dictionary<string, object> result = new(StringComparer.Ordinal)
+            {
+                ["name"] = iface.ClassName,
+                ["bases"] = EnumerateDirectInterfaces(iface).Cast<object>().ToList(),
+                ["methods"] = TryGetStaticField(iface, "__interface_methods", out object? methods) ? methods! : new List<object>(),
+                ["properties"] = TryGetStaticField(iface, "__interface_properties", out object? properties) ? properties! : new List<object>(),
+                ["indexers"] = TryGetStaticField(iface, "__interface_indexers", out object? indexers) ? indexers! : new List<object>()
+            };
+
+            return result;
+        }
+
+        private object? InterfaceCall(List<object> args, Instruction instr)
+        {
+            if (args[0] is not ClassInstance instance)
+                throw new VMException("Runtime error: interface_call target must be a class instance.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            if (args[1] is not StaticInstance iface || !IsInterfaceType(iface))
+                throw new VMException("Runtime error: interface_call second argument must be an interface type.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            string methodName = args[2]?.ToString() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(methodName))
+                throw new VMException("Runtime error: interface_call method name cannot be empty.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            List<object> callArgs = [];
+            if (args.Count > 3)
+            {
+                if (args[3] is not List<object> providedArgs)
+                    throw new VMException("Runtime error: interface_call fourth argument must be an array of arguments.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                callArgs.AddRange(providedArgs);
+            }
+
+            string explicitName = $"{iface.ClassName}.{methodName}";
+            if (!TryResolveInstanceMemberInHierarchy(instance, explicitName, out _, out StaticInstance? ownerType, out object? member) ||
+                member is not Closure closure)
+            {
+                if (!TryResolveInstanceMemberInHierarchy(instance, methodName, out _, out ownerType, out member) ||
+                    member is not Closure fallbackClosure)
+                {
+                    throw new VMException($"Runtime error: interface_call could not find method '{methodName}' for interface '{iface.ClassName}'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                }
+
+                closure = fallbackClosure;
+            }
+
+            return InvokeClosureSync(closure, callArgs, instr, instance, ownerType);
         }
     }
 }

@@ -328,6 +328,20 @@ Interfaces define required member contracts.
 
 Classes that implement interfaces MUST satisfy the required members with compatible visibility and member kinds.
 
+Interface method contracts MAY be instance or static and MAY include default bodies.
+
+If a class implements an interface method contract and does not declare or inherit that method, a default interface method body MUST be made available on the implementing class.
+
+Interface property contracts MAY be instance or static and define required `get`, `set`, and `init` accessors.
+
+Interface indexer contracts use `index get(...)` and `index set(...)`. Implementing classes MUST provide compatible public instance methods named `get_index` and `set_index`; runtime index access on class instances dispatches to those methods when present.
+
+Explicit interface method implementations use an interface-qualified method declaration such as `func IFace.member(...) { ... }`. Implementations MUST satisfy the same signature and visibility rules as normal interface methods. `interface_call(value, interfaceType, methodName, args)` MUST prefer explicit implementations before falling back to normal methods.
+
+Runtime interface checks MUST accept nominal implementations. For interface targets, runtime checks MAY also accept structural implementations when the value exposes compatible public members.
+
+The builtins `interfaces(value)`, `implements(value, interfaceType)`, `interfaceof(interfaceType)`, and `interface_call(value, interfaceType, methodName, args)` expose interface reflection and dispatch support.
+
 Interfaces MUST NOT extend classes.
 
 Interface diagnostics SHOULD identify the missing or incompatible member.

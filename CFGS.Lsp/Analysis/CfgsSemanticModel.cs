@@ -381,7 +381,7 @@ internal sealed class CfgsSemanticModelBuilder
         foreach (FuncDeclStmt method in classDecl.Methods)
         {
             CfgsSymbol methodSymbol = DeclareFunctionSymbol(method, scope, qualifiedClassName, isMethod: true, synthetic: false);
-            RegisterClassMember(qualifiedClassName, method.Name, methodSymbol, isStatic: false, valueTypeQualifiedName: null);
+            RegisterClassMember(qualifiedClassName, method.RuntimeMemberName, methodSymbol, isStatic: false, valueTypeQualifiedName: null);
         }
 
         foreach (PropertyDeclStmt property in classDecl.Properties)
@@ -394,7 +394,7 @@ internal sealed class CfgsSemanticModelBuilder
         foreach (FuncDeclStmt staticMethod in classDecl.StaticMethods)
         {
             CfgsSymbol methodSymbol = DeclareFunctionSymbol(staticMethod, scope, qualifiedClassName, isMethod: true, synthetic: false);
-            RegisterClassMember(qualifiedClassName, staticMethod.Name, methodSymbol, isStatic: true, valueTypeQualifiedName: null);
+            RegisterClassMember(qualifiedClassName, staticMethod.RuntimeMemberName, methodSymbol, isStatic: true, valueTypeQualifiedName: null);
         }
 
         foreach (PropertyDeclStmt staticProperty in classDecl.StaticProperties)
@@ -466,7 +466,36 @@ internal sealed class CfgsSemanticModelBuilder
             RecordTypeReference(baseInterfaceName, interfaceDecl.Line, interfaceDecl.Col, interfaceDecl.OriginFile, scope);
 
         foreach (InterfaceMethodDecl method in interfaceDecl.Methods)
+        {
             DeclareInterfaceMethodSymbol(method, qualifiedInterfaceName, synthetic: false);
+            if (method.Body is not null)
+                VisitInterfaceDefaultMethodBody(method, scope, qualifiedInterfaceName);
+        }
+
+        foreach (InterfacePropertyDecl property in interfaceDecl.Properties)
+            DeclareInterfacePropertySymbol(property, qualifiedInterfaceName, synthetic: false);
+
+        foreach (InterfaceIndexerDecl indexer in interfaceDecl.Indexers)
+            DeclareInterfaceIndexerSymbol(indexer, qualifiedInterfaceName, synthetic: false);
+    }
+
+    private void VisitInterfaceDefaultMethodBody(InterfaceMethodDecl method, SemanticScope parentScope, string interfaceQualifiedName)
+    {
+        if (method.Body is null)
+            return;
+
+        SemanticScope methodScope = new(
+            parentScope,
+            currentClassQualifiedName: interfaceQualifiedName,
+            currentBaseQualifiedName: null,
+            currentOuterClassQualifiedName: null,
+            allowThis: !method.IsStatic,
+            allowType: method.IsStatic,
+            allowSuper: false,
+            allowOuter: false,
+            inheritReceiverContext: false);
+        DeclareParameters(method.Parameters, method.RestParameter, methodScope, method.OriginFile, method.Line, method.Col);
+        VisitBlockStatements(method.Body.Statements, methodScope, null);
     }
 
     private void VisitMethodBody(
@@ -2828,7 +2857,8 @@ internal sealed class CfgsSemanticModelBuilder
 
     private CfgsSymbol DeclareFunctionSymbol(FuncDeclStmt func, SemanticScope scope, string? containerQualifiedName, bool isMethod, bool synthetic)
     {
-        string label = SignatureDisplay.BuildFunctionLabel(func.Name, func.IsAsync, func.Parameters, func.ParameterSpecs, func.RestParameter);
+        string symbolName = func.RuntimeMemberName;
+        string label = SignatureDisplay.BuildFunctionLabel(symbolName, func.IsAsync, func.Parameters, func.ParameterSpecs, func.RestParameter);
         IReadOnlyList<string> parameterDisplay = SignatureDisplay.GetParameterDisplayList(func.Parameters, func.ParameterSpecs, func.RestParameter);
         CfgsSignature signature = new(
             label,
@@ -2838,8 +2868,8 @@ internal sealed class CfgsSemanticModelBuilder
 
         CfgsSymbol symbol = CreateSymbol(
             func,
-            func.Name,
-            Qualify(containerQualifiedName, func.Name),
+            symbolName,
+            Qualify(containerQualifiedName, symbolName),
             isMethod ? 6 : 12,
             func.OriginFile,
             func.Line,
@@ -2878,6 +2908,45 @@ internal sealed class CfgsSemanticModelBuilder
             synthetic,
             addOccurrence: !synthetic,
             signature);
+    }
+
+    private CfgsSymbol DeclareInterfacePropertySymbol(InterfacePropertyDecl property, string? containerQualifiedName, bool synthetic)
+    {
+        string label = BuildInterfacePropertyLabel(property);
+        return CreateSymbol(
+            property,
+            property.Name,
+            Qualify(containerQualifiedName, property.Name),
+            7,
+            property.OriginFile,
+            property.Line,
+            property.Col,
+            label,
+            label,
+            [],
+            synthetic,
+            addOccurrence: !synthetic,
+            signature: null);
+    }
+
+    private CfgsSymbol DeclareInterfaceIndexerSymbol(InterfaceIndexerDecl indexer, string? containerQualifiedName, bool synthetic)
+    {
+        string name = indexer.ContractMethodName;
+        string label = BuildInterfaceIndexerLabel(indexer);
+        return CreateSymbol(
+            indexer,
+            name,
+            Qualify(containerQualifiedName, name),
+            6,
+            indexer.OriginFile,
+            indexer.Line,
+            indexer.Col,
+            label,
+            label,
+            [],
+            synthetic,
+            addOccurrence: !synthetic,
+            signature: new CfgsSignature(label, indexer.Parameters.ToList(), indexer.RestParameter, indexer.MinArgs));
     }
 
     private CfgsSymbol DeclareClassSymbol(ClassDeclStmt classDecl, SemanticScope scope, string? containerQualifiedName, bool synthetic)
@@ -3156,6 +3225,7 @@ internal sealed class CfgsSemanticModelBuilder
         {
             FuncDeclStmt func => CreateBlockRange(source, selectionRange, func.Body),
             FuncExpr funcExpr => CreateBlockRange(source, selectionRange, funcExpr.Body),
+            InterfaceMethodDecl { Body: not null } method => CreateBlockRange(source, selectionRange, method.Body),
             _ => selectionRange
         };
     }
@@ -3279,9 +3349,28 @@ internal sealed class CfgsSemanticModelBuilder
 
     private static string BuildInterfaceMethodLabel(InterfaceMethodDecl method)
     {
-        string prefix = method.IsAsync ? "async func" : "func";
+        string prefix = method switch
+        {
+            { IsStatic: true, IsAsync: true } => "static async func",
+            { IsStatic: true } => "static func",
+            { IsAsync: true } => "async func",
+            _ => "func"
+        };
         return $"{prefix} {method.Name}({string.Join(", ", method.Parameters)})";
     }
+
+    private static string BuildInterfacePropertyLabel(InterfacePropertyDecl property)
+    {
+        List<string> accessors = [];
+        if (property.HasGetter) accessors.Add("get");
+        if (property.HasSetter) accessors.Add("set");
+        if (property.HasInit) accessors.Add("init");
+        string prefix = property.IsStatic ? "static property" : "property";
+        return $"{prefix} {property.Name} {{ {string.Join("; ", accessors)}; }}";
+    }
+
+    private static string BuildInterfaceIndexerLabel(InterfaceIndexerDecl indexer)
+        => $"index {(indexer.IsSetter ? "set" : "get")}({string.Join(", ", indexer.Parameters)})";
 
     private string? ResolveBaseQualifiedName(ClassDeclStmt classDecl, string? containerQualifiedName)
     {

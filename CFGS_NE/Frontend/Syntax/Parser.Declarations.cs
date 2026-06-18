@@ -317,7 +317,7 @@ namespace CFGS_VM.Analytic.Core
             return new PropertyDeclStmt(name, visibility, isStatic, accessors, initializer, hasAutoStorage, line, col, file);
         }
 
-        private InterfacePropertyDecl ParseInterfacePropertyDecl()
+        private InterfacePropertyDecl ParseInterfacePropertyDecl(bool isStatic)
         {
             int line = _current.Line;
             int col = _current.Column;
@@ -378,14 +378,50 @@ namespace CFGS_VM.Analytic.Core
             if (!hasGetter && !hasSetter && !hasInit)
                 throw new ParserException($"interface property '{name}' must declare at least one accessor", line, col, file);
 
-            return new InterfacePropertyDecl(name, hasGetter, hasSetter, hasInit, line, col, file);
+            return new InterfacePropertyDecl(name, hasGetter, hasSetter, hasInit, line, col, file, isStatic);
+        }
+
+        private InterfaceIndexerDecl ParseInterfaceIndexerDecl()
+        {
+            int line = _current.Line;
+            int col = _current.Column;
+            string file = _current.Filename;
+
+            if (_current.Type != TokenType.Ident || !string.Equals(_current.Value?.ToString(), "index", StringComparison.Ordinal))
+                throw new ParserException("expected 'index' in interface indexer contract", _current.Line, _current.Column, _current.Filename);
+
+            Eat(TokenType.Ident);
+
+            if (_current.Type != TokenType.Ident)
+                throw new ParserException("expected 'get' or 'set' after interface index contract", _current.Line, _current.Column, _current.Filename);
+
+            string accessor = _current.Value?.ToString() ?? string.Empty;
+            bool isSetter = accessor switch
+            {
+                "get" => false,
+                "set" => true,
+                _ => throw new ParserException("interface index contract supports only 'get' or 'set'", _current.Line, _current.Column, _current.Filename)
+            };
+            Eat(TokenType.Ident);
+
+            (List<string> parameters, int minArgs, string? restParameter, _) = ParseFunctionParamsWithDefaults();
+            Eat(TokenType.Semi);
+
+            int minimum = isSetter ? 2 : 1;
+            if (parameters.Count < minimum)
+            {
+                string expected = isSetter ? "key and value parameters" : "a key parameter";
+                throw new ParserException($"interface index {(isSetter ? "set" : "get")} contract requires {expected}", line, col, file);
+            }
+
+            return new InterfaceIndexerDecl(isSetter, parameters, minArgs, restParameter, line, col, file);
         }
 
         /// <summary>
         /// The ParseInterfaceMethodDecl
         /// </summary>
         /// <returns>The <see cref="InterfaceMethodDecl"/></returns>
-        private InterfaceMethodDecl ParseInterfaceMethodDecl()
+        private InterfaceMethodDecl ParseInterfaceMethodDecl(bool isStatic)
         {
             int line = _current.Line;
             int col = _current.Column;
@@ -408,10 +444,32 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
             Eat(TokenType.Ident);
 
-            (List<string> parameters, int minArgs, string? restParameter, _) = ParseFunctionParamsWithDefaults();
-            Eat(TokenType.Semi);
+            List<string> parameters;
+            int minArgs;
+            string? restParameter;
+            List<FunctionParameterSpec> parameterSpecs;
+            BlockStmt? body = null;
 
-            return new InterfaceMethodDecl(name, parameters, minArgs, restParameter, line, col, file, isAsync);
+            (parameters, minArgs, restParameter, parameterSpecs) = ParseFunctionParamsWithDefaults();
+
+            if (_current.Type == TokenType.Semi)
+            {
+                Eat(TokenType.Semi);
+            }
+            else
+            {
+                EnterFunctionContext(isAsync);
+                try
+                {
+                    body = ParseEmbeddedBlockOrSingleStatement();
+                }
+                finally
+                {
+                    ExitFunctionContext(isAsync);
+                }
+            }
+
+            return new InterfaceMethodDecl(name, parameters, minArgs, restParameter, line, col, file, isAsync, isStatic, body, parameterSpecs);
         }
 
         /// <summary>
@@ -458,28 +516,44 @@ namespace CFGS_VM.Analytic.Core
 
             List<InterfaceMethodDecl> methods = new();
             List<InterfacePropertyDecl> properties = new();
+            List<InterfaceIndexerDecl> indexers = new();
             while (_current.Type != TokenType.RBrace)
             {
+                bool isStatic = false;
+                if (_current.Type == TokenType.Static)
+                {
+                    isStatic = true;
+                    Eat(TokenType.Static);
+                }
+
                 if (_current.Type == TokenType.Property)
                 {
-                    properties.Add(ParseInterfacePropertyDecl());
+                    properties.Add(ParseInterfacePropertyDecl(isStatic));
+                    continue;
+                }
+
+                if (!isStatic &&
+                    _current.Type == TokenType.Ident &&
+                    string.Equals(_current.Value?.ToString(), "index", StringComparison.Ordinal))
+                {
+                    indexers.Add(ParseInterfaceIndexerDecl());
                     continue;
                 }
 
                 if (_current.Type != TokenType.Func && _current.Type != TokenType.Async)
                 {
                     throw new ParserException(
-                        "interfaces support only method signatures and property signatures",
+                        "interfaces support only method signatures, default methods, property signatures and index contracts",
                         _current.Line,
                         _current.Column,
                         _current.Filename);
                 }
 
-                methods.Add(ParseInterfaceMethodDecl());
+                methods.Add(ParseInterfaceMethodDecl(isStatic));
             }
 
             Eat(TokenType.RBrace);
-            return new InterfaceDeclStmt(name, methods, properties, baseInterfaces, line, col, file);
+            return new InterfaceDeclStmt(name, methods, properties, indexers, baseInterfaces, line, col, file);
         }
 
         /// <summary>
@@ -554,11 +628,11 @@ namespace CFGS_VM.Analytic.Core
             HashSet<string> staticConstFields = new(StringComparer.Ordinal);
 
             bool CheckFieldNames(string nm) =>
-                (from sm in staticMethods where sm.Name == nm select sm).Any() ||
+                (from sm in staticMethods where sm.RuntimeMemberName == nm select sm).Any() ||
                 (from sp in staticProperties where sp.Name == nm select sp).Any() ||
                 (from en in staticEnums where en.Name == nm select en).Any() ||
                 (from sf in staticFields where sf.Key == nm select sf).Any() ||
-                (from mt in methods where mt.Name == nm select mt).Any() ||
+                (from mt in methods where mt.RuntimeMemberName == nm select mt).Any() ||
                 (from prop in properties where prop.Name == nm select prop).Any() ||
                 (from fld in fields where fld.Key == nm select fld).Any() ||
                 (from nsc in nestedClasses where nsc.Name == nm select nsc).Any();
@@ -691,17 +765,18 @@ namespace CFGS_VM.Analytic.Core
                 else if (_current.Type == TokenType.Func || _current.Type == TokenType.Async)
                 {
                     FuncDeclStmt func = ParseFuncDecl();
-                    if (CheckFieldNames(func.Name))
-                        throw new ParserException($"Field '{func.Name}' already declared in class '{name}'", _current.Line, _current.Column, _current.Filename);
+                    string memberName = func.RuntimeMemberName;
+                    if (CheckFieldNames(memberName))
+                        throw new ParserException($"Field '{memberName}' already declared in class '{name}'", _current.Line, _current.Column, _current.Filename);
                     if (staticSet)
                     {
                         staticMethods.Add(func);
-                        staticMethodVisibility[func.Name] = visibility;
+                        staticMethodVisibility[memberName] = visibility;
                     }
                     else
                     {
                         methods.Add(func);
-                        methodVisibility[func.Name] = visibility;
+                        methodVisibility[memberName] = visibility;
                     }
                 }
                 else if (_current.Type == TokenType.Property)

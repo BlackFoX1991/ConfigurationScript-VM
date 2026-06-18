@@ -126,7 +126,11 @@ internal sealed class CfgsAnalyzer
         new("set_workspace", 3, "builtin: set_workspace(path)"),
         new("get_workspace", 3, "builtin: get_workspace()"),
         new("getDirectory", 3, "builtin: getDirectory(path)"),
-        new("DirectoryInfo", 3, "builtin: DirectoryInfo(path)")
+        new("DirectoryInfo", 3, "builtin: DirectoryInfo(path)"),
+        new("interfaces", 3, "builtin: interfaces(value)"),
+        new("implements", 3, "builtin: implements(value, interfaceType)"),
+        new("interfaceof", 3, "builtin: interfaceof(interfaceType)"),
+        new("interface_call", 3, "builtin: interface_call(value, interfaceType, methodName, args = [])")
     ];
 
     private static readonly IReadOnlyDictionary<string, CfgsCompletionItem[]> StandardLibraryNamespaceMembers =
@@ -925,6 +929,9 @@ internal sealed class CfgsAnalyzer
             new CfgsCompletionItem("func", 15, "function declaration", "func ${1:name}(${2:params}) {\n\t$0\n}"),
             new CfgsCompletionItem("class", 15, "class declaration", "class ${1:Name}(${2:params}) {\n\t$0\n}"),
             new CfgsCompletionItem("interface", 15, "interface declaration", "interface ${1:IName} {\n\tfunc ${2:name}(${3:params});\n\t$0\n}"),
+            new CfgsCompletionItem("interface-default", 15, "interface default method", "func ${1:name}(${2:params}) {\n\t$0\n}"),
+            new CfgsCompletionItem("interface-index-get", 15, "interface index getter contract", "index get(${1:key});"),
+            new CfgsCompletionItem("interface-index-set", 15, "interface index setter contract", "index set(${1:key}, ${2:value});"),
             new CfgsCompletionItem("try", 15, "try-catch block", "try {\n\t$1\n} catch (${2:err}) {\n\t$0\n}"),
             new CfgsCompletionItem("match", 15, "match statement", "match (${1:expr}) {\n\tcase ${2:pattern}: {\n\t\t$0\n\t}\n}"),
             new CfgsCompletionItem("import", 15, "import statement", "import { ${1:name} } from \"${2:./module.cfs}\""),

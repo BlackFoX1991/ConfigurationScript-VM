@@ -47,11 +47,11 @@ namespace CFGS_VM.Analytic.Semantics
 
                 foreach (FuncDeclStmt method in cls.Methods)
                 {
-                    if (!TryFindInheritedMember(compiler, cls, method.Name, out InheritedMemberInfo inherited))
+                    if (!TryFindInheritedMember(compiler, cls, method.RuntimeMemberName, out InheritedMemberInfo inherited))
                         continue;
 
-                    ValidateMemberKindCompatibility(cls, method.Name, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
-                    ValidateMemberVisibilityCompatibility(cls, method.Name, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
+                    ValidateMemberKindCompatibility(cls, method.RuntimeMemberName, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
+                    ValidateMemberVisibilityCompatibility(cls, method.RuntimeMemberName, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
                     ValidateMethodOverrideShape(cls, method, inherited);
                 }
 
@@ -76,11 +76,11 @@ namespace CFGS_VM.Analytic.Semantics
 
                 foreach (FuncDeclStmt staticMethod in cls.StaticMethods)
                 {
-                    if (!TryFindInheritedMember(compiler, cls, staticMethod.Name, out InheritedMemberInfo inherited))
+                    if (!TryFindInheritedMember(compiler, cls, staticMethod.RuntimeMemberName, out InheritedMemberInfo inherited))
                         continue;
 
-                    ValidateMemberKindCompatibility(cls, staticMethod.Name, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
-                    ValidateMemberVisibilityCompatibility(cls, staticMethod.Name, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
+                    ValidateMemberKindCompatibility(cls, staticMethod.RuntimeMemberName, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
+                    ValidateMemberVisibilityCompatibility(cls, staticMethod.RuntimeMemberName, InheritedMemberKind.StaticMethod, inherited, staticMethod.Line, staticMethod.Col, staticMethod.OriginFile);
                     ValidateMethodOverrideShape(cls, staticMethod, inherited);
                 }
 
@@ -163,10 +163,27 @@ namespace CFGS_VM.Analytic.Semantics
                     Dictionary<string, InterfaceMethodDecl> contract = compiler.GetOrBuildInterfaceContract(iface);
                     foreach (KeyValuePair<string, InterfaceMethodDecl> kv in contract)
                     {
-                        if (!TryFindInstanceMethodInHierarchy(compiler, cls, kv.Key, out ClassDeclStmt ownerDecl, out FuncDeclStmt methodDecl, out MemberVisibility visibility))
+                        bool found = kv.Value.IsStatic
+                            ? TryFindStaticMethodInHierarchy(compiler, cls, kv.Key, out ClassDeclStmt ownerDecl, out FuncDeclStmt methodDecl, out MemberVisibility visibility)
+                            : TryFindInstanceMethodInHierarchy(compiler, cls, kv.Key, out ownerDecl, out methodDecl, out visibility);
+
+                        if (!found)
                         {
+                            found = kv.Value.IsStatic
+                                ? TryFindExplicitStaticInterfaceMethodInHierarchy(compiler, cls, kv.Key, out ownerDecl, out methodDecl, out visibility)
+                                : TryFindExplicitInstanceInterfaceMethodInHierarchy(compiler, cls, kv.Key, out ownerDecl, out methodDecl, out visibility);
+                        }
+
+                        if (!found)
+                        {
+                            if (kv.Value.HasDefaultBody)
+                            {
+                                AddDefaultInterfaceMethod(cls, kv.Value);
+                                continue;
+                            }
+
                             throw new CompilerException(
-                                $"class '{cls.Name}' does not implement interface method '{kv.Key}' from interface '{iface.Name}'",
+                                $"class '{cls.Name}' does not implement {(kv.Value.IsStatic ? "static " : string.Empty)}interface method '{kv.Key}' from interface '{iface.Name}'",
                                 cls.Line,
                                 cls.Col,
                                 cls.OriginFile);
@@ -175,7 +192,7 @@ namespace CFGS_VM.Analytic.Semantics
                         if (visibility != MemberVisibility.Public)
                         {
                             throw new CompilerException(
-                                $"class '{cls.Name}' cannot implement interface method '{kv.Key}' from interface '{iface.Name}' with non-public visibility",
+                                $"class '{cls.Name}' cannot implement {(kv.Value.IsStatic ? "static " : string.Empty)}interface method '{kv.Key}' from interface '{iface.Name}' with non-public visibility",
                                 methodDecl.Line,
                                 methodDecl.Col,
                                 methodDecl.OriginFile);
@@ -184,7 +201,7 @@ namespace CFGS_VM.Analytic.Semantics
                         if (!MethodShapeRules.HaveCompatibleShapes(kv.Value, methodDecl))
                         {
                             throw new CompilerException(
-                                $"class '{cls.Name}' implements interface method '{kv.Key}' from interface '{iface.Name}' with incompatible arity: expected {MethodShapeRules.DescribeArity(kv.Value)}, got {MethodShapeRules.DescribeArity(methodDecl)}",
+                                $"class '{cls.Name}' implements {(kv.Value.IsStatic ? "static " : string.Empty)}interface method '{kv.Key}' from interface '{iface.Name}' with incompatible arity: expected {MethodShapeRules.DescribeArity(kv.Value)}, got {MethodShapeRules.DescribeArity(methodDecl)}",
                                 methodDecl.Line,
                                 methodDecl.Col,
                                 methodDecl.OriginFile);
@@ -193,7 +210,7 @@ namespace CFGS_VM.Analytic.Semantics
                         if (!ReferenceEquals(ownerDecl, cls) && visibility != MemberVisibility.Public)
                         {
                             throw new CompilerException(
-                                $"class '{cls.Name}' inherits interface method '{kv.Key}' from class '{ownerDecl.Name}' with non-public visibility",
+                                $"class '{cls.Name}' inherits {(kv.Value.IsStatic ? "static " : string.Empty)}interface method '{kv.Key}' from class '{ownerDecl.Name}' with non-public visibility",
                                 methodDecl.Line,
                                 methodDecl.Col,
                                 methodDecl.OriginFile);
@@ -203,10 +220,14 @@ namespace CFGS_VM.Analytic.Semantics
                     Dictionary<string, InterfacePropertyDecl> propertyContract = compiler.GetOrBuildInterfacePropertyContract(iface);
                     foreach (KeyValuePair<string, InterfacePropertyDecl> kv in propertyContract)
                     {
-                        if (!TryFindInstancePropertyInHierarchy(compiler, cls, kv.Key, out ClassDeclStmt ownerDecl, out PropertyDeclStmt propertyDecl))
+                        bool found = kv.Value.IsStatic
+                            ? TryFindStaticPropertyInHierarchy(compiler, cls, kv.Key, out ClassDeclStmt ownerDecl, out PropertyDeclStmt propertyDecl)
+                            : TryFindInstancePropertyInHierarchy(compiler, cls, kv.Key, out ownerDecl, out propertyDecl);
+
+                        if (!found)
                         {
                             throw new CompilerException(
-                                $"class '{cls.Name}' does not implement interface property '{kv.Key}' from interface '{iface.Name}'",
+                                $"class '{cls.Name}' does not implement {(kv.Value.IsStatic ? "static " : string.Empty)}interface property '{kv.Key}' from interface '{iface.Name}'",
                                 cls.Line,
                                 cls.Col,
                                 cls.OriginFile);
@@ -214,7 +235,67 @@ namespace CFGS_VM.Analytic.Semantics
 
                         ValidateInterfacePropertyImplementation(cls, iface, kv.Value, ownerDecl, propertyDecl);
                     }
+
+                    Dictionary<string, InterfaceIndexerDecl> indexerContract = compiler.GetOrBuildInterfaceIndexerContract(iface);
+                    foreach (KeyValuePair<string, InterfaceIndexerDecl> kv in indexerContract)
+                    {
+                        if (!TryFindInstanceMethodInHierarchy(compiler, cls, kv.Value.ContractMethodName, out ClassDeclStmt ownerDecl, out FuncDeclStmt methodDecl, out MemberVisibility visibility))
+                        {
+                            throw new CompilerException(
+                                $"class '{cls.Name}' does not implement interface index {(kv.Value.IsSetter ? "set" : "get")} contract from interface '{iface.Name}' as method '{kv.Value.ContractMethodName}'",
+                                cls.Line,
+                                cls.Col,
+                                cls.OriginFile);
+                        }
+
+                        if (visibility != MemberVisibility.Public)
+                        {
+                            throw new CompilerException(
+                                $"class '{cls.Name}' cannot implement interface index {(kv.Value.IsSetter ? "set" : "get")} contract from interface '{iface.Name}' with non-public visibility",
+                                methodDecl.Line,
+                                methodDecl.Col,
+                                methodDecl.OriginFile);
+                        }
+
+                        if (!HaveCompatibleIndexerImplementation(kv.Value, methodDecl))
+                        {
+                            throw new CompilerException(
+                                $"class '{cls.Name}' implements interface index {(kv.Value.IsSetter ? "set" : "get")} contract from interface '{iface.Name}' with incompatible arity",
+                                methodDecl.Line,
+                                methodDecl.Col,
+                                methodDecl.OriginFile);
+                        }
+                    }
                 }
+            }
+        }
+
+        private static void AddDefaultInterfaceMethod(ClassDeclStmt cls, InterfaceMethodDecl method)
+        {
+            if (method.Body == null)
+                return;
+
+            FuncDeclStmt synthesized = new(
+                method.Name,
+                new List<string>(method.Parameters),
+                method.Body,
+                method.MinArgs,
+                method.RestParameter,
+                method.Line,
+                method.Col,
+                method.OriginFile,
+                method.IsAsync,
+                new List<FunctionParameterSpec>(method.ParameterSpecs));
+
+            if (method.IsStatic)
+            {
+                cls.StaticMethods.Add(synthesized);
+                cls.StaticMethodVisibility[method.Name] = MemberVisibility.Public;
+            }
+            else
+            {
+                cls.Methods.Add(synthesized);
+                cls.MethodVisibility[method.Name] = MemberVisibility.Public;
             }
         }
 
@@ -242,7 +323,7 @@ namespace CFGS_VM.Analytic.Semantics
                 return true;
             }
 
-            FuncDeclStmt? instanceMethod = cls.Methods.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.Ordinal));
+            FuncDeclStmt? instanceMethod = cls.Methods.FirstOrDefault(m => string.Equals(m.RuntimeMemberName, name, StringComparison.Ordinal));
             if (instanceMethod != null)
             {
                 member = new InheritedMemberInfo(InheritedMemberKind.InstanceMethod, cls, instanceMethod);
@@ -261,7 +342,7 @@ namespace CFGS_VM.Analytic.Semantics
                 return true;
             }
 
-            FuncDeclStmt? staticMethod = cls.StaticMethods.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.Ordinal));
+            FuncDeclStmt? staticMethod = cls.StaticMethods.FirstOrDefault(m => string.Equals(m.RuntimeMemberName, name, StringComparison.Ordinal));
             if (staticMethod != null)
             {
                 member = new InheritedMemberInfo(InheritedMemberKind.StaticMethod, cls, staticMethod);
@@ -703,12 +784,12 @@ namespace CFGS_VM.Analytic.Semantics
             ClassDeclStmt current = decl;
             while (true)
             {
-                FuncDeclStmt? method = current.Methods.FirstOrDefault(m => string.Equals(m.Name, methodName, StringComparison.Ordinal));
+                FuncDeclStmt? method = current.Methods.FirstOrDefault(m => string.Equals(m.RuntimeMemberName, methodName, StringComparison.Ordinal));
                 if (method != null)
                 {
                     ownerDecl = current;
                     methodDecl = method;
-                    visibility = GetOrDefaultVisibility(current.MethodVisibility, methodName);
+                    visibility = GetOrDefaultVisibility(current.MethodVisibility, method.RuntimeMemberName);
                     return true;
                 }
 
@@ -752,5 +833,139 @@ namespace CFGS_VM.Analytic.Semantics
             propertyDecl = null!;
             return false;
         }
+
+        private static bool TryFindStaticMethodInHierarchy(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            string methodName,
+            out ClassDeclStmt ownerDecl,
+            out FuncDeclStmt methodDecl,
+            out MemberVisibility visibility)
+        {
+            ClassDeclStmt current = decl;
+            while (true)
+            {
+                FuncDeclStmt? method = current.StaticMethods.FirstOrDefault(m => string.Equals(m.RuntimeMemberName, methodName, StringComparison.Ordinal));
+                if (method != null)
+                {
+                    ownerDecl = current;
+                    methodDecl = method;
+                    visibility = GetOrDefaultVisibility(current.StaticMethodVisibility, method.RuntimeMemberName);
+                    return true;
+                }
+
+                if (!compiler.TryResolveBaseClassDecl(current, out ClassDeclStmt baseDecl))
+                    break;
+
+                current = baseDecl;
+            }
+
+            ownerDecl = null!;
+            methodDecl = null!;
+            visibility = MemberVisibility.Public;
+            return false;
+        }
+
+        private static bool TryFindStaticPropertyInHierarchy(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            string propertyName,
+            out ClassDeclStmt ownerDecl,
+            out PropertyDeclStmt propertyDecl)
+        {
+            ClassDeclStmt current = decl;
+            while (true)
+            {
+                PropertyDeclStmt? property = current.StaticProperties.FirstOrDefault(p => string.Equals(p.Name, propertyName, StringComparison.Ordinal));
+                if (property != null)
+                {
+                    ownerDecl = current;
+                    propertyDecl = property;
+                    return true;
+                }
+
+                if (!compiler.TryResolveBaseClassDecl(current, out ClassDeclStmt baseDecl))
+                    break;
+
+                current = baseDecl;
+            }
+
+            ownerDecl = null!;
+            propertyDecl = null!;
+            return false;
+        }
+
+        private static bool TryFindExplicitInstanceInterfaceMethodInHierarchy(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            string methodName,
+            out ClassDeclStmt ownerDecl,
+            out FuncDeclStmt methodDecl,
+            out MemberVisibility visibility)
+        {
+            ClassDeclStmt current = decl;
+            while (true)
+            {
+                FuncDeclStmt? method = current.Methods.FirstOrDefault(m =>
+                    !string.IsNullOrWhiteSpace(m.ExplicitInterfaceName) &&
+                    string.Equals(m.Name, methodName, StringComparison.Ordinal));
+                if (method != null)
+                {
+                    ownerDecl = current;
+                    methodDecl = method;
+                    visibility = GetOrDefaultVisibility(current.MethodVisibility, method.RuntimeMemberName);
+                    return true;
+                }
+
+                if (!compiler.TryResolveBaseClassDecl(current, out ClassDeclStmt baseDecl))
+                    break;
+
+                current = baseDecl;
+            }
+
+            ownerDecl = null!;
+            methodDecl = null!;
+            visibility = MemberVisibility.Public;
+            return false;
+        }
+
+        private static bool TryFindExplicitStaticInterfaceMethodInHierarchy(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            string methodName,
+            out ClassDeclStmt ownerDecl,
+            out FuncDeclStmt methodDecl,
+            out MemberVisibility visibility)
+        {
+            ClassDeclStmt current = decl;
+            while (true)
+            {
+                FuncDeclStmt? method = current.StaticMethods.FirstOrDefault(m =>
+                    !string.IsNullOrWhiteSpace(m.ExplicitInterfaceName) &&
+                    string.Equals(m.Name, methodName, StringComparison.Ordinal));
+                if (method != null)
+                {
+                    ownerDecl = current;
+                    methodDecl = method;
+                    visibility = GetOrDefaultVisibility(current.StaticMethodVisibility, method.RuntimeMemberName);
+                    return true;
+                }
+
+                if (!compiler.TryResolveBaseClassDecl(current, out ClassDeclStmt baseDecl))
+                    break;
+
+                current = baseDecl;
+            }
+
+            ownerDecl = null!;
+            methodDecl = null!;
+            visibility = MemberVisibility.Public;
+            return false;
+        }
+
+        private static bool HaveCompatibleIndexerImplementation(InterfaceIndexerDecl expected, FuncDeclStmt actual)
+            => expected.MinArgs == actual.MinArgs &&
+               expected.Parameters.Count == actual.Parameters.Count &&
+               !string.IsNullOrWhiteSpace(expected.RestParameter) == !string.IsNullOrWhiteSpace(actual.RestParameter);
     }
 }

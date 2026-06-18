@@ -49,7 +49,7 @@ The following topics are covered completely across the English documentation set
 - Pattern matching. `match` as a statement. `match` as an expression. Guards. Wildcards. Literal patterns. Array patterns. Dictionary patterns. `var` bindings.
 - Destructuring. Declarations. Assignments. Parameters. `foreach` patterns.
 - `out` blocks as an expression form.
-- OOP. Classes. Constructors. `init`. Object initialization. Fields. Properties with `get`/`set`/`init`. Auto-properties. Mixed auto/manual accessors. `field` backing symbol. Instance members. Static members. Visibility. Inheritance. `super`. `type`. `this`. `outer`. Nested classes. Enums inside classes. Override rules.
+- OOP. Classes. Constructors. `init`. Object initialization. Fields. Properties with `get`/`set`/`init`. Auto-properties. Mixed auto/manual accessors. `field` backing symbol. Instance members. Static members. Visibility. Inheritance. `super`. `type`. `this`. `outer`. Nested classes. Enums inside classes. Override rules. Interfaces with instance/static contracts, default methods, structural checks, indexer contracts, and reflection builtins.
 - Namespaces. Qualified names. Multiple declarations. `use` directives. Name resolution.
 - Modules. `export`. Bare imports. Named imports. Alias imports. Namespace imports. Single symbol imports. File imports. URL imports. DLL imports. Header rules. Import resolution. Cycles.
 - Async model. `async func`. `await`. `yield`. Top level await inside expressions. Hot start behavior. Await on lists and dictionaries. Await on Task and ValueTask values returned by plugins.

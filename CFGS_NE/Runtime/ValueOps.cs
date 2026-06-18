@@ -589,7 +589,7 @@ namespace CFGS_VM.VMCore
             if (TryGetStaticType(ci, out StaticInstance instType))
             {
                 found = IsInterfaceType(target)
-                    ? ImplementsInterface(instType, target)
+                    ? ImplementsInterface(instType, target) || StructurallyImplementsInterface(ci, instType, target)
                     : IsSameOrDerivedStaticType(instType, target);
             }
             _stack.Push(found);
