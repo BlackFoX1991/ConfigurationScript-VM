@@ -305,7 +305,11 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("tojson", 1, 1, (recv, a, instr) => JsonStringifyVm(a)));
         }
 
-        private static object MathAbsVm(List<object> args) => Math.Abs((dynamic)args[0]);
+        private static object MathAbsVm(List<object> args) => args[0] switch
+        {
+            BigInteger bi => BigInteger.Abs(bi),
+            _ => Math.Abs((dynamic)args[0])
+        };
 
         private static object MathRandVm(List<object> args)
         {
@@ -417,8 +421,9 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("readCharAsync", 0, 0, (recv, a, instr) => ConsoleGetCharAsyncVm()));
         }
 
-        private static object FileDeleteVm(List<object> args)
+        private static object FileDeleteVm(List<object> args, Instruction instr)
         {
+            EnsureFileIo(instr);
             var path = args[0]?.ToString() ?? string.Empty;
             if (path.Length == 0)
                 throw new ArgumentException("fdelete requires a file path.");
@@ -430,8 +435,9 @@ namespace CFGS.StandardLibrary
             return 1;
         }
 
-        private static object FileMoveVm(List<object> args)
+        private static object FileMoveVm(List<object> args, Instruction instr)
         {
+            EnsureFileIo(instr);
             var source = args[0]?.ToString() ?? string.Empty;
             var destination = args[1]?.ToString() ?? string.Empty;
             var overwrite = args.Count >= 3 && Convert.ToBoolean(args[2], CultureInfo.InvariantCulture);
@@ -447,8 +453,9 @@ namespace CFGS.StandardLibrary
             return destination;
         }
 
-        private static object FileCopyVm(List<object> args)
+        private static object FileCopyVm(List<object> args, Instruction instr)
         {
+            EnsureFileIo(instr);
             var source = args[0]?.ToString() ?? string.Empty;
             var destination = args[1]?.ToString() ?? string.Empty;
             var overwrite = args.Count >= 3 && Convert.ToBoolean(args[2], CultureInfo.InvariantCulture);
@@ -622,12 +629,12 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("fopen", 2, 2, (recv, a, instr) => FileOpenVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("openBinary", 2, 2, (recv, a, instr) => BinaryFileOpenVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("fbopen", 2, 2, (recv, a, instr) => BinaryFileOpenVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("delete", 1, 1, (recv, a, instr) => FileDeleteVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fdelete", 1, 1, (recv, a, instr) => FileDeleteVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("move", 2, 3, (recv, a, instr) => FileMoveVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fmove", 2, 3, (recv, a, instr) => FileMoveVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("copy", 2, 3, (recv, a, instr) => FileCopyVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fcopy", 2, 3, (recv, a, instr) => FileCopyVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("delete", 1, 1, (recv, a, instr) => FileDeleteVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fdelete", 1, 1, (recv, a, instr) => FileDeleteVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("move", 2, 3, (recv, a, instr) => FileMoveVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fmove", 2, 3, (recv, a, instr) => FileMoveVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("copy", 2, 3, (recv, a, instr) => FileCopyVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("fcopy", 2, 3, (recv, a, instr) => FileCopyVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("exists", 1, 1, (recv, a, instr) => FileExistsVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("fexist", 1, 1, (recv, a, instr) => FileExistsVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("readAllBytes", 1, 1, (recv, a, instr) => ReadAllBytesVm(a, instr)));
@@ -1044,17 +1051,17 @@ namespace CFGS.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("fdelete", 1, 1, (args, instr) =>
             {
-                return FileDeleteVm(args);
+                return FileDeleteVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("fmove", 2, 3, (args, instr) =>
             {
-                return FileMoveVm(args);
+                return FileMoveVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("fcopy", 2, 3, (args, instr) =>
             {
-                return FileCopyVm(args);
+                return FileCopyVm(args, instr);
             }));
 
             builtins.Register(new BuiltinDescriptor("clear", 0, 0, (args, instr) =>

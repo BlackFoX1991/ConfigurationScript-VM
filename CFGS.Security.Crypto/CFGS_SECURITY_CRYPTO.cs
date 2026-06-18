@@ -1191,8 +1191,14 @@ namespace CFGS.Security.Crypto
 
         private static Dictionary<string, object> JwtVerify(string token, object key, string? algorithm, bool verifyTime, long clockSkewSeconds, Instruction instr)
         {
+            // The expected algorithm MUST be pinned by the caller. Deriving it from the token
+            // header would let an attacker pick the algorithm (e.g. forge an RS256 token as HS256
+            // using the public key as the HMAC secret) — a classic JWT algorithm-confusion attack.
+            if (string.IsNullOrEmpty(algorithm))
+                throw Runtime(instr, "jwt_verify requires an explicit algorithm argument (e.g. \"rs256\", \"hs256\"); deriving it from the token header would allow algorithm-confusion attacks");
+
             JwtParts parts = ParseJwtParts(token, instr);
-            string effectiveAlgorithm = algorithm ?? NormalizeJwtAlgorithm(parts.Algorithm, instr);
+            string effectiveAlgorithm = algorithm;
             if (!string.Equals(effectiveAlgorithm, NormalizeJwtAlgorithm(parts.Algorithm, instr), StringComparison.Ordinal))
                 return BuildJwtResult(parts, valid: false, reason: "algorithm mismatch");
 

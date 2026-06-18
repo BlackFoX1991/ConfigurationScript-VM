@@ -94,7 +94,13 @@ print(plain);
 
 - `crypto.jwtSign(payload, key, algorithm = "hs256", headers = optional)`
 - `crypto.jwtDecode(token)`
-- `crypto.jwtVerify(token, key, algorithm = optional, verifyTime = true, clockSkewSeconds = 0)`
+- `crypto.jwtVerify(token, key, algorithm, verifyTime = true, clockSkewSeconds = 0)`
+
+> **Security:** `algorithm` is **required** for verification. You must pin the algorithm you
+> expect (e.g. `"rs256"`); the verifier never derives it from the token header. This prevents
+> algorithm-confusion attacks (such as forging an RS256 token as HS256 using the public key as
+> the HMAC secret). A token whose header algorithm does not match the pinned one is reported as
+> invalid with `reason = "algorithm mismatch"`.
 
 Supported JWT signing algorithms are `hs256`, `hs384`, `hs512`, `rs256`, `rs384`, `rs512`, `ps256`, `ps384`, `ps512`, `es256`, `es384`, `es512`, and `eddsa`.
 
@@ -113,7 +119,7 @@ Example.
 
 ```cfs
 var token = crypto.jwtSign({"sub": "user1", "exp": 4102444800}, "secret");
-var checked = crypto.jwtVerify(token, "secret");
+var checked = crypto.jwtVerify(token, "secret", "hs256");
 print(checked.valid);
 ```
 

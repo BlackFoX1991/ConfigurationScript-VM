@@ -239,6 +239,7 @@ internal static class CfgsLinter
         private readonly Stack<Scope> _scopes = new();
         private readonly Dictionary<string, Declaration> _functions = new(StringComparer.Ordinal);
         private readonly HashSet<string> _calledFunctions = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _referencedNames = new(StringComparer.Ordinal);
         private readonly HashSet<string> _externallyReachableFunctions = new(StringComparer.Ordinal);
         private int _namespaceDepth;
 
@@ -283,6 +284,7 @@ internal static class CfgsLinter
                 if (!function.Name.StartsWith('_') &&
                     !string.Equals(function.Name, "main", StringComparison.Ordinal) &&
                     !_calledFunctions.Contains(function.Name) &&
+                    !_referencedNames.Contains(function.Name) &&
                     !_externallyReachableFunctions.Contains(function.Name))
                     Add("CFGS8013", CfgsToolDiagnosticSeverity.Info, $"function '{function.Name}' is never called in this file", function.Line, function.Column);
             }
@@ -472,6 +474,9 @@ internal static class CfgsLinter
             {
                 case VarExpr v:
                     Use(v.Name);
+                    // Referencing a function name as a value (callback, assignment, return) makes
+                    // it reachable even without a direct call, so it must not be flagged unused.
+                    _referencedNames.Add(v.Name);
                     break;
                 case CallExpr c:
                     if (c.Target is VarExpr target)
