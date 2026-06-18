@@ -100,7 +100,7 @@ namespace CFGS.Microsoft.SQL
         {
             ThrowIfDisposed();
             if (Connection == null || Connection.State != ConnectionState.Open)
-                throw new InvalidOperationException("Die SQL-Verbindung ist nicht geöffnet.");
+                throw new InvalidOperationException("Die SQL-Verbindung ist nicht geï¿½ffnet.");
         }
 
         /// <summary>
@@ -610,6 +610,7 @@ namespace CFGS.Microsoft.SQL
                         WHERE SPECIFIC_NAME = @proc
                         ORDER BY ORDINAL_POSITION", h.Connection);
                     pcmd.Parameters.AddWithValue("@proc", proc);
+                    pcmd.Transaction = h.Transaction;
                     using SqlDataReader reader = pcmd.ExecuteReader();
                     while (reader.Read())
                     {
@@ -641,6 +642,7 @@ namespace CFGS.Microsoft.SQL
                         WHERE SPECIFIC_NAME = @proc
                         ORDER BY ORDINAL_POSITION", h.Connection);
                     pcmd.Parameters.AddWithValue("@proc", proc);
+                    pcmd.Transaction = h.Transaction;
                     using SqlDataReader reader = await pcmd.ExecuteReaderAsync().ConfigureAwait(false);
                     while (await reader.ReadAsync().ConfigureAwait(false))
                     {
@@ -673,6 +675,7 @@ namespace CFGS.Microsoft.SQL
                         FROM INFORMATION_SCHEMA.VIEWS
                         WHERE TABLE_NAME = @view", h.Connection);
                     vcmd.Parameters.AddWithValue("@view", view);
+                    vcmd.Transaction = h.Transaction;
                     object def = vcmd.ExecuteScalar();
                     return def ?? "";
                 });
@@ -692,6 +695,7 @@ namespace CFGS.Microsoft.SQL
                         FROM INFORMATION_SCHEMA.VIEWS
                         WHERE TABLE_NAME = @view", h.Connection);
                     vcmd.Parameters.AddWithValue("@view", view);
+                    vcmd.Transaction = h.Transaction;
                     object? def = await vcmd.ExecuteScalarAsync().ConfigureAwait(false);
                     return def ?? string.Empty;
                 });
@@ -722,6 +726,7 @@ namespace CFGS.Microsoft.SQL
                         FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
                         WHERE TABLE_NAME = @table", h.Connection);
                     ccmd.Parameters.AddWithValue("@table", table);
+                    ccmd.Transaction = h.Transaction;
                     using SqlDataReader reader = ccmd.ExecuteReader();
                     while (reader.Read())
                     {
@@ -750,6 +755,7 @@ namespace CFGS.Microsoft.SQL
                         FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
                         WHERE TABLE_NAME = @table", h.Connection);
                     ccmd.Parameters.AddWithValue("@table", table);
+                    ccmd.Transaction = h.Transaction;
                     using SqlDataReader reader = await ccmd.ExecuteReaderAsync().ConfigureAwait(false);
                     while (await reader.ReadAsync().ConfigureAwait(false))
                     {
@@ -789,6 +795,7 @@ namespace CFGS.Microsoft.SQL
                         JOIN sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
                         WHERE tp.name = @table", h.Connection);
                     fcmd.Parameters.AddWithValue("@table", table);
+                    fcmd.Transaction = h.Transaction;
                     using SqlDataReader reader = fcmd.ExecuteReader();
                     while (reader.Read())
                     {
@@ -829,6 +836,7 @@ namespace CFGS.Microsoft.SQL
                         JOIN sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
                         WHERE tp.name = @table", h.Connection);
                     fcmd.Parameters.AddWithValue("@table", table);
+                    fcmd.Transaction = h.Transaction;
                     using SqlDataReader reader = await fcmd.ExecuteReaderAsync().ConfigureAwait(false);
                     while (await reader.ReadAsync().ConfigureAwait(false))
                     {
