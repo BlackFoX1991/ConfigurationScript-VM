@@ -1,0 +1,27 @@
+namespace Edge.TypePositions {
+    interface INamed {
+        property name { get; }
+    }
+
+    interface IRunnable {
+        func run(value);
+    }
+
+    interface IExtended : INamed {
+        func label() {
+            return "name:" + this.name;
+        }
+    }
+
+    class BaseBox(prefix) {
+        public property prefix { get; private set; } = "";
+
+        func init(prefix) {
+            this.prefix = prefix;
+        }
+
+        func base_label(value) {
+            return this.prefix + ":" + str(value);
+        }
+    }
+}

@@ -1,0 +1,32 @@
+import "edge_assert.cfs";
+import "716_use_namespace_type_positions_lib.cfs";
+
+use Edge.TypePositions;
+
+edge_begin("716_use_namespace_type_positions");
+
+namespace Edge.Impl {
+    interface ILocalExtended : IExtended {
+    }
+
+    class NamedBox(prefix) : BaseBox(prefix), ILocalExtended, IRunnable {
+        property name { get; } = "cfgs";
+
+        func IRunnable.run(value) {
+            return this.base_label(this.name) + ":" + str(value);
+        }
+    }
+}
+
+func main() {
+    var box = new Edge.Impl.NamedBox("box");
+    edge_true("use_interface_implements", box is IExtended);
+    edge_true("use_interface_local_extends", box is Edge.Impl.ILocalExtended);
+    edge_eq("use_base_class", box.base_label(box.name), "box:cfgs");
+    edge_eq("use_default_interface_method", box.label(), "name:cfgs");
+    edge_eq("use_explicit_interface_method", interface_call(box, IRunnable, "run", [7]), "box:cfgs:7");
+}
+
+main();
+
+edge_finish("716_use_namespace_type_positions");

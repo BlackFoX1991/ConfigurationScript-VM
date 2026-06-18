@@ -652,6 +652,12 @@ namespace CFGS_VM.Analytic.Modules
         private FuncDeclStmt RewriteFunctionDecl(FuncDeclStmt funcDecl, RewriteState state)
         {
             List<FunctionParameterSpec> parameterSpecs = RewriteParameterSpecs(funcDecl.ParameterSpecs, state);
+            string? explicitInterfaceName = RewriteTypeReference(
+                funcDecl.ExplicitInterfaceName,
+                funcDecl,
+                state,
+                NamespaceMemberKind.Interface,
+                NamespaceMemberKind.Namespace);
 
             PushFunctionScope(state, funcDecl.Parameters);
             try
@@ -667,7 +673,8 @@ namespace CFGS_VM.Analytic.Modules
                     funcDecl.Col,
                     funcDecl.OriginFile,
                     funcDecl.IsAsync,
-                    parameterSpecs);
+                    parameterSpecs,
+                    explicitInterfaceName);
             }
             finally
             {
@@ -697,6 +704,20 @@ namespace CFGS_VM.Analytic.Modules
             List<PropertyDeclStmt> staticProperties = classDecl.StaticProperties.Select(p => RewritePropertyDecl(p, classState)).ToList();
             List<ClassDeclStmt> nestedClasses = classDecl.NestedClasses.Select(c => RewriteClassDecl(c, classState)).ToList();
             List<Expr> baseCtorArgs = classDecl.BaseCtorArgs.Select(arg => RewriteExpr(arg, classState)).ToList();
+            string? baseName = RewriteTypeReference(
+                classDecl.BaseName,
+                classDecl,
+                classState,
+                NamespaceMemberKind.Class,
+                NamespaceMemberKind.Namespace);
+            List<string> implementedInterfaces = classDecl.ImplementedInterfaces
+                .Select(interfaceName => RewriteTypeReference(
+                    interfaceName,
+                    classDecl,
+                    classState,
+                    NamespaceMemberKind.Interface,
+                    NamespaceMemberKind.Namespace) ?? interfaceName)
+                .ToList();
 
             return new ClassDeclStmt(
                 classDecl.Name,
@@ -711,9 +732,9 @@ namespace CFGS_VM.Analytic.Modules
                 classDecl.Line,
                 classDecl.Col,
                 classDecl.OriginFile,
-                classDecl.BaseName,
+                baseName,
                 baseCtorArgs,
-                new List<string>(classDecl.ImplementedInterfaces),
+                implementedInterfaces,
                 nestedClasses,
                 classDecl.IsNested,
                 new Dictionary<string, MemberVisibility>(classDecl.FieldVisibility, StringComparer.Ordinal),
@@ -728,15 +749,60 @@ namespace CFGS_VM.Analytic.Modules
 
         private InterfaceDeclStmt RewriteInterfaceDecl(InterfaceDeclStmt interfaceDecl, RewriteState state)
         {
+            List<InterfaceMethodDecl> methods = interfaceDecl.Methods
+                .Select(method => RewriteInterfaceMethodDecl(method, state))
+                .ToList();
+            List<string> baseInterfaces = interfaceDecl.BaseInterfaces
+                .Select(baseName => RewriteTypeReference(
+                    baseName,
+                    interfaceDecl,
+                    state,
+                    NamespaceMemberKind.Interface,
+                    NamespaceMemberKind.Class,
+                    NamespaceMemberKind.Namespace) ?? baseName)
+                .ToList();
+
             return new InterfaceDeclStmt(
                 interfaceDecl.Name,
-                interfaceDecl.Methods,
+                methods,
                 interfaceDecl.Properties,
                 interfaceDecl.Indexers,
-                new List<string>(interfaceDecl.BaseInterfaces),
+                baseInterfaces,
                 interfaceDecl.Line,
                 interfaceDecl.Col,
                 interfaceDecl.OriginFile);
+        }
+
+        private InterfaceMethodDecl RewriteInterfaceMethodDecl(InterfaceMethodDecl method, RewriteState state)
+        {
+            List<FunctionParameterSpec> parameterSpecs = RewriteParameterSpecs(method.ParameterSpecs, state);
+            BlockStmt? body = null;
+
+            if (method.Body is not null)
+            {
+                PushFunctionScope(state, method.Parameters);
+                try
+                {
+                    body = RewriteBlock(method.Body, state);
+                }
+                finally
+                {
+                    state.LocalScopes.Pop();
+                }
+            }
+
+            return new InterfaceMethodDecl(
+                method.Name,
+                method.Parameters,
+                method.MinArgs,
+                method.RestParameter,
+                method.Line,
+                method.Col,
+                method.OriginFile,
+                method.IsAsync,
+                method.IsStatic,
+                body,
+                parameterSpecs);
         }
 
         private Dictionary<string, Expr?> RewriteFieldMap(Dictionary<string, Expr?> source, RewriteState state)
