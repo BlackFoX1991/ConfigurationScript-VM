@@ -232,20 +232,46 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private int RequireIntIndex(object idxObj, Instruction instr)
         {
-            if (idxObj is int i) return i;
-            if (idxObj is long l)
+            switch (idxObj)
             {
-                if (l < int.MinValue || l > int.MaxValue)
-                    throw new VMException($"Runtime error: index {l} outside Int32 range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                return (int)l;
-            }
-            if (idxObj is short s) return (int)s;
-            if (idxObj is byte b) return (int)b;
+                case int i: return i;
+                case sbyte sb: return sb;
+                case byte b: return b;
+                case short s: return s;
+                case ushort us: return us;
 
-            if (idxObj is string sVal && int.TryParse(sVal, out int parsed))
-                return parsed;
+                case long l:
+                    if (l < int.MinValue || l > int.MaxValue) break;
+                    return (int)l;
+                case uint ui:
+                    if (ui > int.MaxValue) break;
+                    return (int)ui;
+                case ulong ul:
+                    if (ul > int.MaxValue) break;
+                    return (int)ul;
+                case System.Numerics.BigInteger bi:
+                    if (bi < int.MinValue || bi > int.MaxValue) break;
+                    return (int)bi;
+
+                case string sVal when int.TryParse(sVal, out int parsed):
+                    return parsed;
+            }
+
+            if (idxObj is long or uint or ulong or System.Numerics.BigInteger)
+                throw new VMException($"Runtime error: index {idxObj} outside Int32 range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             throw new VMException($"Runtime error: index must be an integer, got '{idxObj?.GetType().Name ?? "null"}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+        }
+
+        /// <summary>
+        /// Resolves a single-element index against a collection length, applying negative indexing
+        /// (-1 refers to the last element) for parity with slice bounds. The returned index may still
+        /// be out of range and must be bounds-checked by the caller.
+        /// </summary>
+        private int ResolveElementIndex(object idxObj, int count, Instruction instr)
+        {
+            int index = RequireIntIndex(idxObj, instr);
+            return index < 0 ? index + count : index;
         }
 
         /// <summary>
@@ -922,8 +948,8 @@ namespace CFGS_VM.VMCore
 
             if (target is List<object> arr)
             {
-                int index = RequireIntIndex(idxObj, instr);
                 int count = GetListCount(arr);
+                int index = ResolveElementIndex(idxObj, count, instr);
                 if (index >= 0 && index < count)
                 {
                     RemoveListAt(arr, index);
@@ -1050,8 +1076,8 @@ namespace CFGS_VM.VMCore
 
             if (target is List<object> arr)
             {
-                int index = RequireIntIndex(idxObj, instr);
                 int count = GetListCount(arr);
+                int index = ResolveElementIndex(idxObj, count, instr);
                 if (index < 0 || index >= count)
                 {
                     throw new VMException(

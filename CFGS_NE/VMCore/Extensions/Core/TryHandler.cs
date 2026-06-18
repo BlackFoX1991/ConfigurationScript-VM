@@ -31,6 +31,12 @@
         public int ScopeDepthAtTry;
 
         /// <summary>
+        /// Operand-stack depth captured when the guarded region was entered. Used to discard any
+        /// partially-evaluated operands when an exception unwinds into the catch/finally region.
+        /// </summary>
+        public int StackDepthAtTry;
+
+        /// <summary>
         /// Defines the InFinally
         /// </summary>
         public bool InFinally;
@@ -67,12 +73,13 @@
         /// <param name="finallyAddr">The finallyAddr<see cref="int"/></param>
         /// <param name="scopeDepthAtTry">The scopeDepthAtTry<see cref="int"/></param>
         /// <param name="callDepth">The callDepth<see cref="int"/></param>
-        public TryHandler(int catchAddr, int finallyAddr, int scopeDepthAtTry, int callDepth)
+        public TryHandler(int catchAddr, int finallyAddr, int scopeDepthAtTry, int callDepth, int stackDepthAtTry = 0)
         {
             CatchAddr = catchAddr;
             FinallyAddr = finallyAddr;
             ScopeDepthAtTry = scopeDepthAtTry;
             CallDepth = callDepth;
+            StackDepthAtTry = stackDepthAtTry;
             Exception = null;
 
             InFinally = false;

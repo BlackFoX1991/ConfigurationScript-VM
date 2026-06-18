@@ -30,9 +30,13 @@ namespace CFGS_VM.VMCore
 
         private static NumKind PromoteKind(object a, object b)
         {
-            if (a is BigInteger || b is BigInteger) return NumKind.Maximal;
+            // Floating point and decimal must dominate BigInteger: a fractional value cannot be
+            // coerced into a BigInteger, so when they are mixed we widen the integer side into the
+            // floating/decimal domain instead. (For combos without BigInteger the relative order of
+            // decimal vs. double is unchanged.)
             if (a is decimal || b is decimal) return NumKind.Decimal;
             if (a is double || b is double || a is float || b is float) return NumKind.Double;
+            if (a is BigInteger || b is BigInteger) return NumKind.Maximal;
 
             bool aUWide = a is ulong || a is nuint;
             bool bUWide = b is ulong || b is nuint;
@@ -103,6 +107,7 @@ namespace CFGS_VM.VMCore
         private static double ToDoubleInvariant(object x) => x switch
         {
             string s => double.Parse(s, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture),
+            BigInteger bi => (double)bi,
             IConvertible _ => Convert.ToDouble(x, CultureInfo.InvariantCulture),
             _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
         };
@@ -110,6 +115,7 @@ namespace CFGS_VM.VMCore
         private static decimal ToDecimalInvariant(object x) => x switch
         {
             string s => decimal.Parse(s, NumberStyles.Number, CultureInfo.InvariantCulture),
+            BigInteger bi => (decimal)bi,
             IConvertible _ => Convert.ToDecimal(x, CultureInfo.InvariantCulture),
             _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
         };
@@ -179,6 +185,42 @@ namespace CFGS_VM.VMCore
             if (b > int.MaxValue)
                 throw new VMException("EXPO exponent too large for BigInteger.Pow", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             return BigInteger.Pow(a, (int)b);
+        }
+
+        /// <summary>
+        /// Narrows a <see cref="BigInteger"/> to the smallest of int/long/BigInteger that can hold it.
+        /// </summary>
+        private static object NarrowInteger(BigInteger bi)
+        {
+            if (bi >= int.MinValue && bi <= int.MaxValue) return (int)bi;
+            if (bi >= long.MinValue && bi <= long.MaxValue) return (long)bi;
+            return bi;
+        }
+
+        /// <summary>
+        /// Integer exponentiation that preserves full precision (promotes to BigInteger on overflow).
+        /// A negative exponent yields a fractional result and falls back to floating point.
+        /// </summary>
+        private object IntegerExpo(BigInteger baseVal, BigInteger exp, Instruction instr)
+        {
+            if (exp.Sign < 0)
+                return Math.Pow((double)baseVal, (double)exp);
+            if (exp > int.MaxValue)
+                throw new VMException("EXPO exponent too large", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            return NarrowInteger(BigInteger.Pow(baseVal, (int)exp));
+        }
+
+        /// <summary>
+        /// Decimal exponentiation via double, with an explicit range check so an out-of-range
+        /// result raises a clean VM error instead of a native OverflowException on the cast.
+        /// </summary>
+        private object DecimalPow(decimal a, decimal b, Instruction instr)
+        {
+            double result = Math.Pow((double)a, (double)b);
+            if (double.IsNaN(result) || double.IsInfinity(result) ||
+                result > (double)decimal.MaxValue || result < (double)decimal.MinValue)
+                throw new VMException("EXPO result is outside the representable decimal range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            return (decimal)result;
         }
 
         private int ToInt32ForRepeat(object n)
@@ -306,18 +348,6 @@ namespace CFGS_VM.VMCore
 
             if (l is null || r is null)
             {
-                if (l is string && IsNumber(r!))
-                {
-                    _stack.Push(string.Concat(Enumerable.Repeat(l as string ?? "", checked((int)ToInt32ForRepeat(r!)))));
-                    return StepResult.Next;
-                }
-
-                if (r is string && IsNumber(l!))
-                {
-                    _stack.Push(string.Concat(Enumerable.Repeat(r as string ?? "", checked((int)ToInt32ForRepeat(l!)))));
-                    return StepResult.Next;
-                }
-
                 _stack.Push(null!);
                 return StepResult.Next;
             }
@@ -370,10 +400,10 @@ namespace CFGS_VM.VMCore
             (object A, object B, NumKind K) = CoercePair(l, r);
             bool isZero = K switch
             {
-                NumKind.Int32 => Convert.ToInt32(r) == 0,
-                NumKind.Int64 => Convert.ToInt64(r) == 0L,
-                NumKind.UInt64 => Convert.ToUInt64(r) == 0UL,
-                NumKind.Decimal => Convert.ToDecimal(r) == 0m,
+                NumKind.Int32 => (int)B == 0,
+                NumKind.Int64 => (long)B == 0L,
+                NumKind.UInt64 => (ulong)B == 0UL,
+                NumKind.Decimal => (decimal)B == 0m,
                 NumKind.Double => (double)B == 0.0,
                 NumKind.Maximal => ((BigInteger)B).IsZero,
                 _ => false
@@ -412,10 +442,10 @@ namespace CFGS_VM.VMCore
             (object A, object B, NumKind K) = CoercePair(l, r);
             bool isZero = K switch
             {
-                NumKind.Int32 => Convert.ToInt32(r) == 0,
-                NumKind.Int64 => Convert.ToInt64(r) == 0L,
-                NumKind.UInt64 => Convert.ToUInt64(r) == 0UL,
-                NumKind.Decimal => Convert.ToDecimal(r) == 0m,
+                NumKind.Int32 => (int)B == 0,
+                NumKind.Int64 => (long)B == 0L,
+                NumKind.UInt64 => (ulong)B == 0UL,
+                NumKind.Decimal => (decimal)B == 0m,
                 NumKind.Double => (double)B == 0.0,
                 NumKind.Maximal => ((BigInteger)B).IsZero,
                 _ => false
@@ -453,12 +483,12 @@ namespace CFGS_VM.VMCore
             (object A, object B, NumKind K) = CoercePair(l, r);
             object res = K switch
             {
-                NumKind.Decimal => (object)((decimal)Math.Pow((double)(decimal)A, (double)(decimal)B)),
+                NumKind.Decimal => DecimalPow((decimal)A, (decimal)B, instr),
                 NumKind.Double => Math.Pow((double)A, (double)B),
-                NumKind.UInt64 => (ulong)Math.Pow((double)(ulong)A, (double)(ulong)B),
-                NumKind.Int64 => (long)Math.Pow((double)(long)A, (double)(long)B),
+                NumKind.UInt64 => IntegerExpo((ulong)A, (ulong)B, instr),
+                NumKind.Int64 => IntegerExpo((long)A, (long)B, instr),
                 NumKind.Maximal => PowBigIntegerOrThrow((BigInteger)A, (BigInteger)B, instr),
-                _ => (int)Math.Pow((double)(int)A, (double)(int)B),
+                _ => IntegerExpo((int)A, (int)B, instr),
             };
             _stack.Push(res);
             return StepResult.Next;
@@ -522,9 +552,11 @@ namespace CFGS_VM.VMCore
             l = l is char ? CharToNumeric(l) : l;
             if (!(IsIntegralLike(l) && IsNumber(r)))
                 throw new VMException("SHL requires (integral) << int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            int sh = Convert.ToInt32(r) & 0x3F;
-            if (l is BigInteger) _stack.Push(((BigInteger)l) << sh);
-            else if (l is long or ulong) _stack.Push(Convert.ToInt64(l) << sh);
+            int sh = r is BigInteger rbi ? (int)rbi : Convert.ToInt32(r);
+            if (sh < 0)
+                throw new VMException("SHL requires a non-negative shift count", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            if (l is BigInteger lb) _stack.Push(lb << sh);
+            else if (l is long or ulong) _stack.Push(Convert.ToInt64(l) << (sh & 0x3F));
             else _stack.Push(Convert.ToInt32(l) << (sh & 0x1F));
             return StepResult.Next;
         }
@@ -539,11 +571,41 @@ namespace CFGS_VM.VMCore
             l = l is char ? CharToNumeric(l) : l;
             if (!(IsIntegralLike(l) && IsNumber(r)))
                 throw new VMException("SHR requires (integral) >> int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            int sh = Convert.ToInt32(r) & 0x3F;
-            if (l is BigInteger) _stack.Push(((BigInteger)l) >> sh);
-            else if (l is long or ulong) _stack.Push(Convert.ToInt64(l) >> sh);
+            int sh = r is BigInteger rbi ? (int)rbi : Convert.ToInt32(r);
+            if (sh < 0)
+                throw new VMException("SHR requires a non-negative shift count", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            if (l is BigInteger lb) _stack.Push(lb >> sh);
+            else if (l is long or ulong) _stack.Push(Convert.ToInt64(l) >> (sh & 0x3F));
             else _stack.Push(Convert.ToInt32(l) >> (sh & 0x1F));
             return StepResult.Next;
+        }
+
+        /// <summary>
+        /// Numeric-aware equality. Numbers are compared through the same promotion path as the
+        /// relational operators (so large BigIntegerValues, large doubles and NaN are handled
+        /// without overflowing into a decimal). Strings use ordinal comparison; everything else
+        /// falls back to <see cref="object.Equals(object, object)"/>.
+        /// </summary>
+        private static bool NumericOrValueEquals(object l, object r)
+        {
+            if (IsNumber(l) && IsNumber(r))
+            {
+                (object A, object B, NumKind K) = CoercePair(l, r);
+                return K switch
+                {
+                    NumKind.Decimal => (decimal)A == (decimal)B,
+                    NumKind.Double => (double)A == (double)B,
+                    NumKind.UInt64 => (ulong)A == (ulong)B,
+                    NumKind.Int64 => (long)A == (long)B,
+                    NumKind.Maximal => (BigInteger)A == (BigInteger)B,
+                    _ => (int)A == (int)B,
+                };
+            }
+
+            if (l is string ls && r is string rs)
+                return string.Equals(ls, rs, StringComparison.Ordinal);
+
+            return Equals(l, r);
         }
 
         private StepResult HandleEqualInstruction(Instruction instr)
@@ -551,12 +613,7 @@ namespace CFGS_VM.VMCore
             RequireStack(2, instr, "EQ");
             object r = _stack.Pop();
             object l = _stack.Pop();
-            bool res = IsNumber(l) && IsNumber(r)
-                ? CompareAsDecimal(l) == CompareAsDecimal(r)
-                : l is string ls && r is string rs
-                    ? string.Equals(ls, rs, StringComparison.Ordinal)
-                    : Equals(l, r);
-            _stack.Push(res);
+            _stack.Push(NumericOrValueEquals(l, r));
             return StepResult.Next;
         }
 
@@ -565,12 +622,7 @@ namespace CFGS_VM.VMCore
             RequireStack(2, instr, "NEQ");
             object r = _stack.Pop();
             object l = _stack.Pop();
-            bool res = IsNumber(l) && IsNumber(r)
-                ? CompareAsDecimal(l) != CompareAsDecimal(r)
-                : l is string ls && r is string rs
-                    ? !string.Equals(ls, rs, StringComparison.Ordinal)
-                    : !Equals(l, r);
-            _stack.Push(res);
+            _stack.Push(!NumericOrValueEquals(l, r));
             return StepResult.Next;
         }
 
@@ -717,8 +769,12 @@ namespace CFGS_VM.VMCore
                 v is decimal md ? (object)(-md) :
                 v is double dd ? (object)(-dd) :
                 v is float ff ? (object)(-ff) :
-                v is long ll ? (object)(-ll) :
-                v is ulong uu ? (object)unchecked((long)-(long)uu) :
+                v is BigInteger bg ? NarrowInteger(-bg) :
+                v is long ll ? (ll == long.MinValue ? (object)(-(BigInteger)ll) : (object)(-ll)) :
+                v is ulong uu ? NarrowInteger(-(BigInteger)uu) :
+                v is uint ui ? (object)(-(long)ui) :
+                v is int ii ? (ii == int.MinValue ? (object)(-(long)ii) : (object)(-ii)) :
+                v is char ch ? (object)(-(int)ch) :
                 (object)(-Convert.ToInt32(v));
 
             _stack.Push(res);

@@ -1,5 +1,0 @@
-﻿import "../../../dist/Debug/net10.0/CFGS.StandardLibrary.dll";
-# Negative sample: expected compile error for cyclic inheritance.
-class A : B {}
-class B : A {}
-

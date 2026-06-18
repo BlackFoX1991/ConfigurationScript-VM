@@ -149,7 +149,12 @@ The null coalescing operator MUST evaluate and return the right operand only whe
 
 Arithmetic operators operate on numeric values unless a documented overload-like behavior exists, such as string concatenation.
 
-Comparison operators return boolean values.
+Comparison operators return boolean values. Comparison operators MUST NOT be chained: an
+expression such as `a < b < c` is a parse error. Use parentheses to express a deliberate
+comparison of a comparison result, e.g. `(a < b) < c`.
+
+The null coalescing operator `??` binds more tightly than the ternary conditional `?:`.
+Therefore `x ?? y ? a : b` parses as `(x ?? y) ? a : b`.
 
 Logical operators use CFGS truthiness rules.
 

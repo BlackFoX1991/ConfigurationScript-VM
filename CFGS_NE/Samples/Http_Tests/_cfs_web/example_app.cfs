@@ -1,7 +1,0 @@
-import { build_admin_panel_sample_app } from "admin_panel_sample_app.cfs";
-
-# Compatibility entry point for the full web framework example referenced by
-# the documentation. The admin panel sample is the current comprehensive app.
-export func build_example_app(port = 8094) {
-    return build_admin_panel_sample_app(port);
-}

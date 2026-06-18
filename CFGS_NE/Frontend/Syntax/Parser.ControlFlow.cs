@@ -168,10 +168,11 @@ namespace CFGS_VM.Analytic.Core
         private Stmt ParseThrow()
         {
             int line = _current.Line, col = _current.Column;
+            string file = _current.Filename;
             Eat(TokenType.Throw);
             Expr ex = Expr();
             Eat(TokenType.Semi);
-            return new ThrowStmt(ex, line, col, _current.Filename);
+            return new ThrowStmt(ex, line, col, file);
         }
 
         /// <summary>
@@ -233,9 +234,11 @@ namespace CFGS_VM.Analytic.Core
             {
                 if (!IsInLoop)
                     throw new ParserException("break can only be used in loops", _current.Line, _current.Column, _current.Filename);
+                int line = _current.Line, col = _current.Column;
+                string file = _current.Filename;
                 Eat(TokenType.Break);
                 Eat(TokenType.Semi);
-                return new BreakStmt(_current.Line, _current.Column, _current.Filename);
+                return new BreakStmt(line, col, file);
             }
         }
 
@@ -248,9 +251,11 @@ namespace CFGS_VM.Analytic.Core
             {
                 if (!IsInLoop)
                     throw new ParserException("continue can only be used in loops", _current.Line, _current.Column, _current.Filename);
+                int line = _current.Line, col = _current.Column;
+                string file = _current.Filename;
                 Eat(TokenType.Continue);
                 Eat(TokenType.Semi);
-                return new ContinueStmt(_current.Line, _current.Column, _current.Filename);
+                return new ContinueStmt(line, col, file);
             }
         }
 

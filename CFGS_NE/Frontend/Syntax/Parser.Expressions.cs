@@ -15,7 +15,7 @@ namespace CFGS_VM.Analytic.Core
         {
             if (EnterExpressionRecursion() > MaxRecursionDepth)
                 throw new ParserException($"Maximum nesting depth ({MaxRecursionDepth}) exceeded", _current.Line, _current.Column, _lexer.FileName);
-            try { return Coalesce(); }
+            try { return Conditional(); }
             finally { ExitExpressionRecursion(); }
         }
 
@@ -25,14 +25,14 @@ namespace CFGS_VM.Analytic.Core
         /// <returns>The <see cref="Expr"/></returns>
         private Expr Coalesce()
         {
-            Expr node = Conditional();
+            Expr node = Or();
             while (_current.Type == TokenType.QQNull)
             {
                 int line = _current.Line;
                 int col = _current.Column;
                 string file = _current.Filename;
                 Eat(TokenType.QQNull);
-                Expr rhs = Conditional();
+                Expr rhs = Or();
                 node = new BinaryExpr(node, TokenType.QQNull, rhs, line, col, file);
             }
             return node;
@@ -44,7 +44,7 @@ namespace CFGS_VM.Analytic.Core
         /// <returns>The <see cref="Expr"/></returns>
         private Expr Conditional()
         {
-            Expr condition = Or();
+            Expr condition = Coalesce();
 
             if (_current.Type == TokenType.Question)
             {
@@ -109,10 +109,7 @@ namespace CFGS_VM.Analytic.Core
         private Expr Comparison()
         {
             Expr node = BitwiseOr();
-            while (_current.Type == TokenType.Eq || _current.Type == TokenType.Neq ||
-                   _current.Type == TokenType.Lt || _current.Type == TokenType.Gt ||
-                   _current.Type == TokenType.Le || _current.Type == TokenType.Ge ||
-                   _current.Type == TokenType.Is)
+            if (IsComparisonOperator(_current.Type))
             {
                 TokenType op = _current.Type;
                 int line = _current.Line;
@@ -120,9 +117,21 @@ namespace CFGS_VM.Analytic.Core
                 string file = _current.Filename;
                 Eat(op);
                 node = new BinaryExpr(node, op, BitwiseOr(), line, col, file);
+
+                if (IsComparisonOperator(_current.Type))
+                    throw new ParserException(
+                        "comparison operators cannot be chained; add parentheses to disambiguate (e.g. '(a < b) < c')",
+                        _current.Line, _current.Column, _current.Filename);
             }
             return node;
         }
+
+        /// <summary>
+        /// Gets a value indicating whether the token is a (non-chainable) comparison operator.
+        /// </summary>
+        private static bool IsComparisonOperator(TokenType type)
+            => type is TokenType.Eq or TokenType.Neq or TokenType.Lt or TokenType.Gt
+                    or TokenType.Le or TokenType.Ge or TokenType.Is;
 
         /// <summary>
         /// The BitwiseOr

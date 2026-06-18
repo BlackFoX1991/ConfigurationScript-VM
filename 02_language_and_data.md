@@ -160,6 +160,17 @@ arr[1] = 20;
 print(arr[1]);
 ```
 
+Negative indices count from the end, consistent with slice bounds: `arr[-1]` is the last
+element, `arr[-2]` the second to last. This applies to reading, writing, and `delete` on arrays,
+and to reading characters from strings. An index whose resolved position is still outside the
+collection raises a runtime error.
+
+```cfs
+print(arr[-1]);   # last element
+arr[-1] = 99;     # assign to the last element
+print(text[-1]);  # last character of a string
+```
+
 ### Push Syntax
 
 The language has a dedicated append shorthand.

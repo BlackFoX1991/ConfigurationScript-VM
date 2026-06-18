@@ -13,6 +13,25 @@ namespace CFGS_VM.VMCore
     public partial class VM
     {
         /// <summary>
+        /// Upper bound on nested call frames. CFGS function calls are iterative (the call stack
+        /// lives on the heap), so runaway recursion would otherwise grow until OutOfMemory; this
+        /// guard turns it into a clean runtime error well before that. Set high enough that
+        /// legitimate deep recursion is unaffected.
+        /// </summary>
+        private const int MaxCallDepth = 100_000;
+
+        /// <summary>
+        /// Throws a runtime error when the call stack has reached <see cref="MaxCallDepth"/>.
+        /// </summary>
+        private void EnsureCallDepthWithinLimit(Instruction instr)
+        {
+            if (_callStack.Count >= MaxCallDepth)
+                throw new VMException(
+                    $"Runtime error: maximum call depth ({MaxCallDepth}) exceeded (possible infinite recursion)",
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+        }
+
+        /// <summary>
         /// Invokes a named top-level CFGS function after the module body has finished loading.
         /// </summary>
         public async Task<object?> InvokeGlobalFunctionAsync(string name, List<object>? args = null, string? originFile = null, CancellationToken ct = default)
@@ -59,6 +78,7 @@ namespace CFGS_VM.VMCore
             if (_program is null || _program.Count == 0)
                 throw new VMException("Cannot invoke closure: no program loaded.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+            EnsureCallDepthWithinLimit(instr);
             Env callEnv = BuildCallEnv(closure, args, instr);
             int callerDepth = _scopes.Count;
             _scopes.Add(callEnv);
@@ -618,6 +638,7 @@ namespace CFGS_VM.VMCore
                     return StepResult.Continue;
                 }
 
+                EnsureCallDepthWithinLimit(instr);
                 Env callEnv = BuildCallEnv(f, argsList, instr);
 
                 int callerDepth = _scopes.Count;

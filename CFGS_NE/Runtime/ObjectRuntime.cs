@@ -1141,8 +1141,8 @@ namespace CFGS_VM.VMCore
                         if (idxObj is string mname && TryBindIntrinsic(arr, mname, out IntrinsicBound? bound, instr))
                             return bound;
 
-                        int index = RequireIntIndex(idxObj, instr);
                         int count = GetListCount(arr);
+                        int index = ResolveElementIndex(idxObj, count, instr);
                         if (index < 0 || index >= count)
                             throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         return GetListValue(arr, index);
@@ -1170,7 +1170,7 @@ namespace CFGS_VM.VMCore
                         if (idxObj is string mname && TryBindIntrinsic(strv, mname, out IntrinsicBound? bound, instr))
                             return bound;
 
-                        int index = RequireIntIndex(idxObj, instr);
+                        int index = ResolveElementIndex(idxObj, strv.Length, instr);
                         if (index < 0 || index >= strv.Length)
                             throw new VMException($"Runtime error: index {index} out of range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         return (char)strv[index];
@@ -1379,8 +1379,8 @@ namespace CFGS_VM.VMCore
                         if (IsReservedIntrinsicName(arr, idxObj))
                             throw new VMException($"Runtime error: cannot assign to array intrinsic '{idxObj}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                        int index = RequireIntIndex(idxObj, instr);
                         int count = GetListCount(arr);
+                        int index = ResolveElementIndex(idxObj, count, instr);
                         if (index < 0 || index >= count)
                             throw new VMException($"Runtime error: index {index} out of range (0..{count - 1})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         SetListValue(arr, index, value);

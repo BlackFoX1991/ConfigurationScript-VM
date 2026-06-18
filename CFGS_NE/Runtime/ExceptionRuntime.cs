@@ -14,7 +14,7 @@ namespace CFGS_VM.VMCore
             int catchIp = (int)arr[0];
             int finallyIp = (int)arr[1];
 
-            TryHandler th = new(catchIp, finallyIp, _scopes.Count, _callStack.Count);
+            TryHandler th = new(catchIp, finallyIp, _scopes.Count, _callStack.Count, _stack.Count);
             _tryHandlers.Push(th);
             return StepResult.Next;
         }
@@ -161,6 +161,17 @@ namespace CFGS_VM.VMCore
             throw new ScriptExceptionSignal(exPayload, instr);
         }
 
+        /// <summary>
+        /// Discards any operands pushed since the guarded region was entered, restoring the operand
+        /// stack to its try-entry depth. Prevents partially-evaluated expressions from leaking onto
+        /// the stack when an exception unwinds into a catch/finally handler.
+        /// </summary>
+        private void TruncateOperandStackTo(int depth)
+        {
+            while (_stack.Count > depth)
+                _stack.Pop();
+        }
+
         private bool RouteExceptionToTryHandlers(object exPayload, Instruction instr, out int newIp)
         {
             while (_tryHandlers.Count > 0)
@@ -179,6 +190,7 @@ namespace CFGS_VM.VMCore
                 }
 
                 PopScopesToBase(h.ScopeDepthAtTry);
+                TruncateOperandStackTo(h.StackDepthAtTry);
                 if (h.CatchAddr >= 0)
                 {
                     _stack.Push(exPayload);
