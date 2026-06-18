@@ -1,0 +1,546 @@
+import "core.cfs";
+import "vfs.cfs";
+import "security.cfs";
+import "storage.cfs";
+
+use Vault.Core;
+use Vault.Security;
+use Vault.Storage;
+use Vault.Vfs;
+
+namespace Vault.Services {
+    class VaultContext(vault_path, metadata, index, actor_key, actor_id, vault_password) {
+        public property vault_path { get; private set; } = "";
+        public property metadata { get; private set; } = null;
+        public property index { get; private set; } = null;
+        public property actor_key { get; private set; } = null;
+        public property actor_id { get; private set; } = "";
+        public property vault_password { get; private set; } = "";
+
+        func init(vault_path, metadata, index, actor_key, actor_id, vault_password) {
+            this.vault_path = vault_path;
+            this.metadata = metadata;
+            this.index = index;
+            this.actor_key = actor_key;
+            this.actor_id = actor_id;
+            this.vault_password = vault_password;
+        }
+    }
+
+    class VaultService() : IVaultService {
+        public property repo { get; private set; } = null;
+
+        func init() {
+            this.repo = new VaultRepository();
+        }
+
+        async func init_vault(cli) {
+            var vault_path = cli.need("path");
+            var pass = cli.need("pass");
+            FileSystem.ensure_dir(vault_path);
+            FileSystem.ensure_dir(this.repo.objects_path(vault_path));
+            FileSystem.ensure_dir(this.repo.keys_path(vault_path));
+
+            var key_path = cli.get("key", this.repo.default_key_path(vault_path));
+            var key_pass = cli.get("key-pass", pass);
+            var public_pem = KeyManager.create_key_container(key_path, key_pass, 2048);
+            var owner_id = KeyManager.user_id(public_pem);
+            var metadata = {
+                "format": "Cfgs.TheVault",
+                "version": 1,
+                "vaultId": crypto.uuid(),
+                "createdUtc": UtcNow("O"),
+                "ownerId": owner_id,
+                "ownerPublicPem": public_pem,
+                "indexFile": "index.vault.json",
+                "kdf": KdfService.create()
+            };
+            var nodes = {};
+            nodes["/"] = VfsNodeFactory.root(owner_id);
+            nodes["/root"] = VfsNodeFactory.directory("/root", owner_id);
+            var users = {};
+            users[owner_id] = {
+                "id": owner_id,
+                "name": "owner",
+                "publicPem": public_pem
+            };
+            var index = {
+                "format": "Cfgs.TheVault.Index",
+                "version": 1,
+                "nodes": nodes,
+                "users": users,
+                "journal": []
+            };
+
+            this.repo.save_metadata(vault_path, metadata);
+            this.repo.save_index(vault_path, metadata, index, pass);
+            print("Vault created: " + vault_path);
+            print("Owner key: " + key_path);
+            return true;
+        }
+
+        async func info(cli) {
+            var vault_path = cli.need("path");
+            var metadata = this.repo.load_metadata(vault_path);
+            print("Format: " + metadata["format"]);
+            print("Version: " + str(metadata["version"]));
+            print("VaultId: " + metadata["vaultId"]);
+            print("CreatedUtc: " + metadata["createdUtc"]);
+            print("OwnerId: " + metadata["ownerId"]);
+            print("IndexFile: " + metadata["indexFile"]);
+            print("KDF: " + metadata["kdf"]["algorithm"] + ", iterations=" + str(metadata["kdf"]["iterations"]));
+            if (!Text.is_blank(cli.get("pass", null))) {
+                var index = this.repo.load_index(vault_path, metadata, cli.get("pass", ""));
+                print("Nodes: " + str(len(index["nodes"])));
+                print("Users: " + str(len(index["users"])));
+                print("Journal entries: " + str(len(index["journal"])));
+            }
+            return true;
+        }
+
+        async func list(cli) {
+            var ctx = this.load_context(cli);
+            var path = VfsPath.normalize(cli.get("vpath", "/"));
+            this.ensure_directory(ctx, path);
+            this.ensure_right(ctx, path, "list");
+            foreach (var node_path, node in ctx.index["nodes"]) {
+                if (node["path"] != "/" && node["parent"] == path) {
+                    if (node["type"] == "dir") {
+                        print("<DIR>      " + node["name"]);
+                    } else {
+                        print(str(node["size"]).padStart(10, " ") + "  " + node["name"]);
+                    }
+                }
+            }
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func tree(cli) {
+            var ctx = this.load_context(cli);
+            var path = VfsPath.normalize(cli.get("vpath", "/"));
+            this.ensure_directory(ctx, path);
+            this.ensure_right(ctx, path, "list");
+            this.print_tree(ctx, path, "");
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func mkdir(cli) {
+            var ctx = this.load_context(cli);
+            var path = VfsPath.normalize(cli.need("vpath"));
+            this.create_directory(ctx, path);
+            this.add_journal(ctx, "mkdir", path, {"type": "mkdir", "path": path});
+            this.save(ctx);
+            print("Created directory: " + path);
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func import_path(cli) {
+            var ctx = this.load_context(cli);
+            var src = cli.need("src");
+            var requested = VfsPath.normalize(cli.need("vpath"));
+            if (FileSystem.is_dir(src)) {
+                var dest = this.resolve_import_destination(ctx, requested, src);
+                this.import_directory(ctx, src, dest);
+                this.add_journal(ctx, "import", dest, {"type": "import-dir", "source": src, "path": dest});
+                this.save(ctx);
+                print("Imported directory: " + src + " -> " + dest);
+            } else if (FileSystem.is_file(src)) {
+                var file_dest = this.resolve_import_destination(ctx, requested, src);
+                this.import_file(ctx, src, file_dest);
+                this.add_journal(ctx, "import", file_dest, {"type": "import-file", "source": src, "path": file_dest});
+                this.save(ctx);
+                print("Imported file: " + src + " -> " + file_dest);
+            } else {
+                throw "Source not found: " + src;
+            }
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func write_file(cli) {
+            var ctx = this.load_context(cli);
+            var path = VfsPath.normalize(cli.need("vpath"));
+            var bytes = null;
+            if (!Text.is_blank(cli.get("src", null))) {
+                bytes = fs.readAllBytes(cli.get("src", ""));
+            } else {
+                bytes = encoding.encode(cli.get("text", ""));
+            }
+            this.write_virtual_bytes(ctx, path, bytes);
+            this.add_journal(ctx, "write", path, {"type": "write", "path": path, "size": len(bytes)});
+            this.save(ctx);
+            print("Written: " + path);
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func cat(cli) {
+            var ctx = this.load_context(cli);
+            var bytes = this.read_virtual_bytes(ctx, VfsPath.normalize(cli.need("vpath")));
+            print(encoding.decode(bytes));
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func export_file(cli) {
+            var ctx = this.load_context(cli);
+            var bytes = this.read_virtual_bytes(ctx, VfsPath.normalize(cli.need("vpath")));
+            var out_path = cli.need("out");
+            var dir = getDirectory(out_path);
+            if (!Text.is_blank(dir)) { FileSystem.ensure_dir(dir); }
+            fs.writeAllBytes(out_path, bytes);
+            print("Exported: " + out_path);
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func copy(cli) {
+            var ctx = this.load_context(cli);
+            var source = VfsPath.normalize(cli.need("from"));
+            var dest = VfsPath.normalize(cli.need("to"));
+            this.copy_node(ctx, source, dest);
+            this.add_journal(ctx, "copy", dest, {"type": "copy", "from": source, "to": dest});
+            this.save(ctx);
+            print("Copied: " + source + " -> " + dest);
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func move(cli) {
+            var ctx = this.load_context(cli);
+            var source = VfsPath.normalize(cli.need("from"));
+            var dest = VfsPath.normalize(cli.need("to"));
+            this.copy_node(ctx, source, dest);
+            this.delete_node(ctx, source, false);
+            this.add_journal(ctx, "move", dest, {"type": "move", "from": source, "to": dest});
+            this.save(ctx);
+            print("Moved: " + source + " -> " + dest);
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func delete_path(cli) {
+            var ctx = this.load_context(cli);
+            var path = VfsPath.normalize(cli.need("vpath"));
+            this.delete_node(ctx, path, true);
+            this.add_journal(ctx, "delete", path, {"type": "delete", "path": path});
+            this.save(ctx);
+            print("Deleted: " + path);
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func grant(cli) {
+            var ctx = this.load_context(cli);
+            var path = VfsPath.normalize(cli.need("vpath"));
+            var public_path = cli.need("user-public");
+            var public_pem = FileSystem.read_text(public_path);
+            var user_id = KeyManager.user_id(public_pem);
+            var user_name = cli.get("user", public_path.replace("\\", "/").split("/").pop());
+            var rights = Rights.normalize(cli.get("rights", "read"));
+            var node = this.get_node(ctx, path);
+            ctx.index["users"][user_id] = {
+                "id": user_id,
+                "name": user_name,
+                "publicPem": public_pem
+            };
+
+            if (node["type"] == "dir") {
+                this.ensure_right(ctx, path, "admin");
+                node["acl"][user_id] = rights;
+            } else {
+                this.ensure_right(ctx, path, "admin");
+                var file_key = this.file_key_for_actor(ctx, node);
+                node["keySlots"][user_id] = {
+                    "wrappedKey": KeyManager.wrap_file_key(public_pem, file_key),
+                    "rights": rights
+                };
+            }
+            this.add_journal(ctx, "grant", path, {"type": "grant", "path": path, "userId": user_id, "rights": rights});
+            this.save(ctx);
+            print("Granted " + Text.join(rights, ",") + " on " + path + " to " + user_name);
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func users(cli) {
+            var ctx = this.load_context(cli);
+            foreach (var id, user in ctx.index["users"]) {
+                print(user["name"] + "  " + id);
+            }
+            ctx.actor_key.close();
+            return true;
+        }
+
+        async func keygen(cli) {
+            var key_path = cli.need("key");
+            var pass = cli.need("pass");
+            KeyManager.create_key_container(key_path, pass, 2048);
+            print("Key created: " + key_path);
+            print("Public key: " + KeyManager.public_key_path(key_path));
+            return true;
+        }
+
+        async func protect_key(cli) {
+            var src = cli.need("src");
+            var key_path = cli.need("key");
+            var pass = cli.need("pass");
+            KeyManager.save_private_key(key_path, FileSystem.read_text(src), pass);
+            print("Protected key: " + key_path);
+            return true;
+        }
+
+        async func public_key(cli) {
+            var key_path = cli.need("key");
+            var key_pass = cli.need("pass");
+            var out_path = cli.need("out");
+            var rsa = KeyManager.load_private_key(key_path, key_pass);
+            FileSystem.write_text(out_path, rsa.public_pem());
+            rsa.close();
+            print("Public key written: " + out_path);
+            return true;
+        }
+
+        func session(cli) {
+            var ctx = this.load_context(cli);
+            var actor = ctx.index["users"][ctx.actor_id];
+            var result = {
+                "vaultPath": ctx.vault_path,
+                "actorId": ctx.actor_id,
+                "actorName": actor == null ? ctx.actor_id : actor["name"],
+                "ownerId": ctx.metadata["ownerId"]
+            };
+            ctx.actor_key.close();
+            return result;
+        }
+
+        func load_context(cli) {
+            var vault_path = cli.need("path");
+            var pass = cli.need("pass");
+            var metadata = this.repo.load_metadata(vault_path);
+            var index = this.repo.load_index(vault_path, metadata, pass);
+            var key_path = cli.get("key", this.repo.default_key_path(vault_path));
+            var key_pass = cli.get("key-pass", pass);
+            var actor_key = KeyManager.load_private_key(key_path, key_pass);
+            var public_pem = actor_key.public_pem();
+            var actor_id = KeyManager.user_id(public_pem);
+            if (index["users"][actor_id] == null) {
+                index["users"][actor_id] = {
+                    "id": actor_id,
+                    "name": key_path.replace("\\", "/").split("/").pop(),
+                    "publicPem": public_pem
+                };
+            }
+            return new VaultContext(vault_path, metadata, index, actor_key, actor_id, pass);
+        }
+
+        func save(ctx) {
+            this.repo.save_index(ctx.vault_path, ctx.metadata, ctx.index, ctx.vault_password);
+        }
+
+        func create_directory(ctx, path) {
+            if (path == "/") { throw "Root already exists."; }
+            this.ensure_destination(ctx, path);
+            ctx.index["nodes"][path] = VfsNodeFactory.directory(path, ctx.actor_id);
+        }
+
+        func import_file(ctx, source, dest) {
+            this.write_virtual_bytes(ctx, dest, fs.readAllBytes(source));
+        }
+
+        func import_directory(ctx, source, dest) {
+            this.create_directory(ctx, dest);
+            var root = source.replace("\\", "/");
+            var info = source.dirinfo();
+            foreach (var dir_path in info.getDirectories("*", true)) {
+                var rel = FileSystem.relative_path(root, str(dir_path));
+                this.create_directory(ctx, VfsPath.normalize(dest + "/" + rel));
+            }
+            foreach (var file_path in info.getFiles("*", true)) {
+                var frel = FileSystem.relative_path(root, str(file_path));
+                this.import_file(ctx, str(file_path), VfsPath.normalize(dest + "/" + frel));
+            }
+        }
+
+        func write_virtual_bytes(ctx, path, bytes) {
+            path = VfsPath.normalize(path);
+            var existing = ctx.index["nodes"][path];
+            if (existing != null && existing["type"] != "file") {
+                throw "Virtual path is not a file: " + path;
+            }
+            if (existing == null) {
+                this.ensure_destination(ctx, path);
+            } else {
+                this.ensure_right(ctx, path, "write");
+            }
+
+            var file_key = crypto.aesKey(32, "blob");
+            var object_name = this.repo.new_object_name();
+            var binding_id = this.repo.new_binding_id();
+            var packet = VaultCipher.encrypt_bytes(file_key, bytes, "Cfgs.TheVault.Object:" + binding_id + ":" + path);
+            this.repo.save_object(ctx.vault_path, object_name, packet);
+            if (existing != null && existing["object"] != null) {
+                FileSystem.delete_file_if_exists(this.repo.object_path(ctx.vault_path, existing["object"]));
+            }
+
+            var key_slots = {};
+            key_slots[ctx.actor_id] = {
+                "wrappedKey": KeyManager.wrap_file_key(ctx.actor_key.public_pem(), file_key),
+                "rights": Rights.all
+            };
+            ctx.index["nodes"][path] = VfsNodeFactory.file(path, object_name, binding_id, len(bytes), key_slots);
+        }
+
+        func read_virtual_bytes(ctx, path) {
+            var node = this.get_node(ctx, path);
+            if (node["type"] != "file") { throw "Virtual path is not a file: " + path; }
+            this.ensure_right(ctx, path, "read");
+            var file_key = this.file_key_for_actor(ctx, node);
+            var packet = this.repo.load_object(ctx.vault_path, node["object"]);
+            return VaultCipher.decrypt_bytes(file_key, packet);
+        }
+
+        func copy_node(ctx, source, dest) {
+            source = VfsPath.normalize(source);
+            dest = VfsPath.normalize(dest);
+            if (source == "/" || source == dest || VfsPath.is_child_of(dest, source)) {
+                throw "Invalid copy or move target.";
+            }
+            var node = this.get_node(ctx, source);
+            this.ensure_destination(ctx, dest);
+            if (node["type"] == "file") {
+                this.write_virtual_bytes(ctx, dest, this.read_virtual_bytes(ctx, source));
+                return;
+            }
+
+            this.ensure_right(ctx, source, "list");
+            this.create_directory(ctx, dest);
+            foreach (var path, child in ctx.index["nodes"].clone()) {
+                if (VfsPath.is_child_of(path, source)) {
+                    var tail = path.substr(len(source), len(path) - len(source));
+                    var new_path = VfsPath.normalize(dest + tail);
+                    if (child["type"] == "dir") {
+                        this.create_directory(ctx, new_path);
+                    } else {
+                        this.write_virtual_bytes(ctx, new_path, this.read_virtual_bytes(ctx, path));
+                    }
+                }
+            }
+        }
+
+        func delete_node(ctx, path, require_rights) {
+            path = VfsPath.normalize(path);
+            if (path == "/") { throw "The virtual root cannot be deleted."; }
+            var node = this.get_node(ctx, path);
+            if (require_rights == true) {
+                this.ensure_right(ctx, path, "delete");
+                if (node["type"] == "dir") { this.ensure_right(ctx, path, "list"); }
+            }
+            foreach (var p, child in ctx.index["nodes"].clone()) {
+                if (p == path || VfsPath.is_child_of(p, path)) {
+                    if (child["object"] != null) {
+                        FileSystem.delete_file_if_exists(this.repo.object_path(ctx.vault_path, child["object"]));
+                    }
+                    ctx.index["nodes"].remove(p);
+                }
+            }
+        }
+
+        func get_node(ctx, path) {
+            var p = VfsPath.normalize(path);
+            var node = ctx.index["nodes"][p];
+            if (node == null) { throw "Virtual path not found: " + p; }
+            return node;
+        }
+
+        func ensure_directory(ctx, path) {
+            var node = this.get_node(ctx, path);
+            if (node["type"] != "dir") { throw "Virtual directory not found: " + path; }
+        }
+
+        func ensure_destination(ctx, path) {
+            path = VfsPath.normalize(path);
+            if (path == "/") { throw "The virtual root cannot be used as a destination."; }
+            if (ctx.index["nodes"][path] != null) { throw "Virtual path already exists: " + path; }
+            var parent = VfsPath.parent_of(path);
+            this.ensure_directory(ctx, parent);
+            this.ensure_right(ctx, parent, "create");
+        }
+
+        func ensure_right(ctx, path, right) {
+            if (!this.has_right(ctx, path, right)) {
+                throw "Missing right '" + right + "' on " + path + " for key " + ctx.actor_id + ".";
+            }
+        }
+
+        func has_right(ctx, path, right) {
+            path = VfsPath.normalize(path);
+            if (ctx.actor_id == ctx.metadata["ownerId"]) { return true; }
+            var node = ctx.index["nodes"][path];
+            if (node != null) {
+                if (node["type"] == "file" && node["keySlots"][ctx.actor_id] != null) {
+                    if (Rights.contains(node["keySlots"][ctx.actor_id]["rights"], right)) { return true; }
+                }
+                if (node["type"] == "dir" && node["acl"][ctx.actor_id] != null) {
+                    if (Rights.contains(node["acl"][ctx.actor_id], right)) { return true; }
+                }
+            }
+
+            var parent = path;
+            while (parent != "/") {
+                parent = VfsPath.parent_of(parent);
+                var pnode = ctx.index["nodes"][parent];
+                if (pnode != null && pnode["type"] == "dir" && pnode["acl"][ctx.actor_id] != null) {
+                    if (Rights.contains(pnode["acl"][ctx.actor_id], right)) { return true; }
+                }
+            }
+            return false;
+        }
+
+        func file_key_for_actor(ctx, node) {
+            var slot = node["keySlots"][ctx.actor_id];
+            if (slot == null) {
+                throw "No file key slot for current actor.";
+            }
+            return KeyManager.unwrap_file_key(ctx.actor_key, slot["wrappedKey"]);
+        }
+
+        func resolve_import_destination(ctx, requested, source) {
+            requested = VfsPath.normalize(requested);
+            var existing = ctx.index["nodes"][requested];
+            if (existing == null) { return requested; }
+            if (existing["type"] != "dir") { throw "Virtual path already exists: " + requested; }
+            var parts = source.replace("\\", "/").split("/");
+            return VfsPath.normalize(requested + "/" + parts[len(parts) - 1]);
+        }
+
+        func print_tree(ctx, path, indent) {
+            var node = ctx.index["nodes"][path];
+            print(indent + (node["type"] == "dir" ? "[D] " : "[F] ") + node["name"]);
+            if (node["type"] != "dir") { return; }
+            foreach (var p, child in ctx.index["nodes"]) {
+                if (child["parent"] == path && child["path"] != path) {
+                    if ((child["type"] == "dir" && this.has_right(ctx, child["path"], "list")) ||
+                        (child["type"] == "file" && this.has_right(ctx, child["path"], "read"))) {
+                        this.print_tree(ctx, child["path"], indent + "  ");
+                    }
+                }
+            }
+        }
+
+        func add_journal(ctx, event_type, path, operation) {
+            var operation_json = json.stringify(operation);
+            ctx.index["journal"][] = {
+                "type": event_type,
+                "path": path,
+                "actorId": ctx.actor_id,
+                "utc": UtcNow("O"),
+                "operation": operation,
+                "signature": KeyManager.sign(ctx.actor_key, operation_json)
+            };
+        }
+    }
+}

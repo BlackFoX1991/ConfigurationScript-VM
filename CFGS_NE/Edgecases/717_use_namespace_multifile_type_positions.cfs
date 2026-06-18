@@ -1,0 +1,14 @@
+import "edge_assert.cfs";
+import "717_use_namespace_multifile_type_positions_impl.cfs";
+
+edge_begin("717_use_namespace_multifile_type_positions");
+
+func main() {
+    var thing = new Edge.MultiFileImpl.NamedThing();
+    edge_eq("multifile_use_type_position_property", thing.name, "multi");
+    edge_true("multifile_use_type_position_is", thing is Edge.MultiFileContracts.INamed);
+}
+
+main();
+
+edge_finish("717_use_namespace_multifile_type_positions");

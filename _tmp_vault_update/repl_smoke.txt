@@ -1,0 +1,5 @@
+pwd
+ls /root
+write repl.txt hello from repl
+cat repl.txt
+exit

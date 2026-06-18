@@ -1,0 +1,363 @@
+import "core.cfs";
+import "vfs.cfs";
+import "services.cfs";
+
+use Vault.Core;
+use Vault.Services;
+use Vault.Vfs;
+
+namespace Vault.Cli {
+    class CommandLine() {
+        public property command { get; set; } = null;
+        public property options { get; private set; } = {};
+
+        static func parse(args) {
+            var cli = new CommandLine();
+            if (args == null || len(args) == 0) {
+                return cli;
+            }
+
+            var start = 0;
+            if (args[0] == "-p") {
+                if (len(args) < 2) { throw "Missing command after -p."; }
+                cli.command = str(args[1]).trim().lower();
+                start = 2;
+            } else if (!str(args[0]).startsWith("-")) {
+                cli.command = str(args[0]).trim().lower();
+                start = 1;
+            }
+
+            var i = start;
+            while (i < len(args)) {
+                var token = str(args[i]);
+                if (!token.startsWith("--")) {
+                    throw "Unexpected argument: " + token;
+                }
+                var key = token.substr(2, len(token) - 2).trim();
+                if (key == "") { throw "Empty option name."; }
+                var value = "true";
+                if (i + 1 < len(args) && !str(args[i + 1]).startsWith("--")) {
+                    value = args[i + 1];
+                    i = i + 1;
+                }
+                cli.options[key] = value;
+                i = i + 1;
+            }
+            return cli;
+        }
+
+        static func create(command, options) {
+            var cli = new CommandLine();
+            cli.command = str(command).trim().lower();
+            foreach (var k, v in options) {
+                cli.options[k] = v;
+            }
+            return cli;
+        }
+
+        func need(key) {
+            var value = this.options[key];
+            if (value == null || str(value).trim() == "") {
+                throw "Missing required option --" + key + ".";
+            }
+            return value;
+        }
+
+        func get(key, fallback = null) {
+            var value = this.options[key];
+            if (value == null || str(value).trim() == "") {
+                return fallback;
+            }
+            return value;
+        }
+
+        func has(key) {
+            return this.options[key] != null;
+        }
+    }
+
+    class Help() {
+        static func print() {
+            print("Usage:");
+            print("  CFGS_VM.dll main.cfs -p <command> --path <vault> --pass <vaultPassword> [options]");
+            print("");
+            print("Commands:");
+            print("  init        Create a new encrypted vault and owner key");
+            print("  repl        Start an interactive virtual filesystem shell");
+            print("  shell       Alias for repl");
+            print("  info        Show vault information");
+            print("  mkdir       Create a virtual directory");
+            print("  import      Import and encrypt a real file or directory");
+            print("  write       Overwrite a virtual file from --text or --src");
+            print("  cat         Print a virtual text file");
+            print("  export      Export and decrypt a virtual file");
+            print("  copy        Copy a virtual file or directory");
+            print("  move        Move or rename a virtual file or directory");
+            print("  delete      Delete a virtual file or directory");
+            print("  ls          List a virtual directory");
+            print("  tree        Print the virtual tree");
+            print("  grant       Grant rights on a virtual path to another public key");
+            print("  users       List known users");
+            print("  keygen      Create an encrypted RSA key container");
+            print("  protect-key Encrypt an existing raw RSA private PEM");
+            print("  public-key  Export the public key from a key container");
+            print("");
+            print("Common options:");
+            print("  --path <dir>          Vault folder");
+            print("  --pass <password>    Vault password");
+            print("  --key <file>         Private key container. Default: <vault>/keys/owner.key.json");
+            print("  --key-pass <pass>    Key password. Default: --pass");
+            print("  --vpath <path>       Virtual path, e.g. /root/file.txt");
+            print("  --script <file>      For repl: execute commands from a script file");
+            print("");
+            print("Examples:");
+            print("  -p init --path C:/Vault --pass secret");
+            print("  -p mkdir --path C:/Vault --pass secret --vpath /root/docs");
+            print("  -p write --path C:/Vault --pass secret --vpath /root/docs/a.txt --text hello");
+            print("  -p cat --path C:/Vault --pass secret --vpath /root/docs/a.txt");
+            print("  -p repl --path C:/Vault --pass secret");
+        }
+    }
+
+    class Repl(base_cli) {
+        public property base_cli { get; private set; } = null;
+        public property service { get; private set; } = null;
+        public property cwd { get; set; } = "/root";
+        public property session { get; set; } = null;
+
+        func init(base_cli) {
+            this.base_cli = base_cli;
+            this.service = new VaultService();
+        }
+
+        async func run() {
+            this.base_cli.need("path");
+            this.base_cli.need("pass");
+            try {
+                this.service.load_context(this.base_cli).actor_key.close();
+                if (this.service.load_context(this.base_cli).index["nodes"]["/root"] == null) {
+                    var mk = this.build_cli("mkdir", {"vpath": "/root"});
+                    await this.service.mkdir(mk);
+                }
+            } catch (e) {
+                this.cwd = "/";
+            }
+            this.session = this.service.session(this.base_cli);
+            print("TheVault CFGS REPL");
+            print("Type 'help' for commands, 'exit' to quit.");
+            print("");
+
+            var script = this.base_cli.get("script", null);
+            if (!Text.is_blank(script)) {
+                var text = Vault.Storage.FileSystem.read_text(script);
+                foreach (var line in text.replace("\r\n", "\n").split("\n")) {
+                    var trimmed = str(line).trim();
+                    if (trimmed != "") {
+                        print("> " + trimmed);
+                        if (!(await this.handle_line(trimmed))) { return true; }
+                    }
+                }
+                return true;
+            }
+
+            while (true) {
+                put("vfs:" + this.session["actorName"] + ":" + this.cwd + "> ");
+                var line = console.readLine();
+                if (line == null) { return true; }
+                if (!(await this.handle_line(str(line).trim()))) {
+                    return true;
+                }
+            }
+        }
+
+        async func handle_line(line) {
+            if (line == "") { return true; }
+            var tokens = Text.split_words(line);
+            if (len(tokens) == 0) { return true; }
+            var cmd = str(tokens[0]).lower();
+            try {
+                if (cmd == "exit" || cmd == "quit" || cmd == "q") { return false; }
+                if (cmd == "help" || cmd == "?") { this.print_help(); return true; }
+                if (cmd == "clear" || cmd == "cls") { console.clear(); return true; }
+                if (cmd == "pwd") { print(this.cwd); return true; }
+                if (cmd == "whoami" || cmd == "status" || cmd == "me") { this.print_session(); return true; }
+                if (cmd == "cd") { this.change_directory(len(tokens) >= 2 ? tokens[1] : "/root"); return true; }
+                if (cmd == "ls" || cmd == "dir") { await this.run_list(tokens); return true; }
+                if (cmd == "tree") { await this.run_tree(tokens); return true; }
+                if (cmd == "mkdir" || cmd == "md") { await this.run_mkdir(tokens); return true; }
+                if (cmd == "cat" || cmd == "type") { await this.run_cat(tokens); return true; }
+                if (cmd == "write") { await this.run_write(tokens); return true; }
+                if (cmd == "import" || cmd == "put") { await this.run_import(tokens); return true; }
+                if (cmd == "export" || cmd == "get") { await this.run_export(tokens); return true; }
+                if (cmd == "grant") { await this.run_grant(tokens); return true; }
+                if (cmd == "users") { await this.service.users(this.build_cli("users", {})); return true; }
+                if (cmd == "info") { await this.service.info(this.build_cli("info", {})); return true; }
+                print("Unknown REPL command: " + cmd);
+                print("Type 'help' for available commands.");
+            } catch (e) {
+                print("[Error] " + e.message());
+            }
+            return true;
+        }
+
+        func change_directory(path) {
+            var target = this.resolve_vpath(path);
+            var ctx = this.service.load_context(this.base_cli);
+            this.service.ensure_directory(ctx, target);
+            this.service.ensure_right(ctx, target, "list");
+            ctx.actor_key.close();
+            this.cwd = target;
+        }
+
+        async func run_list(tokens) {
+            var path = len(tokens) >= 2 ? this.resolve_vpath(tokens[1]) : this.cwd;
+            await this.service.list(this.build_cli("ls", {"vpath": path}));
+        }
+
+        async func run_tree(tokens) {
+            var path = len(tokens) >= 2 ? this.resolve_vpath(tokens[1]) : this.cwd;
+            await this.service.tree(this.build_cli("tree", {"vpath": path}));
+        }
+
+        async func run_mkdir(tokens) {
+            if (len(tokens) < 2) { print("Usage: mkdir <vpath>"); return false; }
+            await this.service.mkdir(this.build_cli("mkdir", {"vpath": this.resolve_vpath(tokens[1])}));
+            return true;
+        }
+
+        async func run_cat(tokens) {
+            if (len(tokens) < 2) { print("Usage: cat <vpath>"); return false; }
+            await this.service.cat(this.build_cli("cat", {"vpath": this.resolve_vpath(tokens[1])}));
+            return true;
+        }
+
+        async func run_write(tokens) {
+            if (len(tokens) < 3) { print("Usage: write <vpath> <text>"); return false; }
+            var rest = [];
+            var i = 2;
+            while (i < len(tokens)) {
+                rest[] = tokens[i];
+                i = i + 1;
+            }
+            await this.service.write_file(this.build_cli("write", {
+                "vpath": this.resolve_vpath(tokens[1]),
+                "text": rest.join(" ")
+            }));
+            return true;
+        }
+
+        async func run_import(tokens) {
+            if (len(tokens) < 2) { print("Usage: import <source-file-or-dir> [vpath]"); return false; }
+            var dest = len(tokens) >= 3 ? this.resolve_vpath(tokens[2]) : this.cwd;
+            await this.service.import_path(this.build_cli("import", {"src": tokens[1], "vpath": dest}));
+            return true;
+        }
+
+        async func run_export(tokens) {
+            if (len(tokens) < 3) { print("Usage: export <vpath> <output-file>"); return false; }
+            await this.service.export_file(this.build_cli("export", {"vpath": this.resolve_vpath(tokens[1]), "out": tokens[2]}));
+            return true;
+        }
+
+        async func run_grant(tokens) {
+            if (len(tokens) < 3) { print("Usage: grant <vpath> <public.pem> [rights]"); return false; }
+            await this.service.grant(this.build_cli("grant", {
+                "vpath": this.resolve_vpath(tokens[1]),
+                "user-public": tokens[2],
+                "rights": len(tokens) >= 4 ? tokens[3] : "read"
+            }));
+            return true;
+        }
+
+        func resolve_vpath(path) {
+            if (Text.is_blank(path) || path == ".") { return this.cwd; }
+            if (path == "~") { return "/root"; }
+            if (str(path).startsWith("/")) { return VfsPath.normalize(path); }
+            return VfsPath.normalize(this.cwd + "/" + path);
+        }
+
+        func build_cli(command, extra) {
+            var options = {};
+            foreach (var key in ["path", "pass", "key", "key-pass"]) {
+                var value = this.base_cli.get(key, null);
+                if (!Text.is_blank(value)) { options[key] = value; }
+            }
+            foreach (var k, v in extra) {
+                options[k] = v;
+            }
+            return CommandLine.create(command, options);
+        }
+
+        func print_session() {
+            print("Vault: " + this.session["vaultPath"]);
+            print("Actor: " + this.session["actorName"]);
+            print("ActorId: " + this.session["actorId"]);
+            print("OwnerId: " + this.session["ownerId"]);
+            print("Cwd: " + this.cwd);
+        }
+
+        func print_help() {
+            print("REPL commands:");
+            print("  pwd                         Show current virtual directory");
+            print("  whoami                      Show active vault/key/user context");
+            print("  cd <vpath>                  Change current virtual directory");
+            print("  ls [vpath]                  List directory");
+            print("  tree [vpath]                Print tree");
+            print("  mkdir <vpath>               Create virtual directory");
+            print("  cat <vpath>                 Print virtual text file");
+            print("  write <vpath> <text>        Write text into virtual file");
+            print("  import <source> [vpath]     Import real file or directory");
+            print("  export <vpath> <file>       Export virtual file");
+            print("  grant <vpath> <pem> [r]     Grant rights");
+            print("  users                       List users");
+            print("  info                        Show vault information");
+            print("  clear                       Clear console");
+            print("  exit                        Leave REPL");
+        }
+    }
+
+    class VaultApp() {
+        public property service { get; private set; } = null;
+
+        func init() {
+            this.service = new VaultService();
+        }
+
+        async func run(args) {
+            try {
+                var cli = CommandLine.parse(args);
+                var command = cli.command;
+                if (command == null || command == "help" || command == "--help" || command == "-h") {
+                    Help.print();
+                    return VaultExitCode["Ok"];
+                }
+
+                if (command == "init") { await this.service.init_vault(cli); return VaultExitCode["Ok"]; }
+                if (command == "repl" || command == "shell") { await (new Repl(cli)).run(); return VaultExitCode["Ok"]; }
+                if (command == "info") { await this.service.info(cli); return VaultExitCode["Ok"]; }
+                if (command == "mkdir") { await this.service.mkdir(cli); return VaultExitCode["Ok"]; }
+                if (command == "import") { await this.service.import_path(cli); return VaultExitCode["Ok"]; }
+                if (command == "write") { await this.service.write_file(cli); return VaultExitCode["Ok"]; }
+                if (command == "cat") { await this.service.cat(cli); return VaultExitCode["Ok"]; }
+                if (command == "export") { await this.service.export_file(cli); return VaultExitCode["Ok"]; }
+                if (command == "copy") { await this.service.copy(cli); return VaultExitCode["Ok"]; }
+                if (command == "move") { await this.service.move(cli); return VaultExitCode["Ok"]; }
+                if (command == "delete") { await this.service.delete_path(cli); return VaultExitCode["Ok"]; }
+                if (command == "ls") { await this.service.list(cli); return VaultExitCode["Ok"]; }
+                if (command == "tree") { await this.service.tree(cli); return VaultExitCode["Ok"]; }
+                if (command == "grant") { await this.service.grant(cli); return VaultExitCode["Ok"]; }
+                if (command == "users") { await this.service.users(cli); return VaultExitCode["Ok"]; }
+                if (command == "keygen") { await this.service.keygen(cli); return VaultExitCode["Ok"]; }
+                if (command == "protect-key") { await this.service.protect_key(cli); return VaultExitCode["Ok"]; }
+                if (command == "public-key") { await this.service.public_key(cli); return VaultExitCode["Ok"]; }
+
+                print("Unknown command: " + command);
+                Help.print();
+                return VaultExitCode["Usage"];
+            } catch (e) {
+                print("[Error] " + e.message());
+                return VaultExitCode["Error"];
+            }
+        }
+    }
+}

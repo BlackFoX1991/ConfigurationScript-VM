@@ -1,0 +1,110 @@
+import "core.cfs";
+
+use Vault.Core;
+
+namespace Vault.Vfs {
+    class VfsPath() : IPathResolver {
+        func resolve(path) {
+            return VfsPath.normalize(path);
+        }
+
+        static func normalize(path) {
+            if (path == null || str(path).trim() == "") {
+                return "/";
+            }
+
+            var p = str(path).replace("\\", "/").trim();
+            if (!p.startsWith("/")) {
+                p = "/" + p;
+            }
+            while (p.contains("//")) {
+                p = p.replace("//", "/");
+            }
+
+            var stack = [];
+            foreach (var part in p.split("/")) {
+                var item = str(part).trim();
+                if (item == "" || item == ".") {
+                    continue;
+                }
+                if (item == "..") {
+                    if (len(stack) > 0) {
+                        stack.pop();
+                    }
+                } else {
+                    if (item.contains(":")) {
+                        throw "Invalid virtual path segment: " + item;
+                    }
+                    stack[] = item;
+                }
+            }
+
+            if (len(stack) == 0) { return "/"; }
+            return "/" + stack.join("/");
+        }
+
+        static func name_of(path) {
+            var p = VfsPath.normalize(path);
+            if (p == "/") { return "/"; }
+            var parts = p.split("/");
+            return parts[len(parts) - 1];
+        }
+
+        static func parent_of(path) {
+            var p = VfsPath.normalize(path);
+            if (p == "/") { return "/"; }
+            var idx = p.lastIndexOf("/");
+            if (idx <= 0) { return "/"; }
+            return p.substr(0, idx);
+        }
+
+        static func is_child_of(candidate, parent) {
+            var c = VfsPath.normalize(candidate);
+            var p = VfsPath.normalize(parent);
+            if (p == "/") { return c != "/"; }
+            return c.startsWith(p + "/");
+        }
+    }
+
+    class VfsNodeFactory() {
+        static func root(owner_id) {
+            var acl = {};
+            acl[owner_id] = Rights.all;
+            return {
+                "type": "dir",
+                "name": "/",
+                "path": "/",
+                "parent": "/",
+                "acl": acl
+            };
+        }
+
+        static func directory(path, owner_id) {
+            var p = VfsPath.normalize(path);
+            var acl = {};
+            acl[owner_id] = Rights.all;
+            return {
+                "type": "dir",
+                "name": VfsPath.name_of(p),
+                "path": p,
+                "parent": VfsPath.parent_of(p),
+                "acl": acl
+            };
+        }
+
+        static func file(path, object_name, binding_id, size, key_slots) {
+            var p = VfsPath.normalize(path);
+            return {
+                "type": "file",
+                "name": VfsPath.name_of(p),
+                "path": p,
+                "parent": VfsPath.parent_of(p),
+                "object": object_name,
+                "bindingId": binding_id,
+                "size": size,
+                "modifiedUtc": UtcNow("O"),
+                "keySlots": key_slots
+            };
+        }
+    }
+}

@@ -1,0 +1,150 @@
+namespace Vault.Core {
+    enum VaultExitCode {
+        Ok = 0,
+        Usage = 2,
+        Error = 1
+    }
+
+    enum NodeKind {
+        Directory = 1,
+        File = 2
+    }
+
+    interface ILogger {
+        func info(message);
+        func error(message);
+    }
+
+    interface ICommand {
+        property name { get; }
+        func execute(cli);
+    }
+
+    interface IPathResolver {
+        func resolve(path);
+    }
+
+    interface IJsonStore {
+        func read(path);
+        func write(path, value);
+    }
+
+    interface IVaultService {
+        async func init_vault(cli);
+        async func info(cli);
+        async func list(cli);
+        async func tree(cli);
+        async func mkdir(cli);
+        async func import_path(cli);
+        async func write_file(cli);
+        async func cat(cli);
+        async func export_file(cli);
+        async func copy(cli);
+        async func move(cli);
+        async func delete_path(cli);
+        async func grant(cli);
+        async func users(cli);
+    }
+
+    class ConsoleLogger() : ILogger {
+        func info(message) {
+            print(message);
+        }
+
+        func error(message) {
+            print("[Error] " + str(message));
+        }
+    }
+
+    class Text() {
+        static func is_blank(value) {
+            return value == null || str(value).trim() == "";
+        }
+
+        static func lower(value) {
+            return str(value).trim().lower();
+        }
+
+        static func join(values, separator) {
+            var result = "";
+            var i = 0;
+            while (i < len(values)) {
+                if (i > 0) { result = result + separator; }
+                result = result + str(values[i]);
+                i = i + 1;
+            }
+            return result;
+        }
+
+        static func split_words(input) {
+            var result = [];
+            var token = "";
+            var quote = "";
+            var i = 0;
+            var s = str(input);
+            while (i < len(s)) {
+                var ch = s.substr(i, 1);
+                if (ch == "\\" && i + 1 < len(s)) {
+                    token = token + s.substr(i + 1, 1);
+                    i = i + 2;
+                } else if ((ch == "\"" || ch == "'") && quote == "") {
+                    quote = ch;
+                    i = i + 1;
+                } else if (quote != "" && ch == quote) {
+                    quote = "";
+                    i = i + 1;
+                } else if (quote == "" && ch.trim() == "") {
+                    if (token != "") {
+                        result[] = token;
+                        token = "";
+                    }
+                    i = i + 1;
+                } else {
+                    token = token + ch;
+                    i = i + 1;
+                }
+            }
+
+            if (quote != "") {
+                throw "Unclosed quote in command line.";
+            }
+            if (token != "") { result[] = token; }
+            return result;
+        }
+    }
+
+    class Rights() {
+        static property all { get; } = ["read", "write", "create", "delete", "list", "admin", "owner"];
+
+        static func normalize(value) {
+            var raw = value == null || str(value).trim() == "" ? "read" : str(value);
+            var parts = raw.replace(";", ",").replace("|", ",").replace(" ", ",").split(",");
+            var result = [];
+            foreach (var part in parts) {
+                var right = str(part).trim().lower();
+                if (right == "") { continue; }
+                if (!Rights.all.includes(right)) {
+                    throw "Unknown right: " + right;
+                }
+                if (!result.includes(right)) {
+                    result[] = right;
+                }
+            }
+            if (len(result) == 0) { result[] = "read"; }
+            return result;
+        }
+
+        static func contains(rights, needed) {
+            if (rights == null) { return false; }
+            var set = [];
+            foreach (var r in rights) {
+                var rr = str(r).trim().lower();
+                if (!set.includes(rr)) { set[] = rr; }
+            }
+            if (set.includes("owner") || set.includes("admin")) { return true; }
+            if (needed == "create" && set.includes("write")) { return true; }
+            if (needed == "list" && set.includes("read")) { return true; }
+            return set.includes(needed);
+        }
+    }
+}

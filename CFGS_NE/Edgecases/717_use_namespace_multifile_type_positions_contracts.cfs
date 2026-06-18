@@ -1,0 +1,5 @@
+namespace Edge.MultiFileContracts {
+    interface INamed {
+        property name { get; }
+    }
+}

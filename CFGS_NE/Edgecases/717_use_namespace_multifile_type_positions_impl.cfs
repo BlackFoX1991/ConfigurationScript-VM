@@ -1,0 +1,9 @@
+import "717_use_namespace_multifile_type_positions_contracts.cfs";
+
+use Edge.MultiFileContracts;
+
+namespace Edge.MultiFileImpl {
+    class NamedThing : INamed {
+        property name { get; } = "multi";
+    }
+}

@@ -64,25 +64,28 @@ namespace CFGS_VM.Analytic.Modules
             if (useStatements.Count == 0)
                 return resolvedStatements;
 
-            string currentOrigin = useStatements[0].OriginFile;
-
             BuildNamespaceModel(resolvedStatements);
             RegisterNamespaceRegistryModel();
             BuildGlobalTopLevelSurfaces(resolvedStatements);
 
-            Dictionary<string, List<NamespaceMemberInfo>> useLookup = BuildUseLookup(useStatements);
-            RewriteState rootState = new(currentOrigin, useLookup);
+            Dictionary<string, RewriteState> statesByOrigin = useStatements
+                .GroupBy(static stmt => stmt.OriginFile, StringComparer.Ordinal)
+                .ToDictionary(
+                    static group => group.Key,
+                    group => new RewriteState(group.Key, BuildUseLookup(group)),
+                    StringComparer.Ordinal);
 
             List<Stmt> rewritten = new(resolvedStatements.Count);
             foreach (Stmt stmt in resolvedStatements)
             {
-                if (stmt is UseNamespaceStmt useStmt &&
-                    string.Equals(useStmt.OriginFile, currentOrigin, StringComparison.Ordinal))
+                if (stmt is UseNamespaceStmt useStmt && statesByOrigin.ContainsKey(useStmt.OriginFile))
                 {
                     continue;
                 }
 
-                rewritten.Add(RewriteTopLevelStatement(stmt, rootState));
+                rewritten.Add(statesByOrigin.TryGetValue(stmt.OriginFile, out RewriteState? state)
+                    ? RewriteStatement(stmt, state)
+                    : stmt);
             }
 
             return rewritten;
@@ -284,14 +287,6 @@ namespace CFGS_VM.Analytic.Modules
             }
 
             return lookup;
-        }
-
-        private Stmt RewriteTopLevelStatement(Stmt stmt, RewriteState state)
-        {
-            if (!string.Equals(stmt.OriginFile, state.CurrentOrigin, StringComparison.Ordinal))
-                return stmt;
-
-            return RewriteStatement(stmt, state);
         }
 
         private Stmt RewriteStatement(Stmt stmt, RewriteState state)
@@ -709,6 +704,7 @@ namespace CFGS_VM.Analytic.Modules
                 classDecl,
                 classState,
                 NamespaceMemberKind.Class,
+                NamespaceMemberKind.Interface,
                 NamespaceMemberKind.Namespace);
             List<string> implementedInterfaces = classDecl.ImplementedInterfaces
                 .Select(interfaceName => RewriteTypeReference(

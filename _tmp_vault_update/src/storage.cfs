@@ -1,0 +1,167 @@
+import "core.cfs";
+import "vfs.cfs";
+import "security.cfs";
+
+use Vault.Core;
+use Vault.Security;
+use Vault.Vfs;
+
+namespace Vault.Storage {
+    class FileSystem() {
+        static func combine(left, right) {
+            if (Text.is_blank(left)) { return str(right); }
+            if (Text.is_blank(right)) { return str(left); }
+            var l = str(left).replace("\\", "/");
+            var r = str(right).replace("\\", "/");
+            if (l.endsWith("/")) { return l + r; }
+            return l + "/" + r;
+        }
+
+        static func ensure_dir(path) {
+            str(path).dirinfo().existsOrCreate();
+            return path;
+        }
+
+        static func is_dir(path) {
+            return str(path).dirinfo().exists();
+        }
+
+        static func is_file(path) {
+            return fs.exists(path);
+        }
+
+        static func delete_file_if_exists(path) {
+            if (fs.exists(path)) {
+                return fs.fdelete(path);
+            }
+            return 0;
+        }
+
+        static func normalize(path) {
+            return str(path).replace("\\", "/");
+        }
+
+        static func relative_path(root, child) {
+            var r = FileSystem.normalize(root).trim();
+            var c = FileSystem.normalize(child).trim();
+            if (c.startsWith(r)) {
+                c = c.substr(len(r), len(c) - len(r));
+            }
+            while (c.startsWith("/")) {
+                c = c.substr(1, len(c) - 1);
+            }
+            return c;
+        }
+
+        static func read_text(path) {
+            var f = fopen(path, 0);
+            var count = fs.size(path);
+            var text = count <= 0 ? "" : f.read(count);
+            f.close();
+            return text;
+        }
+
+        static func write_text(path, text) {
+            var dir = getDirectory(path);
+            if (!Text.is_blank(dir)) {
+                FileSystem.ensure_dir(dir);
+            }
+            var f = fopen(path, 2);
+            f.write(text);
+            f.close();
+            return len(str(text));
+        }
+    }
+
+    class JsonFileStore() : IJsonStore {
+        func read(path) {
+            return json.parse(FileSystem.read_text(path));
+        }
+
+        func write(path, value) {
+            return FileSystem.write_text(path, json.stringify(value));
+        }
+    }
+
+    class VaultRepository(store) {
+        public property store { get; private set; } = null;
+
+        func init(store = null) {
+            this.store = store == null ? new JsonFileStore() : store;
+        }
+
+        func metadata_path(vault_path) {
+            return FileSystem.combine(vault_path, "vault.json");
+        }
+
+        func objects_path(vault_path) {
+            return FileSystem.combine(vault_path, "objects");
+        }
+
+        func keys_path(vault_path) {
+            return FileSystem.combine(vault_path, "keys");
+        }
+
+        func default_key_path(vault_path) {
+            return FileSystem.combine(this.keys_path(vault_path), "owner.key.json");
+        }
+
+        func object_path(vault_path, object_name) {
+            return FileSystem.combine(this.objects_path(vault_path), object_name);
+        }
+
+        func load_metadata(vault_path) {
+            var path = this.metadata_path(vault_path);
+            if (!fs.exists(path)) {
+                throw "vault.json not found. Run init first: " + path;
+            }
+            var metadata = this.store.read(path);
+            if (metadata["format"] != "Cfgs.TheVault") {
+                throw "Unsupported vault format.";
+            }
+            return metadata;
+        }
+
+        func save_metadata(vault_path, metadata) {
+            FileSystem.ensure_dir(vault_path);
+            return this.store.write(this.metadata_path(vault_path), metadata);
+        }
+
+        func load_index(vault_path, metadata, password) {
+            var index_path = FileSystem.combine(vault_path, metadata["indexFile"]);
+            if (!fs.exists(index_path)) {
+                throw "Encrypted index not found: " + index_path;
+            }
+            var packet = this.store.read(index_path);
+            var json_text = VaultCipher.decrypt_text(password, metadata["kdf"], packet);
+            return json.parse(json_text);
+        }
+
+        func save_index(vault_path, metadata, index, password) {
+            var index_path = FileSystem.combine(vault_path, metadata["indexFile"]);
+            var packet = VaultCipher.encrypt_text(password, metadata["kdf"], json.stringify(index), "Cfgs.TheVault.Index:" + metadata["vaultId"]);
+            return this.store.write(index_path, packet);
+        }
+
+        func save_object(vault_path, object_name, packet) {
+            FileSystem.ensure_dir(this.objects_path(vault_path));
+            return this.store.write(this.object_path(vault_path, object_name), packet);
+        }
+
+        func load_object(vault_path, object_name) {
+            var path = this.object_path(vault_path, object_name);
+            if (!fs.exists(path)) {
+                throw "Encrypted object not found: " + path;
+            }
+            return this.store.read(path);
+        }
+
+        func new_object_name() {
+            return crypto.uuid().replace("-", "") + ".vaultobj";
+        }
+
+        func new_binding_id() {
+            return crypto.uuid().replace("-", "");
+        }
+    }
+}
