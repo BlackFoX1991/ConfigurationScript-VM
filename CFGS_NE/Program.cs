@@ -99,7 +99,7 @@ public class Program
     /// <summary>
     /// Defines the Version
     /// </summary>
-    public const string Version = "v7.0.0";
+    public const string Version = "v7.1.0";
 
     /// <summary>
     /// Defines the AnsiMode
@@ -1341,6 +1341,7 @@ public class Program
         vm.EntryScriptPath = string.Equals(name, "<repl>", StringComparison.Ordinal)
             ? "<repl>"
             : Path.GetFullPath(name);
+        vm.WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory;
         vm.NativeAssemblyBaseDirectory = workingDirectory ?? Environment.CurrentDirectory;
 
         CompiledScript compiled = CfgsCompiler.CompileSource(
@@ -1423,6 +1424,7 @@ public class Program
         VM vm = new();
         vm.Debugger = interactiveDebug ? new ConsoleVmDebugger() : null;
         vm.EntryScriptPath = Path.GetFullPath(file);
+        vm.WorkingDirectory = workingDirectory ?? Path.GetDirectoryName(vm.EntryScriptPath) ?? Environment.CurrentDirectory;
         vm.NativeAssemblyBaseDirectory = workingDirectory ?? Path.GetDirectoryName(vm.EntryScriptPath) ?? Environment.CurrentDirectory;
 
         foreach (string plugin in compiled.RequiredPlugins)

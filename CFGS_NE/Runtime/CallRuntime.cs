@@ -111,7 +111,14 @@ namespace CFGS_VM.VMCore
             if (_program is null || _program.Count == 0)
                 throw new InvalidOperationException("Hot-start async call requires loaded program instructions.");
 
-            VM child = new();
+            VM child = new()
+            {
+                AllowNativeInterop = AllowNativeInterop,
+                AllowPluginLoading = AllowPluginLoading,
+                EntryScriptPath = EntryScriptPath,
+                WorkingDirectory = WorkingDirectory,
+                NativeAssemblyBaseDirectory = NativeAssemblyBaseDirectory
+            };
             child.LoadInstructions(_program);
             child.LoadFunctions(Functions);
             CopyBindingsTo(child);

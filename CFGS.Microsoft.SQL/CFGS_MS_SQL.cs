@@ -116,6 +116,16 @@ namespace CFGS.Microsoft.SQL
             });
         }
 
+        public async Task BeginTransactionAsync()
+        {
+            await ExecuteSerializedAsync(() =>
+            {
+                EnsureOpen();
+                Transaction = Connection.BeginTransaction();
+                return Task.FromResult(0);
+            }).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// The Commit
         /// </summary>
@@ -128,6 +138,17 @@ namespace CFGS.Microsoft.SQL
                 Transaction = null;
                 return 0;
             });
+        }
+
+        public async Task CommitAsync()
+        {
+            await ExecuteSerializedAsync(() =>
+            {
+                Transaction?.Commit();
+                Transaction?.Dispose();
+                Transaction = null;
+                return Task.FromResult(0);
+            }).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -144,6 +165,17 @@ namespace CFGS.Microsoft.SQL
             });
         }
 
+        public async Task RollbackAsync()
+        {
+            await ExecuteSerializedAsync(() =>
+            {
+                Transaction?.Rollback();
+                Transaction?.Dispose();
+                Transaction = null;
+                return Task.FromResult(0);
+            }).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// The Dispose
         /// </summary>
@@ -158,6 +190,26 @@ namespace CFGS.Microsoft.SQL
                 Transaction?.Dispose();
                 Connection?.Close();
                 Connection?.Dispose();
+            }
+            catch { }
+            finally
+            {
+                _serial.Release();
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+
+            await _serial.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                Transaction?.Dispose();
+                Transaction = null;
+                if (Connection != null)
+                    await Connection.DisposeAsync().ConfigureAwait(false);
             }
             catch { }
             finally
@@ -275,6 +327,11 @@ namespace CFGS.Microsoft.SQL
                 return null!;
             }));
 
+            intrinsics.Register(T, new IntrinsicDescriptor("close_async", 0, 0, (recv, a, i) =>
+            {
+                return CloseHandleAsync((SqlHandle)recv);
+            }, NativeCallOptions.Awaitable));
+
             intrinsics.Register(T, new IntrinsicDescriptor("is_open", 0, 0, (recv, a, i) =>
             {
                 SqlHandle handle = (SqlHandle)recv;
@@ -359,11 +416,21 @@ namespace CFGS.Microsoft.SQL
                 return 1;
             }));
 
+            intrinsics.Register(T, new IntrinsicDescriptor("begin_async", 0, 0, (recv, a, i) =>
+            {
+                return BeginTransactionHandleAsync((SqlHandle)recv);
+            }, NativeCallOptions.Awaitable));
+
             intrinsics.Register(T, new IntrinsicDescriptor("commit", 0, 0, (recv, a, i) =>
             {
                 ((SqlHandle)recv).Commit();
                 return 1;
             }));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("commit_async", 0, 0, (recv, a, i) =>
+            {
+                return CommitHandleAsync((SqlHandle)recv);
+            }, NativeCallOptions.Awaitable));
 
             intrinsics.Register(T, new IntrinsicDescriptor("rollback", 0, 0, (recv, a, i) =>
             {
@@ -371,10 +438,39 @@ namespace CFGS.Microsoft.SQL
                 return 1;
             }));
 
+            intrinsics.Register(T, new IntrinsicDescriptor("rollback_async", 0, 0, (recv, a, i) =>
+            {
+                return RollbackHandleAsync((SqlHandle)recv);
+            }, NativeCallOptions.Awaitable));
+
             RegisterSchemaDual(intrinsics, T);
             RegisterProcedureAndViewInfo(intrinsics, T);
 
             RegisterConstraintsAndFks(intrinsics, T);
+        }
+
+        private static async Task<object?> CloseHandleAsync(SqlHandle handle)
+        {
+            await handle.DisposeAsync().ConfigureAwait(false);
+            return null;
+        }
+
+        private static async Task<object> BeginTransactionHandleAsync(SqlHandle handle)
+        {
+            await handle.BeginTransactionAsync().ConfigureAwait(false);
+            return 1;
+        }
+
+        private static async Task<object> CommitHandleAsync(SqlHandle handle)
+        {
+            await handle.CommitAsync().ConfigureAwait(false);
+            return 1;
+        }
+
+        private static async Task<object> RollbackHandleAsync(SqlHandle handle)
+        {
+            await handle.RollbackAsync().ConfigureAwait(false);
+            return 1;
         }
 
         /// <summary>

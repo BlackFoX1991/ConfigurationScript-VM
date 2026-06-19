@@ -16,6 +16,11 @@ namespace CFGS_VM.VMCore.Extensions
         public string RawMessage { get; }
 
         /// <summary>
+        /// Gets the stable diagnostic code when the runtime supplied one.
+        /// </summary>
+        public string? DiagnosticCode { get; }
+
+        /// <summary>
         /// Gets the Line
         /// </summary>
         public int Line { get; }
@@ -52,10 +57,12 @@ namespace CFGS_VM.VMCore.Extensions
             string? fileSource,
             bool dbg,
             MemoryStream dbStream,
-            string? languageStackTrace = null)
+            string? languageStackTrace = null,
+            string? diagnosticCode = null)
             : base(NormalizeMessage(message))
         {
             RawMessage = NormalizeMessage(message);
+            DiagnosticCode = string.IsNullOrWhiteSpace(diagnosticCode) ? null : diagnosticCode.Trim();
             Line = line;
             Column = column;
             FileSource = fileSource;
@@ -70,10 +77,12 @@ namespace CFGS_VM.VMCore.Extensions
             bool dbg,
             MemoryStream dbStream,
             Exception innerException,
-            string? languageStackTrace = null)
+            string? languageStackTrace = null,
+            string? diagnosticCode = null)
             : base(NormalizeMessage(message), innerException)
         {
             RawMessage = NormalizeMessage(message);
+            DiagnosticCode = string.IsNullOrWhiteSpace(diagnosticCode) ? null : diagnosticCode.Trim();
             Line = line;
             Column = column;
             FileSource = fileSource;

@@ -1,0 +1,118 @@
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates conditionals, loops, break/continue,
+# match statements, match expressions, pattern matching, and errors.
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+func classifyStock(count) {
+    if (count <= 0) {
+        return "empty";
+    }
+
+    if (count < 10) {
+        return "low";
+    }
+
+    return "ready";
+}
+
+func main() {
+    ensure("if else", classifyStock(0) == "empty" && classifyStock(4) == "low");
+
+    # While loops can use continue and break for early flow control.
+    var sumOddUntilFive = 0;
+    var n = 0;
+    while (n < 10) {
+        n = n + 1;
+        if (n % 2 == 0) {
+            continue;
+        }
+
+        sumOddUntilFive = sumOddUntilFive + n;
+        if (n >= 5) {
+            break;
+        }
+    }
+    ensure("while break continue", sumOddUntilFive == 9);
+
+    # Do/while always executes the body at least once.
+    var doCount = 0;
+    do {
+        doCount = doCount + 1;
+    } while (false);
+    ensure("do while", doCount == 1);
+
+    # For loops support normal update expressions.
+    var factorial = 1;
+    for (var i = 1; i <= 5; i = i + 1) {
+        factorial = factorial * i;
+    }
+    ensure("for loop", factorial == 120);
+
+    # Match statements are useful for command-style branching.
+    var command = "ship";
+    var commandResult = "";
+    match (command) {
+        case "list": { commandResult = "show"; }
+        case "ship": { commandResult = "dispatch"; }
+        default: { commandResult = "unknown"; }
+    }
+    ensure("match source variable", command == "ship");
+    ensure("match statement", commandResult == "dispatch");
+
+    # Match expressions return a value.
+    var statusText = 2 match {
+        1: "draft",
+        2: "active",
+        _: "archived"
+    };
+    ensure("match expression", statusText == "active");
+
+    # Pattern matching can destructure arrays and dictionaries with guards.
+    func describeEvent(event) {
+        var sourceEvent = event;
+        if (sourceEvent == null) {
+            return "none";
+        }
+
+        return sourceEvent match {
+            {"type": "stock", "sku": var sku, "count": var count} if (count > 0): "stock:" + sku + ":" + str(count),
+            {"type": "stock", "sku": var sku}: "stock:" + sku + ":empty",
+            [var left, var right] if (left < right): "range:" + str(left) + "-" + str(right),
+            _: "other"
+        };
+    }
+
+    ensure("dict pattern", describeEvent({"type": "stock", "sku": "A-1", "count": 5}) == "stock:A-1:5");
+    ensure("array pattern", describeEvent([2, 8]) == "range:2-8");
+    ensure("null guard", describeEvent(null) == "none");
+
+    # Try/catch/finally handles both simple strings and structured values.
+    func safeDivide(a, b) {
+        var log = "";
+        try {
+            if (b == 0) {
+                throw {"code": "DIV_ZERO", "message": "division by zero"};
+            }
+
+            return a / b;
+        } catch (e) {
+            log = log + e["code"];
+            return log;
+        } finally {
+            log = log + ":finally";
+        }
+    }
+
+    ensure("try catch success", safeDivide(8, 2) == 4);
+    ensure("try catch error", safeDivide(8, 0) == "DIV_ZERO");
+
+    print("CONTROL_FLOW_OK:" + statusText + ":" + commandResult);
+}
+
+main();

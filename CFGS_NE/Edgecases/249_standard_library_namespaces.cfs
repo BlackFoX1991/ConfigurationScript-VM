@@ -39,8 +39,8 @@ var readBytes = fs.readAllBytes(sourcePath);
 edge_eq("fs_namespace_read_byte", readBytes[1], 66);
 edge_eq("fs_namespace_copy", fs.copy(sourcePath, copyPath, true), copyPath);
 edge_true("fs_namespace_copy_exists", fs.exists(copyPath));
-edge_eq("fs_namespace_delete_copy", fs.fdelete(copyPath), 1);
-edge_eq("fs_namespace_delete_source", fs.fdelete(sourcePath), 1);
+edge_eq("fs_namespace_delete_copy", fs.delete(copyPath), 1);
+edge_eq("fs_namespace_delete_source", fs.delete(sourcePath), 1);
 edge_throws("regex_factory_removed", func() { return regex(); });
 edge_throws("console_factory_removed", func() { return console(); });
 

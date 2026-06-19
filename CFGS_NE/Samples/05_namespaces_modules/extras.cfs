@@ -1,0 +1,27 @@
+import "CFGS.StandardLibrary.dll";
+
+# This file is imported with `import * as Extras` in app.cfs.
+# The import result is a dictionary-like module object.
+
+export const multiplierName = "sample-multiplier";
+
+export func triple(value) {
+    return value * 3;
+}
+
+export class Multiplier(factor) {
+    var factor = 1;
+
+    func init(factor) {
+        this.factor = factor;
+    }
+
+    func apply(value) {
+        return value * this.factor;
+    }
+}
+
+export enum ExtraFlag {
+    Off = 0,
+    On = 1
+}

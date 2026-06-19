@@ -15,6 +15,7 @@ internal static class Program
             DidOpenPublishesDiagnostics,
             DidChangePublishesLatestDiagnosticsAfterDebounce,
             CompletionReturnsLanguageItems,
+            CompletionReflectsStandardLibraryNamespacePolicy,
             FormattingReturnsDocumentEdit,
             HoverFindsFunctionSymbol,
             HoverIncludesQualifiedContainerDetails
@@ -78,6 +79,43 @@ internal static class Program
 
         AssertEqual(JsonValueKind.Array, completions.ValueKind, "completion result must be an array");
         AssertTrue(completions.EnumerateArray().Any(item => item.GetProperty("label").GetString() == "func"), "keyword completion 'func' missing");
+    }
+
+    private static void CompletionReflectsStandardLibraryNamespacePolicy()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string uri = CreateDocumentUri("stdlib-completion.cfs");
+        client.DidOpen(uri, "fs.\n");
+        _ = client.WaitForDiagnostics(uri);
+
+        JsonElement memberCompletions = client.SendRequest("textDocument/completion", new
+        {
+            textDocument = new { uri },
+            position = new { line = 0, character = 3 }
+        });
+
+        string[] memberLabels = memberCompletions.EnumerateArray()
+            .Select(static item => item.GetProperty("label").GetString() ?? string.Empty)
+            .ToArray();
+
+        AssertTrue(memberLabels.Contains("open", StringComparer.Ordinal), "fs.open completion missing");
+        AssertTrue(memberLabels.Contains("writeAllBytes", StringComparer.Ordinal), "fs.writeAllBytes completion missing");
+        AssertFalse(memberLabels.Contains("fopen", StringComparer.Ordinal), "removed fs.fopen alias still appears in completion");
+        AssertFalse(memberLabels.Contains("set_workspace", StringComparer.Ordinal), "removed fs.set_workspace alias still appears in completion");
+
+        JsonElement topLevelCompletions = client.SendRequest("textDocument/completion", new
+        {
+            textDocument = new { uri },
+            position = new { line = 1, character = 0 }
+        });
+
+        string[] topLevelLabels = topLevelCompletions.EnumerateArray()
+            .Select(static item => item.GetProperty("label").GetString() ?? string.Empty)
+            .ToArray();
+
+        AssertTrue(topLevelLabels.Contains("fs", StringComparer.Ordinal), "fs namespace completion missing");
+        AssertFalse(topLevelLabels.Contains("fopen", StringComparer.Ordinal), "removed global fopen alias still appears in completion");
+        AssertFalse(topLevelLabels.Contains("fromjson", StringComparer.Ordinal), "removed global fromjson alias still appears in completion");
     }
 
     private static void DidChangePublishesLatestDiagnosticsAfterDebounce()

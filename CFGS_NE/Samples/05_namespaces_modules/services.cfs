@@ -1,0 +1,44 @@
+import "CFGS.StandardLibrary.dll";
+import "domain.cfs";
+
+# This file demonstrates `use` with namespaces imported from another file.
+# Types from Samples.Shop.Domain can be used without repeating the full prefix.
+
+use Samples.Shop.Domain;
+
+namespace Samples.Shop.Services {
+    interface IInventoryService {
+        func add(product, count);
+        func findSku(sku);
+        func report();
+    }
+
+    class InventoryService: IInventoryService {
+        var items = [];
+
+        func add(product, count) {
+            var item = new StockItem(product, count);
+            this.items.push(item);
+            return item;
+        }
+
+        func findSku(sku) {
+            foreach (var item in this.items) {
+                if (item.product.sku == sku) {
+                    return item;
+                }
+            }
+
+            return null;
+        }
+
+        func report() {
+            var lines = [];
+            foreach (var item in this.items) {
+                lines.push(item.product.describe() + "=" + str(item.count));
+            }
+
+            return lines;
+        }
+    }
+}

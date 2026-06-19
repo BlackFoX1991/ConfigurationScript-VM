@@ -61,6 +61,7 @@ namespace CFGS_VM.VMCore
         public static int DEBUG_BUFFER = 100;
 
         private static readonly AsyncLocal<VM?> CurrentVmSlot = new();
+        private static readonly AsyncLocal<bool?> AllowFileIoOverrideSlot = new();
 
         public static VM? CurrentVm
         {
@@ -237,7 +238,32 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Gets or sets a value indicating whether AllowFileIO
         /// </summary>
-        public static bool AllowFileIO { get; set; } = true;
+        public static bool AllowFileIO
+        {
+            get => AllowFileIoOverrideSlot.Value ?? true;
+            set => AllowFileIoOverrideSlot.Value = value;
+        }
+
+        public static IDisposable PushAllowFileIOScope(bool allowFileIO)
+        {
+            bool? previous = AllowFileIoOverrideSlot.Value;
+            AllowFileIoOverrideSlot.Value = allowFileIO;
+            return new AllowFileIOScope(previous);
+        }
+
+        private sealed class AllowFileIOScope(bool? previous) : IDisposable
+        {
+            private bool _disposed;
+
+            public void Dispose()
+            {
+                if (_disposed)
+                    return;
+
+                _disposed = true;
+                AllowFileIoOverrideSlot.Value = previous;
+            }
+        }
 
         public bool AllowNativeInterop { get; set; } = true;
 
@@ -1002,6 +1028,31 @@ namespace CFGS_VM.VMCore
         /// Importing modules does not change this value.
         /// </summary>
         public string EntryScriptPath { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the VM-local working directory for standard-library file operations.
+        /// </summary>
+        public string WorkingDirectory
+        {
+            get => _workingDirectory;
+            set => _workingDirectory = string.IsNullOrWhiteSpace(value)
+                ? Environment.CurrentDirectory
+                : Path.GetFullPath(Environment.ExpandEnvironmentVariables(value));
+        }
+
+        private string _workingDirectory = Environment.CurrentDirectory;
+
+        /// <summary>
+        /// Resolves a path against the VM-local working directory.
+        /// </summary>
+        public string ResolveWorkspacePath(string path)
+        {
+            string expanded = Environment.ExpandEnvironmentVariables((path ?? string.Empty).Trim());
+            if (Path.IsPathFullyQualified(expanded))
+                return Path.GetFullPath(expanded);
+
+            return Path.GetFullPath(Path.Combine(WorkingDirectory, expanded));
+        }
 
         /// <summary>
         /// Gets or sets the base directory for relative native .NET assembly references.

@@ -1,0 +1,46 @@
+import "CFGS.StandardLibrary.dll";
+
+# This file defines namespaced domain types. The file itself does not export
+# top-level names; consumers import the file and access the namespace members.
+
+namespace Samples.Shop.Domain {
+    enum StockKind {
+        Physical = 1,
+        Digital = 2
+    }
+
+    interface IDescribed {
+        property sku { get; }
+        func describe();
+    }
+
+    class Product(sku, name, kind): IDescribed {
+        property sku { get; private set; } = "";
+        property name { get; private set; } = "";
+        property kind { get; private set; } = StockKind["Physical"];
+
+        func init(sku, name, kind) {
+            this.sku = sku;
+            this.name = name;
+            this.kind = kind;
+        }
+
+        func describe() {
+            return this.sku + ":" + this.name + ":" + StockKind.name(this.kind);
+        }
+    }
+
+    class StockItem(product, count) {
+        property product { get; private set; } = null;
+        property count { get; set; } = 0;
+
+        func init(product, count) {
+            this.product = product;
+            this.count = count;
+        }
+
+        func available() {
+            return this.count > 0;
+        }
+    }
+}

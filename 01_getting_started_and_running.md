@@ -15,7 +15,7 @@ If you want the codebase-level structure behind that implementation, continue wi
 - `CFGS.Web.Http` contains the `http` namespace and the built in HTTP server handle.
 - `CFGS.Microsoft.SQL` contains SQL support.
 - The root `*.md` files contain the current English documentation set.
-- `CFGS_NE/Samples` and `CFGS_NE/Edgecases` are strong references for real language usage.
+- `CFGS_NE/Edgecases` is the executable regression companion for real language usage.
 - `14_internal_architecture.md` documents the productive parser, compiler, VM, and LSP architecture.
 
 ## Building the Project
@@ -142,13 +142,16 @@ Projects may configure tooling defaults in the nearest `cfgs.json` through a `to
 
 ## Working Directory During Execution
 
-When you run a script file, the CLI changes the current working directory to the directory of that script. This matters for relative imports, file operations, and plugin DLLs loaded through relative paths.
+When you run a script file, the CLI sets the VM-local working directory to the directory of that script. This matters for relative imports, standard-library file operations, and plugin DLLs loaded through relative paths without changing the host process current directory.
 
 Import resolution then searches in this order.
 
 1. The script directory.
-2. The current working directory.
-3. The directory of the running CLI executable.
+2. The nearest restored `.cfgs/plugins` directory from the script directory.
+3. The VM working directory.
+4. The nearest restored `.cfgs/plugins` directory from the VM working directory.
+5. The directory of the running CLI executable.
+6. The `plugins` directory below the running CLI executable.
 
 ## File Types
 

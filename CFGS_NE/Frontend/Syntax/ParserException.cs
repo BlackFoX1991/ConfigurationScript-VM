@@ -16,6 +16,11 @@ namespace CFGS_VM.Analytic.Ex
         public string RawMessage { get; }
 
         /// <summary>
+        /// Gets the stable diagnostic code when the parser supplied one.
+        /// </summary>
+        public string? DiagnosticCode { get; }
+
+        /// <summary>
         /// Gets the Line
         /// </summary>
         public int Line { get; }
@@ -42,10 +47,11 @@ namespace CFGS_VM.Analytic.Ex
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="column">The column<see cref="int"/></param>
         /// <param name="filename">The filename<see cref="string"/></param>
-        public ParserException(string message, int line, int column, string filename, int? spanLength = null)
+        public ParserException(string message, int line, int column, string filename, int? spanLength = null, string? diagnosticCode = null)
             : base(message)
         {
             RawMessage = message;
+            DiagnosticCode = string.IsNullOrWhiteSpace(diagnosticCode) ? null : diagnosticCode.Trim();
             Line = line;
             Column = column;
             Filename = filename;

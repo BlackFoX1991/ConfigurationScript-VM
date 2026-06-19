@@ -67,40 +67,6 @@ internal sealed class CfgsAnalyzer
         new("fs", 9, "standard library namespace"),
         new("file", 9, "standard library namespace"),
         new("task", 9, "standard library namespace"),
-        new("textToBytes", 3, "builtin: textToBytes(text, encoding = \"utf-8\")"),
-        new("bytesToText", 3, "builtin: bytesToText(bytes, encoding = \"utf-8\")"),
-        new("encodeText", 3, "builtin: encodeText(text, encoding = \"utf-8\")"),
-        new("decodeText", 3, "builtin: decodeText(bytes, encoding = \"utf-8\")"),
-        new("convertEncoding", 3, "builtin: convertEncoding(bytes, fromEncoding, toEncoding)"),
-        new("hasEncoding", 3, "builtin: hasEncoding(nameOrCodePage)"),
-        new("encodingInfo", 3, "builtin: encodingInfo(nameOrCodePage)"),
-        new("encodingNames", 3, "builtin: encodingNames()"),
-        new("encodings", 3, "builtin: encodings()"),
-        new("regex_match", 3, "builtin: regex_match(input, pattern)"),
-        new("regex_matches", 3, "builtin: regex_matches(input, pattern)"),
-        new("regex_replace", 3, "builtin: regex_replace(input, pattern, replacement)"),
-        new("regex_test", 3, "builtin: regex_test(input, pattern)"),
-        new("regex_split", 3, "builtin: regex_split(input, pattern)"),
-        new("fromjson", 3, "builtin: fromjson(text)"),
-        new("tojson", 3, "builtin: tojson(value)"),
-        new("abs", 3, "builtin: abs(x)"),
-        new("rand", 3, "builtin: rand(seed, min, max)"),
-        new("floor", 3, "builtin: floor(x)"),
-        new("ceil", 3, "builtin: ceil(x)"),
-        new("round", 3, "builtin: round(x, digits = optional)"),
-        new("min", 3, "builtin: min(a, b)"),
-        new("max", 3, "builtin: max(a, b)"),
-        new("sqrt", 3, "builtin: sqrt(x)"),
-        new("pow", 3, "builtin: pow(base, exp)"),
-        new("log", 3, "builtin: log(x, base = optional)"),
-        new("log10", 3, "builtin: log10(x)"),
-        new("sin", 3, "builtin: sin(x)"),
-        new("cos", 3, "builtin: cos(x)"),
-        new("tan", 3, "builtin: tan(x)"),
-        new("sign", 3, "builtin: sign(x)"),
-        new("trunc", 3, "builtin: trunc(x)"),
-        new("PI", 21, "builtin constant"),
-        new("E", 21, "builtin constant"),
         new("print", 3, "builtin: print(value)"),
         new("put", 3, "builtin: put(value)"),
         new("clear", 3, "builtin: clear()"),
@@ -108,25 +74,6 @@ internal sealed class CfgsAnalyzer
         new("getc", 3, "builtin: getc()"),
         new("getlAsync", 3, "builtin: getlAsync()"),
         new("getcAsync", 3, "builtin: getcAsync()"),
-        new("fopen", 3, "builtin: fopen(path, mode)"),
-        new("fbopen", 3, "builtin: fbopen(path, mode)"),
-        new("fexist", 3, "builtin: fexist(path)"),
-        new("fcopy", 3, "builtin: fcopy(source, dest, overwrite = false)"),
-        new("fmove", 3, "builtin: fmove(source, dest, overwrite = false)"),
-        new("fdelete", 3, "builtin: fdelete(path)"),
-        new("readAllBytes", 3, "builtin: readAllBytes(path)"),
-        new("readAllBytesAsync", 3, "builtin: readAllBytesAsync(path)"),
-        new("writeAllBytes", 3, "builtin: writeAllBytes(path, bytes)"),
-        new("readTextAsync", 3, "builtin: readTextAsync(path)"),
-        new("writeTextAsync", 3, "builtin: writeTextAsync(path, text)"),
-        new("appendTextAsync", 3, "builtin: appendTextAsync(path, text)"),
-        new("fileSize", 3, "builtin: fileSize(path)"),
-        new("fileLastWriteTime", 3, "builtin: fileLastWriteTime(path)"),
-        new("fileLastWriteTimeUtc", 3, "builtin: fileLastWriteTimeUtc(path)"),
-        new("set_workspace", 3, "builtin: set_workspace(path)"),
-        new("get_workspace", 3, "builtin: get_workspace()"),
-        new("getDirectory", 3, "builtin: getDirectory(path)"),
-        new("DirectoryInfo", 3, "builtin: DirectoryInfo(path)"),
         new("interfaces", 3, "builtin: interfaces(value)"),
         new("implements", 3, "builtin: implements(value, interfaceType)"),
         new("interfaceof", 3, "builtin: interfaceof(interfaceType)"),
@@ -144,16 +91,7 @@ internal sealed class CfgsAnalyzer
                 new("has", 2, "encoding.has(nameOrCodePage)"),
                 new("info", 2, "encoding.info(nameOrCodePage)"),
                 new("names", 2, "encoding.names()"),
-                new("all", 2, "encoding.all()"),
-                new("textToBytes", 2, "encoding.textToBytes(text, encoding = \"utf-8\")"),
-                new("bytesToText", 2, "encoding.bytesToText(bytes, encoding = \"utf-8\")"),
-                new("encodeText", 2, "encoding.encodeText(text, encoding = \"utf-8\")"),
-                new("decodeText", 2, "encoding.decodeText(bytes, encoding = \"utf-8\")"),
-                new("convertEncoding", 2, "encoding.convertEncoding(bytes, fromEncoding, toEncoding)"),
-                new("hasEncoding", 2, "encoding.hasEncoding(nameOrCodePage)"),
-                new("encodingInfo", 2, "encoding.encodingInfo(nameOrCodePage)"),
-                new("encodingNames", 2, "encoding.encodingNames()"),
-                new("encodings", 2, "encoding.encodings()")
+                new("all", 2, "encoding.all()")
             ],
             ["regex"] =
             [
@@ -161,21 +99,14 @@ internal sealed class CfgsAnalyzer
                 new("matches", 2, "regex.matches(input, pattern)"),
                 new("replace", 2, "regex.replace(input, pattern, replacement)"),
                 new("test", 2, "regex.test(input, pattern)"),
-                new("split", 2, "regex.split(input, pattern)"),
-                new("regex_match", 2, "regex.regex_match(input, pattern)"),
-                new("regex_matches", 2, "regex.regex_matches(input, pattern)"),
-                new("regex_replace", 2, "regex.regex_replace(input, pattern, replacement)"),
-                new("regex_test", 2, "regex.regex_test(input, pattern)"),
-                new("regex_split", 2, "regex.regex_split(input, pattern)")
+                new("split", 2, "regex.split(input, pattern)")
             ],
             ["json"] =
             [
                 new("parse", 2, "json.parse(text)"),
                 new("stringify", 2, "json.stringify(value)"),
                 new("from", 2, "json.from(text)"),
-                new("to", 2, "json.to(value)"),
-                new("fromjson", 2, "json.fromjson(text)"),
-                new("tojson", 2, "json.tojson(value)")
+                new("to", 2, "json.to(value)")
             ],
             ["math"] =
             [
@@ -217,17 +148,11 @@ internal sealed class CfgsAnalyzer
             ["fs"] =
             [
                 new("open", 2, "fs.open(path, mode)"),
-                new("fopen", 2, "fs.fopen(path, mode)"),
                 new("openBinary", 2, "fs.openBinary(path, mode)"),
-                new("fbopen", 2, "fs.fbopen(path, mode)"),
                 new("exists", 2, "fs.exists(path)"),
-                new("fexist", 2, "fs.fexist(path)"),
                 new("copy", 2, "fs.copy(source, dest, overwrite = false)"),
-                new("fcopy", 2, "fs.fcopy(source, dest, overwrite = false)"),
                 new("move", 2, "fs.move(source, dest, overwrite = false)"),
-                new("fmove", 2, "fs.fmove(source, dest, overwrite = false)"),
                 new("delete", 2, "fs.delete(path)"),
-                new("fdelete", 2, "fs.fdelete(path)"),
                 new("readAllBytes", 2, "fs.readAllBytes(path)"),
                 new("readAllBytesAsync", 2, "fs.readAllBytesAsync(path)"),
                 new("writeAllBytes", 2, "fs.writeAllBytes(path, bytes)"),
@@ -235,33 +160,21 @@ internal sealed class CfgsAnalyzer
                 new("writeTextAsync", 2, "fs.writeTextAsync(path, text)"),
                 new("appendTextAsync", 2, "fs.appendTextAsync(path, text)"),
                 new("size", 2, "fs.size(path)"),
-                new("fileSize", 2, "fs.fileSize(path)"),
                 new("lastWriteTime", 2, "fs.lastWriteTime(path)"),
-                new("fileLastWriteTime", 2, "fs.fileLastWriteTime(path)"),
                 new("lastWriteTimeUtc", 2, "fs.lastWriteTimeUtc(path)"),
-                new("fileLastWriteTimeUtc", 2, "fs.fileLastWriteTimeUtc(path)"),
                 new("setWorkspace", 2, "fs.setWorkspace(path)"),
-                new("set_workspace", 2, "fs.set_workspace(path)"),
                 new("getWorkspace", 2, "fs.getWorkspace()"),
-                new("get_workspace", 2, "fs.get_workspace()"),
                 new("getDirectory", 2, "fs.getDirectory(path)"),
-                new("directoryInfo", 2, "fs.directoryInfo(path)"),
-                new("DirectoryInfo", 2, "fs.DirectoryInfo(path)")
+                new("directoryInfo", 2, "fs.directoryInfo(path)")
             ],
             ["file"] =
             [
                 new("open", 2, "file.open(path, mode)"),
-                new("fopen", 2, "file.fopen(path, mode)"),
                 new("openBinary", 2, "file.openBinary(path, mode)"),
-                new("fbopen", 2, "file.fbopen(path, mode)"),
                 new("exists", 2, "file.exists(path)"),
-                new("fexist", 2, "file.fexist(path)"),
                 new("copy", 2, "file.copy(source, dest, overwrite = false)"),
-                new("fcopy", 2, "file.fcopy(source, dest, overwrite = false)"),
                 new("move", 2, "file.move(source, dest, overwrite = false)"),
-                new("fmove", 2, "file.fmove(source, dest, overwrite = false)"),
                 new("delete", 2, "file.delete(path)"),
-                new("fdelete", 2, "file.fdelete(path)"),
                 new("readAllBytes", 2, "file.readAllBytes(path)"),
                 new("readAllBytesAsync", 2, "file.readAllBytesAsync(path)"),
                 new("writeAllBytes", 2, "file.writeAllBytes(path, bytes)"),
@@ -269,18 +182,12 @@ internal sealed class CfgsAnalyzer
                 new("writeTextAsync", 2, "file.writeTextAsync(path, text)"),
                 new("appendTextAsync", 2, "file.appendTextAsync(path, text)"),
                 new("size", 2, "file.size(path)"),
-                new("fileSize", 2, "file.fileSize(path)"),
                 new("lastWriteTime", 2, "file.lastWriteTime(path)"),
-                new("fileLastWriteTime", 2, "file.fileLastWriteTime(path)"),
                 new("lastWriteTimeUtc", 2, "file.lastWriteTimeUtc(path)"),
-                new("fileLastWriteTimeUtc", 2, "file.fileLastWriteTimeUtc(path)"),
                 new("setWorkspace", 2, "file.setWorkspace(path)"),
-                new("set_workspace", 2, "file.set_workspace(path)"),
                 new("getWorkspace", 2, "file.getWorkspace()"),
-                new("get_workspace", 2, "file.get_workspace()"),
                 new("getDirectory", 2, "file.getDirectory(path)"),
-                new("directoryInfo", 2, "file.directoryInfo(path)"),
-                new("DirectoryInfo", 2, "file.DirectoryInfo(path)")
+                new("directoryInfo", 2, "file.directoryInfo(path)")
             ],
             ["task"] =
             [
@@ -316,15 +223,15 @@ internal sealed class CfgsAnalyzer
         }
         catch (LexerException ex)
         {
-            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
+            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
         }
         catch (ParserException ex)
         {
-            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
+            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
         }
         catch (CompilerException ex)
         {
-            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.FileSource, ex.Line, ex.Column, ex.RawMessage, InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
+            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.FileSource, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
         }
         catch (Exception ex)
         {

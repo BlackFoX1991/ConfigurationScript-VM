@@ -31,6 +31,7 @@ namespace CFGS.StandardLibrary
         /// Gets or sets a value indicating whether AllowFileIO
         /// </summary>
         public static bool AllowFileIO { get; set; } = true;
+        private static bool IsFileIoAllowed => AllowFileIO && VM.AllowFileIO;
         private static readonly JsonSerializerOptions Options = new JsonSerializerOptions
         {
             WriteIndented = true,
@@ -93,18 +94,15 @@ namespace CFGS.StandardLibrary
             ]);
 
             RegisterNamespaceAliases(namespaces, "encoding", EncodingNamespace.Instance, [
-                "textToBytes", "bytesToText", "encode", "encodeText", "decode", "decodeText",
-                "convert", "convertEncoding", "has", "hasEncoding", "info", "encodingInfo",
-                "names", "encodingNames", "all", "encodings"
+                "encode", "decode", "convert", "has", "info", "names", "all"
             ]);
 
             RegisterNamespaceAliases(namespaces, "regex", RegexNamespace.Instance, [
-                "match", "matches", "replace", "test", "split",
-                "regex_match", "regex_matches", "regex_replace", "regex_test", "regex_split"
+                "match", "matches", "replace", "test", "split"
             ]);
 
             RegisterNamespaceAliases(namespaces, "json", JsonNamespace.Instance, [
-                "parse", "from", "fromjson", "stringify", "to", "tojson"
+                "parse", "from", "stringify", "to"
             ]);
 
             RegisterNamespaceAliases(namespaces, "math", MathNamespace.Instance, [
@@ -118,12 +116,11 @@ namespace CFGS.StandardLibrary
 
         private static readonly string[] FileSystemNamespaceMembers =
         [
-            "open", "fopen", "openBinary", "fbopen", "delete", "fdelete", "move", "fmove",
-            "copy", "fcopy", "exists", "fexist", "readAllBytes", "readAllBytesAsync",
+            "open", "openBinary", "delete", "move",
+            "copy", "exists", "readAllBytes", "readAllBytesAsync",
             "writeAllBytes", "readTextAsync", "writeTextAsync", "appendTextAsync", "size",
-            "fileSize", "lastWriteTime", "fileLastWriteTime", "lastWriteTimeUtc",
-            "fileLastWriteTimeUtc", "setWorkspace", "set_workspace", "getWorkspace",
-            "get_workspace", "getDirectory", "directoryInfo", "DirectoryInfo"
+            "lastWriteTime", "lastWriteTimeUtc", "setWorkspace", "getWorkspace",
+            "getDirectory", "directoryInfo"
         ];
 
         private static void RegisterNamespaceAliases(INamespaceRegistry namespaces, string name, object instance, IEnumerable<string> members)
@@ -195,22 +192,13 @@ namespace CFGS.StandardLibrary
         {
             Type T = typeof(EncodingNamespace);
 
-            intrinsics.Register(T, new IntrinsicDescriptor("textToBytes", 1, 2, (recv, a, instr) => TextToBytesVm(a, instr, "encoding.textToBytes")));
-            intrinsics.Register(T, new IntrinsicDescriptor("bytesToText", 1, 2, (recv, a, instr) => BytesToTextVm(a, instr, "encoding.bytesToText")));
             intrinsics.Register(T, new IntrinsicDescriptor("encode", 1, 2, (recv, a, instr) => TextToBytesVm(a, instr, "encoding.encode")));
-            intrinsics.Register(T, new IntrinsicDescriptor("encodeText", 1, 2, (recv, a, instr) => TextToBytesVm(a, instr, "encoding.encodeText")));
             intrinsics.Register(T, new IntrinsicDescriptor("decode", 1, 2, (recv, a, instr) => BytesToTextVm(a, instr, "encoding.decode")));
-            intrinsics.Register(T, new IntrinsicDescriptor("decodeText", 1, 2, (recv, a, instr) => BytesToTextVm(a, instr, "encoding.decodeText")));
             intrinsics.Register(T, new IntrinsicDescriptor("convert", 3, 3, (recv, a, instr) => ConvertEncodingVm(a, instr, "encoding.convert")));
-            intrinsics.Register(T, new IntrinsicDescriptor("convertEncoding", 3, 3, (recv, a, instr) => ConvertEncodingVm(a, instr, "encoding.convertEncoding")));
             intrinsics.Register(T, new IntrinsicDescriptor("has", 1, 1, (recv, a, instr) => HasEncodingVm(a, instr, "encoding.has")));
-            intrinsics.Register(T, new IntrinsicDescriptor("hasEncoding", 1, 1, (recv, a, instr) => HasEncodingVm(a, instr, "encoding.hasEncoding")));
             intrinsics.Register(T, new IntrinsicDescriptor("info", 1, 1, (recv, a, instr) => EncodingInfoVm(a, instr, "encoding.info")));
-            intrinsics.Register(T, new IntrinsicDescriptor("encodingInfo", 1, 1, (recv, a, instr) => EncodingInfoVm(a, instr, "encoding.encodingInfo")));
             intrinsics.Register(T, new IntrinsicDescriptor("names", 0, 0, (recv, a, instr) => EncodingNamesVm()));
-            intrinsics.Register(T, new IntrinsicDescriptor("encodingNames", 0, 0, (recv, a, instr) => EncodingNamesVm()));
             intrinsics.Register(T, new IntrinsicDescriptor("all", 0, 0, (recv, a, instr) => EncodingsVm()));
-            intrinsics.Register(T, new IntrinsicDescriptor("encodings", 0, 0, (recv, a, instr) => EncodingsVm()));
         }
 
         private static Dictionary<string, object> RegexMatchToVm(Match match)
@@ -271,11 +259,6 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("replace", 3, 3, (recv, a, instr) => RegexReplaceVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("test", 2, 2, (recv, a, instr) => RegexTestVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("split", 2, 2, (recv, a, instr) => RegexSplitVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("regex_match", 2, 2, (recv, a, instr) => RegexMatchVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("regex_matches", 2, 2, (recv, a, instr) => RegexMatchesVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("regex_replace", 3, 3, (recv, a, instr) => RegexReplaceVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("regex_test", 2, 2, (recv, a, instr) => RegexTestVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("regex_split", 2, 2, (recv, a, instr) => RegexSplitVm(a)));
         }
 
         private static object JsonParseVm(List<object> args)
@@ -299,10 +282,8 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("parse", 1, 1, (recv, a, instr) => JsonParseVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("from", 1, 1, (recv, a, instr) => JsonParseVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fromjson", 1, 1, (recv, a, instr) => JsonParseVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("stringify", 1, 1, (recv, a, instr) => JsonStringifyVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("to", 1, 1, (recv, a, instr) => JsonStringifyVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("tojson", 1, 1, (recv, a, instr) => JsonStringifyVm(a)));
         }
 
         private static object MathAbsVm(List<object> args) => args[0] switch
@@ -424,9 +405,7 @@ namespace CFGS.StandardLibrary
         private static object FileDeleteVm(List<object> args, Instruction instr)
         {
             EnsureFileIo(instr);
-            var path = args[0]?.ToString() ?? string.Empty;
-            if (path.Length == 0)
-                throw new ArgumentException("fdelete requires a file path.");
+            string path = ResolveRequiredWorkspacePath(args[0], instr, "fs.delete");
 
             if (!File.Exists(path))
                 return 0;
@@ -438,55 +417,51 @@ namespace CFGS.StandardLibrary
         private static object FileMoveVm(List<object> args, Instruction instr)
         {
             EnsureFileIo(instr);
-            var source = args[0]?.ToString() ?? string.Empty;
-            var destination = args[1]?.ToString() ?? string.Empty;
+            string originalDestination = args[1]?.ToString() ?? string.Empty;
+            string source = ResolveRequiredWorkspacePath(args[0], instr, "fs.move");
+            string destination = ResolveRequiredWorkspacePath(args[1], instr, "fs.move");
             var overwrite = args.Count >= 3 && Convert.ToBoolean(args[2], CultureInfo.InvariantCulture);
-
-            if (source.Length == 0 || destination.Length == 0)
-                throw new ArgumentException("fmove requires source and destination paths.");
 
             var parent = Path.GetDirectoryName(Path.GetFullPath(destination));
             if (!string.IsNullOrWhiteSpace(parent))
                 Directory.CreateDirectory(parent);
 
             File.Move(source, destination, overwrite);
-            return destination;
+            return originalDestination;
         }
 
         private static object FileCopyVm(List<object> args, Instruction instr)
         {
             EnsureFileIo(instr);
-            var source = args[0]?.ToString() ?? string.Empty;
-            var destination = args[1]?.ToString() ?? string.Empty;
+            string originalDestination = args[1]?.ToString() ?? string.Empty;
+            string source = ResolveRequiredWorkspacePath(args[0], instr, "fs.copy");
+            string destination = ResolveRequiredWorkspacePath(args[1], instr, "fs.copy");
             var overwrite = args.Count >= 3 && Convert.ToBoolean(args[2], CultureInfo.InvariantCulture);
-
-            if (source.Length == 0 || destination.Length == 0)
-                throw new ArgumentException("fcopy requires source and destination paths.");
 
             var parent = Path.GetDirectoryName(Path.GetFullPath(destination));
             if (!string.IsNullOrWhiteSpace(parent))
                 Directory.CreateDirectory(parent);
 
             File.Copy(source, destination, overwrite);
-            return destination;
+            return originalDestination;
         }
 
         private static object FileOpenVm(List<object> args, Instruction instr)
         {
-            (string path, int mode, FileStream fs, bool canRead, bool canWrite) = OpenFileStream(args, instr, "fopen");
+            (string path, int mode, FileStream fs, bool canRead, bool canWrite) = OpenFileStream(args, instr, "fs.open");
             return new FileHandle(path, mode, fs, canRead, canWrite);
         }
 
         private static object BinaryFileOpenVm(List<object> args, Instruction instr)
         {
-            (string path, int mode, FileStream fs, bool canRead, bool canWrite) = OpenFileStream(args, instr, "fbopen");
+            (string path, int mode, FileStream fs, bool canRead, bool canWrite) = OpenFileStream(args, instr, "fs.openBinary");
             return new BinaryFileHandle(path, mode, fs, canRead, canWrite);
         }
 
         private static object ReadAllBytesVm(List<object> args, Instruction instr)
         {
             EnsureFileIo(instr);
-            string path = args[0]?.ToString() ?? "";
+            string path = ResolveRequiredWorkspacePath(args[0], instr, "readAllBytes");
             try
             {
                 return ToVmByteArray(File.ReadAllBytes(path));
@@ -502,7 +477,7 @@ namespace CFGS.StandardLibrary
         private static object ReadAllBytesAsyncVm(List<object> args, Instruction instr)
         {
             EnsureFileIo(instr);
-            string path = args[0]?.ToString() ?? "";
+            string path = ResolveRequiredWorkspacePath(args[0], instr, "readAllBytesAsync");
             return Task.Run<object?>(async () =>
             {
                 try
@@ -522,7 +497,7 @@ namespace CFGS.StandardLibrary
         private static object WriteAllBytesVm(List<object> args, Instruction instr)
         {
             EnsureFileIo(instr);
-            string path = args[0]?.ToString() ?? "";
+            string path = ResolveRequiredWorkspacePath(args[0], instr, "writeAllBytes");
             byte[] bytes = ConvertVmValueToBytes(args[1], instr, "data");
             try
             {
@@ -539,26 +514,26 @@ namespace CFGS.StandardLibrary
 
         private static object ReadTextAsyncVm(List<object> args, Instruction instr)
         {
-            if (!AllowFileIO)
+            if (!IsFileIoAllowed)
                 throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-            string path = args[0]?.ToString() ?? "";
+            string path = ResolveRequiredWorkspacePath(args[0], instr, "readTextAsync");
             return Task.Run<object?>(async () => await File.ReadAllTextAsync(path).ConfigureAwait(false));
         }
 
         private static object WriteTextAsyncVm(List<object> args, Instruction instr)
         {
-            if (!AllowFileIO)
+            if (!IsFileIoAllowed)
                 throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-            string path = args[0]?.ToString() ?? "";
+            string path = ResolveRequiredWorkspacePath(args[0], instr, "writeTextAsync");
             string text = args[1]?.ToString() ?? "";
             return Task.Run<object?>(async () => { await File.WriteAllTextAsync(path, text).ConfigureAwait(false); return 1; });
         }
 
         private static object AppendTextAsyncVm(List<object> args, Instruction instr)
         {
-            if (!AllowFileIO)
+            if (!IsFileIoAllowed)
                 throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-            string path = args[0]?.ToString() ?? "";
+            string path = ResolveRequiredWorkspacePath(args[0], instr, "appendTextAsync");
             string text = args[1]?.ToString() ?? "";
             return Task.Run<object?>(async () => { await File.AppendAllTextAsync(path, text).ConfigureAwait(false); return 1; });
         }
@@ -566,77 +541,87 @@ namespace CFGS.StandardLibrary
         private static object FileSizeVm(List<object> args, Instruction instr)
         {
             EnsureFileIo(instr);
-            string path = args[0]?.ToString() ?? "";
+            string path = ResolveRequiredWorkspacePath(args[0], instr, "fs.size");
             return File.Exists(path) ? new FileInfo(path).Length : -1L;
         }
 
         private static object FileLastWriteTimeVm(List<object> args, Instruction instr)
         {
             EnsureFileIo(instr);
-            string path = args[0]?.ToString() ?? "";
+            string path = ResolveRequiredWorkspacePath(args[0], instr, "fs.lastWriteTime");
             return File.GetLastWriteTime(path);
         }
 
         private static object FileLastWriteTimeUtcVm(List<object> args, Instruction instr)
         {
             EnsureFileIo(instr);
-            string path = args[0]?.ToString() ?? "";
+            string path = ResolveRequiredWorkspacePath(args[0], instr, "fs.lastWriteTimeUtc");
             return File.GetLastWriteTimeUtc(path);
         }
 
-        private static object FileExistsVm(List<object> args)
+        private static object FileExistsVm(List<object> args, Instruction instr)
         {
+            EnsureFileIo(instr);
             if (args[0] is not string)
                 return false;
-            return File.Exists(args[0].ToString());
+            return File.Exists(ResolveWorkspacePath(args[0].ToString() ?? string.Empty));
         }
 
         private static object SetWorkspaceVm(List<object> args, Instruction instr)
         {
-            if (!AllowFileIO)
+            if (!IsFileIoAllowed)
                 throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
             if (args[0] is not string path)
-                throw new VMException("Runtime error: set_workspace requires a string path",
+                throw new VMException("Runtime error: fs.setWorkspace requires a string path",
                     instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
             try
             {
-                Directory.SetCurrentDirectory(path);
+                string resolved = ResolveWorkspacePath(path);
+                if (!Directory.Exists(resolved))
+                    throw new DirectoryNotFoundException(resolved);
+
+                if (VM.CurrentVm is not VM vm)
+                    throw new InvalidOperationException("no current VM is available");
+
+                vm.WorkingDirectory = resolved;
                 return 1;
             }
             catch (Exception ex)
             {
-                throw new VMException($"Runtime error: set_workspace('{path}') failed: {ex.GetType().Name}: {ex.Message}",
+                throw new VMException($"Runtime error: fs.setWorkspace('{path}') failed: {ex.GetType().Name}: {ex.Message}",
                     instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
             }
         }
 
-        private static object GetWorkspaceVm() => Directory.GetCurrentDirectory();
+        private static object GetWorkspaceVm(Instruction instr)
+        {
+            EnsureFileIo(instr);
+            return VM.CurrentVm?.WorkingDirectory ?? Environment.CurrentDirectory;
+        }
 
         private static object GetDirectoryVm(List<object> args, Instruction instr)
         {
-            if (!AllowFileIO)
+            if (!IsFileIoAllowed)
                 throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
-            return Path.GetDirectoryName(args[0]?.ToString() ?? "") ?? "";
+            return Path.GetDirectoryName(ResolveWorkspacePath(args[0]?.ToString() ?? "")) ?? "";
         }
 
-        private static object DirectoryInfoVm(List<object> args) => new DirectoryInfo(args[0]?.ToString() ?? "");
+        private static object DirectoryInfoVm(List<object> args, Instruction instr)
+        {
+            EnsureFileIo(instr);
+            return new DirectoryInfo(ResolveWorkspacePath(args[0]?.ToString() ?? ""));
+        }
 
         private static void RegisterFileSystemNamespace(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(FileSystemNamespace);
 
             intrinsics.Register(T, new IntrinsicDescriptor("open", 2, 2, (recv, a, instr) => FileOpenVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fopen", 2, 2, (recv, a, instr) => FileOpenVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("openBinary", 2, 2, (recv, a, instr) => BinaryFileOpenVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fbopen", 2, 2, (recv, a, instr) => BinaryFileOpenVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("delete", 1, 1, (recv, a, instr) => FileDeleteVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fdelete", 1, 1, (recv, a, instr) => FileDeleteVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("move", 2, 3, (recv, a, instr) => FileMoveVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fmove", 2, 3, (recv, a, instr) => FileMoveVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("copy", 2, 3, (recv, a, instr) => FileCopyVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fcopy", 2, 3, (recv, a, instr) => FileCopyVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("exists", 1, 1, (recv, a, instr) => FileExistsVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fexist", 1, 1, (recv, a, instr) => FileExistsVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("exists", 1, 1, (recv, a, instr) => FileExistsVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("readAllBytes", 1, 1, (recv, a, instr) => ReadAllBytesVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("readAllBytesAsync", 1, 1, (recv, a, instr) => ReadAllBytesAsyncVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("writeAllBytes", 2, 2, (recv, a, instr) => WriteAllBytesVm(a, instr)));
@@ -644,18 +629,12 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("writeTextAsync", 2, 2, (recv, a, instr) => WriteTextAsyncVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("appendTextAsync", 2, 2, (recv, a, instr) => AppendTextAsyncVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("size", 1, 1, (recv, a, instr) => FileSizeVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fileSize", 1, 1, (recv, a, instr) => FileSizeVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("lastWriteTime", 1, 1, (recv, a, instr) => FileLastWriteTimeVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fileLastWriteTime", 1, 1, (recv, a, instr) => FileLastWriteTimeVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("lastWriteTimeUtc", 1, 1, (recv, a, instr) => FileLastWriteTimeUtcVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("fileLastWriteTimeUtc", 1, 1, (recv, a, instr) => FileLastWriteTimeUtcVm(a, instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("setWorkspace", 1, 1, (recv, a, instr) => SetWorkspaceVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("set_workspace", 1, 1, (recv, a, instr) => SetWorkspaceVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("getWorkspace", 0, 0, (recv, a, instr) => GetWorkspaceVm()));
-            intrinsics.Register(T, new IntrinsicDescriptor("get_workspace", 0, 0, (recv, a, instr) => GetWorkspaceVm()));
+            intrinsics.Register(T, new IntrinsicDescriptor("getWorkspace", 0, 0, (recv, a, instr) => GetWorkspaceVm(instr)));
             intrinsics.Register(T, new IntrinsicDescriptor("getDirectory", 1, 1, (recv, a, instr) => GetDirectoryVm(a, instr)));
-            intrinsics.Register(T, new IntrinsicDescriptor("directoryInfo", 1, 1, (recv, a, instr) => DirectoryInfoVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("DirectoryInfo", 1, 1, (recv, a, instr) => DirectoryInfoVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("directoryInfo", 1, 1, (recv, a, instr) => DirectoryInfoVm(a, instr)));
         }
 
         /// <summary>
@@ -691,8 +670,30 @@ namespace CFGS.StandardLibrary
 
         private static void EnsureFileIo(Instruction instr)
         {
-            if (!AllowFileIO)
+            if (!IsFileIoAllowed)
                 throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+        }
+
+        private static string ResolveWorkspacePath(string path)
+        {
+            if (VM.CurrentVm is VM vm)
+                return vm.ResolveWorkspacePath(path);
+
+            string expanded = Environment.ExpandEnvironmentVariables((path ?? string.Empty).Trim());
+            return Path.IsPathFullyQualified(expanded)
+                ? Path.GetFullPath(expanded)
+                : Path.GetFullPath(expanded);
+        }
+
+        private static string ResolveRequiredWorkspacePath(object? value, Instruction instr, string opName)
+        {
+            string path = value?.ToString() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(path))
+                throw new VMException(
+                    $"Runtime error: {opName} requires a non-empty path",
+                    instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+
+            return ResolveWorkspacePath(path);
         }
 
         private static byte ConvertToByteValue(object value, Instruction instr, string name)
@@ -904,6 +905,7 @@ namespace CFGS.StandardLibrary
             EnsureFileIo(instr);
 
             (string path, int mode) = ParseFileOpenArgs(args, instr, opName);
+            path = ResolveRequiredWorkspacePath(path, instr, opName);
             (FileMode fileMode, FileAccess access, bool canRead, bool canWrite) = ResolveFileOpenMode(mode, instr, opName);
 
             try
@@ -1049,21 +1051,6 @@ namespace CFGS.StandardLibrary
                 return ConsolePutVm(args);
             }));
 
-            builtins.Register(new BuiltinDescriptor("fdelete", 1, 1, (args, instr) =>
-            {
-                return FileDeleteVm(args, instr);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("fmove", 2, 3, (args, instr) =>
-            {
-                return FileMoveVm(args, instr);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("fcopy", 2, 3, (args, instr) =>
-            {
-                return FileCopyVm(args, instr);
-            }));
-
             builtins.Register(new BuiltinDescriptor("clear", 0, 0, (args, instr) =>
             {
                 return ConsoleClearVm();
@@ -1207,15 +1194,6 @@ namespace CFGS.StandardLibrary
             builtins.Register(new BuiltinDescriptor("toi64", 1, 1, (args, instr) => Convert.ToInt64(args[0])));
             builtins.Register(new BuiltinDescriptor("chr", 1, 1, (args, instr) => Convert.ToChar(args[0])));
 
-            builtins.Register(new BuiltinDescriptor("set_workspace", 1, 1, (args, instr) =>
-            {
-                return SetWorkspaceVm(args, instr);
-            }));
-            builtins.Register(new BuiltinDescriptor("get_workspace", 0, 0, (args, instr) =>
-            {
-                return GetWorkspaceVm();
-            }));
-
             builtins.Register(new BuiltinDescriptor("ScriptPath", 0, 0, (args, instr) =>
             {
                 return VM.CurrentVm?.EntryScriptPath ?? string.Empty;
@@ -1233,16 +1211,6 @@ namespace CFGS.StandardLibrary
                                                     ToList<object>();
             }));
 
-            builtins.Register(new BuiltinDescriptor("getDirectory", 1, 1, (args, instr) =>
-            {
-                return GetDirectoryVm(args, instr);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("DirectoryInfo", 1, 1, (args, instr) =>
-            {
-                return DirectoryInfoVm(args);
-            }));
-
             builtins.Register(new BuiltinDescriptor("DateTime", 0, 0, (args, instr) =>
             {
                 return new DateTime();
@@ -1254,89 +1222,6 @@ namespace CFGS.StandardLibrary
             builtins.Register(new BuiltinDescriptor("UtcNow", 0, 1, (args, instr) =>
             {
                 return DateTime.UtcNow.ToString(args.Count > 0 ? args[0].ToString() : null);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("abs", 1, 1, (args, instr) => MathAbsVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("rand", 3, 3, (args, instr) =>
-            {
-                return MathRandVm(args);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("floor", 1, 1, (args, instr) =>
-                MathFloorVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("ceil", 1, 1, (args, instr) =>
-                MathCeilVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("round", 1, 2, (args, instr) =>
-                MathRoundVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("min", 2, 2, (args, instr) =>
-            {
-                return MathMinVm(args);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("max", 2, 2, (args, instr) =>
-            {
-                return MathMaxVm(args);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("sqrt", 1, 1, (args, instr) =>
-                MathSqrtVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("pow", 2, 2, (args, instr) =>
-                MathPowVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("log", 1, 2, (args, instr) =>
-                MathLogVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("log10", 1, 1, (args, instr) =>
-                MathLog10Vm(args)));
-
-            builtins.Register(new BuiltinDescriptor("sin", 1, 1, (args, instr) =>
-                MathSinVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("cos", 1, 1, (args, instr) =>
-                MathCosVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("tan", 1, 1, (args, instr) =>
-                MathTanVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("sign", 1, 1, (args, instr) =>
-                MathSignVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("trunc", 1, 1, (args, instr) =>
-                MathTruncVm(args)));
-
-            builtins.Register(new BuiltinDescriptor("PI", 0, 0, (args, instr) => Math.PI));
-
-            builtins.Register(new BuiltinDescriptor("E", 0, 0, (args, instr) => Math.E));
-
-            // Regex builtins
-            builtins.Register(new BuiltinDescriptor("regex_match", 2, 2, (args, instr) =>
-            {
-                return RegexMatchVm(args);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("regex_matches", 2, 2, (args, instr) =>
-            {
-                return RegexMatchesVm(args);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("regex_replace", 3, 3, (args, instr) =>
-            {
-                return RegexReplaceVm(args);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("regex_test", 2, 2, (args, instr) =>
-            {
-                return RegexTestVm(args);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("regex_split", 2, 2, (args, instr) =>
-            {
-                return RegexSplitVm(args);
             }));
 
             builtins.Register(new BuiltinDescriptor("isdigit", 1, 1, (args, instr) =>
@@ -1377,90 +1262,6 @@ namespace CFGS.StandardLibrary
                 return SnapshotMutableDictionaryKeys(d).Cast<object>().ToList();
             }));
 
-            builtins.Register(new BuiltinDescriptor("fromjson", 1, 1, (args, instr) =>
-            {
-                return JsonParseVm(args);
-            }));
-
-
-            builtins.Register(new BuiltinDescriptor("tojson", 1, 1, (args, instr) =>
-            {
-                return JsonStringifyVm(args);
-            }));
-
-
-
-
-            builtins.Register(new BuiltinDescriptor("fopen", 2, 2, (args, instr) =>
-            {
-                return FileOpenVm(args, instr);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("fbopen", 2, 2, (args, instr) =>
-            {
-                return BinaryFileOpenVm(args, instr);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("readAllBytes", 1, 1, (args, instr) =>
-            {
-                return ReadAllBytesVm(args, instr);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("readAllBytesAsync", 1, 1, (args, instr) =>
-            {
-                return ReadAllBytesAsyncVm(args, instr);
-            }, NativeCallOptions.Awaitable));
-
-            builtins.Register(new BuiltinDescriptor("writeAllBytes", 2, 2, (args, instr) =>
-            {
-                return WriteAllBytesVm(args, instr);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("textToBytes", 1, 2, (args, instr) =>
-            {
-                return TextToBytesVm(args, instr, "textToBytes");
-            }));
-
-            builtins.Register(new BuiltinDescriptor("bytesToText", 1, 2, (args, instr) =>
-            {
-                return BytesToTextVm(args, instr, "bytesToText");
-            }));
-
-            builtins.Register(new BuiltinDescriptor("encodeText", 1, 2, (args, instr) =>
-            {
-                return TextToBytesVm(args, instr, "encodeText");
-            }));
-
-            builtins.Register(new BuiltinDescriptor("decodeText", 1, 2, (args, instr) =>
-            {
-                return BytesToTextVm(args, instr, "decodeText");
-            }));
-
-            builtins.Register(new BuiltinDescriptor("convertEncoding", 3, 3, (args, instr) =>
-            {
-                return ConvertEncodingVm(args, instr, "convertEncoding");
-            }));
-
-            builtins.Register(new BuiltinDescriptor("hasEncoding", 1, 1, (args, instr) =>
-            {
-                return HasEncodingVm(args, instr, "hasEncoding");
-            }));
-
-            builtins.Register(new BuiltinDescriptor("encodingInfo", 1, 1, (args, instr) =>
-            {
-                return EncodingInfoVm(args, instr, "encodingInfo");
-            }));
-
-            builtins.Register(new BuiltinDescriptor("encodingNames", 0, 0, (args, instr) =>
-            {
-                return EncodingNamesVm();
-            }));
-
-            builtins.Register(new BuiltinDescriptor("encodings", 0, 0, (args, instr) =>
-            {
-                return EncodingsVm();
-            }));
-
             builtins.Register(new BuiltinDescriptor("sleep", 1, 1, (args, instr) =>
             {
                 int ms = Convert.ToInt32(args[0], CultureInfo.InvariantCulture);
@@ -1482,40 +1283,6 @@ namespace CFGS.StandardLibrary
                 return ConsoleGetCharAsyncVm();
             }, NativeCallOptions.Awaitable));
 
-            builtins.Register(new BuiltinDescriptor("readTextAsync", 1, 1, (args, instr) =>
-            {
-                return ReadTextAsyncVm(args, instr);
-            }, NativeCallOptions.Awaitable));
-
-            builtins.Register(new BuiltinDescriptor("writeTextAsync", 2, 2, (args, instr) =>
-            {
-                return WriteTextAsyncVm(args, instr);
-            }, NativeCallOptions.Awaitable));
-
-            builtins.Register(new BuiltinDescriptor("appendTextAsync", 2, 2, (args, instr) =>
-            {
-                return AppendTextAsyncVm(args, instr);
-            }, NativeCallOptions.Awaitable));
-
-            builtins.Register(new BuiltinDescriptor("fileSize", 1, 1, (args, instr) =>
-            {
-                return FileSizeVm(args, instr);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("fileLastWriteTime", 1, 1, (args, instr) =>
-            {
-                return FileLastWriteTimeVm(args, instr);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("fileLastWriteTimeUtc", 1, 1, (args, instr) =>
-            {
-                return FileLastWriteTimeUtcVm(args, instr);
-            }));
-
-            builtins.Register(new BuiltinDescriptor("fexist", 1, 1, (args, instr) =>
-            {
-                return FileExistsVm(args);
-            }));
         }
 
         /// <summary>
@@ -2139,26 +1906,26 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("setCreationTime", 1, 1, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 DirectoryInfo di = (DirectoryInfo)r; di.CreationTime = ParseDt(a[0]); return di;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("setLastAccessTime", 1, 1, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 DirectoryInfo di = (DirectoryInfo)r; di.LastAccessTime = ParseDt(a[0]); return di;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("setLastWriteTime", 1, 1, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 DirectoryInfo di = (DirectoryInfo)r; di.LastWriteTime = ParseDt(a[0]); return di;
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("setAttributes", 1, 1, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 DirectoryInfo di = (DirectoryInfo)r;
                 long val = Convert.ToInt64(a[0], CultureInfo.InvariantCulture);
@@ -2167,13 +1934,13 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("create", 0, 0, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 ((DirectoryInfo)r).Create(); return r;
             }));
             object DeleteDirectoryInfo(object r, List<object> a, Instruction instr)
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 bool recursive = a.Count > 0 && Convert.ToBoolean(a[0], CultureInfo.InvariantCulture);
                 ((DirectoryInfo)r).Delete(recursive); return 1;
@@ -2183,20 +1950,20 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("deleteDir", 0, 1, DeleteDirectoryInfo));
             intrinsics.Register(T, new IntrinsicDescriptor("refresh", 0, 0, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 ((DirectoryInfo)r).Refresh(); return r;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("moveTo", 1, 1, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 string dest = a[0]?.ToString() ?? "";
                 ((DirectoryInfo)r).MoveTo(dest); return r;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("createSubdirectory", 1, 1, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 string name = a[0]?.ToString() ?? "";
                 return ((DirectoryInfo)r).CreateSubdirectory(name);
@@ -2204,7 +1971,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("getFiles", 0, 2, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 DirectoryInfo di = (DirectoryInfo)r;
                 string pattern = a.Count >= 1 ? a[0]?.ToString() ?? "*" : "*";
@@ -2214,7 +1981,7 @@ namespace CFGS.StandardLibrary
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("getDirectories", 0, 2, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 DirectoryInfo di = (DirectoryInfo)r;
                 string pattern = a.Count >= 1 ? a[0]?.ToString() ?? "*" : "*";
@@ -2224,7 +1991,7 @@ namespace CFGS.StandardLibrary
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("enumerateFileSystem", 0, 2, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 DirectoryInfo di = (DirectoryInfo)r;
                 string pattern = a.Count >= 1 ? a[0]?.ToString() ?? "*" : "*";
@@ -2235,7 +2002,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("existsOrCreate", 0, 0, (r, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 DirectoryInfo di = (DirectoryInfo)r;
                 if (!di.Exists) di.Create();
@@ -2244,7 +2011,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(typeof(string), new IntrinsicDescriptor("dirinfo", 0, 0, (recv, a, instr) =>
             {
-                if (!AllowFileIO)
+                if (!IsFileIoAllowed)
                     throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
                 return new DirectoryInfo(recv?.ToString() ?? "");
             }));

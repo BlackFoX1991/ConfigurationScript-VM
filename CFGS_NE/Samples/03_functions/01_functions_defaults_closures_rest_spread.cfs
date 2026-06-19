@@ -1,0 +1,112 @@
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates normal functions, nested functions,
+# closures, recursion, default parameters, named arguments,
+# destructuring parameters, rest parameters, and spread calls.
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+func add(a, b) {
+    return a + b;
+}
+ensure("simple function", add(2, 5) == 7);
+
+func noValue() {
+    return;
+}
+ensure("return without value", noValue() == null);
+
+func factorial(n) {
+    if (n <= 1) {
+        return 1;
+    }
+
+    return n * factorial(n - 1);
+}
+ensure("recursion", factorial(6) == 720);
+
+# Default parameters can depend on previous parameters.
+func priceLine(quantity, unit = 10, tax = quantity) {
+    return quantity * unit + tax;
+}
+ensure("default parameters", priceLine(3) == 33);
+ensure("named arguments", priceLine(quantity: 3, tax: 1, unit: 4) == 13);
+
+# Anonymous functions capture variables by reference.
+func makeAdder(base) {
+    return func(value) {
+        return base + value;
+    };
+}
+
+var add10 = makeAdder(10);
+ensure("closure factory", add10(5) == 15);
+
+var mutable = 1;
+var readMutable = func() {
+    return mutable;
+};
+mutable = 9;
+ensure("closure captures mutation", readMutable() == 9);
+
+# Nested named functions can also close over outer variables.
+func makeFormatter(prefix) {
+    func format(value) {
+        return prefix + ":" + str(value);
+    }
+
+    return format;
+}
+ensure("nested function closure", makeFormatter("SKU")(42) == "SKU:42");
+
+# Destructuring parameters make data-shaped APIs compact.
+func lineTotal({quantity, unit: unitPrice}) {
+    return quantity * unitPrice;
+}
+ensure("dictionary parameter destructuring", lineTotal({"quantity": 4, "unit": 6}) == 24);
+
+func pairTotal([left, right]) {
+    return left + right;
+}
+ensure("array parameter destructuring", pairTotal([4, 8]) == 12);
+
+# Rest parameters collect extra positional arguments.
+func collect(seed, * items) {
+    var total = seed;
+    foreach (var value in items) {
+        total = total + value;
+    }
+
+    return total;
+}
+ensure("rest parameters", collect(1, 2, 3, 4) == 10);
+
+# Spread passes an array as positional arguments.
+var source = [2, 3, 4];
+ensure("spread call", collect(1, * source) == 10);
+ensure("spread then named", priceLine(*[2], unit: 7, tax: 1) == 15);
+
+# Constructors and methods support the same call model.
+class Basket() {
+    var total = 0;
+
+    func init( * prices) {
+        this.total = collect(0, * prices);
+    }
+
+    func add(value = 1) {
+        this.total = this.total + value;
+        return this.total;
+    }
+}
+
+var basket = new Basket(5, 6, 7);
+ensure("constructor rest", basket.total == 18);
+ensure("method default arg", basket.add() == 19);
+ensure("method named arg", basket.add(value: 3) == 22);
+
+print("FUNCTIONS_OK:" + str(basket.total));

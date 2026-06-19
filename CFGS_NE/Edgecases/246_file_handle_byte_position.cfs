@@ -4,7 +4,7 @@ edge_begin("246_file_handle_byte_position");
 
 var path = "_tmp_file_handle_byte_position.bin";
 
-var writer = fopen(path, 2);
+var writer = fs.open(path, 2);
 edge_eq("writer_initial_position", writer.position(), 0);
 writer.writeByte(65);
 edge_eq("writer_position_after_byte", writer.position(), 1);
@@ -16,7 +16,7 @@ writer.writeByte(90);
 writer.flush();
 writer.close();
 
-var reader = fopen(path, 0);
+var reader = fs.open(path, 0);
 edge_eq("reader_length", reader.length(), 3);
 edge_eq("reader_initial_position", reader.position(), 0);
 edge_eq("reader_read_byte_0", reader.readByte(), 65);
@@ -31,7 +31,7 @@ edge_eq("reader_reset_position", reader.setPosition(1), 1);
 edge_eq("reader_read_after_reset", reader.readByte(), 90);
 reader.close();
 
-var rw = fopen(path, 1);
+var rw = fs.open(path, 1);
 edge_eq("rw_set_end", rw.setPosition(rw.length()), 3);
 rw.writeByte(68);
 edge_eq("rw_position_after_append", rw.position(), 4);
@@ -43,7 +43,7 @@ edge_eq("rw_read_byte_2", rw.readByte(), 67);
 edge_eq("rw_read_byte_3", rw.readByte(), 68);
 rw.close();
 
-var asyncReader = fopen(path, 0);
+var asyncReader = fs.open(path, 0);
 edge_eq("async_read_byte", await asyncReader.readByteAsync(), 65);
 var asyncChunk = await asyncReader.readBytesAsync(2);
 edge_eq("async_read_bytes_len", len(asyncChunk), 2);
@@ -51,7 +51,7 @@ edge_eq("async_read_bytes_0", asyncChunk[0], 90);
 edge_eq("async_read_bytes_1", asyncChunk[1], 67);
 asyncReader.close();
 
-var binaryReader = fbopen(path, 0);
+var binaryReader = fs.openBinary(path, 0);
 edge_eq("binary_length_alias", binaryReader.length(), 4);
 edge_eq("binary_position_alias", binaryReader.position(), 0);
 edge_eq("binary_set_position_alias", binaryReader.setPosition(2), 2);
@@ -59,33 +59,33 @@ edge_eq("binary_read_after_position_alias", binaryReader.readByte(), 67);
 binaryReader.close();
 
 var mixedPath = "_tmp_file_handle_text_byte_position.bin";
-var mixedWriter = fopen(mixedPath, 2);
+var mixedWriter = fs.open(mixedPath, 2);
 mixedWriter.writeBytes([65, 66, 67, 68]);
 mixedWriter.close();
 
-var mixedReader = fopen(mixedPath, 0);
+var mixedReader = fs.open(mixedPath, 0);
 edge_eq("mixed_text_read_first_char", mixedReader.read(1), "A");
 edge_eq("mixed_position_after_text_read", mixedReader.position(), 1);
 edge_eq("mixed_byte_after_text_read", mixedReader.readByte(), 66);
 mixedReader.close();
 
 var crPath = "_tmp_file_handle_readline_cr.bin";
-var crWriter = fopen(crPath, 2);
+var crWriter = fs.open(crPath, 2);
 crWriter.writeBytes([65, 13, 66]);
 crWriter.close();
 
-var crReader = fopen(crPath, 0);
+var crReader = fs.open(crPath, 0);
 edge_eq("readline_cr_only_first", crReader.readline(), "A");
 edge_eq("readline_cr_only_position", crReader.position(), 2);
 edge_eq("readline_cr_only_second", crReader.readline(), "B");
 crReader.close();
 
 var crlfPath = "_tmp_file_handle_readline_crlf.bin";
-var crlfWriter = fopen(crlfPath, 2);
+var crlfWriter = fs.open(crlfPath, 2);
 crlfWriter.writeBytes([65, 13, 10, 66]);
 crlfWriter.close();
 
-var crlfReader = fopen(crlfPath, 0);
+var crlfReader = fs.open(crlfPath, 0);
 edge_eq("readline_crlf_first", crlfReader.readline(), "A");
 edge_eq("readline_crlf_position", crlfReader.position(), 3);
 edge_eq("readline_crlf_second", crlfReader.readline(), "B");

@@ -163,10 +163,14 @@ var conn = await sql.connect("Server=127.0.0.1;Database=master;User Id=sa;Passwo
 The handle supports these core methods.
 
 - `close()`
+- `close_async()`
 - `is_open()`
 - `begin()`
+- `begin_async()`
 - `commit()`
+- `commit_async()`
 - `rollback()`
+- `rollback_async()`
 - `execute(query, params = optional)`
 - `execute_async(query, params = optional)`
 - `execute_scalar(query, params = optional)`
@@ -241,6 +245,21 @@ try {
     conn.rollback();
     throw e;
 }
+```
+
+For non-blocking workflows, use the async transaction and close methods together with the async query helpers.
+
+```cfs
+try {
+    await conn.begin_async();
+    await conn.execute_nonquery_async("UPDATE Users SET Active = 1 WHERE Id = @id", {"id": 42});
+    await conn.commit_async();
+} catch(e) {
+    await conn.rollback_async();
+    throw e;
+}
+
+await conn.close_async();
 ```
 
 ## Error Behavior

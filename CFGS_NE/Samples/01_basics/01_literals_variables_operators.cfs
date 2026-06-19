@@ -1,0 +1,79 @@
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates the core value model:
+# literals, variables, constants, operators, short-circuiting,
+# null coalescing, ternary expressions, and simple conversions.
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+const appName = "Warehouse Demo";
+var major = 7;
+var minor = 1;
+
+# Integer literals support decimal, hexadecimal, binary, octal,
+# and underscores for readability.
+var decimalValue = 1_000;
+var hexValue = 0x10;
+var binValue = 0b1010;
+var octValue = 0o12;
+
+ensure("integer literals", decimalValue + hexValue + binValue + octValue == 1036);
+
+# Floating point literals support normal and exponent notation.
+var price = 12.50;
+var taxRate = 0.2;
+ensure("floating point", price * taxRate == 2.5);
+
+# Strings and chars use familiar escape sequences.
+var message = "Line1\nLine2";
+var marker = 'A';
+ensure("string escape", message.contains("Line2"));
+ensure("char literal", marker == 'A');
+
+# Arithmetic, bitwise, comparison, and logical operators are expressions.
+ensure("arithmetic", (3 + 4) * 2 == 14);
+ensure("exponent", 2 ** 3 ** 2 == 512);
+ensure("bitwise", (6 & 3) == 2 && (6 | 3) == 7);
+ensure("comparison", 4 >= 4 && 3 != 2);
+
+# Null coalescing only evaluates the right side if the left side is null.
+var calls = 0;
+func fallback() {
+    calls = calls + 1;
+    return "fallback";
+}
+
+var selectedName = appName ?? fallback();
+var selectedMissing = null ?? fallback();
+ensure("null coalescing result", selectedName == appName && selectedMissing == "fallback");
+ensure("null coalescing short circuit", calls == 1);
+
+# Ternary expressions are useful for compact value selection.
+var label = major >= 7 ? "modern": "legacy";
+ensure("ternary", label == "modern");
+
+# Compound assignments work on variables and indexed values.
+var count = 10;
+count += 5;
+count *= 2;
+count -= 4;
+ensure("compound variable assignment", count == 26);
+
+var values = [1, 2, 3];
+values[1] += 10;
+ensure("compound index assignment", values[1] == 12);
+
+var settings = {"retries": 2};
+settings.retries += 3;
+ensure("compound dot assignment", settings.retries == 5);
+
+# Conversion helpers make VM values explicit when crossing boundaries.
+ensure("string conversion", str(major) + "." + str(minor) == "7.1");
+ensure("number conversion", int("42") == 42);
+ensure("typeof", typeof(values) == "Array");
+
+print("BASICS_OK:" + appName + ":" + label);

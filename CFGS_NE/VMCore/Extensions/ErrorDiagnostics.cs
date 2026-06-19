@@ -42,7 +42,7 @@ namespace CFGS_VM.VMCore.Extensions
             ErrorDiagnostic diag = effective switch
             {
                 VMException vm => new ErrorDiagnostic(
-                    Code: InferCode(vm.Category, vm.RawMessage),
+                    Code: FirstNonEmpty(vm.DiagnosticCode, InferCode(vm.Category, vm.RawMessage))!,
                     Category: vm.Category,
                     Message: NormalizeMessage(vm.RawMessage),
                     SourceFile: FirstNonEmpty(vm.FileSource, fallbackSourceName),
@@ -54,7 +54,7 @@ namespace CFGS_VM.VMCore.Extensions
                     ManagedStack: effective.StackTrace),
 
                 ParserException p => new ErrorDiagnostic(
-                    Code: InferCode(p.Category, p.RawMessage),
+                    Code: FirstNonEmpty(p.DiagnosticCode, InferCode(p.Category, p.RawMessage))!,
                     Category: p.Category,
                     Message: NormalizeMessage(p.RawMessage),
                     SourceFile: FirstNonEmpty(p.Filename, fallbackSourceName),
@@ -66,7 +66,7 @@ namespace CFGS_VM.VMCore.Extensions
                     ManagedStack: effective.StackTrace),
 
                 LexerException l => new ErrorDiagnostic(
-                    Code: InferCode(l.Category, l.RawMessage),
+                    Code: FirstNonEmpty(l.DiagnosticCode, InferCode(l.Category, l.RawMessage))!,
                     Category: l.Category,
                     Message: NormalizeMessage(l.RawMessage),
                     SourceFile: FirstNonEmpty(l.Filename, fallbackSourceName),
@@ -78,7 +78,7 @@ namespace CFGS_VM.VMCore.Extensions
                     ManagedStack: effective.StackTrace),
 
                 CompilerException c => new ErrorDiagnostic(
-                    Code: InferCode(c.Category, c.RawMessage),
+                    Code: FirstNonEmpty(c.DiagnosticCode, InferCode(c.Category, c.RawMessage))!,
                     Category: c.Category,
                     Message: NormalizeMessage(c.RawMessage),
                     SourceFile: FirstNonEmpty(c.FileSource, fallbackSourceName),

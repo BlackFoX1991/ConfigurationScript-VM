@@ -1,0 +1,55 @@
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates async functions, task return values,
+# await, await over arrays/dictionaries, yield, and async defaults.
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+async func addLater(a, b) {
+    yield;
+    return await (a + b);
+}
+
+async func defaultLater(value = await 5) {
+    return await value;
+}
+
+async func loadStock(timer, sku, count, delayMs) {
+    var delayedCount = await timer.delay(delayMs, count);
+    return {"sku": sku, "count": delayedCount};
+}
+
+async func mainAsync() {
+    var taskValue = addLater(2, 3);
+    ensure("async returns task", typeof(taskValue) == "Task<Object>");
+    ensure("await async function", await taskValue == 5);
+
+    ensure("await plain value", await 9 == 9);
+    ensure("async default await", await defaultLater() == 5);
+    ensure("async explicit default", await defaultLater(8) == 8);
+
+    var timer = task();
+    var a = loadStock(timer, "A-1", 7, 10);
+    var b = loadStock(timer, "B-2", 3, 5);
+
+    # Awaiting an array preserves shape and resolves each awaitable element.
+    var rows = await [a, b, {"sku": "static", "count": 1}];
+    ensure("await array", rows[0]["count"] == 7 && rows[1]["sku"] == "B-2");
+
+    # Awaiting a dictionary resolves awaitable values in each property.
+    var totals = await {
+        "first": timer.delay(5, rows[0]["count"]),
+        "second": timer.delay(5, rows[1]["count"]),
+        "plain": 2
+    };
+    ensure("await dictionary", totals["first"] + totals["second"] + totals["plain"] == 12);
+
+    return rows[0]["sku"] + ":" + str(totals["first"]);
+}
+
+var result = await mainAsync();
+print("ASYNC_OK:" + result);

@@ -1,0 +1,58 @@
+import native "CFGS.EdgeAwaitables.dll" as Net;
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates native .NET interop.
+# It uses the repository's CFGS.EdgeAwaitables test assembly because it exposes
+# a compact object surface for methods, properties, indexers, delegates, events,
+# optional/named arguments, params arrays, and static members.
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+func multiply(a, b) {
+    return a * b;
+}
+
+func main() {
+    var box = Net.CFGS.EdgeAwaitables.EdgeNativeBox.new(7);
+
+    ensure("native instance method", box.Add(5) == 12);
+
+    box.Value = 20;
+    ensure("native property set", box.Value == 20);
+
+    ensure("native static method", Net.CFGS.EdgeAwaitables.EdgeNativeBox.StaticAdd(2, 3) == 5);
+    ensure("native static property", Net.CFGS.EdgeAwaitables.EdgeNativeBox.StaticText == "EDGE_NATIVE_STATIC");
+
+    ensure("native optional named args", box.OptionalJoin("A", right: "Z") == "A:M:Z");
+    ensure("native params array", box.SumParams("sum", 1, 2, 3, 4) == 10);
+    ensure("native generic method", Net.CFGS.EdgeAwaitables.EdgeNativeBox.EchoGeneric("GENERIC_OK") == "GENERIC_OK");
+
+    ensure("native indexer get", box[2] == "idx:2:20");
+    box[2] = "44";
+    ensure("native indexer set", box.Value == 44);
+
+    var adder = box.MakeAdder();
+    ensure("native delegate invoke", adder(2, 3) == 5);
+    ensure("native closure delegate arg", box.UseBinary(3, 4, multiply) == 12);
+
+    var eventTotal = 0;
+    func onNumber(value) {
+        eventTotal = eventTotal + value;
+    }
+
+    box.NumberChanged.add(onNumber);
+    box.RaiseNumber(7);
+    ensure("native event add", eventTotal == 7);
+
+    box.NumberChanged.remove(onNumber);
+    box.RaiseNumber(5);
+    ensure("native event remove", eventTotal == 7);
+
+    print("NATIVE_INTEROP_OK:" + str(box.Value) + ":" + str(eventTotal));
+}
+
+main();

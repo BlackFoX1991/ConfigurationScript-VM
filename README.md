@@ -33,6 +33,7 @@ If you are opening CFGS for the first time, this is the best reading order.
 20. [Package and Dependency Management](20_package_dependency_management.md)
 21. [Native .NET Interop](21_native_dotnet_interop.md)
 22. [Embedding CFGS in .NET Applications](22_embedding_api.md)
+23. [Practical Feature Samples](CFGS_NE/Samples/README.md)
 
 ## Complete Feature Index
 
@@ -60,6 +61,7 @@ The following topics are covered completely across the English documentation set
 - Native .NET interop. `import native`. Namespace and type access. Constructors through `.new`. Static and instance member access. CFB-safe assembly references.
 - Embedding API. Referencing the CFGS assembly from .NET, compiling source, files, and CFB artifacts, running top-level code, reading and writing globals, injecting host services, invoking functions and script members, constructing script classes, typed host conversions, permission controls, and preloading plugins.
 - Tooling. `-check`, `-lint`, and `-format` for syntax validation, style and semantic lint diagnostics, `--fix`, JSON output, CI checks, manifest-driven tooling defaults, and automatic indentation.
+- Practical samples. Runnable feature examples under `CFGS_NE/Samples` for language syntax, modules, OOP, interfaces, async, standard library namespaces, plugins, native interop, embedding, REPL, CFB, linting, and formatting workflows.
 - Language specification. Normative processing model, lexical rules, scoping, values, expressions, OOP, modules, async, errors, CLI execution, CFB artifacts, debugging, and compatibility rules.
 
 ## Smallest Useful Example

@@ -45,49 +45,9 @@ namespace CFGS_VM.Hosting
                 ? aggregate.InnerExceptions[0]
                 : exception;
 
-            return effective switch
+            if (effective is OperationCanceledException canceled)
             {
-                VMException vm => new CfgsScriptException(
-                    InferCode(vm.Category),
-                    vm.Category,
-                    vm.RawMessage,
-                    FirstNonEmpty(vm.FileSource, fallbackSource),
-                    vm.Line >= 0 ? vm.Line : null,
-                    vm.Column >= 0 ? vm.Column : null,
-                    vm.LanguageStackTrace,
-                    effective),
-
-                CompilerException compiler => new CfgsScriptException(
-                    InferCode(compiler.Category),
-                    compiler.Category,
-                    compiler.RawMessage,
-                    FirstNonEmpty(compiler.FileSource, fallbackSource),
-                    compiler.Line >= 0 ? compiler.Line : null,
-                    compiler.Column >= 0 ? compiler.Column : null,
-                    null,
-                    effective),
-
-                ParserException parser => new CfgsScriptException(
-                    InferCode(parser.Category),
-                    parser.Category,
-                    parser.RawMessage,
-                    FirstNonEmpty(parser.Filename, fallbackSource),
-                    parser.Line >= 0 ? parser.Line : null,
-                    parser.Column >= 0 ? parser.Column : null,
-                    null,
-                    effective),
-
-                LexerException lexer => new CfgsScriptException(
-                    InferCode(lexer.Category),
-                    lexer.Category,
-                    lexer.RawMessage,
-                    FirstNonEmpty(lexer.Filename, fallbackSource),
-                    lexer.Line >= 0 ? lexer.Line : null,
-                    lexer.Column >= 0 ? lexer.Column : null,
-                    null,
-                    effective),
-
-                OperationCanceledException canceled => new CfgsScriptException(
+                return new CfgsScriptException(
                     "CFGS9100",
                     "Canceled",
                     canceled.Message,
@@ -95,30 +55,20 @@ namespace CFGS_VM.Hosting
                     null,
                     null,
                     null,
-                    effective),
+                    effective);
+            }
 
-                _ => new CfgsScriptException(
-                    "CFGS9000",
-                    "SystemError",
-                    string.IsNullOrWhiteSpace(effective.Message) ? effective.GetType().Name : effective.Message,
-                    fallbackSource,
-                    null,
-                    null,
-                    null,
-                    effective)
-            };
+            ErrorDiagnostic diagnostic = ErrorDiagnostics.FromException(effective, fallbackSource);
+            return new CfgsScriptException(
+                diagnostic.Code,
+                diagnostic.Category,
+                diagnostic.Message,
+                diagnostic.SourceFile,
+                diagnostic.Line,
+                diagnostic.Column,
+                diagnostic.LanguageStack,
+                effective);
         }
-
-        private static string InferCode(string category)
-            => category switch
-            {
-                "LexerError" => "CFGS1000",
-                "ParserError" => "CFGS2000",
-                "CompileError" => "CFGS3000",
-                "RuntimeError" => "CFGS5000",
-                "Canceled" => "CFGS9100",
-                _ => "CFGS9000"
-            };
 
         private static string? FirstNonEmpty(params string?[] values)
             => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));

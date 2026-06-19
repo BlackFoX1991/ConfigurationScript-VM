@@ -1,0 +1,116 @@
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates classes, constructors, fields, properties,
+# visibility, inheritance, `this`, `type`, `super`, nested classes,
+# object initializers, and enums.
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+enum StockLevel {
+    Empty = 0,
+    Low = 1,
+    Ready = 2
+}
+
+class Entity(id, _name) {
+    public property id { get; private set; } = "";
+    protected var auditPrefix = "entity";
+    private var secret = "internal";
+
+    func init(id, _name) {
+        this.id = id;
+    }
+
+    func auditLabel() {
+        return this.auditPrefix + ":" + this.id;
+    }
+
+    func secretLength() {
+        return len(this.secret);
+    }
+}
+
+class Product(id, name): Entity(id, name) {
+    static property version { get; set; } = 1;
+
+    public property name { get; set; } = "";
+    public property count { get; set; } = 0;
+    public property level { get; private set; } = StockLevel["Empty"];
+
+    # The `field` symbol is the auto-property backing storage.
+    property normalizedName {
+        get;
+        set(value) { field = value.trim(); }
+    } = "";
+
+    func init(id, name) {
+        super.init(id, name);
+        this.name = name;
+        this.normalizedName = name;
+        this.auditPrefix = "product";
+    }
+
+    func addStock(amount) {
+        this.count = this.count + amount;
+        if (this.count <= 0) {
+            this.level = StockLevel["Empty"];
+        } else if (this.count < 10) {
+            this.level = StockLevel["Low"];
+        } else {
+            this.level = StockLevel["Ready"];
+        }
+
+        return this.count;
+    }
+
+    func auditLabel() {
+        return super.auditLabel() + ":" + this.name;
+    }
+
+    static func bumpVersion() {
+        type.version = type.version + 1;
+        return type.version;
+    }
+
+    class Snapshot() {
+        func describe() {
+            return outer.id + ":" + outer.name + ":" + str(outer.count);
+        }
+    }
+}
+
+class ProductSettings() {
+    property host { get; set; } = "localhost";
+    property port { get; init; } = 8080;
+
+    func endpoint() {
+        return this.host + ":" + str(this.port);
+    }
+}
+
+var product = new Product("P-100", "  Keyboard  ");
+ensure("constructor and private setter", product.id == "P-100");
+ensure("property setter with field", product.normalizedName == "Keyboard");
+ensure("protected and super", product.auditLabel().contains("P-100") && product.auditLabel().contains("Keyboard"));
+ensure("private access through method", product.secretLength() == 8);
+
+ensure("instance method", product.addStock(12) == 12);
+ensure("enum value", product.level == StockLevel["Ready"]);
+ensure("enum name", StockLevel.name(product.level) == "Ready");
+
+ensure("static property", Product.version == 1);
+ensure("static method and type", Product.bumpVersion() == 2);
+
+# Nested classes use `outer` to access the owning instance.
+var snapshot = product.Snapshot();
+ensure("nested class outer", snapshot.describe() == "P-100:  Keyboard  :12");
+
+# Object initializers are concise for property-driven configuration objects.
+var settings = new ProductSettings() { host: "warehouse.local", port: 443 };
+ensure("object initializer", settings.endpoint() == "warehouse.local:443");
+
+print("OOP_OK:" + product.auditLabel() + ":" + StockLevel.name(product.level));

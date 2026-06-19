@@ -1,0 +1,76 @@
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates deterministic cleanup with `defer`,
+# `using`, private destroy methods, and the destroy() builtin.
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+class ManagedResource(name) {
+    static var log = [];
+    var name = "";
+
+    func init(name) {
+        this.name = name;
+    }
+
+    private func destroy() {
+        type.log.push("destroy:" + this.name);
+    }
+}
+
+func deferOrder() {
+    var log = [];
+
+    defer log.push("outer");
+    defer log.push("inner");
+    log.push("body");
+
+    return log;
+}
+
+func usingBlock() {
+    using (var resource = new ManagedResource("block")) {
+        ensure("using binding", resource.name == "block");
+    }
+}
+
+func usingShortForm() {
+    using var resource = new ManagedResource("short");
+    ensure("using short binding", resource.name == "short");
+}
+
+func manualDestroy() {
+    var resource = new ManagedResource("manual");
+    var first = destroy(resource);
+    var second = destroy(resource);
+    return first == true && second == false;
+}
+
+func cleanupOnThrow() {
+    try {
+        using (var resource = new ManagedResource("throw")) {
+            ensure("using throw binding", resource.name == "throw");
+            throw "expected";
+        }
+    } catch (e) {
+        return str(e).contains("expected");
+    }
+}
+
+var order = deferOrder();
+ensure("defer body visible before return", order[0] == "body");
+ensure("defer lifo cleanup", order[1] == "inner" && order[2] == "outer");
+
+usingBlock();
+usingShortForm();
+ensure("manual destroy", manualDestroy());
+ensure("using cleanup on throw", cleanupOnThrow());
+
+ensure("destroy log count", len(ManagedResource.log) == 4);
+ensure("destroy log order", ManagedResource.log[0] == "destroy:block");
+
+print("CLEANUP_OK:" + str(len(ManagedResource.log)));

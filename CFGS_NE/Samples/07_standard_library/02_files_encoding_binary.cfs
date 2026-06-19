@@ -1,0 +1,65 @@
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates file-system helpers, binary byte conversion,
+# file handles, async file reads, and workspace-safe cleanup.
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+async func main() {
+    var path = "_tmp_cfgs_sample_file.bin";
+    var copyPath = "_tmp_cfgs_sample_file_copy.bin";
+
+    defer {
+        if (fs.exists(path)) {
+            fs.delete(path);
+        }
+
+        if (fs.exists(copyPath)) {
+            fs.delete(copyPath);
+        }
+    }
+
+    # tobyte() converts a bit-array or scalar value to one byte.
+    ensure("tobyte bits", tobyte([1, 0, 1, 0, 0, 1, 0, 1]) == 165);
+    ensure("tobyte scalar", tobyte("42") == 42);
+
+    # tobytes() converts text, arrays, booleans, numbers, and null.
+    var raw = tobytes("ABC", "utf-8");
+    ensure("tobytes text", len(raw) == 3 && raw[0] == 65);
+
+    # High-level binary helpers are good for whole-file operations.
+    ensure("write all bytes", fs.writeAllBytes(path, raw) == 3);
+    ensure("file exists", fs.exists(path));
+    ensure("file size alias", file.size(path) == 3);
+
+    var readBack = fs.readAllBytes(path);
+    ensure("read all bytes", readBack[1] == 66);
+    ensure("copy file", fs.copy(path, copyPath, true) == copyPath && fs.exists(copyPath));
+
+    # File handles allow byte-positioned read/write workflows.
+    var writer = fs.open(path, 2);
+    writer.writeByte(65);
+    writer.writeBytes([90, 67]);
+    writer.flush();
+    writer.close();
+
+    var reader = fs.open(path, 0);
+    ensure("handle position start", reader.position() == 0);
+    ensure("handle read byte", reader.readByte() == 65);
+    var chunk = reader.readBytes(2);
+    ensure("handle read bytes", chunk[0] == 90 && chunk[1] == 67);
+    reader.close();
+
+    # Async handle methods can be awaited without blocking the VM scheduler.
+    var asyncReader = fs.openBinary(path, 0);
+    ensure("async read byte", await asyncReader.readByteAsync() == 65);
+    asyncReader.close();
+
+    print("FILES_OK:" + encoding.decode(fs.readAllBytes(path), "utf-8"));
+}
+
+var _ = await main();

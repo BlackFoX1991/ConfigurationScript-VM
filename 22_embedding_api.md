@@ -46,6 +46,19 @@ object? result = await script.InvokeAsync("calculate", 10, 20);
 File imports are resolved from the script location and the configured working
 directory, following the same import rules as the CLI.
 
+The configured `WorkingDirectory` is VM-local. Standard-library file operations
+such as `fs.open`, `fs.writeAllBytes`, and `fs.setWorkspace` resolve relative
+paths through the script VM and do not change the host process current directory.
+
+## Invocation Concurrency
+
+One `CfgsScript` instance owns one VM. Public wrapper operations such as
+`RunAsync`, `InvokeAsync`, `NewAsync`, member access, and global access are
+serialized per script instance. This keeps the VM stack and scopes consistent
+when host code accidentally invokes the same script concurrently. Use separate
+compiled script instances when you need true parallel execution of independent
+script state.
+
 ## Globals
 
 The host can read and write top-level variables through the script wrapper.

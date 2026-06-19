@@ -1,0 +1,43 @@
+import "CFGS.StandardLibrary.dll";
+import "CFGS.Security.Crypto.dll";
+import "CFGS.Xml.dll";
+import "CFGS.Pdf.dll";
+import "CFGS.Web.Http.dll";
+import "CFGS.Microsoft.SQL.dll";
+
+# This sample demonstrates official plugin loading and namespaced plugin APIs.
+# It avoids network and database side effects: HTTP and SQL are inspected or
+# used only for local string helpers and callable checks.
+
+use std.crypto;
+use std.xml;
+use std.pdf;
+use std.http;
+use std.sql;
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+var hashValue = crypto.hash("abc", "sha256", "utf8", "hex");
+ensure("crypto namespace", len(hashValue) == 64);
+ensure("crypto use import", len(hash("abc", "sha256", "utf8", "hex")) == 64);
+
+var xmlDoc = xml.new("root");
+ensure("xml namespace", xmlDoc.root().name() == "root");
+ensure("xml use import", parse("<root><item /></root>").root().name() == "root");
+
+var pdfDoc = pdf.new("Sample PDF");
+ensure("pdf namespace", typeof(pdfDoc) == "PdfDocumentHandle");
+ensure("pdf page count", pdfDoc.page_count() == 0);
+
+var encoded = http.urlencode("a b&c=1");
+ensure("http namespace", http.urldecode(encoded) == "a b&c=1");
+ensure("http use import", urldecode(urlencode("x y")) == "x y");
+
+ensure("sql namespace callable", typeof(sql.connect) == "BuiltinCallable");
+ensure("sql use import callable", typeof(connect) == "BuiltinCallable");
+
+print("PLUGIN_NAMESPACES_OK:" + hashValue[~8] + ":" + encoded);

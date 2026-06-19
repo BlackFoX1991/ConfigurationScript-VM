@@ -16,6 +16,7 @@ A diagnostic should carry these fields when the information is available.
 - `sourceSpan`: formatted source line and caret marker for CLI display.
 
 The CLI text format keeps the category and message, but prefixes the stable code.
+Lexer, parser, compiler, and runtime exceptions can carry an explicit diagnostic code. When no explicit code is supplied, CFGS falls back to category/message inference for older throw sites.
 
 ```text
 CFGS2003: [CompileError] class static members are not indexable; use dot syntax for static members.

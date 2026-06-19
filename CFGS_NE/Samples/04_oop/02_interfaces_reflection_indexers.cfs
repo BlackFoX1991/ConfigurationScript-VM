@@ -1,0 +1,115 @@
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates interface contracts, interface inheritance,
+# default interface methods, static interface members, structural checks,
+# indexer contracts, explicit interface implementations, and reflection
+# helpers such as interfaces(), implements(), interfaceof(), and interface_call().
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+interface INamed {
+    property name { get; }
+
+    func label() {
+        return "name:" + this.name;
+    }
+}
+
+interface IStockItem: INamed {
+    func available();
+}
+
+interface IFactory {
+    static property kind { get; }
+    static func describe();
+}
+
+interface IBag {
+    index get(key);
+    index set(key, value);
+}
+
+interface IRunner {
+    func run(value);
+}
+
+class StockItem(name, count): IStockItem {
+    property name { get; private set; } = "";
+    var count = 0;
+
+    func init(name, count) {
+        this.name = name;
+        this.count = count;
+    }
+
+    func available() {
+        return this.count > 0;
+    }
+}
+
+class StockFactory: IFactory {
+    static property kind { get; } = "stock";
+    static func describe() {
+        return type.kind + ":factory";
+    }
+}
+
+class StockBag: IBag {
+    var data = {};
+
+    func get_index(key) {
+        return this.data[key];
+    }
+
+    func set_index(key, value) {
+        this.data[key] = value;
+    }
+}
+
+class StructuralNamed {
+    property name { get; } = "structural";
+
+    func label() {
+        return "name:" + this.name;
+    }
+}
+
+class ExplicitRunner: IRunner {
+    func IRunner.run(value) {
+        return "explicit:" + str(value);
+    }
+}
+
+var item = new StockItem("Cable", 3);
+ensure("interface implementation", item is IStockItem);
+ensure("interface inheritance", item is INamed);
+ensure("default interface method", item.label() == "name:Cable");
+ensure("instance contract", item.available());
+
+ensure("static interface property", StockFactory.kind == "stock");
+ensure("static interface method", StockFactory.describe() == "stock:factory");
+
+var bag = new StockBag();
+bag["sku"] = "C-1";
+ensure("interface indexer", bag["sku"] == "C-1");
+
+# Structural interface checks allow compatible shapes to satisfy contracts.
+var structural = new StructuralNamed();
+ensure("structural implements", structural is INamed);
+ensure("implements builtin", implements(structural, INamed));
+
+var nominalInterfaces = interfaces(item);
+ensure("interfaces builtin", len(nominalInterfaces) > 0);
+
+var meta = interfaceof(INamed);
+ensure("interfaceof name", meta["name"] == "INamed");
+ensure("interfaceof properties", len(meta["properties"]) == 1);
+
+var runner = new ExplicitRunner();
+ensure("explicit interface call", interface_call(runner, IRunner, "run", [9]) == "explicit:9");
+
+print("INTERFACES_OK:" + item.label() + ":" + StockFactory.describe());

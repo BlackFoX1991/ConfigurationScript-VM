@@ -16,6 +16,11 @@ namespace CFGS_VM.VMCore.Extensions
         public string RawMessage { get; }
 
         /// <summary>
+        /// Gets the stable diagnostic code when the compiler supplied one.
+        /// </summary>
+        public string? DiagnosticCode { get; }
+
+        /// <summary>
         /// Gets the Line
         /// </summary>
         public int Line { get; }
@@ -42,10 +47,11 @@ namespace CFGS_VM.VMCore.Extensions
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="column">The column<see cref="int"/></param>
         /// <param name="fileSource">The fileSource<see cref="string"/></param>
-        public CompilerException(string message, int line, int column, string fileSource, int? spanLength = null)
+        public CompilerException(string message, int line, int column, string fileSource, int? spanLength = null, string? diagnosticCode = null)
             : base(message)
         {
             RawMessage = message;
+            DiagnosticCode = string.IsNullOrWhiteSpace(diagnosticCode) ? null : diagnosticCode.Trim();
             Line = line;
             Column = column;
             FileSource = fileSource;

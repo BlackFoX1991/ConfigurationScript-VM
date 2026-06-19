@@ -171,11 +171,60 @@ namespace CFGS_VM.Packaging
             return JsonSerializer.Deserialize<CfgsLockFile>(stream, JsonOptions);
         }
 
+        public static void VerifyLockedPluginArtifact(string pluginPath)
+        {
+            string fullPath = Path.GetFullPath(pluginPath);
+            if (!TryGetPackageRootForPlugin(fullPath, out string? root))
+                return;
+
+            CfgsLockFile? lockFile = TryReadLockFile(root);
+            if (lockFile is null)
+                return;
+
+            CfgsLockedPlugin? locked = lockFile.Plugins.FirstOrDefault(plugin =>
+                !string.IsNullOrWhiteSpace(plugin.InstalledPath) &&
+                string.Equals(
+                    Path.GetFullPath(Path.Combine(root, plugin.InstalledPath.Replace('/', Path.DirectorySeparatorChar))),
+                    fullPath,
+                    StringComparison.OrdinalIgnoreCase));
+
+            if (locked is null)
+                return;
+
+            string actualHash = ComputeSha256(fullPath);
+            if (!string.Equals(actualHash, locked.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"plugin lockfile hash mismatch for '{fullPath}'. Expected {locked.Sha256}, got {actualHash}. Run restore again before loading this plugin.");
+            }
+        }
+
         private static void WriteManifest(string root, CfgsManifest manifest)
         {
             string manifestPath = Path.Combine(root, ManifestFileName);
             using FileStream stream = File.Create(manifestPath);
             JsonSerializer.Serialize(stream, manifest, JsonOptions);
+        }
+
+        private static bool TryGetPackageRootForPlugin(string pluginPath, out string root)
+        {
+            DirectoryInfo? directory = new FileInfo(pluginPath).Directory;
+            while (directory is not null)
+            {
+                if (string.Equals(directory.Name, PluginDirectoryName, StringComparison.OrdinalIgnoreCase) &&
+                    directory.Parent is DirectoryInfo packageDirectory &&
+                    string.Equals(packageDirectory.Name, PackageDirectoryName, StringComparison.OrdinalIgnoreCase) &&
+                    packageDirectory.Parent is DirectoryInfo projectRoot)
+                {
+                    root = projectRoot.FullName;
+                    return true;
+                }
+
+                directory = directory.Parent;
+            }
+
+            root = string.Empty;
+            return false;
         }
 
         private static void WriteLockFile(string root, CfgsLockFile lockFile)

@@ -1,4 +1,8 @@
 using CFGS_VM.VMCore;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CFGS_VM.Hosting
 {
@@ -6,6 +10,7 @@ namespace CFGS_VM.Hosting
     {
         private readonly VM _vm;
         private readonly CfgsScriptPermissions _permissions;
+        private readonly SemaphoreSlim _operationGate = new(1, 1);
         private bool _topLevelRan;
 
         internal CfgsScript(VM vm, CompiledScript compiledScript, string originFile, CfgsScriptPermissions permissions)
@@ -24,31 +29,36 @@ namespace CFGS_VM.Hosting
 
         public async Task RunAsync(bool autoInvokeMain = true, CancellationToken cancellationToken = default)
         {
-            if (_topLevelRan)
-                return;
-
             try
             {
                 using CancellationTokenSource? timeoutCts = CreateTimeoutTokenSource(cancellationToken, out CancellationToken effectiveToken);
-                bool previousFileIo = VM.AllowFileIO;
-                VM.AllowFileIO = _permissions.AllowFileIO;
+                await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
                 try
                 {
-                    await _vm.RunAsync(ct: effectiveToken).ConfigureAwait(false);
-                    _topLevelRan = true;
-
-                    if (autoInvokeMain && CompiledScript.ShouldAutoInvokeMain)
-                        _ = await InvokeAsync("main", args: null, effectiveToken).ConfigureAwait(false);
+                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
+                    await RunCoreAsync(autoInvokeMain, effectiveToken).ConfigureAwait(false);
                 }
                 finally
                 {
-                    VM.AllowFileIO = previousFileIo;
+                    _operationGate.Release();
                 }
             }
             catch (Exception ex)
             {
                 throw CfgsScriptException.From(ex, OriginFile);
             }
+        }
+
+        private async Task RunCoreAsync(bool autoInvokeMain, CancellationToken effectiveToken)
+        {
+            if (_topLevelRan)
+                return;
+
+            await _vm.RunAsync(ct: effectiveToken).ConfigureAwait(false);
+            _topLevelRan = true;
+
+            if (autoInvokeMain && CompiledScript.ShouldAutoInvokeMain)
+                _ = await InvokeCoreAsync("main", args: null, effectiveToken).ConfigureAwait(false);
         }
 
         public Task<object?> InvokeAsync(string functionName, params object[] args)
@@ -59,15 +69,29 @@ namespace CFGS_VM.Hosting
             try
             {
                 using CancellationTokenSource? timeoutCts = CreateTimeoutTokenSource(cancellationToken, out CancellationToken effectiveToken);
-                effectiveToken.ThrowIfCancellationRequested();
-                List<object> runtimeArgs = args?.Select(static arg => VM.NormalizeHostValue(arg)!).ToList() ?? [];
-                Task<object?> call = _vm.InvokeGlobalFunctionAsync(functionName, runtimeArgs, OriginFile, effectiveToken);
-                return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
+                await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
+                try
+                {
+                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
+                    return await InvokeCoreAsync(functionName, args, effectiveToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
             }
             catch (Exception ex)
             {
                 throw CfgsScriptException.From(ex, OriginFile);
             }
+        }
+
+        private async Task<object?> InvokeCoreAsync(string functionName, IEnumerable<object?>? args, CancellationToken effectiveToken)
+        {
+            effectiveToken.ThrowIfCancellationRequested();
+            List<object> runtimeArgs = args?.Select(static arg => VM.NormalizeHostValue(arg)!).ToList() ?? [];
+            Task<object?> call = _vm.InvokeGlobalFunctionAsync(functionName, runtimeArgs, OriginFile, effectiveToken);
+            return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
         }
 
         public async Task<T?> InvokeAsync<T>(string functionName, params object[] args)
@@ -84,8 +108,17 @@ namespace CFGS_VM.Hosting
             try
             {
                 using CancellationTokenSource? timeoutCts = CreateTimeoutTokenSource(cancellationToken, out CancellationToken effectiveToken);
-                Task<object?> call = _vm.NewAsync(className, args, OriginFile, effectiveToken);
-                return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
+                await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
+                try
+                {
+                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
+                    Task<object?> call = _vm.NewAsync(className, args, OriginFile, effectiveToken);
+                    return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
             }
             catch (Exception ex)
             {
@@ -95,8 +128,23 @@ namespace CFGS_VM.Hosting
 
         public object? GetMember(object target, string memberName)
         {
-            try { return _vm.GetMember(target, memberName, OriginFile); }
-            catch (Exception ex) { throw CfgsScriptException.From(ex, OriginFile); }
+            try
+            {
+                _operationGate.Wait();
+                try
+                {
+                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
+                    return _vm.GetMember(target, memberName, OriginFile);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw CfgsScriptException.From(ex, OriginFile);
+            }
         }
 
         public T? GetMember<T>(object target, string memberName)
@@ -104,8 +152,23 @@ namespace CFGS_VM.Hosting
 
         public void SetMember(object target, string memberName, object? value)
         {
-            try { _vm.SetMember(target, memberName, value, OriginFile); }
-            catch (Exception ex) { throw CfgsScriptException.From(ex, OriginFile); }
+            try
+            {
+                _operationGate.Wait();
+                try
+                {
+                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
+                    _vm.SetMember(target, memberName, value, OriginFile);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw CfgsScriptException.From(ex, OriginFile);
+            }
         }
 
         public async Task<object?> InvokeMemberAsync(object target, string memberName, params object[] args)
@@ -116,8 +179,17 @@ namespace CFGS_VM.Hosting
             try
             {
                 using CancellationTokenSource? timeoutCts = CreateTimeoutTokenSource(cancellationToken, out CancellationToken effectiveToken);
-                Task<object?> call = _vm.InvokeMemberAsync(target, memberName, args, OriginFile, effectiveToken);
-                return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
+                await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
+                try
+                {
+                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
+                    Task<object?> call = _vm.InvokeMemberAsync(target, memberName, args, OriginFile, effectiveToken);
+                    return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
             }
             catch (Exception ex)
             {
@@ -141,22 +213,108 @@ namespace CFGS_VM.Hosting
             => VM.ConvertToHostValue<T>(value);
 
         public bool TryGetGlobal(string name, out object? value)
-            => _vm.TryGetGlobal(name, out value);
+        {
+            try
+            {
+                _operationGate.Wait();
+                try
+                {
+                    return _vm.TryGetGlobal(name, out value);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                value = null;
+                throw CfgsScriptException.From(ex, OriginFile);
+            }
+        }
 
         public object? GetGlobal(string name)
-            => _vm.GetGlobal(name);
+        {
+            try
+            {
+                _operationGate.Wait();
+                try
+                {
+                    return _vm.GetGlobal(name);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw CfgsScriptException.From(ex, OriginFile);
+            }
+        }
 
         public T? GetGlobal<T>(string name)
-            => _vm.GetGlobal<T>(name);
+            => VM.ConvertToHostValue<T>(GetGlobal(name));
 
         public IReadOnlyDictionary<string, object?> GetGlobals()
-            => _vm.GetGlobals();
+        {
+            try
+            {
+                _operationGate.Wait();
+                try
+                {
+                    return _vm.GetGlobals();
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw CfgsScriptException.From(ex, OriginFile);
+            }
+        }
 
         public void SetGlobal(string name, object? value)
-            => _vm.SetGlobal(name, value);
+        {
+            try
+            {
+                _operationGate.Wait();
+                try
+                {
+                    _vm.SetGlobal(name, value);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw CfgsScriptException.From(ex, OriginFile);
+            }
+        }
 
         public bool TrySetGlobal(string name, object? value)
-            => _vm.TrySetGlobal(name, value);
+        {
+            try
+            {
+                _operationGate.Wait();
+                try
+                {
+                    return _vm.TrySetGlobal(name, value);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw CfgsScriptException.From(ex, OriginFile);
+            }
+        }
 
         public void SaveCfb(string path)
             => CfbFile.Save(CompiledScript, path);

@@ -1,0 +1,91 @@
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates script arguments and documents the related CLI,
+# CFB, REPL, debugger, linter, and formatter workflows.
+#
+# Check syntax without running:
+#   CFGS_VM.exe -check CFGS_NE\Samples\09_embedding_tooling\02_cfb_repl_lint_format_workflow.cfs
+#
+# Run with script arguments. Arguments after -p or -params are visible through cmdArgs():
+#   CFGS_VM.exe CFGS_NE\Samples\09_embedding_tooling\02_cfb_repl_lint_format_workflow.cfs -p copy source.txt target.txt
+#
+# Compile to a binary CFB script:
+#   CFGS_VM.exe -c CFGS_NE\Samples\09_embedding_tooling\02_cfb_repl_lint_format_workflow.cfs -o workflow.cfb
+#
+# Run a compiled CFB script:
+#   CFGS_VM.exe workflow.cfb -p copy source.txt target.txt
+#
+# Print bytecode after execution:
+#   CFGS_VM.exe -d CFGS_NE\Samples\09_embedding_tooling\02_cfb_repl_lint_format_workflow.cfs
+#
+# Use the interactive debugger:
+#   CFGS_VM.exe -di CFGS_NE\Samples\09_embedding_tooling\02_cfb_repl_lint_format_workflow.cfs
+#
+# Run linter and formatter over this sample tree:
+#   CFGS_VM.exe -lint CFGS_NE\Samples
+#   CFGS_VM.exe -format CFGS_NE\Samples --check
+#   CFGS_VM.exe -format CFGS_NE\Samples --write
+#
+# REPL commands are prefixed with `$` so script identifiers do not collide with
+# control commands:
+#   $help
+#   $debug
+#   $clear
+#   $exit
+#
+# REPL plugin autoloading is configured with repl_plugins.json in the
+# application path. List only the plugin DLLs that should load for REPL mode.
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+func readOperation(args) {
+    if (args == null || len(args) == 0) {
+        return {"operation": "demo", "source": null, "target": null};
+    }
+
+    return {
+        "operation": args[0],
+        "source": len(args) > 1 ? args[1]: null,
+        "target": len(args) > 2 ? args[2]: null
+    };
+}
+
+func safeCmdArgs() {
+    try {
+        return cmdArgs();
+    } catch () {
+        return null;
+    }
+}
+
+func describeOperation(operation) {
+    var current = operation;
+    if (current == null) {
+        return "invalid";
+    }
+
+    match (current) {
+        case {"operation": "copy", "source": var source, "target": var target} if (source != null && target != null): {
+            return "copy:" + source + "->" + target;
+        }
+        case {"operation": "move", "source": var source, "target": var target} if (source != null && target != null): {
+            return "move:" + source + "->" + target;
+        }
+        case {"operation": "demo"}: {
+            return "demo:no-args";
+        }
+        default: {
+            return "invalid";
+        }
+    }
+}
+
+var operation = readOperation(safeCmdArgs());
+var description = describeOperation(operation);
+ensure("operation description", description != "invalid");
+
+print("TOOLING_WORKFLOW_OK:" + description);

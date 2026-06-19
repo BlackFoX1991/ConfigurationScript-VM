@@ -41,7 +41,6 @@ regex.match("abc123", "\\d+");
 - `encoding.info(nameOrCodePage)` returns encoding metadata.
 - `encoding.names()` returns all available encoding names.
 - `encoding.all()` returns all available encodings with name, display name, and code page.
-- Compatibility aliases remain available: `textToBytes`, `bytesToText`, `encodeText`, `decodeText`, `convertEncoding`, `hasEncoding`, `encodingInfo`, `encodingNames`, and `encodings`.
 
 Example.
 
@@ -96,33 +95,20 @@ destroy(r);
 ### Files, Paths, and Working Directory
 
 - `fs` and `file` are aliases for the file-system namespace.
-- `fs.open(path, mode)` / `fs.fopen(path, mode)` open a text/binary-capable `FileHandle`.
-- `fs.openBinary(path, mode)` / `fs.fbopen(path, mode)` open a `BinaryFileHandle`.
+- `fs.open(path, mode)` opens a text/binary-capable `FileHandle`.
+- `fs.openBinary(path, mode)` opens a `BinaryFileHandle`.
 - `fs.exists(path)`, `fs.copy(source, dest, overwrite = false)`, `fs.move(source, dest, overwrite = false)`, and `fs.delete(path)` perform common file operations.
 - `fs.readAllBytes(path)`, `fs.readAllBytesAsync(path)`, and `fs.writeAllBytes(path, bytes)` handle byte arrays.
 - `fs.readTextAsync(path)`, `fs.writeTextAsync(path, text)`, and `fs.appendTextAsync(path, text)` are asynchronous text helpers.
 - `fs.size(path)`, `fs.lastWriteTime(path)`, and `fs.lastWriteTimeUtc(path)` return file metadata.
 - `fs.setWorkspace(path)`, `fs.getWorkspace()`, `fs.getDirectory(path)`, and `fs.directoryInfo(path)` wrap working-directory and directory-info helpers.
 - The `file` alias exposes the same members, for example `file.size(path)` and `file.exists(path)`.
-- `set_workspace(path)` sets the current working directory.
-- `get_workspace()` returns the current working directory.
 - `ScriptPath()` returns the entry script path of the current run. In the REPL it returns `<repl>`.
-- `getDirectory(path)` returns the directory part of a path.
-- `fopen(path, mode)` opens a file and returns a `FileHandle`.
-- `fbopen(path, mode)` opens a file and returns a `BinaryFileHandle`.
-- `fexist(path)` checks whether a file exists.
-- `readAllBytes(path)` reads the full file into an array of byte values.
-- `readAllBytesAsync(path)` is the asynchronous version.
-- `writeAllBytes(path, bytes)` writes an array of byte values and returns the written byte count.
 - `tobyte(value)` converts a scalar value to one byte. If `value` is an array of 1..8 bits, it packs them left to right into one byte.
 - `tobytes(value)` converts text to UTF-8 bytes, validates byte arrays, converts scalar values to a one-byte array, and converts `null` to an empty array.
 - `tobytes(value, encoding)` uses the named text encoding when `value` is text.
-- `fileSize(path)` returns the file size in bytes, or `-1` if the file does not exist.
-- `fileLastWriteTime(path)` returns the local last-write timestamp.
-- `fileLastWriteTimeUtc(path)` returns the UTC last-write timestamp.
-- `readTextAsync(path)`, `writeTextAsync(path, text)`, `appendTextAsync(path, text)` are asynchronous file helpers.
 
-`fopen` supports these modes.
+`fs.open` supports these modes.
 
 - `0` opens read only.
 - `1` opens or creates for reading and writing.
@@ -130,15 +116,15 @@ destroy(r);
 - `3` opens for append.
 - `4` opens or creates for writing.
 
-`fbopen` uses the same mode values, but the returned handle works on raw bytes instead of UTF-8 text.
+`fs.openBinary` uses the same mode values, but the returned handle works on raw bytes instead of UTF-8 text.
 
 Small binary example.
 
 ```cfs
-writeAllBytes("demo.bin", [0x41, 0x42, 0x43]);
-var bytes = readAllBytes("demo.bin");
+fs.writeAllBytes("demo.bin", [0x41, 0x42, 0x43]);
+var bytes = fs.readAllBytes("demo.bin");
 bytes[1] = byte(bytes[1] | 0x20);
-writeAllBytes("demo.bin", bytes);
+fs.writeAllBytes("demo.bin", bytes);
 ```
 
 ### Environment and Arguments
@@ -156,21 +142,6 @@ writeAllBytes("demo.bin", bytes);
 - `math.abs(x)`, `math.floor(x)`, `math.ceil(x)`, `math.round(x, digits = optional)`, `math.min(a, b)`, and `math.max(a, b)` provide basic numeric helpers.
 - `math.sqrt(x)`, `math.pow(base, exp)`, `math.log(x, base = optional)`, `math.log10(x)`, `math.sin(x)`, `math.cos(x)`, and `math.tan(x)` provide scientific helpers.
 - `math.sign(x)`, `math.trunc(x)`, `math.rand(seed, min, max)`, `math.pi()`, and `math.e()` provide sign, truncation, random, and constant helpers.
-- `abs(x)` returns the absolute value.
-- `rand(seed, min, max)` returns a pseudo random number.
-- `floor(x)` rounds down to the nearest integer.
-- `ceil(x)` rounds up to the nearest integer.
-- `round(x)` rounds to the nearest integer. `round(x, digits)` rounds to a given number of decimal places.
-- `min(a, b)` returns the smaller value.
-- `max(a, b)` returns the larger value.
-- `sqrt(x)` returns the square root.
-- `pow(base, exp)` returns `base` raised to the power `exp`.
-- `log(x)` returns the natural logarithm. `log(x, base)` returns the logarithm with the given base.
-- `log10(x)` returns the base 10 logarithm.
-- `sin(x)`, `cos(x)`, `tan(x)` are trigonometric functions accepting radians.
-- `sign(x)` returns -1, 0, or 1.
-- `trunc(x)` truncates toward zero.
-- `PI` and `E` are constants.
 - `isdigit(x)`, `isletter(x)`, `isalnum(x)`, `isspace(x)` check character classes.
 
 ### Regular Expressions
@@ -180,7 +151,6 @@ writeAllBytes("demo.bin", bytes);
 - `regex.replace(input, pattern, replacement)` replaces all matches and returns the result string.
 - `regex.test(input, pattern)` returns `true` if the pattern matches anywhere in the input.
 - `regex.split(input, pattern)` splits the input by the pattern and returns an array.
-- Compatibility aliases remain available: `regex_match`, `regex_matches`, `regex_replace`, `regex_test`, and `regex_split`.
 
 Example.
 
@@ -195,8 +165,7 @@ print(regex.replace("foo bar baz", "\\s+", "-"));
 
 - `json.parse(text)` converts JSON text into CFGS values.
 - `json.stringify(value)` serializes a CFGS value into JSON text.
-- `fromjson(text)` converts JSON text into CFGS values.
-- `tojson(value)` serializes a CFGS value into JSON text.
+- `json.from(text)` and `json.to(value)` are short aliases for parse and stringify inside the JSON namespace.
 
 ### Async Helpers
 
@@ -389,9 +358,9 @@ DateTime values support these properties and methods.
 
 Strings can also be converted into DateTime values through `toDateTime`, `toUnixSeconds`, and `toUnixMilliseconds`.
 
-## DirectoryInfo Builtin and Intrinsics
+## DirectoryInfo Helpers and Intrinsics
 
-`DirectoryInfo(path)` creates a DirectoryInfo object. A string also supports `dirinfo()`.
+`fs.directoryInfo(path)` creates a DirectoryInfo object. A string also supports `dirinfo()`.
 
 Available DirectoryInfo intrinsics are.
 
@@ -430,7 +399,7 @@ print(dir.fullName());
 
 ## FileHandle Intrinsics
 
-A `FileHandle` returned by `fopen` supports these methods.
+A `FileHandle` returned by `fs.open` supports these methods.
 
 - `write(text)`
 - `writeln(text)`
@@ -467,7 +436,7 @@ For `seek`, `origin` means the following.
 Example.
 
 ```cfs
-var f = fopen("demo.txt", 2);
+var f = fs.open("demo.txt", 2);
 f.writeln("Hello");
 f.flush();
 f.close();
@@ -475,7 +444,7 @@ f.close();
 
 ## BinaryFileHandle Intrinsics
 
-A `BinaryFileHandle` returned by `fbopen` supports these methods.
+A `BinaryFileHandle` returned by `fs.openBinary` supports these methods.
 
 - `writeByte(value)`
 - `writeBytes(bytes)`
@@ -502,23 +471,23 @@ Byte arrays use normal CFGS arrays whose elements must stay in the range `0..255
 Example: whole file patch.
 
 ```cfs
-var f = fbopen("demo.bin", 2);
+var f = fs.openBinary("demo.bin", 2);
 f.writeBytes([0x41, 0x42, 0x43, 0x44]);
 f.flush();
 f.close();
 
-var inp = fbopen("demo.bin", 0);
+var inp = fs.openBinary("demo.bin", 0);
 var bytes = inp.readBytes(4);
 bytes[0] = bytes[0] | 0x20;
 inp.close();
 
-writeAllBytes("demo.bin", bytes);
+fs.writeAllBytes("demo.bin", bytes);
 ```
 
 Example: patch a single byte in place.
 
 ```cfs
-var f = fbopen("demo.bin", 1);
+var f = fs.openBinary("demo.bin", 1);
 f.seek(1, 0);
 var b = f.readByte();
 f.seek(-1, 1);
@@ -531,7 +500,7 @@ Example: async read of a fixed header.
 
 ```cfs
 async func read_magic(path) {
-    var f = fbopen(path, 0);
+    var f = fs.openBinary(path, 0);
     var header = await f.readBytesAsync(4);
     f.close();
     return header;
@@ -570,9 +539,9 @@ File I O can be disabled globally. The standard library checks `AllowFileIO` int
 ### Reading and Normalizing JSON
 
 ```cfs
-var cfg = fromjson("{\"host\":\"localhost\"}");
+var cfg = json.parse("{\"host\":\"localhost\"}");
 cfg[] = {"port": 8080};
-print(tojson(cfg));
+print(json.stringify(cfg));
 ```
 
 ### Simple Async Timer
@@ -585,7 +554,7 @@ print(await t.delay(100, "done"));
 ### Writing a File
 
 ```cfs
-var file = fopen("notes.txt", 2);
+var file = fs.open("notes.txt", 2);
 file.writeln("first line");
 file.close();
 ```

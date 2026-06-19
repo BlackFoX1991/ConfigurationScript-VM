@@ -1,0 +1,95 @@
+import "CFGS.StandardLibrary.dll";
+use Samples.Embedding;
+
+# This sample is written in an embedding-friendly style.
+# A .NET host can compile this script, read top-level variables, create script
+# classes, and invoke exported functions with normal host values.
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+# Exported top-level state can be inspected by embedding hosts.
+export var requestCount = 0;
+export var lastPayload = null;
+
+namespace Samples.Embedding {
+    interface IHandler {
+        func handle(payload);
+    }
+
+    class HostResult(ok, message, payload) {
+        property ok { get; private set; } = false;
+        property message { get; private set; } = "";
+        property payload { get; private set; } = null;
+
+        func init(ok, message, payload) {
+            this.ok = ok;
+            this.message = message;
+            this.payload = payload;
+        }
+
+        func summary() {
+            return this.ok ? "OK:" + this.message: "ERR:" + this.message;
+        }
+    }
+
+    class DefaultHandler: IHandler {
+        func handle(payload) {
+            return new HostResult(true, payload["name"], payload);
+        }
+    }
+}
+
+# Exported functions form a clean host API.
+export func createPayload(name, data = {}) {
+    requestCount = requestCount + 1;
+    lastPayload = {
+        "id": requestCount,
+        "name": name,
+        "data": data
+    };
+
+    return lastPayload;
+}
+
+export func execute(name, data, handler) {
+    var payload = createPayload(name, data);
+    return handler.handle(payload);
+}
+
+# Exported async functions can be awaited by CFGS or the embedding API.
+export async func executeAsync(name, data, handler) {
+    yield;
+    return await execute(name, data, handler);
+}
+
+export class ScriptCounter(seed) {
+    property value { get; private set; } = 0;
+
+    func init(seed) {
+        this.value = seed;
+    }
+
+    func next() {
+        this.value = this.value + 1;
+        return this.value;
+    }
+}
+
+# The demo block keeps the file runnable as a normal script.
+# In a pure embedded library this block can be removed.
+var handler = new DefaultHandler();
+var result = execute("sync-call", {"count": 3}, handler);
+ensure("embedded sync call", result.summary() == "OK:sync-call");
+
+var asyncResult = await executeAsync("async-call", {"count": 4}, handler);
+ensure("embedded async call", asyncResult.summary() == "OK:async-call");
+
+var counter = new ScriptCounter(10);
+ensure("embedded class", counter.next() == 11 && counter.next() == 12);
+ensure("top-level state", requestCount == 2 && lastPayload["name"] == "async-call");
+
+print("EMBEDDING_OK:" + result.summary() + ":" + asyncResult.summary());

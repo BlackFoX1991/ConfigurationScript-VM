@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using CFGS_VM.Packaging;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
@@ -331,6 +332,8 @@ namespace CFGS_VM.VMCore.Plugin
 
                 if (!File.Exists(full))
                     throw new FileNotFoundException("Plugin dll not found.", full);
+
+                CfgsPackageManager.VerifyLockedPluginArtifact(full);
 
                 LoaderState state = GetState(builtins);
                 if (!state.LoadedDllByPath.TryGetValue(full, out Assembly? asm))

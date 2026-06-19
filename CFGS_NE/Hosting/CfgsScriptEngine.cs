@@ -136,6 +136,7 @@ namespace CFGS_VM.Hosting
             VM vm = new()
             {
                 EntryScriptPath = entryScriptPath,
+                WorkingDirectory = workingDirectory,
                 NativeAssemblyBaseDirectory = string.IsNullOrWhiteSpace(NativeAssemblyBaseDirectory)
                     ? workingDirectory
                     : Path.GetFullPath(NativeAssemblyBaseDirectory),

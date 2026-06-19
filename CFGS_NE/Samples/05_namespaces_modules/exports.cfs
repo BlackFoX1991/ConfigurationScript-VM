@@ -1,0 +1,27 @@
+import "CFGS.StandardLibrary.dll";
+
+# This file demonstrates explicit module exports. Only exported symbols can be
+# imported with `import { ... } from "file.cfs"`.
+
+export const sampleVersion = "1.0";
+
+export func makeSku(prefix, number) {
+    return prefix + "-" + str(number);
+}
+
+export class FeatureBox(value) {
+    var value = 0;
+
+    func init(value) {
+        this.value = value;
+    }
+
+    func get() {
+        return this.value;
+    }
+}
+
+export enum HelperMode {
+    Basic = 1,
+    Advanced = 2
+}

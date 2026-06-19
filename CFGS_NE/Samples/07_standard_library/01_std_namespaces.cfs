@@ -1,0 +1,50 @@
+import "CFGS.StandardLibrary.dll";
+
+# This sample demonstrates the standard-library namespace shape.
+# Namespace-like builtins such as json, regex, encoding, math, console,
+# fs, file, and task are used as namespaces instead of old global aliases.
+
+use std.regex;
+use std.encoding;
+use console;
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+# JSON converts between text and CFGS arrays/dictionaries.
+var parsed = json.parse("{\"sku\":\"A-1\",\"counts\":[2,3]}");
+ensure("json parse", parsed["sku"] == "A-1" && parsed["counts"][1] == 3);
+ensure("json stringify", json.stringify(parsed).contains("\"sku\""));
+
+# Regex functions live under regex. `use std.regex` also imports members.
+var firstMatch = regex.match("abc 42 def", "\\d+");
+ensure("regex match", firstMatch["matched"] == "42");
+ensure("regex matches", len(regex.matches("A1 B22", "\\d+")) == 2);
+ensure("regex replace", regex.replace("A B", "\\s+", "-") == "A-B");
+ensure("regex use import", test("abc42", "\\d+"));
+
+# Encoding helpers expose encodings, byte conversion, and metadata.
+var bytes = encoding.encode("ABC", "utf-8");
+ensure("encoding encode", len(bytes) == 3 && bytes[0] == 65);
+ensure("encoding decode", encoding.decode(bytes, "utf-8") == "ABC");
+ensure("encoding use import", has("utf-8"));
+ensure("encoding info", info("utf-8")["codePage"] == 65001);
+
+# Math functions are grouped under math.
+ensure("math abs", math.abs(-5) == 5);
+ensure("math pow", math.pow(2, 4) == 16);
+ensure("math round", math.round(1.6) == 2);
+ensure("math constants", math.pi() > 3 && math.e() > 2);
+
+# Console remains available as a namespace and via `use console`.
+ensure("console namespace", console.put("") == 1);
+ensure("console use import", put("") == 1);
+
+# Date and time helpers are useful for logs and host integration.
+var stamp = UtcNow("yyyy-MM-dd");
+ensure("utc now", len(stamp) == 10);
+
+print("STD_NAMESPACES_OK:" + parsed["sku"] + ":" + stamp);

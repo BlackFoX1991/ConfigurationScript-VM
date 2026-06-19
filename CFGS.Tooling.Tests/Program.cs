@@ -1,5 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
+using CFGS_VM.Hosting;
+using CFGS_VM.VMCore;
+using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Plugin;
 using CFGS_VM.Tooling;
 
 namespace CFGS.Tooling.Tests;
@@ -19,7 +23,13 @@ internal static class Program
             LinterFixesOnlySafeStyleIssues,
             LinterSupportsSuppressions,
             LinterDoesNotFlagExportedOrNamespacedApiFunctionsAsUnused,
-            CliLintJsonProducesStableDiagnosticShape
+            CliLintJsonProducesStableDiagnosticShape,
+            HostingFileIoPermissionScopeAppliesToInvocations,
+            HostingSerializesConcurrentInvocations,
+            AsyncHotStartInheritsVmPolicy,
+            WorkspaceIsVmScoped,
+            PluginLoadRejectsMismatchedPackageLockHash,
+            HostingPreservesStructuredDiagnosticCode
         ];
 
         List<string> failures = [];
@@ -259,6 +269,230 @@ func privateHelper(){
         AssertTrue(line.GetInt32() > 0, "line must be 1-based");
         AssertTrue(column.GetInt32() > 0, "column must be 1-based");
         AssertTrue(spanLength.GetInt32() > 0, "spanLength must be positive");
+    }
+
+    private static void HostingFileIoPermissionScopeAppliesToInvocations()
+    {
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+        engine.Permissions.AllowFileIO = false;
+
+        CfgsScript script = engine.CompileSource("<host-permissions>", """
+func is_file_allowed() {
+    return probeAllowFileIO();
+}
+""");
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "probeAllowFileIO",
+            0,
+            0,
+            (args, instr) => VM.AllowFileIO));
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        bool allowedDuringInvoke = script.InvokeAsync<bool>("is_file_allowed").GetAwaiter().GetResult();
+
+        AssertFalse(allowedDuringInvoke, "host InvokeAsync did not apply the configured file I/O permission scope");
+        AssertTrue(VM.AllowFileIO, "host InvokeAsync did not restore the outer VM file I/O scope");
+    }
+
+    private static void HostingSerializesConcurrentInvocations()
+    {
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<host-concurrency>", """
+async func gated(value) {
+    markStart();
+    yield;
+    yield;
+    markEnd();
+    return value;
+}
+""");
+
+        object sync = new();
+        int active = 0;
+        int maxActive = 0;
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "markStart",
+            0,
+            0,
+            (args, instr) =>
+            {
+                lock (sync)
+                {
+                    active++;
+                    maxActive = Math.Max(maxActive, active);
+                }
+
+                return null!;
+            }));
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "markEnd",
+            0,
+            0,
+            (args, instr) =>
+            {
+                lock (sync)
+                    active--;
+                return null!;
+            }));
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        Task<object?>[] calls =
+        [
+            script.InvokeAsync("gated", 1),
+            script.InvokeAsync("gated", 2),
+            script.InvokeAsync("gated", 3)
+        ];
+
+        object?[] results = Task.WhenAll(calls).GetAwaiter().GetResult();
+        AssertEqual(1, maxActive, "concurrent host invocations should be serialized per script instance");
+        AssertEqual(1, Convert.ToInt32(results[0]), "first invocation returned wrong value");
+        AssertEqual(2, Convert.ToInt32(results[1]), "second invocation returned wrong value");
+        AssertEqual(3, Convert.ToInt32(results[2]), "third invocation returned wrong value");
+    }
+
+    private static void AsyncHotStartInheritsVmPolicy()
+    {
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+        engine.Permissions.AllowNativeInterop = false;
+
+        CfgsScript script = engine.CompileSource("<host-child-policy>", """
+async func checkPolicy() {
+    yield;
+    return isNativeInteropAllowed();
+}
+""");
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "isNativeInteropAllowed",
+            0,
+            0,
+            (args, instr) => VM.CurrentVm?.AllowNativeInterop ?? true));
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        bool allowed = script.InvokeAsync<bool>("checkPolicy").GetAwaiter().GetResult();
+
+        AssertFalse(allowed, "async hot-start child VM did not inherit AllowNativeInterop=false");
+    }
+
+    private static void WorkspaceIsVmScoped()
+    {
+        string processDirectory = Directory.GetCurrentDirectory();
+        string workspace = Path.Combine(Path.GetTempPath(), "cfgs-workspace-test", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workspace);
+
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = processDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<workspace-scope>", """
+func writeInWorkspace(path) {
+    setWorkspaceHost(path);
+    writeWorkspaceFileHost("local.bin");
+    return getWorkspaceHost();
+}
+""");
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "setWorkspaceHost",
+            1,
+            1,
+            (args, instr) =>
+            {
+                VM vm = VM.CurrentVm ?? throw new InvalidOperationException("missing current VM");
+                vm.WorkingDirectory = args[0]?.ToString() ?? string.Empty;
+                return null!;
+            }));
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "getWorkspaceHost",
+            0,
+            0,
+            (args, instr) => VM.CurrentVm?.WorkingDirectory ?? string.Empty));
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "writeWorkspaceFileHost",
+            1,
+            1,
+            (args, instr) =>
+            {
+                VM vm = VM.CurrentVm ?? throw new InvalidOperationException("missing current VM");
+                File.WriteAllBytes(vm.ResolveWorkspacePath(args[0]?.ToString() ?? string.Empty), [65, 66, 67]);
+                return null!;
+            }));
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        string actualWorkspace = script.InvokeAsync<string>("writeInWorkspace", workspace).GetAwaiter().GetResult() ?? "";
+
+        AssertEqual(Path.GetFullPath(workspace), Path.GetFullPath(actualWorkspace), "script workspace did not update");
+        AssertEqual(processDirectory, Directory.GetCurrentDirectory(), "VM workspace changes must not change the process current directory");
+        AssertTrue(File.Exists(Path.Combine(workspace, "local.bin")), "relative file write did not use VM workspace");
+    }
+
+    private static void PluginLoadRejectsMismatchedPackageLockHash()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-lock-test", Guid.NewGuid().ToString("N"));
+        string pluginDirectory = Path.Combine(root, ".cfgs", "plugins");
+        Directory.CreateDirectory(pluginDirectory);
+
+        string sourceDll = typeof(global::Program).Assembly.Location;
+        string pluginDll = Path.Combine(pluginDirectory, Path.GetFileName(sourceDll));
+        File.Copy(sourceDll, pluginDll);
+        File.WriteAllText(Path.Combine(root, "cfgs.lock.json"), $$"""
+{
+  "lockfileVersion": 1,
+  "generatedAtUtc": "2026-06-19T00:00:00.0000000+00:00",
+  "plugins": [
+    {
+      "name": "hash-test",
+      "version": "1.0.0",
+      "type": "plugin",
+      "source": "source.dll",
+      "installedPath": ".cfgs/plugins/{{Path.GetFileName(sourceDll)}}",
+      "sha256": "0000",
+      "includeDependencies": true
+    }
+  ]
+}
+""");
+
+        try
+        {
+            new VM().LoadPlugin(pluginDll);
+            throw new InvalidOperationException("plugin load should have failed for mismatched lockfile hash");
+        }
+        catch (InvalidDataException ex) when (ex.Message.Contains("lockfile hash mismatch", StringComparison.OrdinalIgnoreCase))
+        {
+            // Expected.
+        }
+    }
+
+    private static void HostingPreservesStructuredDiagnosticCode()
+    {
+        CompilerException compilerException = new(
+            "custom semantic failure",
+            2,
+            4,
+            "structured.cfs",
+            spanLength: 3,
+            diagnosticCode: "CFGS2999");
+
+        CfgsScriptException scriptException = CfgsScriptException.From(compilerException);
+
+        AssertEqual("CFGS2999", scriptException.Code, "host exception did not preserve explicit diagnostic code");
+        AssertEqual("CompileError", scriptException.Category, "host exception category changed unexpectedly");
+        AssertEqual(2, scriptException.Line, "host exception line changed unexpectedly");
+        AssertEqual(4, scriptException.Column, "host exception column changed unexpectedly");
     }
 
     private static string WriteTempCfgs(string source)
