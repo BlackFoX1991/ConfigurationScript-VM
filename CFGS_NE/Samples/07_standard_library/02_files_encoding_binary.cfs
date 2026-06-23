@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+import "CFGS.IO.dll";
 
 # This sample demonstrates file-system helpers, binary byte conversion,
 # file handles, async file reads, and workspace-safe cleanup.

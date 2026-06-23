@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This sample demonstrates deterministic cleanup with `defer`,
 # `using`, private destroy methods, and the destroy() builtin.

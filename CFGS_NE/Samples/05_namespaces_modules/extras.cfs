@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This file is imported with `import * as Extras` in app.cfs.
 # The import result is a dictionary-like module object.

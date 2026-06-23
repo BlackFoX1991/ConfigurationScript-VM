@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+import "CFGS.IO.dll";
 import "domain.cfs";
 
 # This file demonstrates `use` with namespaces imported from another file.

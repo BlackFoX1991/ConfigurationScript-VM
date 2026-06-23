@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This sample demonstrates classes, constructors, fields, properties,
 # visibility, inheritance, `this`, `type`, `super`, nested classes,

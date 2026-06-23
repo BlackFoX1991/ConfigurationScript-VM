@@ -20,9 +20,9 @@ A minimal manifest looks like this.
   "version": "0.1.0",
   "plugins": [
     {
-      "name": "stdlib",
+      "name": "io",
       "version": "5.3.4",
-      "path": "dist/Debug/net10.0/CFGS.StandardLibrary.dll",
+      "path": "dist/Debug/net10.0/CFGS.IO.dll",
       "includeDependencies": true
     }
   ]

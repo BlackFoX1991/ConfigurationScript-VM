@@ -5,9 +5,9 @@ namespace CFGS_VM.Hosting
     /// denied until the host explicitly grants it, so a host that forgets to configure permissions
     /// gets the safe (restricted) behavior rather than full access.
     /// <para>
-    /// Note: the CFGS standard library is delivered as a plugin DLL and pulled in via
-    /// <c>import "CFGS.StandardLibrary.dll"</c>. Hosts that run scripts which use the standard
-    /// library must therefore set <see cref="AllowPluginLoading"/> to <c>true</c>.
+    /// Note: the non-IO standard library is built into the runtime and always available. File-system
+    /// APIs live in the <c>CFGS.IO</c> plugin (<c>import "CFGS.IO.dll"</c>), so hosts that run scripts
+    /// using file I/O must set <see cref="AllowPluginLoading"/> to <c>true</c>.
     /// </para>
     /// </summary>
     public sealed class CfgsScriptPermissions

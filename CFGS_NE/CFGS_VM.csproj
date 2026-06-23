@@ -15,11 +15,11 @@
 
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <NoWarn></NoWarn>
+    <NoWarn>NU1510</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <NoWarn></NoWarn>
+    <NoWarn>NU1510</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,6 +33,11 @@
 
   <ItemGroup>
     <Content Include="assets\cfgs_icon.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Required by the built-in standard library's encoding namespace (CodePagesEncodingProvider). -->
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.8" />
   </ItemGroup>
 
 </Project>

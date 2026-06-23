@@ -5,7 +5,6 @@
 The XML plugin is loaded through a normal DLL import.
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Xml.dll";
 ```
 
@@ -60,7 +59,6 @@ An `XmlNodeHandle` supports:
 ## Example
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Xml.dll";
 
 var doc = xml.new("config");

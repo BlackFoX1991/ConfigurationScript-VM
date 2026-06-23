@@ -233,9 +233,10 @@ engine.Permissions.MaxExecutionTime = TimeSpan.FromSeconds(5);
 ```
 
 `AllowPluginLoading` prevents loading plugin DLLs through the host engine and
-through script plugin loading paths attached to the VM. Because the CFGS standard
-library ships as a plugin DLL and is pulled in via `import "CFGS.StandardLibrary.dll"`,
-hosts that run scripts which use the standard library must set `AllowPluginLoading = true`.
+through script plugin loading paths attached to the VM. The non-IO standard library is
+built into the runtime and always available, but file-system APIs live in the `CFGS.IO`
+plugin (`import "CFGS.IO.dll"`), so hosts that run scripts using file I/O must set
+`AllowPluginLoading = true`.
 `AllowNativeInterop` blocks `import native` resolution and native member invocation.
 `AllowFileIO` gates every standard-library file-system operation. When
 `RestrictFileIoToWorkspace` is enabled, those operations are additionally jailed to the

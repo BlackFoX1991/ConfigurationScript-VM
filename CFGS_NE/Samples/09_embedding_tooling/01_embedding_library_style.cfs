@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 use Samples.Embedding;
 
 # This sample is written in an embedding-friendly style.

@@ -226,7 +226,6 @@ Many standard-library builtins and plugin namespace members return tasks directl
 ## Typical `main` Pattern
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 
 async func main() {
     var t = task();

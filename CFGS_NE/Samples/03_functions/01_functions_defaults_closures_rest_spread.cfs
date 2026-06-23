@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This sample demonstrates normal functions, nested functions,
 # closures, recursion, default parameters, named arguments,

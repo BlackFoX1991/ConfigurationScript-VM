@@ -5,7 +5,6 @@
 The official extra plugins are loaded through DLL imports just like the standard library.
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Web.Http.dll";
 import "dist/Debug/net10.0/CFGS.Microsoft.SQL.dll";
 ```
@@ -126,7 +125,6 @@ Use `body` for normal text, JSON, and form workflows. Use `body_bytes` when the 
 ### Minimal HTTP Server Example
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Web.Http.dll";
 
 async func main() {

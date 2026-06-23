@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This sample demonstrates the standard-library namespace shape.
 # Namespace-like builtins such as json, regex, encoding, math, console,

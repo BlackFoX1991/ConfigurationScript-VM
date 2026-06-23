@@ -71,10 +71,16 @@ namespace CFGS_VM.VMCore
             }
 
             foreach ((Type ReceiverType, IntrinsicDescriptor Descriptor) entry in _intrinsics.Snapshot())
-                target.Intrinsics.Register(entry.ReceiverType, entry.Descriptor);
+            {
+                if (!target.Intrinsics.ContainsExact(entry.ReceiverType, entry.Descriptor.Name))
+                    target.Intrinsics.Register(entry.ReceiverType, entry.Descriptor);
+            }
 
             foreach (NamespaceDescriptor descriptor in _namespaces.Snapshot())
-                target.Namespaces.Register(descriptor);
+            {
+                if (!target.Namespaces.Contains(descriptor.Path))
+                    target.Namespaces.Register(descriptor);
+            }
         }
 
         /// <summary>

@@ -5,7 +5,6 @@
 The crypto plugin is loaded like every other official CFGS plugin.
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Security.Crypto.dll";
 ```
 
@@ -362,7 +361,6 @@ print(imported.has_private());
 ## Minimal End to End Example
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Security.Crypto.dll";
 
 var key = crypto.aesKey();

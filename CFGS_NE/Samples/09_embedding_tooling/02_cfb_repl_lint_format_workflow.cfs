@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This sample demonstrates script arguments and documents the related CLI,
 # CFB, REPL, debugger, linter, and formatter workflows.

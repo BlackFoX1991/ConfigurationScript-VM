@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This sample demonstrates the core value model:
 # literals, variables, constants, operators, short-circuiting,

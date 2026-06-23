@@ -1,5 +1,4 @@
 import "edge_assert.cfs";
-import "CFGS.StandardLibrary.dll";
 import "CFGS.Web.Http.dll";
 
 edge_begin("232_plugin_http_server_async");

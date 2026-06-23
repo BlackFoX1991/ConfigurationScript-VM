@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 import "domain.cfs";
 import "services.cfs";
 import { sampleVersion as helperVersion, makeSku, FeatureBox, HelperMode } from "exports.cfs";

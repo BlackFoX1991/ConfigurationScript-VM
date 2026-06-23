@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This file defines namespaced domain types. The file itself does not export
 # top-level names; consumers import the file and access the namespace members.

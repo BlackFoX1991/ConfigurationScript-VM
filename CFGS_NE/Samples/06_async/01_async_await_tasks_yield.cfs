@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This sample demonstrates async functions, task return values,
 # await, await over arrays/dictionaries, yield, and async defaults.

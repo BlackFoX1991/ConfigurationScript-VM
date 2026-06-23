@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 import "CFGS.Security.Crypto.dll";
 import "CFGS.Xml.dll";
 import "CFGS.Pdf.dll";

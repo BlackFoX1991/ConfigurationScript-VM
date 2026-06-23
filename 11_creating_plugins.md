@@ -300,7 +300,6 @@ public sealed class DemoPlugin : IVmPlugin
 ### CFGS
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/Demo.Plugin.dll";
 
 print(demo.hello("World"));

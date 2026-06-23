@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This sample demonstrates interface contracts, interface inheritance,
 # default interface methods, static interface members, structural checks,

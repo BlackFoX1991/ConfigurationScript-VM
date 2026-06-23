@@ -67,7 +67,6 @@ The following topics are covered completely across the English documentation set
 ## Smallest Useful Example
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 
 func main() {
     print("Hello from CFGS");

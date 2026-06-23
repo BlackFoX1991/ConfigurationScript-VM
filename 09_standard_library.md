@@ -5,7 +5,6 @@
 The standard library is loaded the same way as a plugin through a DLL import.
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 ```
 
 After that, its builtins and intrinsics are available globally.

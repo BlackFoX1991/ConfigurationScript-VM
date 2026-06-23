@@ -1,4 +1,4 @@
-import "CFGS.StandardLibrary.dll";
+import "CFGS.IO.dll";
 
 # This file demonstrates explicit module exports. Only exported symbols can be
 # imported with `import { ... } from "file.cfs"`.

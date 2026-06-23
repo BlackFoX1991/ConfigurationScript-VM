@@ -1104,6 +1104,10 @@ namespace CFGS_VM.VMCore
         {
             _debugStream = new MemoryStream();
             RegisterInterfaceReflectionBuiltins();
+
+            // The non-IO standard library is built into the runtime and always available, so scripts
+            // no longer need to import it. File-system APIs remain opt-in via the CFGS.IO plugin.
+            CFGS_VM.StandardLibrary.CoreStandardLibrary.Register(_builtins, _intrinsics, _namespaces);
         }
 
         private void RegisterInterfaceReflectionBuiltins()

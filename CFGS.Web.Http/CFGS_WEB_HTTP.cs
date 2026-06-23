@@ -288,7 +288,7 @@ namespace CFGS.Web.Http
             bool allowFile = VM.AllowFileIO;
             try
             {
-                Type? t = Type.GetType("CFGS.StandardLibrary.CFGS_STDLIB, CFGS.StandardLibrary");
+                Type? t = Type.GetType("CFGS.IO.CFGS_IO, CFGS.IO");
                 if (t != null)
                 {
                     System.Reflection.PropertyInfo? p = t.GetProperty("AllowFileIO", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);

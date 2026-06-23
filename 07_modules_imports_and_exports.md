@@ -21,7 +21,6 @@ Module-scope `var` and `const` initializers must not execute code. Use literals,
 Clean.
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import { add } from "math.cfs";
 
 func main() {
@@ -124,7 +123,6 @@ This applies to both `.cfs` and `.dll`.
 Package restore lets scripts import restored plugins by DLL file name.
 
 ```cfs
-import "CFGS.StandardLibrary.dll";
 ```
 
 For the manifest and lockfile workflow, see [Package and Dependency Management](20_package_dependency_management.md).
@@ -167,7 +165,6 @@ This form is useful in controlled environments. For most production scripts, loc
 Plugins are loaded through normal import syntax.
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Web.Http.dll";
 ```
 

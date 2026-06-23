@@ -10,8 +10,8 @@ If you want the codebase-level structure behind that implementation, continue wi
 
 ## Important Project Folders
 
-- `CFGS_NE` contains the language frontend, compiler, runtime, and CLI.
-- `CFGS.StandardLibrary` contains the standard builtins and intrinsics.
+- `CFGS_NE` contains the language frontend, compiler, runtime, CLI, and the built-in standard library (non-IO builtins and intrinsics, auto-registered so scripts need no import).
+- `CFGS.IO` contains the file-system plugin (`fs`/`file` namespace and file handles), loaded via `import "CFGS.IO.dll"`.
 - `CFGS.Web.Http` contains the `http` namespace and the built in HTTP server handle.
 - `CFGS.Microsoft.SQL` contains SQL support.
 - The root `*.md` files contain the current English documentation set.
@@ -57,7 +57,7 @@ On startup, the REPL can automatically load plugins listed in `repl_plugins.json
 ```json
 {
   "plugins": [
-    "CFGS.StandardLibrary.dll",
+    "CFGS.IO.dll",
     "plugins/CustomPlugin.dll"
   ]
 }
@@ -178,7 +178,6 @@ The `.cfb` format stores bytecode, function metadata, source hash, compiler vers
 In most practical scripts you start by importing the standard library.
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 
 func main() {
     print("CFGS is running");
@@ -192,7 +191,6 @@ Top level code in CFGS now has two practical modes. Directly executed scripts st
 That usually leads to a simple pattern like this.
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 
 func main() {
     if (true) {

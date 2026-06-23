@@ -843,7 +843,6 @@ new App.Tools.Box(7)
 If you want shorter lookup syntax in a file, you can add header-only `use` directives.
 
 ```cfs
-import "CFGS.StandardLibrary.dll";
 import "_imports/use_feature_valid.cfs";
 
 use App.Core.Tools;

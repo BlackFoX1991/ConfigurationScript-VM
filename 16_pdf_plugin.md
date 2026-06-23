@@ -5,7 +5,6 @@
 The PDF plugin is loaded through a normal DLL import.
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Pdf.dll";
 ```
 
@@ -69,7 +68,6 @@ Colors use hex strings such as `"#111827"` or `"#FF111827"`.
 For a ZUGFeRD-style XML attachment, attach the XML with relationship `Data`.
 
 ```cfs
-import "dist/Debug/net10.0/CFGS.StandardLibrary.dll";
 import "dist/Debug/net10.0/CFGS.Xml.dll";
 import "dist/Debug/net10.0/CFGS.Pdf.dll";
 

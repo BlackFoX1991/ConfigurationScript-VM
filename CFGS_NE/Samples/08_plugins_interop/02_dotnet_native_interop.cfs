@@ -1,5 +1,4 @@
 import native "CFGS.EdgeAwaitables.dll" as Net;
-import "CFGS.StandardLibrary.dll";
 
 # This sample demonstrates native .NET interop.
 # It uses the repository's CFGS.EdgeAwaitables test assembly because it exposes

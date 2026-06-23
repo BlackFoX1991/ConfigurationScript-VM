@@ -1,4 +1,3 @@
-import "CFGS.StandardLibrary.dll";
 
 # This sample demonstrates arrays, dictionaries, slices, delete,
 # destructuring, foreach pairs, and the `out` expression block.
