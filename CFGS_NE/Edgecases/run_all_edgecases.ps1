@@ -10,7 +10,6 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $scriptDir "..\..")
 $solution = Join-Path $repoRoot "CFGS_VM.sln"
-$edgeAwaitablesProject = Join-Path $repoRoot "CFGS.EdgeAwaitables\CFGS.EdgeAwaitables.csproj"
 $vmDll = Join-Path $repoRoot "dist\Debug\net10.0\CFGS_VM.dll"
 $importsDir = Join-Path $scriptDir "_imports"
 $createdImportsDir = $false
@@ -108,13 +107,6 @@ try {
         dotnet build $solution --no-restore | Write-Host
         if ($LASTEXITCODE -ne 0) {
             throw "Build failed."
-        }
-
-        if (Test-Path -LiteralPath $edgeAwaitablesProject) {
-            dotnet build $edgeAwaitablesProject | Write-Host
-            if ($LASTEXITCODE -ne 0) {
-                throw "EdgeAwaitables build failed."
-            }
         }
     }
 

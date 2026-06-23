@@ -1,0 +1,86 @@
+import "edge_assert.cfs";
+
+# Runtime-integrity guarantee for the C#-like async model: a single atomic
+# operation (one push, one dictionary insert) on shared state, performed from
+# many genuinely-parallel tasks, must never be lost and must never corrupt the
+# backing store. Each task yields first so its continuation runs on the thread
+# pool, producing real contention on the shared object's lock.
+#
+# Compound read-modify-write is intentionally NOT covered here: those races are
+# by design (see 240_async_shared_state_serialized).
+
+edge_begin("252_async_atomic_op_integrity");
+
+func all_equal(values, expected) {
+    var i = 0;
+    while (i < len(values)) {
+        if (values[i] != expected) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+async func pushOne(target, value) {
+    yield;
+    target[] = value;
+    return value;
+}
+
+async func putOne(target, key, value) {
+    yield;
+    target[key] = value;
+    return value;
+}
+
+async func parallelPushCount(count) {
+    var target = [];
+    var tasks = [];
+    var i = 0;
+    while (i < count) {
+        tasks[] = pushOne(target, i);
+        i = i + 1;
+    }
+    var _ = await tasks;
+    return len(target);
+}
+
+async func parallelDictCount(count) {
+    var target = {};
+    var tasks = [];
+    var i = 0;
+    while (i < count) {
+        tasks[] = putOne(target, str(i), i);
+        i = i + 1;
+    }
+    var _ = await tasks;
+    return len(target);
+}
+
+async func collectCounts(count, rounds, useDict) {
+    var results = [];
+    var r = 0;
+    while (r < rounds) {
+        if (useDict) {
+            results[] = await parallelDictCount(count);
+        } else {
+            results[] = await parallelPushCount(count);
+        }
+        r = r + 1;
+    }
+    return results;
+}
+
+var count = 200;
+var rounds = 8;
+
+var pushCounts = await collectCounts(count, rounds, false);
+edge_eq("push_rounds_observed", len(pushCounts), rounds);
+edge_true("every_parallel_push_retained", all_equal(pushCounts, count));
+
+var dictCounts = await collectCounts(count, rounds, true);
+edge_eq("dict_rounds_observed", len(dictCounts), rounds);
+edge_true("every_parallel_dict_insert_retained", all_equal(dictCounts, count));
+
+edge_finish("252_async_atomic_op_integrity");

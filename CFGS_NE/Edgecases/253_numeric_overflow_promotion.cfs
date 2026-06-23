@@ -1,0 +1,38 @@
+import "edge_assert.cfs";
+
+# Integer arithmetic is precision-exact: results that overflow their kind are
+# promoted (int -> long -> BigInteger) instead of wrapping. This covers +, -, *,
+# the MinValue / -1 division/remainder edge, and ** parity.
+
+edge_begin("253_numeric_overflow_promotion");
+
+# Force genuine int32 / long minima via computation so the int32/int64 paths run.
+var imin = -2147483647 - 1;
+var lmin = -9223372036854775807 - 1;
+
+edge_eq("imin_is_int", typeof(imin), "Int");
+edge_eq("lmin_is_long", typeof(lmin), "Long");
+
+# Add / sub / mul promote on overflow rather than wrapping.
+edge_eq("add_overflow_value", 2000000000 + 2000000000, 4000000000);
+edge_eq("add_overflow_type", typeof(2000000000 + 2000000000), "Long");
+edge_eq("sub_overflow_value", -2000000000 - 2000000000, -4000000000);
+edge_eq("mul_overflow_value", 1000000 * 1000000, 1000000000000);
+edge_eq("mul_overflow_type", typeof(1000000 * 1000000), "Long");
+
+# Exponentiation stays exact (BigInteger) and consistent with the above.
+edge_eq("expo_exact_value", 10 ** 20, 100000000000000000000);
+
+# MinValue / -1 promotes instead of throwing; MinValue % -1 is 0.
+edge_eq("int_min_div", imin / -1, 2147483648);
+edge_eq("int_min_div_type", typeof(imin / -1), "Long");
+edge_eq("int_min_mod", imin % -1, 0);
+edge_eq("long_min_div", lmin / -1, 9223372036854775808);
+edge_eq("long_min_mod", lmin % -1, 0);
+
+# Normal division/remainder keep truncation-toward-zero semantics.
+edge_eq("div_trunc_pos", 7 / 2, 3);
+edge_eq("div_trunc_neg", -7 / 2, -3);
+edge_eq("mod_sign", -7 % 3, -1);
+
+edge_finish("253_numeric_overflow_promotion");

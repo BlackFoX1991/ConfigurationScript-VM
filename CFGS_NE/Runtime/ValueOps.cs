@@ -185,6 +185,23 @@ namespace CFGS_VM.VMCore
             return r / a != b ? Value.FromRef((BigInteger)a * b) : Value.FromRef(r);
         }
 
+        // Integer division/remainder. Callers guarantee a non-zero divisor. The only overflowing
+        // case is MinValue / -1 (the quotient overflows the signed range); it is promoted to the
+        // next-wider type, consistent with the +, -, * overflow handling. MinValue % -1 is
+        // mathematically 0 but would fault the hardware divide, so it is short-circuited.
+
+        private static Value DivInt32(int a, int b)
+            => b == -1 && a == int.MinValue ? Value.FromLong(-(long)a) : Value.FromInt(a / b);
+
+        private static Value DivInt64(long a, long b)
+            => b == -1L && a == long.MinValue ? NarrowIntegerValue(-(BigInteger)a) : Value.FromLong(a / b);
+
+        private static Value ModInt32(int a, int b)
+            => b == -1 ? Value.FromInt(0) : Value.FromInt(a % b);
+
+        private static Value ModInt64(long a, long b)
+            => b == -1L ? Value.FromLong(0L) : Value.FromLong(a % b);
+
         private VMException DecimalOverflow(Instruction instr)
             => new("Runtime error: arithmetic overflow (result is outside the representable decimal range)",
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1005,12 +1022,12 @@ namespace CFGS_VM.VMCore
                     case NumKind.Int32:
                         if (hotPair.Int32Right == 0)
                             throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        _valueStack.Push(Value.FromInt(hotPair.Int32Left % hotPair.Int32Right));
+                        _valueStack.Push(ModInt32(hotPair.Int32Left, hotPair.Int32Right));
                         return StepResult.Next;
                     case NumKind.Int64:
                         if (hotPair.Int64Right == 0L)
                             throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        _valueStack.Push(Value.FromLong(hotPair.Int64Left % hotPair.Int64Right));
+                        _valueStack.Push(ModInt64(hotPair.Int64Left, hotPair.Int64Right));
                         return StepResult.Next;
                     case NumKind.Double:
                         if (hotPair.DoubleRight == 0.0)
@@ -1047,9 +1064,9 @@ namespace CFGS_VM.VMCore
                 NumKind.Decimal => Value.FromRef((decimal)A.Reference! % (decimal)B.Reference!),
                 NumKind.Double => Value.FromDouble(A.AsDouble % B.AsDouble),
                 NumKind.UInt64 => Value.FromRef((ulong)A.Reference! % (ulong)B.Reference!),
-                NumKind.Int64 => Value.FromLong(A.AsLong % B.AsLong),
+                NumKind.Int64 => ModInt64(A.AsLong, B.AsLong),
                 NumKind.Maximal => Value.FromRef((BigInteger)A.Reference! % (BigInteger)B.Reference!),
-                _ => Value.FromInt(A.AsInt % B.AsInt),
+                _ => ModInt32(A.AsInt, B.AsInt),
             };
             _valueStack.Push(res);
             return StepResult.Next;
@@ -1068,12 +1085,12 @@ namespace CFGS_VM.VMCore
                     case NumKind.Int32:
                         if (hotPair.Int32Right == 0)
                             throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        _valueStack.Push(Value.FromInt(hotPair.Int32Left / hotPair.Int32Right));
+                        _valueStack.Push(DivInt32(hotPair.Int32Left, hotPair.Int32Right));
                         return StepResult.Next;
                     case NumKind.Int64:
                         if (hotPair.Int64Right == 0L)
                             throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        _valueStack.Push(Value.FromLong(hotPair.Int64Left / hotPair.Int64Right));
+                        _valueStack.Push(DivInt64(hotPair.Int64Left, hotPair.Int64Right));
                         return StepResult.Next;
                     case NumKind.Double:
                         if (hotPair.DoubleRight == 0.0)
@@ -1112,9 +1129,9 @@ namespace CFGS_VM.VMCore
                 NumKind.Decimal => Value.FromRef((decimal)A.Reference! / (decimal)B.Reference!),
                 NumKind.Double => Value.FromDouble(A.AsDouble / B.AsDouble),
                 NumKind.UInt64 => Value.FromRef((ulong)A.Reference! / (ulong)B.Reference!),
-                NumKind.Int64 => Value.FromLong(A.AsLong / B.AsLong),
+                NumKind.Int64 => DivInt64(A.AsLong, B.AsLong),
                 NumKind.Maximal => Value.FromRef((BigInteger)A.Reference! / (BigInteger)B.Reference!),
-                _ => Value.FromInt(A.AsInt / B.AsInt),
+                _ => DivInt32(A.AsInt, B.AsInt),
             };
             _valueStack.Push(res);
             return StepResult.Next;

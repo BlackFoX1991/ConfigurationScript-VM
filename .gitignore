@@ -365,3 +365,7 @@ FodyWeavers.xsd
 /.claude
 /EffCopy.cfs
 /_tmp_cfgs_vault_selftest
+
+# Temporary probe/validation artifacts and the edgecase runner's staged imports
+_tmp_*
+CFGS_NE/Edgecases/_imports/
