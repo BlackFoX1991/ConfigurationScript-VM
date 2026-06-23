@@ -46,7 +46,9 @@ namespace CFGS_VM.VMCore
         private static decimal ToDecimalInvariant(object x) => x switch
         {
             string s => decimal.Parse(s, NumberStyles.Number, CultureInfo.InvariantCulture),
-            BigInteger bi => (decimal)bi,
+            BigInteger bi => bi >= (BigInteger)decimal.MinValue && bi <= (BigInteger)decimal.MaxValue
+                ? (decimal)bi
+                : throw new OverflowException("BigInteger value is outside the representable decimal range."),
             IConvertible _ => Convert.ToDecimal(x, CultureInfo.InvariantCulture),
             _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
         };
@@ -126,6 +128,83 @@ namespace CFGS_VM.VMCore
             if (bi >= int.MinValue && bi <= int.MaxValue) return Value.FromInt((int)bi);
             if (bi >= long.MinValue && bi <= long.MaxValue) return Value.FromLong((long)bi);
             return Value.FromRef(bi);
+        }
+
+        /// <summary>Stores a 64-bit result as the narrowest of int/long that can hold it.</summary>
+        private static Value NarrowInt64Value(long value)
+            => value >= int.MinValue && value <= int.MaxValue ? Value.FromInt((int)value) : Value.FromLong(value);
+
+        // Overflow-safe integer arithmetic. The hot scalar paths and the coerced fallback share these
+        // so that an int/long/ulong result that overflows its kind is promoted (int -> long ->
+        // BigInteger) instead of silently wrapping. This keeps +, -, * precision-exact and consistent
+        // with ** (IntegerExpo), rather than producing a wrapped two's-complement result.
+
+        private static Value AddInt32(int a, int b) => NarrowInt64Value((long)a + b);
+
+        private static Value SubInt32(int a, int b) => NarrowInt64Value((long)a - b);
+
+        private static Value MulInt32(int a, int b) => NarrowInt64Value((long)a * b);
+
+        private static Value AddInt64(long a, long b)
+        {
+            long r = unchecked(a + b);
+            // Overflow iff the operands share a sign and the result's sign differs from both.
+            return ((a ^ r) & (b ^ r)) < 0 ? NarrowIntegerValue((BigInteger)a + b) : Value.FromLong(r);
+        }
+
+        private static Value SubInt64(long a, long b)
+        {
+            long r = unchecked(a - b);
+            // Overflow iff the operands differ in sign and the result's sign differs from the minuend.
+            return ((a ^ b) & (a ^ r)) < 0 ? NarrowIntegerValue((BigInteger)a - b) : Value.FromLong(r);
+        }
+
+        private static Value MulInt64(long a, long b)
+        {
+            if (a == 0 || b == 0) return Value.FromLong(0L);
+            // long.MinValue * -1 overflows and would also fault the r/a check below.
+            if ((a == -1 && b == long.MinValue) || (b == -1 && a == long.MinValue))
+                return NarrowIntegerValue((BigInteger)a * b);
+            long r = unchecked(a * b);
+            return r / a != b ? NarrowIntegerValue((BigInteger)a * b) : Value.FromLong(r);
+        }
+
+        private static Value AddUInt64(ulong a, ulong b)
+        {
+            ulong r = unchecked(a + b);
+            return r < a ? Value.FromRef((BigInteger)a + b) : Value.FromRef(r);
+        }
+
+        private static Value SubUInt64(ulong a, ulong b)
+            => a >= b ? Value.FromRef(a - b) : NarrowIntegerValue((BigInteger)a - b);
+
+        private static Value MulUInt64(ulong a, ulong b)
+        {
+            if (a == 0UL || b == 0UL) return Value.FromRef(0UL);
+            ulong r = unchecked(a * b);
+            return r / a != b ? Value.FromRef((BigInteger)a * b) : Value.FromRef(r);
+        }
+
+        private VMException DecimalOverflow(Instruction instr)
+            => new("Runtime error: arithmetic overflow (result is outside the representable decimal range)",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+        private Value AddDecimal(decimal a, decimal b, Instruction instr)
+        {
+            try { return Value.FromRef(a + b); }
+            catch (OverflowException) { throw DecimalOverflow(instr); }
+        }
+
+        private Value SubDecimal(decimal a, decimal b, Instruction instr)
+        {
+            try { return Value.FromRef(a - b); }
+            catch (OverflowException) { throw DecimalOverflow(instr); }
+        }
+
+        private Value MulDecimal(decimal a, decimal b, Instruction instr)
+        {
+            try { return Value.FromRef(a * b); }
+            catch (OverflowException) { throw DecimalOverflow(instr); }
         }
 
         /// <summary>
@@ -448,11 +527,38 @@ namespace CFGS_VM.VMCore
             return NumKind.Int32;
         }
 
+        // Floating-point -> integer coercion truncates toward zero (the conventional cast semantic
+        // used by most languages), rather than Convert.ToInt32's banker's rounding, while still
+        // range-checking so an out-of-range magnitude raises a clean error instead of wrapping.
+        private static int DoubleToInt32(double d)
+        {
+            double t = Math.Truncate(d);
+            if (double.IsNaN(t) || t < int.MinValue || t > int.MaxValue)
+                throw new OverflowException("Value was either too large or too small for an Int32.");
+            return (int)t;
+        }
+
+        private static long DoubleToInt64(double d)
+        {
+            double t = Math.Truncate(d);
+            if (double.IsNaN(t) || t < long.MinValue || t > long.MaxValue)
+                throw new OverflowException("Value was either too large or too small for an Int64.");
+            return (long)t;
+        }
+
+        private static ulong DoubleToUInt64(double d)
+        {
+            double t = Math.Truncate(d);
+            if (double.IsNaN(t) || t < 0 || t > ulong.MaxValue)
+                throw new OverflowException("Value was either too large or too small for a UInt64.");
+            return (ulong)t;
+        }
+
         private static int ToInt32Invariant(Value x) => x.Kind switch
         {
             ValueKind.Int => x.AsInt,
             ValueKind.Long => checked((int)x.AsLong),
-            ValueKind.Double => Convert.ToInt32(x.AsDouble),
+            ValueKind.Double => DoubleToInt32(x.AsDouble),
             ValueKind.Char => CharToNumeric(x.AsChar),
             ValueKind.Ref => ToInt32Invariant(x.Reference!),
             _ => throw new InvalidOperationException($"Not numeric: {x.Kind}")
@@ -462,7 +568,7 @@ namespace CFGS_VM.VMCore
         {
             ValueKind.Int => x.AsInt,
             ValueKind.Long => x.AsLong,
-            ValueKind.Double => Convert.ToInt64(x.AsDouble),
+            ValueKind.Double => DoubleToInt64(x.AsDouble),
             ValueKind.Char => CharToNumeric(x.AsChar),
             ValueKind.Ref => ToInt64Invariant(x.Reference!),
             _ => throw new InvalidOperationException($"Not numeric: {x.Kind}")
@@ -472,7 +578,7 @@ namespace CFGS_VM.VMCore
         {
             ValueKind.Int => Convert.ToUInt64(x.AsInt),
             ValueKind.Long => Convert.ToUInt64(x.AsLong),
-            ValueKind.Double => Convert.ToUInt64(x.AsDouble),
+            ValueKind.Double => DoubleToUInt64(x.AsDouble),
             ValueKind.Char => Convert.ToUInt64(CharToNumeric(x.AsChar)),
             ValueKind.Ref => ToUInt64Invariant(x.Reference!),
             _ => throw new InvalidOperationException($"Not numeric: {x.Kind}")
@@ -700,15 +806,24 @@ namespace CFGS_VM.VMCore
 
         private string FormatDefaultConcatOperand(Value value)
         {
+            // Must match the canonical rendering used by Value.ToString()/PrintValue: lowercase
+            // boolean literals and culture-invariant numerics, so that string concatenation does
+            // not leak the .NET "True"/"False" capitalization or a locale-dependent decimal
+            // separator (e.g. "1,5" instead of "1.5").
             return value.Kind switch
             {
                 ValueKind.Null => string.Empty,
-                ValueKind.Bool => value.AsBool.ToString(),
-                ValueKind.Int => value.AsInt.ToString(),
-                ValueKind.Long => value.AsLong.ToString(),
-                ValueKind.Double => value.AsDouble.ToString(),
+                ValueKind.Bool => value.AsBool ? "true" : "false",
+                ValueKind.Int => value.AsInt.ToString(CultureInfo.InvariantCulture),
+                ValueKind.Long => value.AsLong.ToString(CultureInfo.InvariantCulture),
+                ValueKind.Double => value.AsDouble.ToString(CultureInfo.InvariantCulture),
                 ValueKind.Char => value.AsChar.ToString(),
-                _ => value.Reference?.ToString() ?? string.Empty
+                _ => value.Reference switch
+                {
+                    null => string.Empty,
+                    IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
+                    object reference => reference.ToString() ?? string.Empty
+                }
             };
         }
 
@@ -730,10 +845,10 @@ namespace CFGS_VM.VMCore
                 switch (hotPair.Kind)
                 {
                     case NumKind.Int32:
-                        _valueStack.Push(Value.FromInt(hotPair.Int32Left + hotPair.Int32Right));
+                        _valueStack.Push(AddInt32(hotPair.Int32Left, hotPair.Int32Right));
                         return StepResult.Next;
                     case NumKind.Int64:
-                        _valueStack.Push(Value.FromLong(hotPair.Int64Left + hotPair.Int64Right));
+                        _valueStack.Push(AddInt64(hotPair.Int64Left, hotPair.Int64Right));
                         return StepResult.Next;
                     case NumKind.Double:
                         _valueStack.Push(Value.FromDouble(hotPair.DoubleLeft + hotPair.DoubleRight));
@@ -745,12 +860,12 @@ namespace CFGS_VM.VMCore
             {
                 Value res = K switch
                 {
-                    NumKind.Decimal => Value.FromRef((decimal)A.Reference! + (decimal)B.Reference!),
+                    NumKind.Decimal => AddDecimal((decimal)A.Reference!, (decimal)B.Reference!, instr),
                     NumKind.Double => Value.FromDouble(A.AsDouble + B.AsDouble),
-                    NumKind.UInt64 => Value.FromRef((ulong)A.Reference! + (ulong)B.Reference!),
-                    NumKind.Int64 => Value.FromLong(A.AsLong + B.AsLong),
+                    NumKind.UInt64 => AddUInt64((ulong)A.Reference!, (ulong)B.Reference!),
+                    NumKind.Int64 => AddInt64(A.AsLong, B.AsLong),
                     NumKind.Maximal => Value.FromRef((BigInteger)A.Reference! + (BigInteger)B.Reference!),
-                    _ => Value.FromInt(A.AsInt + B.AsInt),
+                    _ => AddInt32(A.AsInt, B.AsInt),
                 };
                 _valueStack.Push(res);
                 return StepResult.Next;
@@ -786,10 +901,10 @@ namespace CFGS_VM.VMCore
                 switch (hotPair.Kind)
                 {
                     case NumKind.Int32:
-                        _valueStack.Push(Value.FromInt(hotPair.Int32Left - hotPair.Int32Right));
+                        _valueStack.Push(SubInt32(hotPair.Int32Left, hotPair.Int32Right));
                         return StepResult.Next;
                     case NumKind.Int64:
-                        _valueStack.Push(Value.FromLong(hotPair.Int64Left - hotPair.Int64Right));
+                        _valueStack.Push(SubInt64(hotPair.Int64Left, hotPair.Int64Right));
                         return StepResult.Next;
                     case NumKind.Double:
                         _valueStack.Push(Value.FromDouble(hotPair.DoubleLeft - hotPair.DoubleRight));
@@ -808,12 +923,12 @@ namespace CFGS_VM.VMCore
 
             Value res = K switch
             {
-                NumKind.Decimal => Value.FromRef((decimal)A.Reference! - (decimal)B.Reference!),
+                NumKind.Decimal => SubDecimal((decimal)A.Reference!, (decimal)B.Reference!, instr),
                 NumKind.Double => Value.FromDouble(A.AsDouble - B.AsDouble),
-                NumKind.UInt64 => Value.FromRef((ulong)A.Reference! - (ulong)B.Reference!),
-                NumKind.Int64 => Value.FromLong(A.AsLong - B.AsLong),
+                NumKind.UInt64 => SubUInt64((ulong)A.Reference!, (ulong)B.Reference!),
+                NumKind.Int64 => SubInt64(A.AsLong, B.AsLong),
                 NumKind.Maximal => Value.FromRef((BigInteger)A.Reference! - (BigInteger)B.Reference!),
-                _ => Value.FromInt(A.AsInt - B.AsInt),
+                _ => SubInt32(A.AsInt, B.AsInt),
             };
             _valueStack.Push(res);
             return StepResult.Next;
@@ -830,10 +945,10 @@ namespace CFGS_VM.VMCore
                 switch (hotPair.Kind)
                 {
                     case NumKind.Int32:
-                        _valueStack.Push(Value.FromInt(hotPair.Int32Left * hotPair.Int32Right));
+                        _valueStack.Push(MulInt32(hotPair.Int32Left, hotPair.Int32Right));
                         return StepResult.Next;
                     case NumKind.Int64:
-                        _valueStack.Push(Value.FromLong(hotPair.Int64Left * hotPair.Int64Right));
+                        _valueStack.Push(MulInt64(hotPair.Int64Left, hotPair.Int64Right));
                         return StepResult.Next;
                     case NumKind.Double:
                         _valueStack.Push(Value.FromDouble(hotPair.DoubleLeft * hotPair.DoubleRight));
@@ -851,12 +966,12 @@ namespace CFGS_VM.VMCore
             {
                 Value res = K switch
                 {
-                    NumKind.Decimal => Value.FromRef((decimal)A.Reference! * (decimal)B.Reference!),
+                    NumKind.Decimal => MulDecimal((decimal)A.Reference!, (decimal)B.Reference!, instr),
                     NumKind.Double => Value.FromDouble(A.AsDouble * B.AsDouble),
-                    NumKind.UInt64 => Value.FromRef((ulong)A.Reference! * (ulong)B.Reference!),
-                    NumKind.Int64 => Value.FromLong(A.AsLong * B.AsLong),
+                    NumKind.UInt64 => MulUInt64((ulong)A.Reference!, (ulong)B.Reference!),
+                    NumKind.Int64 => MulInt64(A.AsLong, B.AsLong),
                     NumKind.Maximal => Value.FromRef((BigInteger)A.Reference! * (BigInteger)B.Reference!),
-                    _ => Value.FromInt(A.AsInt * B.AsInt),
+                    _ => MulInt32(A.AsInt, B.AsInt),
                 };
                 _valueStack.Push(res);
                 return StepResult.Next;

@@ -1,3 +1,4 @@
+import "CFGS.IO.dll";
 import "edge_assert.cfs";
 
 edge_begin("246_file_handle_byte_position");

@@ -61,7 +61,7 @@ public class Program
     /// </summary>
     public static bool IsInteractiveDebug { get; private set; } = false;
 
-    public const string Version = "v9.1.0";
+    public const string Version = "v9.1.1";
 
     public static bool AnsiMode = true;
 
@@ -347,6 +347,11 @@ public class Program
         {
             string phase = currentSourceForError is null && files.Count == 0 ? "startup" : "script-run";
             PrintTrackedException(ex, phase, currentSourceForError);
+
+            // A failed startup, compile or script run must surface a non-zero exit code so that
+            // shells and CI pipelines can detect the failure. (The REPL loop catches its own
+            // per-command errors above and intentionally keeps running.)
+            Environment.ExitCode = 1;
         }
     }
 

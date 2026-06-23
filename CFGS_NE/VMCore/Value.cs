@@ -133,6 +133,15 @@ namespace CFGS_VM.VMCore
                 _ => _ref
             };
 
+        /// <summary>
+        /// Structural identity of the inline storage: two values are equal only when they share the
+        /// same <see cref="ValueKind"/> and identical bits (or reference). This is deliberately NOT
+        /// the language's numeric equality — <c>Int 1</c> does not equal <c>Long 1</c> here, and two
+        /// <c>NaN</c> doubles with the same bit pattern compare equal. Language-level <c>==</c>/<c>!=</c>
+        /// (cross-kind numeric coercion, IEEE NaN semantics) lives in <c>NumericOrValueEquals</c>; use
+        /// this only for raw value identity (e.g. struct-level collection membership), never as the
+        /// script-visible equality operator.
+        /// </summary>
         public bool Equals(Value other)
         {
             if (_kind != other._kind)
