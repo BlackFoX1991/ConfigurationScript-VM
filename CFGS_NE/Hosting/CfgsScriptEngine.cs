@@ -141,7 +141,8 @@ namespace CFGS_VM.Hosting
                     ? workingDirectory
                     : Path.GetFullPath(NativeAssemblyBaseDirectory),
                 AllowNativeInterop = Permissions.AllowNativeInterop,
-                AllowPluginLoading = Permissions.AllowPluginLoading
+                AllowPluginLoading = Permissions.AllowPluginLoading,
+                RestrictFileIoToWorkspace = Permissions.RestrictFileIoToWorkspace
             };
 
             foreach (string directory in _pluginDirectories)

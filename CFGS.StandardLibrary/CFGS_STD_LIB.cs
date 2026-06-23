@@ -514,16 +514,14 @@ namespace CFGS.StandardLibrary
 
         private static object ReadTextAsyncVm(List<object> args, Instruction instr)
         {
-            if (!IsFileIoAllowed)
-                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            EnsureFileIo(instr);
             string path = ResolveRequiredWorkspacePath(args[0], instr, "readTextAsync");
             return Task.Run<object?>(async () => await File.ReadAllTextAsync(path).ConfigureAwait(false));
         }
 
         private static object WriteTextAsyncVm(List<object> args, Instruction instr)
         {
-            if (!IsFileIoAllowed)
-                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            EnsureFileIo(instr);
             string path = ResolveRequiredWorkspacePath(args[0], instr, "writeTextAsync");
             string text = args[1]?.ToString() ?? "";
             return Task.Run<object?>(async () => { await File.WriteAllTextAsync(path, text).ConfigureAwait(false); return 1; });
@@ -531,8 +529,7 @@ namespace CFGS.StandardLibrary
 
         private static object AppendTextAsyncVm(List<object> args, Instruction instr)
         {
-            if (!IsFileIoAllowed)
-                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            EnsureFileIo(instr);
             string path = ResolveRequiredWorkspacePath(args[0], instr, "appendTextAsync");
             string text = args[1]?.ToString() ?? "";
             return Task.Run<object?>(async () => { await File.AppendAllTextAsync(path, text).ConfigureAwait(false); return 1; });
@@ -569,8 +566,7 @@ namespace CFGS.StandardLibrary
 
         private static object SetWorkspaceVm(List<object> args, Instruction instr)
         {
-            if (!IsFileIoAllowed)
-                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            EnsureFileIo(instr);
             if (args[0] is not string path)
                 throw new VMException("Runtime error: fs.setWorkspace requires a string path",
                     instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
@@ -601,8 +597,7 @@ namespace CFGS.StandardLibrary
 
         private static object GetDirectoryVm(List<object> args, Instruction instr)
         {
-            if (!IsFileIoAllowed)
-                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            EnsureFileIo(instr);
             return Path.GetDirectoryName(ResolveWorkspacePath(args[0]?.ToString() ?? "")) ?? "";
         }
 
@@ -668,10 +663,17 @@ namespace CFGS.StandardLibrary
             }, NativeCallOptions.Awaitable));
         }
 
+        /// <summary>
+        /// Central sandbox gate for every file-system operation in the standard library. All
+        /// file-touching builtins must call this before doing any I/O so the check lives in exactly
+        /// one place and a new builtin cannot silently skip it.
+        /// </summary>
         private static void EnsureFileIo(Instruction instr)
         {
-            if (!IsFileIoAllowed)
-                throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+            if (IsFileIoAllowed)
+                return;
+
+            throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
         }
 
         private static string ResolveWorkspacePath(string path)
@@ -1906,27 +1908,23 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("setCreationTime", 1, 1, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 DirectoryInfo di = (DirectoryInfo)r; di.CreationTime = ParseDt(a[0]); return di;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("setLastAccessTime", 1, 1, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 DirectoryInfo di = (DirectoryInfo)r; di.LastAccessTime = ParseDt(a[0]); return di;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("setLastWriteTime", 1, 1, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 DirectoryInfo di = (DirectoryInfo)r; di.LastWriteTime = ParseDt(a[0]); return di;
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("setAttributes", 1, 1, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 DirectoryInfo di = (DirectoryInfo)r;
                 long val = Convert.ToInt64(a[0], CultureInfo.InvariantCulture);
                 di.Attributes = (FileAttributes)val; return di;
@@ -1934,14 +1932,12 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("create", 0, 0, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 ((DirectoryInfo)r).Create(); return r;
             }));
             object DeleteDirectoryInfo(object r, List<object> a, Instruction instr)
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 bool recursive = a.Count > 0 && Convert.ToBoolean(a[0], CultureInfo.InvariantCulture);
                 ((DirectoryInfo)r).Delete(recursive); return 1;
             }
@@ -1950,29 +1946,25 @@ namespace CFGS.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("deleteDir", 0, 1, DeleteDirectoryInfo));
             intrinsics.Register(T, new IntrinsicDescriptor("refresh", 0, 0, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 ((DirectoryInfo)r).Refresh(); return r;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("moveTo", 1, 1, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 string dest = a[0]?.ToString() ?? "";
                 ((DirectoryInfo)r).MoveTo(dest); return r;
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("createSubdirectory", 1, 1, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 string name = a[0]?.ToString() ?? "";
                 return ((DirectoryInfo)r).CreateSubdirectory(name);
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("getFiles", 0, 2, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 DirectoryInfo di = (DirectoryInfo)r;
                 string pattern = a.Count >= 1 ? a[0]?.ToString() ?? "*" : "*";
                 SearchOption opt = (a.Count >= 2 && Convert.ToBoolean(a[1], CultureInfo.InvariantCulture))
@@ -1981,8 +1973,7 @@ namespace CFGS.StandardLibrary
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("getDirectories", 0, 2, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 DirectoryInfo di = (DirectoryInfo)r;
                 string pattern = a.Count >= 1 ? a[0]?.ToString() ?? "*" : "*";
                 SearchOption opt = (a.Count >= 2 && Convert.ToBoolean(a[1], CultureInfo.InvariantCulture))
@@ -1991,8 +1982,7 @@ namespace CFGS.StandardLibrary
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("enumerateFileSystem", 0, 2, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 DirectoryInfo di = (DirectoryInfo)r;
                 string pattern = a.Count >= 1 ? a[0]?.ToString() ?? "*" : "*";
                 SearchOption opt = (a.Count >= 2 && Convert.ToBoolean(a[1], CultureInfo.InvariantCulture))
@@ -2002,8 +1992,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("existsOrCreate", 0, 0, (r, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 DirectoryInfo di = (DirectoryInfo)r;
                 if (!di.Exists) di.Create();
                 return di.Exists;
@@ -2011,8 +2000,7 @@ namespace CFGS.StandardLibrary
 
             intrinsics.Register(typeof(string), new IntrinsicDescriptor("dirinfo", 0, 0, (recv, a, instr) =>
             {
-                if (!IsFileIoAllowed)
-                    throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+                EnsureFileIo(instr);
                 return new DirectoryInfo(recv?.ToString() ?? "");
             }));
 

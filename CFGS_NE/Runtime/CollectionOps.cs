@@ -380,10 +380,10 @@ namespace CFGS_VM.VMCore
             object target;
             if (instr.Operand is string name)
             {
-                Env owner = FindEnvWithLocal(name)
-                    ?? throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                if (!TryResolveVarOwner(name, out Env owner, out object? current))
+                    throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(owner);
-                target = GetLocalVar(owner, name)!;
+                target = current!;
             }
             else
             {
@@ -453,10 +453,10 @@ namespace CFGS_VM.VMCore
             object target;
             if (instr.Operand is string name)
             {
-                Env env = FindEnvWithLocal(name)
-                    ?? throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                if (!TryResolveVarOwner(name, out Env env, out object? current))
+                    throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(env);
-                target = GetLocalVar(env, name)!;
+                target = current!;
                 MarkAsyncHazardForMutableCollection(target);
                 ApplySliceSet(ref target, startObj, endObj, value, instr);
                 SetLocalVar(env, name, target);
@@ -678,8 +678,7 @@ namespace CFGS_VM.VMCore
             RequireStack(1, instr, "ARRAY_PUSH");
             object pushedValue = _stack.Pop();
             string name = (string)instr.Operand;
-            Env? env = FindEnvWithLocal(name);
-            if (env == null || !TryGetLocalVar(env, name, out object? obj))
+            if (!TryResolveVarOwner(name, out Env env, out object? obj))
                 throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             MarkAsyncHazardForEnvAccess(env);
@@ -760,10 +759,10 @@ namespace CFGS_VM.VMCore
             object target;
             if (instr.Operand is string name)
             {
-                Env env = FindEnvWithLocal(name)
-                    ?? throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                if (!TryResolveVarOwner(name, out Env env, out object? current))
+                    throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(env);
-                target = GetLocalVar(env, name)!;
+                target = current!;
                 MarkAsyncHazardForMutableCollection(target);
                 DeleteSliceOnTarget(ref target, startObj, endObj, instr);
                 SetLocalVar(env, name, target);
@@ -842,12 +841,11 @@ namespace CFGS_VM.VMCore
             if (instr.Operand != null)
             {
                 string name = (string)instr.Operand;
-                Env? owner = FindEnvWithLocal(name);
-                if (owner == null)
+                if (!TryResolveVarOwner(name, out Env owner, out object? current))
                     throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                 MarkAsyncHazardForEnvAccess(owner);
-                object target = GetLocalVar(owner, name)!;
+                object target = current!;
                 MarkAsyncHazardForMutableCollection(target);
                 DeleteSingleCollectionElement(target, idxObj, instr, name);
                 return StepResult.Next;
@@ -996,8 +994,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
 
             string name = (string)instr.Operand;
-            Env? env = FindEnvWithLocal(name);
-            if (env == null || !TryGetLocalVar(env, name, out object? target))
+            if (!TryResolveVarOwner(name, out Env env, out object? target))
                 throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             MarkAsyncHazardForEnvAccess(env);

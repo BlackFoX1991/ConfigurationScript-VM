@@ -62,9 +62,23 @@ namespace CFGS_VM.VMCore
                 _isDebugging = debugging;
                 int _ip = lastPos;
 
-                while (_ip < _program.Count)
+                while (true)
                 {
                     ct.ThrowIfCancellationRequested();
+
+                    // A well-formed program terminates via HALT; reaching exactly Count is the
+                    // expected fall-through / return-to-caller signal (synchronous closure invokes
+                    // set the frame return IP to Count). Any other out-of-range IP is an emitter or
+                    // jump-target bug, so surface it as a clean runtime error instead of silently
+                    // clamping (which would re-execute the last instruction forever) or indexing
+                    // out of bounds.
+                    if (_ip == _program.Count)
+                        break;
+
+                    if (_ip < 0 || _ip > _program.Count)
+                        throw new VMException(
+                            $"Runtime error: instruction pointer {_ip} is out of range [0,{_program.Count}]",
+                            -1, -1, string.Empty, IsDebugging, DebugStream!);
 
                     try
                     {
@@ -78,7 +92,6 @@ namespace CFGS_VM.VMCore
                             WriteDebugTrace(_ip);
 
                         _ip++;
-                        _ip = Math.Clamp(_ip, 0, _program.Count - 1);
                         StepResult res = HandleInstruction(ref _ip, _program, instr);
                         Debugger?.AfterInstruction(this, debugContext);
 
@@ -136,6 +149,13 @@ namespace CFGS_VM.VMCore
                     }
                     catch (Exception sysEx)
                     {
+                        // Cancellation (host MaxExecutionTime or a caller-supplied token) and fatal
+                        // CLR conditions must never be routed into script try/catch handlers: a
+                        // script could otherwise swallow its own enforced timeout or mask
+                        // process-level memory corruption. Let those propagate untouched.
+                        if (sysEx is OperationCanceledException || sysEx is OutOfMemoryException)
+                            throw;
+
                         int safeIp = Math.Min(_ip, _program.Count - 1);
                         Debugger?.OnException(this, CreateDebugContext(safeIp, _program[safeIp]), sysEx);
                         ExceptionObject payload = new(
@@ -244,6 +264,11 @@ namespace CFGS_VM.VMCore
                 }
                 catch (Exception ex)
                 {
+                    // See HandleInstruction's dispatch catch: cancellation and fatal CLR conditions
+                    // must propagate rather than be surfaced as a script-catchable AwaitError.
+                    if (ex is OperationCanceledException || ex is OutOfMemoryException)
+                        throw;
+
                     Instruction at = SafeCurrentInstr(_program!, _awaitResumeIp);
 
                     ExceptionObject payload = new(

@@ -25,6 +25,8 @@ internal static class Program
             LinterDoesNotFlagExportedOrNamespacedApiFunctionsAsUnused,
             CliLintJsonProducesStableDiagnosticShape,
             HostingFileIoPermissionScopeAppliesToInvocations,
+            HostingDefaultsDenyFileIo,
+            WorkspaceJailRejectsEscapingPaths,
             HostingSerializesConcurrentInvocations,
             AsyncHotStartInheritsVmPolicy,
             WorkspaceIsVmScoped,
@@ -296,6 +298,84 @@ func is_file_allowed() {
 
         AssertFalse(allowedDuringInvoke, "host InvokeAsync did not apply the configured file I/O permission scope");
         AssertTrue(VM.AllowFileIO, "host InvokeAsync did not restore the outer VM file I/O scope");
+    }
+
+    private static void HostingDefaultsDenyFileIo()
+    {
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        // No permissions configured: the embedding surface must be fail-closed.
+        AssertFalse(engine.Permissions.AllowFileIO, "AllowFileIO must default to false");
+        AssertFalse(engine.Permissions.AllowNativeInterop, "AllowNativeInterop must default to false");
+        AssertFalse(engine.Permissions.AllowPluginLoading, "AllowPluginLoading must default to false");
+
+        CfgsScript script = engine.CompileSource("<defaults>", """
+func is_file_allowed() {
+    return probeAllowFileIO();
+}
+""");
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "probeAllowFileIO",
+            0,
+            0,
+            (args, instr) => VM.AllowFileIO));
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        bool allowed = script.InvokeAsync<bool>("is_file_allowed").GetAwaiter().GetResult();
+
+        AssertFalse(allowed, "file I/O must be denied by default when no permissions are granted");
+    }
+
+    private static void WorkspaceJailRejectsEscapingPaths()
+    {
+        string workspace = Path.Combine(Path.GetTempPath(), "cfgs-jail-test", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workspace);
+
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = workspace,
+            CompilerVersion = global::Program.Version
+        };
+        engine.Permissions.AllowFileIO = true;
+        engine.Permissions.RestrictFileIoToWorkspace = true;
+
+        CfgsScript script = engine.CompileSource("<jail>", """
+func resolve(path) {
+    return resolveWorkspaceHost(path);
+}
+""");
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "resolveWorkspaceHost",
+            1,
+            1,
+            (args, instr) =>
+            {
+                VM vm = VM.CurrentVm ?? throw new InvalidOperationException("missing current VM");
+                return vm.ResolveWorkspacePath(args[0]?.ToString() ?? string.Empty);
+            }));
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        string inside = script.InvokeAsync<string>("resolve", "sub/file.bin").GetAwaiter().GetResult() ?? "";
+        AssertTrue(
+            inside.StartsWith(Path.GetFullPath(workspace), StringComparison.OrdinalIgnoreCase),
+            "a contained path must resolve inside the workspace");
+
+        bool rejected = false;
+        try
+        {
+            script.InvokeAsync<string>("resolve", "../escape.bin").GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex.ToString().Contains("workspace", StringComparison.OrdinalIgnoreCase))
+        {
+            rejected = true;
+        }
+
+        AssertTrue(rejected, "a path escaping the workspace must be rejected when RestrictFileIoToWorkspace is enabled");
     }
 
     private static void HostingSerializesConcurrentInvocations()

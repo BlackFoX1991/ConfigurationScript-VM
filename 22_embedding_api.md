@@ -219,20 +219,30 @@ compiled script.
 
 ## Permissions
 
-The engine exposes a small permission surface for embedded hosts.
+The engine exposes a small permission surface for embedded hosts. Defaults are
+**fail-closed**: every capability is denied until the host explicitly grants it, so a
+host that forgets to configure permissions gets the safe (restricted) behavior rather
+than full access. Enable only what a given script needs:
 
 ```csharp
-engine.Permissions.AllowPluginLoading = false;
-engine.Permissions.AllowNativeInterop = false;
-engine.Permissions.AllowFileIO = false;
+engine.Permissions.AllowPluginLoading = true;          // off by default
+engine.Permissions.AllowNativeInterop = true;          // off by default
+engine.Permissions.AllowFileIO = true;                 // off by default
+engine.Permissions.RestrictFileIoToWorkspace = true;   // optional: jail file I/O to the workspace
 engine.Permissions.MaxExecutionTime = TimeSpan.FromSeconds(5);
 ```
 
 `AllowPluginLoading` prevents loading plugin DLLs through the host engine and
-through script plugin loading paths attached to the VM. `AllowNativeInterop`
-blocks `import native` resolution and native member invocation. `MaxExecutionTime`
-is applied to host run and call operations through VM instruction cancellation.
-It cannot forcibly interrupt native or plugin code that blocks inside a CLR call.
+through script plugin loading paths attached to the VM. Because the CFGS standard
+library ships as a plugin DLL and is pulled in via `import "CFGS.StandardLibrary.dll"`,
+hosts that run scripts which use the standard library must set `AllowPluginLoading = true`.
+`AllowNativeInterop` blocks `import native` resolution and native member invocation.
+`AllowFileIO` gates every standard-library file-system operation. When
+`RestrictFileIoToWorkspace` is enabled, those operations are additionally jailed to the
+VM working directory: any path that resolves outside it (via an absolute path or `..`
+traversal) is rejected. `MaxExecutionTime` is applied to host run and call operations
+through VM instruction cancellation. It cannot forcibly interrupt native or plugin code
+that blocks inside a CLR call.
 
 ## Native .NET Interop
 

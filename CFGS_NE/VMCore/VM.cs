@@ -148,18 +148,6 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The HasLocalVar
-        /// </summary>
-        /// <param name="env">The env<see cref="Env"/></param>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
-        private static bool HasLocalVar(Env env, string name)
-        {
-            lock (env.SyncRoot)
-                return env.Vars.ContainsKey(name);
-        }
-
-        /// <summary>
         /// The TryGetLocalVar
         /// </summary>
         /// <param name="env">The env<see cref="Env"/></param>
@@ -182,18 +170,6 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The GetLocalVar
-        /// </summary>
-        /// <param name="env">The env<see cref="Env"/></param>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="object?"/></returns>
-        private static object? GetLocalVar(Env env, string name)
-        {
-            lock (env.SyncRoot)
-                return env.Vars[name];
-        }
-
-        /// <summary>
         /// The SetLocalVar
         /// </summary>
         /// <param name="env">The env<see cref="Env"/></param>
@@ -206,26 +182,36 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// The FindEnvWithLocal
+        /// Atomically resolves a variable by walking the current scope chain (then the global scope
+        /// as a fallback) and reading its value under the owning environment's lock in a single
+        /// step. This replaces the former "find env, then read it" pattern, which acquired the
+        /// environment lock twice and could observe a concurrently-removed local between the check
+        /// and the read now that async execution is no longer globally serialized.
         /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="Env?"/></returns>
-        private Env? FindEnvWithLocal(string name)
+        /// <param name="name">The variable name.</param>
+        /// <param name="owner">The environment that owns the resolved local.</param>
+        /// <param name="value">The resolved value.</param>
+        /// <returns>True if the variable was found.</returns>
+        private bool TryResolveVarOwner(string name, out Env owner, out object? value)
         {
             for (Env? env = _scopes.Count > 0 ? _scopes[^1] : null; env != null; env = env.Parent)
             {
-                if (HasLocalVar(env, name))
-                    return env;
+                if (TryGetLocalVar(env, name, out value))
+                {
+                    owner = env;
+                    return true;
+                }
             }
 
-            if (_scopes.Count > 0)
+            if (_scopes.Count > 0 && TryGetLocalVar(_scopes[0], name, out value))
             {
-                Env root = _scopes[0];
-                if (root != null && HasLocalVar(root, name))
-                    return root;
+                owner = _scopes[0];
+                return true;
             }
 
-            return null;
+            owner = null!;
+            value = null;
+            return false;
         }
 
         /// <summary>
@@ -268,6 +254,14 @@ namespace CFGS_VM.VMCore
         public bool AllowNativeInterop { get; set; } = true;
 
         public bool AllowPluginLoading { get; set; } = true;
+
+        /// <summary>
+        /// When enabled, <see cref="ResolveWorkspacePath"/> rejects any path that resolves outside
+        /// <see cref="WorkingDirectory"/> (whether via an absolute path or <c>..</c> traversal),
+        /// jailing standard-library file operations to the workspace. Opt-in and disabled by
+        /// default so trusted hosts (e.g. the CLI) keep unrestricted absolute-path access.
+        /// </summary>
+        public bool RestrictFileIoToWorkspace { get; set; } = false;
 
         /// <summary>
         private bool _isDebugging;
@@ -667,8 +661,7 @@ namespace CFGS_VM.VMCore
                             throw new VMException("Runtime error: 'outer' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 
-                        Env? owner = FindEnvWithLocal(name);
-                        if (owner != null && TryGetLocalVar(owner, name, out object? val))
+                        if (TryResolveVarOwner(name, out Env owner, out object? val))
                         {
                             MarkAsyncHazardForEnvAccess(owner);
                             _stack.Push(val!);
@@ -737,15 +730,17 @@ namespace CFGS_VM.VMCore
 
                         RequireStack(1, instr, "STORE_VAR");
                         object value = _stack.Pop();
-                        Env? env = FindEnvWithLocal(name);
-                        if (env == null)
+                        if (!TryResolveVarOwner(name, out Env env, out _))
                             throw new VMException(UndefinedAssignmentMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         MarkAsyncHazardForEnvAccess(env);
-                        if (env.IsConstLocal(name))
-                            throw new VMException($"Runtime error: cannot assign to constant '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-                        SetLocalVar(env, name, value);
+                        switch (env.SetLocalIfNotConst(name, value))
+                        {
+                            case LocalAssign.IsConst:
+                                throw new VMException($"Runtime error: cannot assign to constant '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            case LocalAssign.NotPresent:
+                                throw new VMException(UndefinedAssignmentMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        }
                         break;
                     }
 
@@ -1048,10 +1043,37 @@ namespace CFGS_VM.VMCore
         public string ResolveWorkspacePath(string path)
         {
             string expanded = Environment.ExpandEnvironmentVariables((path ?? string.Empty).Trim());
-            if (Path.IsPathFullyQualified(expanded))
-                return Path.GetFullPath(expanded);
+            string resolved = Path.IsPathFullyQualified(expanded)
+                ? Path.GetFullPath(expanded)
+                : Path.GetFullPath(Path.Combine(WorkingDirectory, expanded));
 
-            return Path.GetFullPath(Path.Combine(WorkingDirectory, expanded));
+            if (RestrictFileIoToWorkspace)
+                EnsureWithinWorkspace(resolved);
+
+            return resolved;
+        }
+
+        /// <summary>
+        /// Throws if <paramref name="resolvedFullPath"/> is not contained within
+        /// <see cref="WorkingDirectory"/>. Used to enforce <see cref="RestrictFileIoToWorkspace"/>.
+        /// </summary>
+        private void EnsureWithinWorkspace(string resolvedFullPath)
+        {
+            string root = Path.GetFullPath(WorkingDirectory);
+
+            // GetRelativePath uses the platform's path comparison (case-insensitive on Windows). A
+            // contained path yields a relative subpath; an escape yields a "..\" prefix or, on a
+            // different volume, a rooted result.
+            string relative = Path.GetRelativePath(root, resolvedFullPath);
+            bool escapes = Path.IsPathRooted(relative)
+                || relative == ".."
+                || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                || relative.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
+
+            if (escapes)
+                throw new VMException(
+                    $"Runtime error: path '{resolvedFullPath}' escapes the workspace '{root}' (RestrictFileIoToWorkspace=true)",
+                    -1, -1, string.Empty, IsDebugging, DebugStream!);
         }
 
         /// <summary>

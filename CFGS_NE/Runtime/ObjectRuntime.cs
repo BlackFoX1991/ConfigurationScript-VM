@@ -1602,10 +1602,10 @@ namespace CFGS_VM.VMCore
 
             if (instr.Operand is string nameFromEnv)
             {
-                Env owner = FindEnvWithLocal(nameFromEnv)
-                    ?? throw new VMException(UndefinedVariableMessage(nameFromEnv), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                if (!TryResolveVarOwner(nameFromEnv, out Env owner, out object? current))
+                    throw new VMException(UndefinedVariableMessage(nameFromEnv), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(owner);
-                target = GetLocalVar(owner, nameFromEnv)!;
+                target = current!;
             }
             else
             {
@@ -1634,11 +1634,11 @@ namespace CFGS_VM.VMCore
 
             if (instr.Operand is string nameFromEnv)
             {
-                Env env = FindEnvWithLocal(nameFromEnv)
-                    ?? throw new VMException(UndefinedVariableMessage(nameFromEnv), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                if (!TryResolveVarOwner(nameFromEnv, out Env env, out object? current))
+                    throw new VMException(UndefinedVariableMessage(nameFromEnv), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                 MarkAsyncHazardForEnvAccess(env);
-                target = GetLocalVar(env, nameFromEnv)!;
+                target = current!;
                 SetIndexedValue(ref target, idxObj, value, instr, writeMode, allowReservedRuntimeSlotWrites);
                 SetLocalVar(env, nameFromEnv, target);
             }
