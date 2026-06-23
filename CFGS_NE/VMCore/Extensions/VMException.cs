@@ -1,8 +1,5 @@
 namespace CFGS_VM.VMCore.Extensions
 {
-    /// <summary>
-    /// Defines the <see cref="VMException" />
-    /// </summary>
     public sealed class VMException : Exception
     {
         /// <summary>
@@ -89,11 +86,6 @@ namespace CFGS_VM.VMCore.Extensions
             LanguageStackTrace = string.IsNullOrWhiteSpace(languageStackTrace) ? null : languageStackTrace;
         }
 
-        /// <summary>
-        /// The NormalizeMessage
-        /// </summary>
-        /// <param name="message">The message<see cref="string"/></param>
-        /// <returns>The <see cref="string"/></returns>
         private static string NormalizeMessage(string message)
         {
             if (string.IsNullOrWhiteSpace(message))

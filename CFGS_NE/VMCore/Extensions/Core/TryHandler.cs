@@ -1,33 +1,15 @@
 ﻿namespace CFGS_VM.VMCore.Extensions.Core
 {
-    /// <summary>
-    /// Defines the <see cref="TryHandler" />
-    /// </summary>
     public class TryHandler
     {
-        /// <summary>
-        /// Defines the CallDepth
-        /// </summary>
         public int CallDepth;
 
-        /// <summary>
-        /// Defines the CatchAddr
-        /// </summary>
         public int CatchAddr;
 
-        /// <summary>
-        /// Defines the FinallyAddr
-        /// </summary>
         public int FinallyAddr;
 
-        /// <summary>
-        /// Defines the Exception
-        /// </summary>
         public object? Exception;
 
-        /// <summary>
-        /// Defines the ScopeDepthAtTry
-        /// </summary>
         public int ScopeDepthAtTry;
 
         /// <summary>
@@ -36,34 +18,16 @@
         /// </summary>
         public int StackDepthAtTry;
 
-        /// <summary>
-        /// Defines the InFinally
-        /// </summary>
         public bool InFinally;
 
-        /// <summary>
-        /// Defines the HasPendingReturn
-        /// </summary>
         public bool HasPendingReturn;
 
-        /// <summary>
-        /// Defines the PendingReturnValue
-        /// </summary>
         public object? PendingReturnValue;
 
-        /// <summary>
-        /// Defines the HasPendingLeave
-        /// </summary>
         public bool HasPendingLeave;
 
-        /// <summary>
-        /// Defines the PendingLeaveTargetIp
-        /// </summary>
         public int PendingLeaveTargetIp;
 
-        /// <summary>
-        /// Defines the PendingLeaveScopes
-        /// </summary>
         public int PendingLeaveScopes;
 
         /// <summary>

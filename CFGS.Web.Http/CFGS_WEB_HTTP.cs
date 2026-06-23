@@ -15,21 +15,11 @@ using CFGS_VM.VMCore;
 
 namespace CFGS.Web.Http
 {
-    /// <summary>
-    /// Defines the <see cref="CFGS_HTTP" />
-    /// </summary>
     public sealed class CFGS_HTTP : IVmPlugin
     {
-        /// <summary>
-        /// Defines the _client
-        /// </summary>
         private static readonly HttpClient _client = CreateClient();
         private const long DefaultMaxRequestBodySize = 10L * 1024L * 1024L;
 
-        /// <summary>
-        /// The CreateClient
-        /// </summary>
-        /// <returns>The <see cref="HttpClient"/></returns>
         private static HttpClient CreateClient()
         {
             HttpClient h = new(new HttpClientHandler
@@ -40,11 +30,6 @@ namespace CFGS.Web.Http
             return h;
         }
 
-        /// <summary>
-        /// The Register
-        /// </summary>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
             BuiltinRegistry namespaceBuiltins = new();
@@ -77,10 +62,6 @@ namespace CFGS.Web.Http
             namespaces.Register(NamespaceDescriptor.FromDescriptors("std.http", members));
         }
 
-        /// <summary>
-        /// The RegisterBuiltins
-        /// </summary>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         private static void RegisterBuiltins(IBuiltinRegistry builtins)
         {
             builtins.Register(new BuiltinDescriptor("http_server", 1, 4, (args, instr) =>
@@ -165,13 +146,6 @@ namespace CFGS.Web.Http
             }));
         }
 
-        /// <summary>
-        /// The HttpGetAsync
-        /// </summary>
-        /// <param name="url">The url<see cref="string"/></param>
-        /// <param name="headers">The headers<see cref="Dictionary{string, object}"/></param>
-        /// <param name="timeout">The timeout<see cref="int"/></param>
-        /// <returns>The <see cref="Task{object?}"/></returns>
         private static async Task<object?> HttpGetAsync(string url, Dictionary<string, object> headers, int timeout)
         {
             using CancellationTokenSource cts = new(timeout);
@@ -190,14 +164,6 @@ namespace CFGS.Web.Http
             return ToVmResponse(resp, body);
         }
 
-        /// <summary>
-        /// The HttpPostAsync
-        /// </summary>
-        /// <param name="url">The url<see cref="string"/></param>
-        /// <param name="body">The body<see cref="object"/></param>
-        /// <param name="headers">The headers<see cref="Dictionary{string, object}"/></param>
-        /// <param name="timeout">The timeout<see cref="int"/></param>
-        /// <returns>The <see cref="Task{object?}"/></returns>
         private static async Task<object?> HttpSendWithBodyAsync(HttpMethod method, string url, object? body, Dictionary<string, object> headers, int timeout, string contentType)
         {
             using CancellationTokenSource cts = new(timeout);
@@ -246,13 +212,6 @@ namespace CFGS.Web.Http
             return ToVmResponse(resp, Array.Empty<byte>());
         }
 
-        /// <summary>
-        /// The HttpDownloadAsync
-        /// </summary>
-        /// <param name="url">The url<see cref="string"/></param>
-        /// <param name="path">The path<see cref="string"/></param>
-        /// <param name="timeout">The timeout<see cref="int"/></param>
-        /// <returns>The <see cref="Task{object?}"/></returns>
         private static async Task<object?> HttpDownloadAsync(string url, string path, int timeout)
         {
             using CancellationTokenSource cts = new(timeout);
@@ -302,11 +261,6 @@ namespace CFGS.Web.Http
                 throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
         }
 
-        /// <summary>
-        /// The HasContentType
-        /// </summary>
-        /// <param name="headers">The headers<see cref="Dictionary{string, object}"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         private static bool HasContentType(Dictionary<string, object> headers)
         {
             foreach (string k in headers.Keys)
@@ -407,11 +361,6 @@ namespace CFGS.Web.Http
             return result;
         }
 
-        /// <summary>
-        /// The ApplyHeaders
-        /// </summary>
-        /// <param name="req">The req<see cref="HttpRequestMessage"/></param>
-        /// <param name="headers">The headers<see cref="Dictionary{string, object}"/></param>
         private static void ApplyHeaders(HttpRequestMessage req, Dictionary<string, object> headers)
         {
             foreach (KeyValuePair<string, object> kv in headers)
@@ -443,12 +392,6 @@ namespace CFGS.Web.Http
             }
         }
 
-        /// <summary>
-        /// The ToVmResponse
-        /// </summary>
-        /// <param name="resp">The resp<see cref="HttpResponseMessage"/></param>
-        /// <param name="bodyBytes">The response bytes<see cref="byte[]"/></param>
-        /// <returns>The <see cref="Dictionary{string, object}"/></returns>
         private static Dictionary<string, object> ToVmResponse(HttpResponseMessage resp, byte[] bodyBytes)
         {
             Dictionary<string, object> h = new(StringComparer.OrdinalIgnoreCase);
@@ -477,10 +420,6 @@ namespace CFGS.Web.Http
             };
         }
 
-        /// <summary>
-        /// The RegisterServerIntrinsics
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         private static void RegisterServerIntrinsics(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(ServerHandle);
@@ -737,9 +676,6 @@ namespace CFGS.Web.Http
             return new VMException(message, instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
         }
 
-        /// <summary>
-        /// Defines the <see cref="ServerHandle" />
-        /// </summary>
         public sealed class ServerHandle
         {
             private readonly CancellationTokenSource _cts = new();

@@ -6,10 +6,6 @@ namespace CFGS_VM.Analytic.Core
 {
     public partial class Parser
     {
-        /// <summary>
-        /// The ParseEnumDecl
-        /// </summary>
-        /// <returns>The <see cref="EnumDeclStmt"/></returns>
         private EnumDeclStmt ParseEnumDecl()
         {
             int declLine = _current.Line;
@@ -417,10 +413,6 @@ namespace CFGS_VM.Analytic.Core
             return new InterfaceIndexerDecl(isSetter, parameters, minArgs, restParameter, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseInterfaceMethodDecl
-        /// </summary>
-        /// <returns>The <see cref="InterfaceMethodDecl"/></returns>
         private InterfaceMethodDecl ParseInterfaceMethodDecl(bool isStatic)
         {
             int line = _current.Line;
@@ -472,10 +464,6 @@ namespace CFGS_VM.Analytic.Core
             return new InterfaceMethodDecl(name, parameters, minArgs, restParameter, line, col, file, isAsync, isStatic, body, parameterSpecs);
         }
 
-        /// <summary>
-        /// The ParseInterfaceDecl
-        /// </summary>
-        /// <returns>The <see cref="InterfaceDeclStmt"/></returns>
         private InterfaceDeclStmt ParseInterfaceDecl()
         {
             int line = _current.Line;
@@ -556,10 +544,6 @@ namespace CFGS_VM.Analytic.Core
             return new InterfaceDeclStmt(name, methods, properties, indexers, baseInterfaces, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseClassDecl
-        /// </summary>
-        /// <returns>The <see cref="ClassDeclStmt"/></returns>
         private ClassDeclStmt ParseClassDecl()
         {
             int line = _current.Line;
@@ -973,10 +957,6 @@ namespace CFGS_VM.Analytic.Core
             }
         }
 
-        /// <summary>
-        /// The ParseExportDecl
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseExportDecl()
         {
             int line = _current.Line;
@@ -1003,10 +983,6 @@ namespace CFGS_VM.Analytic.Core
             return new ExportStmt(name, inner, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseSingleVarDecl
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseSingleVarDecl()
         {
             Eat(TokenType.Var);

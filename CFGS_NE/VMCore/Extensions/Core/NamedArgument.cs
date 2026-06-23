@@ -1,8 +1,5 @@
 namespace CFGS_VM.VMCore.Extensions.Core
 {
-    /// <summary>
-    /// Defines the <see cref="NamedArgument" />
-    /// </summary>
     public sealed class NamedArgument
     {
         /// <summary>

@@ -6,9 +6,6 @@ using System.Runtime.ExceptionServices;
 
 namespace CFGS_VM.VMCore.Plugin
 {
-    /// <summary>
-    /// Defines the <see cref="PluginLoader" />
-    /// </summary>
     public static class PluginLoader
     {
         private sealed class LoaderState
@@ -21,9 +18,6 @@ namespace CFGS_VM.VMCore.Plugin
 
         private static readonly ConditionalWeakTable<IBuiltinRegistry, LoaderState> _states = new();
 
-        /// <summary>
-        /// Defines the Verbose
-        /// </summary>
         private static readonly bool Verbose =
             string.Equals(Environment.GetEnvironmentVariable("CFGS_PLUGIN_VERBOSE"), "1", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(Environment.GetEnvironmentVariable("CFGS_PLUGIN_VERBOSE"), "true", StringComparison.OrdinalIgnoreCase);
@@ -274,12 +268,6 @@ namespace CFGS_VM.VMCore.Plugin
             }
         }
 
-        /// <summary>
-        /// The LoadDirectory
-        /// </summary>
-        /// <param name="directoryPath">The directoryPath<see cref="string"/></param>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         public static void LoadDirectory(string directoryPath, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
             if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
@@ -308,12 +296,6 @@ namespace CFGS_VM.VMCore.Plugin
                 throw new AggregateException($"One or more plugins failed to load from '{directoryPath}'.", failures);
         }
 
-        /// <summary>
-        /// The LoadDll
-        /// </summary>
-        /// <param name="dllPath">The dllPath<see cref="string"/></param>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         public static void LoadDll(string dllPath, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
             ArgumentNullException.ThrowIfNull(builtins);
@@ -363,12 +345,6 @@ namespace CFGS_VM.VMCore.Plugin
             }
         }
 
-        /// <summary>
-        /// The LoadFromAssembly
-        /// </summary>
-        /// <param name="asm">The asm<see cref="Assembly"/></param>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         public static void LoadFromAssembly(Assembly asm, IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
             => LoadFromAssembly(asm, builtins, intrinsics, namespaces, GetState(builtins));
 
@@ -574,11 +550,6 @@ namespace CFGS_VM.VMCore.Plugin
             }
         }
 
-        /// <summary>
-        /// The LoadThisAssembly
-        /// </summary>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         public static void LoadThisAssembly(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
             => LoadFromAssembly(typeof(PluginLoader).Assembly, builtins, intrinsics, namespaces);
 
@@ -591,12 +562,6 @@ namespace CFGS_VM.VMCore.Plugin
         public static void LoadFromAssemblyContaining<T>(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
             => LoadFromAssembly(typeof(T).Assembly, builtins, intrinsics, namespaces);
 
-        /// <summary>
-        /// The LoadCurrentDomain
-        /// </summary>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        /// <param name="filter">The filter<see cref="Func{Assembly, bool}?"/></param>
         public static void LoadCurrentDomain(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces, Func<Assembly, bool>? filter = null)
         {
             foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
@@ -613,11 +578,6 @@ namespace CFGS_VM.VMCore.Plugin
             }
         }
 
-        /// <summary>
-        /// The LogLoaderExceptions
-        /// </summary>
-        /// <param name="asm">The asm<see cref="Assembly"/></param>
-        /// <param name="rtle">The rtle<see cref="ReflectionTypeLoadException"/></param>
         private static void LogLoaderExceptions(Assembly asm, ReflectionTypeLoadException rtle)
         {
             if (rtle.LoaderExceptions == null || rtle.LoaderExceptions.Length == 0)
@@ -645,12 +605,6 @@ namespace CFGS_VM.VMCore.Plugin
             }
         }
 
-        /// <summary>
-        /// The InvokeStaticMethod
-        /// </summary>
-        /// <param name="method">The method<see cref="MethodInfo"/></param>
-        /// <param name="args">The args<see cref="object?[]"/></param>
-        /// <returns>The <see cref="object?"/></returns>
         private static object? InvokeStaticMethod(MethodInfo method, params object?[] args)
         {
             try
@@ -664,11 +618,6 @@ namespace CFGS_VM.VMCore.Plugin
             }
         }
 
-        /// <summary>
-        /// The IsAwaitableReturnType
-        /// </summary>
-        /// <param name="returnType">The returnType<see cref="Type"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         private static bool IsAwaitableReturnType(Type returnType)
         {
             if (typeof(Task).IsAssignableFrom(returnType))
@@ -683,25 +632,12 @@ namespace CFGS_VM.VMCore.Plugin
             return false;
         }
 
-        /// <summary>
-        /// The LogInfo
-        /// </summary>
-        /// <param name="msg">The msg<see cref="string"/></param>
         private static void LogInfo(string msg)
             => Console.WriteLine($"[PluginLoader] {msg}");
 
-        /// <summary>
-        /// The LogWarn
-        /// </summary>
-        /// <param name="msg">The msg<see cref="string"/></param>
         private static void LogWarn(string msg)
             => Console.Error.WriteLine($"[PluginLoader] {msg}");
 
-        /// <summary>
-        /// The LogError
-        /// </summary>
-        /// <param name="msg">The msg<see cref="string"/></param>
-        /// <param name="ex">The ex<see cref="Exception"/></param>
         private static void LogError(string msg, Exception ex)
         {
             Console.Error.WriteLine($"[PluginLoader] {msg}: {ex.GetType().Name}: {ex.Message}");
@@ -715,11 +651,6 @@ namespace CFGS_VM.VMCore.Plugin
             }
         }
 
-        /// <summary>
-        /// The AsmName
-        /// </summary>
-        /// <param name="asm">The asm<see cref="Assembly"/></param>
-        /// <returns>The <see cref="string"/></returns>
         private static string AsmName(Assembly asm)
         {
             try
@@ -734,11 +665,6 @@ namespace CFGS_VM.VMCore.Plugin
             }
         }
 
-        /// <summary>
-        /// The AsmLocation
-        /// </summary>
-        /// <param name="asm">The asm<see cref="Assembly"/></param>
-        /// <returns>The <see cref="string"/></returns>
         private static string AsmLocation(Assembly asm)
         {
             try

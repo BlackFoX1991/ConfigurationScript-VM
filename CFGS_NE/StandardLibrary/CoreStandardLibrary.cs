@@ -32,11 +32,6 @@ namespace CFGS_VM.StandardLibrary
         {
             WriteIndented = true,
         };
-        /// <summary>
-        /// The FriendlyTypeName
-        /// </summary>
-        /// <param name="t">The t<see cref="Type"/></param>
-        /// <returns>The <see cref="string"/></returns>
         internal static string FriendlyTypeName(Type t)
         {
             if (t == typeof(void)) return "Void";
@@ -55,12 +50,6 @@ namespace CFGS_VM.StandardLibrary
             return t.Name;
         }
 
-        /// <summary>
-        /// The Register
-        /// </summary>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        /// <param name="namespaces">The namespaces<see cref="INamespaceRegistry"/></param>
         public static void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
             RegisterBuiltins(builtins);
@@ -384,10 +373,6 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("readCharAsync", 0, 0, (recv, a, instr) => ConsoleGetCharAsyncVm()));
         }
 
-        /// <summary>
-        /// The RegisterTaskNamespace
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         private static void RegisterTaskNamespace(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(TaskNamespace);
@@ -588,10 +573,6 @@ namespace CFGS_VM.StandardLibrary
                 ["codePage"] = info.CodePage
             };
 
-        /// <summary>
-        /// The RegisterBuiltins
-        /// </summary>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         private static void RegisterBuiltins(IBuiltinRegistry builtins)
         {
 
@@ -913,10 +894,6 @@ namespace CFGS_VM.StandardLibrary
 
         }
 
-        /// <summary>
-        /// The RegisterString
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         private static void RegisterString(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(string);
@@ -1064,10 +1041,6 @@ namespace CFGS_VM.StandardLibrary
             }));
         }
 
-        /// <summary>
-        /// The RegisterArray
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         private static void RegisterArray(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(List<object>);
@@ -1308,10 +1281,6 @@ namespace CFGS_VM.StandardLibrary
             }));
         }
 
-        /// <summary>
-        /// The RegisterDict
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         private static void RegisterDict(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(Dictionary<string, object>);
@@ -1378,10 +1347,6 @@ namespace CFGS_VM.StandardLibrary
             }));
         }
 
-        /// <summary>
-        /// The RegisterDateTime
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         private static void RegisterDateTime(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(DateTime);
@@ -1503,10 +1468,6 @@ namespace CFGS_VM.StandardLibrary
             }));
         }
 
-        /// <summary>
-        /// The RegisterException
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         private static void RegisterException(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(ExceptionObject);
@@ -1519,11 +1480,6 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("toString", 0, 0, (r, a, i) => ((ExceptionObject)r).ToString()));
         }
 
-        /// <summary>
-        /// The JsonToVmValue
-        /// </summary>
-        /// <param name="elem">The elem<see cref="JsonElement"/></param>
-        /// <returns>The <see cref="object?"/></returns>
         private static object? JsonToVmValue(JsonElement elem)
         {
             switch (elem.ValueKind)
@@ -1571,11 +1527,6 @@ namespace CFGS_VM.StandardLibrary
             }
         }
 
-        /// <summary>
-        /// The ToNumber
-        /// </summary>
-        /// <param name="v">The v<see cref="object?"/></param>
-        /// <returns>The <see cref="object"/></returns>
         private static object ToNumber(object? v)
         {
             if (v is null) return 0;
@@ -1645,11 +1596,6 @@ namespace CFGS_VM.StandardLibrary
             return value.ToString();
         }
 
-        /// <summary>
-        /// The JsonStringify
-        /// </summary>
-        /// <param name="v">The v<see cref="object?"/></param>
-        /// <returns>The <see cref="string"/></returns>
         private static string JsonStringify(object? v)
         {
             JsonSerializerOptions options = new()
@@ -1671,12 +1617,6 @@ namespace CFGS_VM.StandardLibrary
             return JsonSerializer.Serialize(Normalize(v), options);
         }
 
-        /// <summary>
-        /// The ClampIndex
-        /// </summary>
-        /// <param name="idx">The idx<see cref="int"/></param>
-        /// <param name="len">The len<see cref="int"/></param>
-        /// <returns>The <see cref="int"/></returns>
         private static List<object> FlattenList(List<object> list, int depth)
         {
             List<object> result = new();
@@ -1698,13 +1638,6 @@ namespace CFGS_VM.StandardLibrary
             return idx;
         }
 
-        /// <summary>
-        /// The NormalizeSliceBounds
-        /// </summary>
-        /// <param name="startObj">The startObj<see cref="object?"/></param>
-        /// <param name="endObj">The endObj<see cref="object?"/></param>
-        /// <param name="len">The len<see cref="int"/></param>
-        /// <returns>The <see cref="(int start, int endEx)"/></returns>
         private static (int start, int endEx) NormalizeSliceBounds(object? startObj, object? endObj, int len)
         {
             bool startIsNull = startObj == null;

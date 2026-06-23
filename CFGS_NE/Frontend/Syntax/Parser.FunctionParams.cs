@@ -16,11 +16,6 @@ namespace CFGS_VM.Analytic.Core
             int Col,
             string File);
 
-        /// <summary>
-        /// The IsReservedBindingName
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         private static bool IsReservedBindingName(string name)
         {
             if (name.StartsWith("__", StringComparison.Ordinal))
@@ -29,25 +24,12 @@ namespace CFGS_VM.Analytic.Core
             return name == "this" || name == "type" || name == "super" || name == "outer";
         }
 
-        /// <summary>
-        /// The ThrowIfInvalidParameterName
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="file">The file<see cref="string"/></param>
         private static void ThrowIfInvalidParameterName(string name, int line, int col, string file)
         {
             if (Lexer.Keywords.ContainsKey(name) || IsReservedBindingName(name))
                 throw new ParserException($"invalid parameter name '{name}'", line, col, file);
         }
 
-        /// <summary>
-        /// The ParseFunctionParamsWithDefaults
-        /// </summary>
-        /// <param name="requireParens">The requireParens<see cref="bool"/></param>
-        /// <param name="allowTrailingComma">The allowTrailingComma<see cref="bool"/></param>
-        /// <returns>The <see cref="(List{string}, int, string?, List{FunctionParameterSpec})"/></returns>
         private (List<string> Parameters, int MinArgs, string? RestParameter, List<FunctionParameterSpec> ParameterSpecs) ParseFunctionParamsWithDefaults(
             bool requireParens = true,
             bool allowTrailingComma = false)
@@ -198,12 +180,6 @@ namespace CFGS_VM.Analytic.Core
             return (parameterNames, minArgs, restParameter, parameterSpecs);
         }
 
-        /// <summary>
-        /// The ParseParams
-        /// </summary>
-        /// <param name="requireParens">The requireParens<see cref="bool"/></param>
-        /// <param name="allowTrailingComma">The allowTrailingComma<see cref="bool"/></param>
-        /// <returns>The <see cref="List{string}"/></returns>
         private List<string> ParseParams(bool requireParens = true, bool allowTrailingComma = false)
         {
             List<string> parameters = new();

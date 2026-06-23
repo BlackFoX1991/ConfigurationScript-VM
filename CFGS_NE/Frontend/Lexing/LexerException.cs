@@ -1,6 +1,3 @@
-/// <summary>
-/// Defines the <see cref="LexerException" />
-/// </summary>
 public sealed class LexerException : Exception
 {
     /// <summary>

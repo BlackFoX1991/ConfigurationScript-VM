@@ -21,21 +21,12 @@ namespace CFGS_VM.VMCore
             "new"
         };
 
-        /// <summary>
-        /// The IsReservedRuntimeMemberName
-        /// </summary>
         internal static bool IsReservedRuntimeMemberName(string name)
             => ReservedRuntimeMemberNames.Contains(name);
 
-        /// <summary>
-        /// The IsReservedInternalMemberName
-        /// </summary>
         internal static bool IsReservedInternalMemberName(string name)
             => name.StartsWith("__", StringComparison.Ordinal);
 
-        /// <summary>
-        /// The GetConstructorVisibility
-        /// </summary>
         private static MemberVisibility GetConstructorVisibility(ClassDeclStmt cls)
         {
             if (cls.Methods.Any(m => string.Equals(m.Name, "init", StringComparison.Ordinal)))
@@ -44,15 +35,9 @@ namespace CFGS_VM.VMCore
             return MemberVisibility.Public;
         }
 
-        /// <summary>
-        /// The GetOrDefaultVisibility
-        /// </summary>
         private static MemberVisibility GetOrDefaultVisibility(Dictionary<string, MemberVisibility> map, string name)
             => map.TryGetValue(name, out MemberVisibility visibility) ? visibility : MemberVisibility.Public;
 
-        /// <summary>
-        /// The ToVisibilityCode
-        /// </summary>
         private static int ToVisibilityCode(MemberVisibility visibility)
         {
             return visibility switch
@@ -74,9 +59,6 @@ namespace CFGS_VM.VMCore
             };
         }
 
-        /// <summary>
-        /// The GetPropertyOverallVisibility
-        /// </summary>
         private static MemberVisibility GetPropertyOverallVisibility(PropertyDeclStmt property)
         {
             MemberVisibility best = MemberVisibility.Private;
@@ -93,9 +75,6 @@ namespace CFGS_VM.VMCore
             return best;
         }
 
-        /// <summary>
-        /// The EnumerateDeclaredInstanceVisibilityEntries
-        /// </summary>
         private static List<(string Name, int Code)> EnumerateDeclaredInstanceVisibilityEntries(ClassDeclStmt decl)
         {
             List<(string Name, int Code)> entries = new();
@@ -112,9 +91,6 @@ namespace CFGS_VM.VMCore
             return entries;
         }
 
-        /// <summary>
-        /// The EnumerateDeclaredStaticVisibilityEntries
-        /// </summary>
         private static List<(string Name, int Code)> EnumerateDeclaredStaticVisibilityEntries(ClassDeclStmt decl)
         {
             List<(string Name, int Code)> entries = new()
@@ -140,9 +116,6 @@ namespace CFGS_VM.VMCore
             return entries;
         }
 
-        /// <summary>
-        /// The AddDeclaredMembersToClassInfo
-        /// </summary>
         private static void AddDeclaredMembersToClassInfo(ClassDeclStmt decl, ClassInfo classInfo)
         {
             foreach (KeyValuePair<string, Expr?> field in decl.Fields)
@@ -199,9 +172,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The MergeInheritedVisibleMembers
-        /// </summary>
         private static void MergeInheritedVisibleMembers(ClassInfo target, ClassInfo baseInfo)
         {
             foreach (KeyValuePair<string, MemberVisibility> entry in baseInfo.InstanceVisibility)
@@ -227,9 +197,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The BuildClassInfos
-        /// </summary>
         internal void BuildClassInfos(IReadOnlyList<BoundClass> sortedClasses)
         {
             _classInfos.Clear();
@@ -251,9 +218,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The BuildAdHocClassInfo
-        /// </summary>
         private ClassInfo BuildAdHocClassInfo(ClassDeclStmt classDecl)
         {
             string? baseName = string.IsNullOrEmpty(classDecl.BaseName) ? null : classDecl.BaseName;

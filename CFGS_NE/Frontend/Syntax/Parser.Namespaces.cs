@@ -8,10 +8,6 @@ namespace CFGS_VM.Analytic.Core
 {
     public partial class Parser
     {
-        /// <summary>
-        /// The ParseNamespacePath
-        /// </summary>
-        /// <returns>The <see cref="List{string}"/></returns>
         private List<string> ParseNamespacePath()
         {
             List<string> parts = new();
@@ -34,10 +30,6 @@ namespace CFGS_VM.Analytic.Core
             return parts;
         }
 
-        /// <summary>
-        /// The ParseQualifiedTypeName
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         private string ParseQualifiedTypeName()
         {
             StringBuilder sb = new();
@@ -62,10 +54,6 @@ namespace CFGS_VM.Analytic.Core
             return sb.ToString();
         }
 
-        /// <summary>
-        /// The ParseNamespaceBodyStatement
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseNamespaceBodyStatement()
         {
             if (_current.Type == TokenType.Export)
@@ -96,10 +84,6 @@ namespace CFGS_VM.Analytic.Core
                 _current.Line, _current.Column, _current.Filename);
         }
 
-        /// <summary>
-        /// The ParseNamespaceDeclStatements
-        /// </summary>
-        /// <returns>The <see cref="NamespaceDeclStmt"/></returns>
         private NamespaceDeclStmt ParseNamespaceDeclStatement(bool allowFileScoped = true)
         {
             int line = _current.Line;

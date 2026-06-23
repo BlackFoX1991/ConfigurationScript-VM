@@ -3,33 +3,14 @@ using System.Text.Json;
 
 namespace CFGS_VM.VMCore.Extensions
 {
-    /// <summary>
-    /// Defines the <see cref="ErrorTracker" />
-    /// </summary>
     internal static class ErrorTracker
     {
-        /// <summary>
-        /// Defines the LogFileName
-        /// </summary>
         private const string LogFileName = "error_tracking.jsonl";
 
-        /// <summary>
-        /// Defines the Sync
-        /// </summary>
         private static readonly object Sync = new();
 
-        /// <summary>
-        /// Defines the Utf8NoBom
-        /// </summary>
         private static readonly UTF8Encoding Utf8NoBom = new(false);
 
-        /// <summary>
-        /// The Track
-        /// </summary>
-        /// <param name="ex">The ex<see cref="Exception"/></param>
-        /// <param name="phase">The phase<see cref="string"/></param>
-        /// <param name="sourceName">The sourceName<see cref="string?"/></param>
-        /// <returns>The <see cref="string?"/></returns>
         public static string? Track(Exception ex, string phase, string? sourceName = null)
         {
             string errorId = Guid.NewGuid().ToString("N");
@@ -80,10 +61,6 @@ namespace CFGS_VM.VMCore.Extensions
             return tracked ? errorId : null;
         }
 
-        /// <summary>
-        /// The ResolveLogPath
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         private static string ResolveLogPath()
         {
             string? configuredPath = Environment.GetEnvironmentVariable("CFGS_ERROR_TRACKING_PATH");
@@ -114,11 +91,6 @@ namespace CFGS_VM.VMCore.Extensions
             }
         }
 
-        /// <summary>
-        /// The BuildInnerExceptionChain
-        /// </summary>
-        /// <param name="ex">The ex<see cref="Exception"/></param>
-        /// <returns>The <see cref="string?"/></returns>
         private static string? BuildInnerExceptionChain(Exception ex)
         {
             if (ex.InnerException is null)
@@ -140,9 +112,6 @@ namespace CFGS_VM.VMCore.Extensions
             return sb.ToString();
         }
 
-        /// <summary>
-        /// Defines the <see cref="ErrorTrackingEntry" />
-        /// </summary>
         private sealed class ErrorTrackingEntry
         {
             /// <summary>

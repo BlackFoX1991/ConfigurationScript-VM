@@ -9,9 +9,6 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
-        /// <summary>
-        /// Defines the ImplicitMemberResolutionKind
-        /// </summary>
         private enum ImplicitMemberResolutionKind
         {
             None,
@@ -20,27 +17,15 @@ namespace CFGS_VM.VMCore
             Ambiguous
         }
 
-        /// <summary>
-        /// The TryResolveKnownClassDeclFromPath
-        /// </summary>
         private bool TryResolveKnownClassDeclFromPath(string classPath, out ClassDeclStmt decl)
             => new MemberAccessRules().TryResolveKnownClassDeclFromPath(this, classPath, out decl);
 
-        /// <summary>
-        /// The TryResolveKnownClassDeclFromExpr
-        /// </summary>
         private bool TryResolveKnownClassDeclFromExpr(Expr expr, out ClassDeclStmt decl)
             => new MemberAccessRules().TryResolveKnownClassDeclFromExpr(this, expr, CurrentLocals, out decl);
 
-        /// <summary>
-        /// The GetOrBuildClassMemberSets
-        /// </summary>
         private (HashSet<string> InstanceMembers, HashSet<string> StaticMembers) GetOrBuildClassMemberSets(ClassDeclStmt decl)
             => new MemberAccessRules().GetOrBuildClassMemberSets(this, decl);
 
-        /// <summary>
-        /// The ValidateMemberVisibilityAgainstKnownClass
-        /// </summary>
         private void ValidateMemberVisibilityAgainstKnownClass(
             ClassDeclStmt decl,
             string memberName,
@@ -49,9 +34,6 @@ namespace CFGS_VM.VMCore
             MemberAccessRules.MemberAccessKind accessKind = MemberAccessRules.MemberAccessKind.Read)
             => new MemberAccessRules().ValidateMemberVisibilityAgainstKnownClass(this, decl, memberName, expectInstance, _currentClassDecl, node, accessKind);
 
-        /// <summary>
-        /// The ValidateMemberAccessAgainstCurrentClass
-        /// </summary>
         private void ValidateMemberAccessAgainstCurrentClass(
             string memberName,
             bool expectInstance,
@@ -59,9 +41,6 @@ namespace CFGS_VM.VMCore
             MemberAccessRules.MemberAccessKind accessKind = MemberAccessRules.MemberAccessKind.Read)
             => new MemberAccessRules().ValidateMemberAccessAgainstCurrentClass(this, _currentClass, _currentClassDecl, memberName, expectInstance, node, accessKind);
 
-        /// <summary>
-        /// The ValidateMemberAccessAgainstKnownClass
-        /// </summary>
         private void ValidateMemberAccessAgainstKnownClass(
             ClassDeclStmt decl,
             string memberName,
@@ -70,9 +49,6 @@ namespace CFGS_VM.VMCore
             MemberAccessRules.MemberAccessKind accessKind = MemberAccessRules.MemberAccessKind.Read)
             => new MemberAccessRules().ValidateMemberAccessAgainstKnownClass(this, decl, memberName, expectInstance, _currentClassDecl, node, accessKind);
 
-        /// <summary>
-        /// The ValidateExplicitMemberAccess
-        /// </summary>
         private void ValidateExplicitMemberAccess(IndexExpr idx, bool isStore)
         {
             if (idx.Index is not StringExpr memberExpr)
@@ -130,27 +106,15 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The ValidateNewObjectInitializers
-        /// </summary>
         private void ValidateNewObjectInitializers(NewExpr ne)
             => new MemberAccessRules().ValidateNewObjectInitializers(this, ne, _currentClassDecl);
 
-        /// <summary>
-        /// The IsReceiverIdentifier
-        /// </summary>
         private static bool IsReceiverIdentifier(string name)
             => name == "this" || name == "type" || name == "super" || name == "outer";
 
-        /// <summary>
-        /// Defines the reserved property backing field identifier.
-        /// </summary>
         private static bool IsPropertyBackingFieldIdentifier(string name)
             => name == "field";
 
-        /// <summary>
-        /// The DetermineReceiverContext
-        /// </summary>
         private ReceiverContextKind DetermineReceiverContext(FuncExpr fe)
         {
             if (_currentClass == null || fe.Parameters.Count == 0)
@@ -164,9 +128,6 @@ namespace CFGS_VM.VMCore
             };
         }
 
-        /// <summary>
-        /// The ValidateReceiverUsage
-        /// </summary>
         private void ValidateReceiverUsage(string name, Node node)
         {
             if (!IsReceiverIdentifier(name))
@@ -208,9 +169,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The ValidateReceiverAssignment
-        /// </summary>
         private void ValidateReceiverAssignment(string name, Node node)
         {
             if (!IsReceiverIdentifier(name))
@@ -269,9 +227,6 @@ namespace CFGS_VM.VMCore
             return true;
         }
 
-        /// <summary>
-        /// The ResolveImplicitMemberResolution
-        /// </summary>
         private ImplicitMemberResolutionKind ResolveImplicitMemberResolution(string name)
         {
             if (_currentClass == null)
@@ -299,9 +254,6 @@ namespace CFGS_VM.VMCore
             return ImplicitMemberResolutionKind.None;
         }
 
-        /// <summary>
-        /// The TryEmitImplicitMemberLoad
-        /// </summary>
         private bool TryEmitImplicitMemberLoad(string name, Node node)
         {
             if (TryEmitPropertyBackingFieldLoad(name, node))
@@ -334,9 +286,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The TryEmitImplicitMemberStore
-        /// </summary>
         private bool TryEmitImplicitMemberStore(string name, Node node)
         {
             if (TryEmitPropertyBackingFieldStore(name, node))

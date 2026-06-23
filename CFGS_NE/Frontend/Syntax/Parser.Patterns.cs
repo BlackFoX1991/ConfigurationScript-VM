@@ -6,10 +6,6 @@ namespace CFGS_VM.Analytic.Core
 {
     public partial class Parser
     {
-        /// <summary>
-        /// The ParseMatch
-        /// </summary>
-        /// <returns>The <see cref="MatchStmt"/></returns>
         private MatchStmt ParseMatch()
         {
             int line = _current.Line;
@@ -50,10 +46,6 @@ namespace CFGS_VM.Analytic.Core
             return new MatchStmt(expr, cases, defaultCase, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseMatchPattern
-        /// </summary>
-        /// <returns>The <see cref="MatchPattern"/></returns>
         private MatchPattern ParseMatchPattern()
         {
             if (_current.Type == TokenType.Ident && (_current.Value?.ToString() ?? "") == "_")
@@ -76,10 +68,6 @@ namespace CFGS_VM.Analytic.Core
             return new ValueMatchPattern(value, value.Line, value.Col, value.OriginFile);
         }
 
-        /// <summary>
-        /// The ParseMatchBindingPattern
-        /// </summary>
-        /// <returns>The <see cref="BindingMatchPattern"/></returns>
         private BindingMatchPattern ParseMatchBindingPattern()
         {
             Eat(TokenType.Var);
@@ -104,10 +92,6 @@ namespace CFGS_VM.Analytic.Core
             return new BindingMatchPattern(name, identTok.Line, identTok.Column, identTok.Filename);
         }
 
-        /// <summary>
-        /// The ParseArrayMatchPattern
-        /// </summary>
-        /// <returns>The <see cref="ArrayMatchPattern"/></returns>
         private ArrayMatchPattern ParseArrayMatchPattern()
         {
             Token open = _current;
@@ -135,10 +119,6 @@ namespace CFGS_VM.Analytic.Core
             return new ArrayMatchPattern(elements, open.Line, open.Column, open.Filename);
         }
 
-        /// <summary>
-        /// The ParseDictMatchPattern
-        /// </summary>
-        /// <returns>The <see cref="DictMatchPattern"/></returns>
         private DictMatchPattern ParseDictMatchPattern()
         {
             Token open = _current;
@@ -187,10 +167,6 @@ namespace CFGS_VM.Analytic.Core
             return new DictMatchPattern(entries, open.Line, open.Column, open.Filename);
         }
 
-        /// <summary>
-        /// The ValidateUniquePatternBindings
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
         private static void ValidateUniquePatternBindings(MatchPattern pattern)
         {
             HashSet<string> names = new(StringComparer.Ordinal);
@@ -226,10 +202,6 @@ namespace CFGS_VM.Analytic.Core
             Walk(pattern, names);
         }
 
-        /// <summary>
-        /// The ParseOptionalMatchGuard
-        /// </summary>
-        /// <returns>The <see cref="Expr?"/></returns>
         private Expr? ParseOptionalMatchGuard()
         {
             if (_current.Type != TokenType.If)
@@ -242,10 +214,6 @@ namespace CFGS_VM.Analytic.Core
             return guard;
         }
 
-        /// <summary>
-        /// The ParseDestructurePattern
-        /// </summary>
-        /// <returns>The <see cref="MatchPattern"/></returns>
         private MatchPattern ParseDestructurePattern()
         {
             if (_current.Type == TokenType.Ident)
@@ -273,10 +241,6 @@ namespace CFGS_VM.Analytic.Core
             throw new ParserException("invalid destructuring target", _current.Line, _current.Column, _current.Filename);
         }
 
-        /// <summary>
-        /// The ParseArrayDestructurePattern
-        /// </summary>
-        /// <returns>The <see cref="ArrayMatchPattern"/></returns>
         private ArrayMatchPattern ParseArrayDestructurePattern()
         {
             Token open = _current;
@@ -305,10 +269,6 @@ namespace CFGS_VM.Analytic.Core
             return new ArrayMatchPattern(elements, open.Line, open.Column, open.Filename);
         }
 
-        /// <summary>
-        /// The ParseDictDestructurePattern
-        /// </summary>
-        /// <returns>The <see cref="DictMatchPattern"/></returns>
         private DictMatchPattern ParseDictDestructurePattern()
         {
             Token open = _current;
@@ -382,10 +342,6 @@ namespace CFGS_VM.Analytic.Core
             return new DictMatchPattern(entries, open.Line, open.Column, open.Filename);
         }
 
-        /// <summary>
-        /// The ValidateUniqueDestructureBindings
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
         private static void ValidateUniqueDestructureBindings(MatchPattern pattern)
         {
             HashSet<string> names = new(StringComparer.Ordinal);
@@ -420,11 +376,6 @@ namespace CFGS_VM.Analytic.Core
             Walk(pattern, names);
         }
 
-        /// <summary>
-        /// The CollectDestructureBindingNames
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <returns>The <see cref="List{string}"/></returns>
         private static List<string> CollectDestructureBindingNames(MatchPattern pattern)
         {
             List<string> names = new();
@@ -459,10 +410,6 @@ namespace CFGS_VM.Analytic.Core
             return names;
         }
 
-        /// <summary>
-        /// The ParseDestructureAssignStmt
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseDestructureAssignStmt()
         {
             int line = _current.Line;
@@ -481,10 +428,6 @@ namespace CFGS_VM.Analytic.Core
             return new DestructureAssignStmt(pattern, value, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseParenDestructureAssignStmt
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseParenDestructureAssignStmt()
         {
             int line = _current.Line;

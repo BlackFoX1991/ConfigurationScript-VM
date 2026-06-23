@@ -1,8 +1,5 @@
 ﻿namespace CFGS_VM.VMCore.Extensions.Core
 {
-    /// <summary>
-    /// Defines the <see cref="BuiltinCallable" />
-    /// </summary>
     public sealed class BuiltinCallable
     {
         /// <summary>
@@ -31,10 +28,6 @@
             Name = name; ArityMin = min; ArityMax = max;
         }
 
-        /// <summary>
-        /// The ToString
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         public override string ToString() => $"<builtin {Name}/{ArityMin}..{ArityMax}>";
     }
 }

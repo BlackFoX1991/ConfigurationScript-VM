@@ -14,10 +14,6 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
-        /// <summary>
-        /// The CompileExpr
-        /// </summary>
-        /// <param name="e">The e<see cref="Expr?"/></param>
         private void CompileExpr(Expr? e)
         {
             switch (e)

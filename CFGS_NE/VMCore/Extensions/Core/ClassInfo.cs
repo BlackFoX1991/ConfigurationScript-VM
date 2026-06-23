@@ -2,9 +2,6 @@ using CFGS_VM.Analytic.Tree;
 
 namespace CFGS_VM.VMCore.Extensions.Core
 {
-    /// <summary>
-    /// Defines the <see cref="ClassInfo" />
-    /// </summary>
     public sealed class ClassInfo
     {
         /// <summary>
@@ -65,45 +62,17 @@ namespace CFGS_VM.VMCore.Extensions.Core
             IsNested = isNested;
         }
 
-        /// <summary>
-        /// The IsInstanceMember
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         public bool IsInstanceMember(string name) => InstanceMembers.Contains(name);
 
-        /// <summary>
-        /// The IsStaticMember
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         public bool IsStaticMember(string name) => StaticMembers.Contains(name);
 
-        /// <summary>
-        /// The IsInstanceProperty
-        /// </summary>
         public bool IsInstanceProperty(string name) => InstanceProperties.Contains(name);
 
-        /// <summary>
-        /// The IsStaticProperty
-        /// </summary>
         public bool IsStaticProperty(string name) => StaticProperties.Contains(name);
 
-        /// <summary>
-        /// The TryGetInstanceVisibility
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="visibility">The visibility<see cref="MemberVisibility"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         public bool TryGetInstanceVisibility(string name, out MemberVisibility visibility)
             => InstanceVisibility.TryGetValue(name, out visibility);
 
-        /// <summary>
-        /// The TryGetStaticVisibility
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="visibility">The visibility<see cref="MemberVisibility"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         public bool TryGetStaticVisibility(string name, out MemberVisibility visibility)
             => StaticVisibility.TryGetValue(name, out visibility);
     }

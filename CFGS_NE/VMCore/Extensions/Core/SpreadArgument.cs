@@ -1,8 +1,5 @@
 namespace CFGS_VM.VMCore.Extensions.Core
 {
-    /// <summary>
-    /// Defines the <see cref="SpreadArgument" />
-    /// </summary>
     public sealed class SpreadArgument
     {
         /// <summary>

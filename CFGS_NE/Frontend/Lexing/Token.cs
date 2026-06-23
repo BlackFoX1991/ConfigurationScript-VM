@@ -1,8 +1,5 @@
 ﻿using CFGS_VM.Analytic.Tokens;
 
-/// <summary>
-/// Defines the <see cref="Token" />
-/// </summary>
 public class Token
 {
     /// <summary>
@@ -53,10 +50,6 @@ public class Token
         Length = Math.Max(1, length);
     }
 
-    /// <summary>
-    /// The ToString
-    /// </summary>
-    /// <returns>The <see cref="string"/></returns>
     public override string ToString()
     {
         return $"{Type} {Value}";

@@ -2,21 +2,8 @@ using CFGS_VM.VMCore.Extensions.Core;
 
 namespace CFGS_VM.VMCore.Plugin
 {
-    /// <summary>
-    /// The BuiltinInvoker
-    /// </summary>
-    /// <param name="args">The args<see cref="List{object}"/></param>
-    /// <param name="instr">The instr<see cref="Instruction"/></param>
-    /// <returns>The <see cref="object"/></returns>
     public delegate object BuiltinInvoker(List<object> args, Instruction instr);
 
-    /// <summary>
-    /// The IntrinsicInvoker
-    /// </summary>
-    /// <param name="receiver">The receiver<see cref="object"/></param>
-    /// <param name="args">The args<see cref="List{object}"/></param>
-    /// <param name="instr">The instr<see cref="Instruction"/></param>
-    /// <returns>The <see cref="object"/></returns>
     public delegate object IntrinsicInvoker(object receiver, List<object> args, Instruction instr);
 
     /// <summary>
@@ -59,9 +46,6 @@ namespace CFGS_VM.VMCore.Plugin
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="BuiltinDescriptor" />
-    /// </summary>
     public sealed class BuiltinDescriptor
     {
         /// <summary>
@@ -107,16 +91,9 @@ namespace CFGS_VM.VMCore.Plugin
             Options = options ?? NativeCallOptions.Default;
         }
 
-        /// <summary>
-        /// The ToString
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         public override string ToString() => $"<builtin {Name}/{ArityMin}..{ArityMax}>";
     }
 
-    /// <summary>
-    /// Defines the <see cref="IntrinsicDescriptor" />
-    /// </summary>
     public sealed class IntrinsicDescriptor
     {
         /// <summary>
@@ -162,10 +139,6 @@ namespace CFGS_VM.VMCore.Plugin
             Options = options ?? NativeCallOptions.Default;
         }
 
-        /// <summary>
-        /// The ToString
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         public override string ToString() => $"<intrinsic {Name}/{ArityMin}..{ArityMax}>";
     }
 
@@ -258,90 +231,32 @@ namespace CFGS_VM.VMCore.Plugin
             => $"<builtin {MemberName}/{Descriptor.ArityMin}..{Descriptor.ArityMax}>";
     }
 
-    /// <summary>
-    /// Defines the <see cref="IBuiltinRegistry" />
-    /// </summary>
     public interface IBuiltinRegistry
     {
-        /// <summary>
-        /// The Register
-        /// </summary>
-        /// <param name="d">The d<see cref="BuiltinDescriptor"/></param>
         void Register(BuiltinDescriptor d);
 
-        /// <summary>
-        /// The TryGet
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="d">The d<see cref="BuiltinDescriptor"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         bool TryGet(string name, out BuiltinDescriptor d);
 
-        /// <summary>
-        /// The Contains
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         bool Contains(string name) => TryGet(name, out _);
 
-        /// <summary>
-        /// The Remove
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         bool Remove(string name)
             => throw new NotSupportedException("This builtin registry does not support removal.");
     }
 
-    /// <summary>
-    /// Defines the <see cref="IIntrinsicRegistry" />
-    /// </summary>
     public interface IIntrinsicRegistry
     {
-        /// <summary>
-        /// The Register
-        /// </summary>
-        /// <param name="receiverType">The receiverType<see cref="Type"/></param>
-        /// <param name="d">The d<see cref="IntrinsicDescriptor"/></param>
         void Register(Type receiverType, IntrinsicDescriptor d);
 
-        /// <summary>
-        /// The Register
-        /// </summary>
-        /// <param name="receiverType">The receiverType<see cref="Type"/></param>
-        /// <param name="ds">The ds<see cref="IEnumerable{IntrinsicDescriptor}"/></param>
         void Register(Type receiverType, IEnumerable<IntrinsicDescriptor> ds);
 
-        /// <summary>
-        /// The TryGet
-        /// </summary>
-        /// <param name="receiverType">The receiverType<see cref="Type"/></param>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="d">The d<see cref="IntrinsicDescriptor"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         bool TryGet(Type receiverType, string name, out IntrinsicDescriptor d);
 
-        /// <summary>
-        /// The ContainsExact
-        /// </summary>
-        /// <param name="receiverType">The receiverType<see cref="Type"/></param>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         bool ContainsExact(Type receiverType, string name) => TryGet(receiverType, name, out _);
 
-        /// <summary>
-        /// The RemoveExact
-        /// </summary>
-        /// <param name="receiverType">The receiverType<see cref="Type"/></param>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         bool RemoveExact(Type receiverType, string name)
             => throw new NotSupportedException("This intrinsic registry does not support removal.");
     }
 
-    /// <summary>
-    /// Defines the <see cref="INamespaceRegistry" />
-    /// </summary>
     public interface INamespaceRegistry
     {
         void Register(NamespaceDescriptor descriptor);
@@ -358,23 +273,11 @@ namespace CFGS_VM.VMCore.Plugin
         IReadOnlyList<NamespaceDescriptor> Snapshot();
     }
 
-    /// <summary>
-    /// Defines the <see cref="IVmPlugin" />
-    /// </summary>
     public interface IVmPlugin
     {
-        /// <summary>
-        /// The Register
-        /// </summary>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        /// <param name="namespaces">The namespaces<see cref="INamespaceRegistry"/></param>
         void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces);
     }
 
-    /// <summary>
-    /// Defines the <see cref="BuiltinAttribute" />
-    /// </summary>
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
     public sealed class BuiltinAttribute : Attribute
     {
@@ -411,9 +314,6 @@ namespace CFGS_VM.VMCore.Plugin
         public bool OffloadBlockingWork { get; set; } = false;
     }
 
-    /// <summary>
-    /// Defines the <see cref="IntrinsicAttribute" />
-    /// </summary>
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
     public sealed class IntrinsicAttribute : Attribute
     {

@@ -21,10 +21,6 @@ namespace CFGS_VM.Analytic.Core
         /// </summary>
         private readonly HashSet<string> _knownNamespaceRoots = new(StringComparer.Ordinal);
 
-        /// <summary>
-        /// The IndexTopLevelSymbols
-        /// </summary>
-        /// <param name="stmts">The stmts<see cref="IEnumerable{Stmt}"/></param>
         private void IndexTopLevelSymbols(IEnumerable<Stmt> stmts)
         {
             foreach (Stmt s in stmts)
@@ -38,10 +34,6 @@ namespace CFGS_VM.Analytic.Core
             }
         }
 
-        /// <summary>
-        /// The TrackKnownTopLevelSymbols
-        /// </summary>
-        /// <param name="stmts">The stmts<see cref="IEnumerable{Stmt}"/></param>
         private void TrackKnownTopLevelSymbols(IEnumerable<Stmt> stmts)
         {
             foreach (Stmt s in stmts)
@@ -68,12 +60,6 @@ namespace CFGS_VM.Analytic.Core
             }
         }
 
-        /// <summary>
-        /// The FilterDuplicateTopLevel
-        /// </summary>
-        /// <param name="stmts">The stmts<see cref="List{Stmt}"/></param>
-        /// <param name="allowIdempotentSameOrigin">The allowIdempotentSameOrigin<see cref="bool"/></param>
-        /// <returns>The <see cref="List{Stmt}"/></returns>
         private List<Stmt> FilterDuplicateTopLevel(List<Stmt> stmts, bool allowIdempotentSameOrigin = true)
         {
             List<Stmt> filtered = new(stmts.Count);
@@ -108,29 +94,12 @@ namespace CFGS_VM.Analytic.Core
             return filtered;
         }
 
-        /// <summary>
-        /// The TryGetNamedTopLevel
-        /// </summary>
-        /// <param name="stmt">The stmt<see cref="Stmt"/></param>
-        /// <param name="name">The name<see cref="string?"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         private static bool TryGetNamedTopLevel(Stmt stmt, out string? name)
             => TopLevelSymbolFacts.TryGetNamedTopLevel(stmt, out name);
 
-        /// <summary>
-        /// The TryGetNamedTopLevelWithKind
-        /// </summary>
-        /// <param name="stmt">The stmt<see cref="Stmt"/></param>
-        /// <param name="name">The name<see cref="string?"/></param>
-        /// <param name="kind">The kind<see cref="string?"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         private static bool TryGetNamedTopLevelWithKind(Stmt stmt, out string? name, out string? kind)
             => TopLevelSymbolFacts.TryGetNamedTopLevelWithKind(stmt, out name, out kind);
 
-        /// <summary>
-        /// The ValidateTopLevelSymbolUniqueness
-        /// </summary>
-        /// <param name="stmts">The stmts<see cref="IEnumerable{Stmt}"/></param>
         private static void ValidateTopLevelSymbolUniqueness(IEnumerable<Stmt> stmts)
             => TopLevelSymbolFacts.ValidateTopLevelSymbolUniqueness(stmts);
     }

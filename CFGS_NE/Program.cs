@@ -16,50 +16,21 @@ using System.Runtime.Loader;
 using System.Text;
 using System.Text.Json;
 
-/// <summary>
-/// Defines the <see cref="AnsiConsole" />
-/// </summary>
 internal static class AnsiConsole
 {
-    /// <summary>
-    /// Defines the STD_OUTPUT_HANDLE
-    /// </summary>
     internal const int STD_OUTPUT_HANDLE = -11;
 
-    /// <summary>
-    /// Defines the ENABLE_VIRTUAL_TERMINAL_PROCESSING
-    /// </summary>
     internal const int ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
 
-    /// <summary>
-    /// The GetStdHandle
-    /// </summary>
-    /// <param name="nStdHandle">The nStdHandle<see cref="int"/></param>
-    /// <returns>The <see cref="IntPtr"/></returns>
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern IntPtr GetStdHandle(int nStdHandle);
 
-    /// <summary>
-    /// The GetConsoleMode
-    /// </summary>
-    /// <param name="hConsoleHandle">The hConsoleHandle<see cref="IntPtr"/></param>
-    /// <param name="lpMode">The lpMode<see cref="int"/></param>
-    /// <returns>The <see cref="bool"/></returns>
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern bool GetConsoleMode(IntPtr hConsoleHandle, out int lpMode);
 
-    /// <summary>
-    /// The SetConsoleMode
-    /// </summary>
-    /// <param name="hConsoleHandle">The hConsoleHandle<see cref="IntPtr"/></param>
-    /// <param name="dwMode">The dwMode<see cref="int"/></param>
-    /// <returns>The <see cref="bool"/></returns>
     [DllImport("kernel32.dll", SetLastError = true)]
     internal static extern bool SetConsoleMode(IntPtr hConsoleHandle, int dwMode);
 
-    /// <summary>
-    /// The EnableAnsi
-    /// </summary>
     public static void EnableAnsi()
     {
         nint hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -68,9 +39,6 @@ internal static class AnsiConsole
         SetConsoleMode(hOut, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     }
 
-    /// <summary>
-    /// The DisableAnsi
-    /// </summary>
     public static void DisableAnsi()
     {
         nint hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -81,9 +49,6 @@ internal static class AnsiConsole
     }
 }
 
-/// <summary>
-/// Defines the <see cref="Program" />
-/// </summary>
 public class Program
 {
     /// <summary>
@@ -96,30 +61,15 @@ public class Program
     /// </summary>
     public static bool IsInteractiveDebug { get; private set; } = false;
 
-    /// <summary>
-    /// Defines the Version
-    /// </summary>
     public const string Version = "v8.0.0";
 
-    /// <summary>
-    /// Defines the AnsiMode
-    /// </summary>
     public static bool AnsiMode = true;
 
-    /// <summary>
-    /// Defines the CLIPath
-    /// </summary>
     public static string CLIPath = string.Empty;
 
-    /// <summary>
-    /// Defines the header_text
-    /// </summary>
     private static readonly string header_text =
         $"[ Configuration-Language ] [ Version {Version} ]\n Enter your code, '$help' or '$exit/$quit'\n Visit : https://github.com/BlackFoX1991/ConfigurationScript-VM";
 
-    /// <summary>
-    /// Defines the help_diag
-    /// </summary>
     private static readonly string help_diag = @"
 ================================================================================
 [=============================== HELP =========================================]
@@ -146,10 +96,6 @@ public class Program
 [------------------------------------------------------------------------------]
 ================================================================================";
 
-    /// <summary>
-    /// The Main
-    /// </summary>
-    /// <param name="args">The args<see cref="string[]"/></param>
     public static async Task Main(string[] args)
     {
         if (TryGetLspArguments(args, out string[] lspArgs))
@@ -1256,12 +1202,6 @@ public class Program
         }
     }
 
-    /// <summary>
-    /// The PrintTrackedException
-    /// </summary>
-    /// <param name="ex">The ex<see cref="Exception"/></param>
-    /// <param name="phase">The phase<see cref="string"/></param>
-    /// <param name="sourceName">The sourceName<see cref="string?"/></param>
     private static void PrintTrackedException(Exception ex, string phase, string? sourceName = null)
     {
         ErrorDiagnostic diag = ErrorDiagnostics.FromException(ex, sourceName);
@@ -1318,15 +1258,6 @@ public class Program
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    /// <summary>
-    /// The RunSourceAsync
-    /// </summary>
-    /// <param name="source">The source<see cref="string"/></param>
-    /// <param name="name">The name<see cref="string"/></param>
-    /// <param name="debug">The debug<see cref="bool"/></param>
-    /// <param name="ct">The ct<see cref="CancellationToken"/></param>
-    /// <param name="sharedVm">The sharedVm<see cref="VM?"/></param>
-    /// <returns>The <see cref="Task"/></returns>
     private static async Task RunSourceAsync(
         string source,
         string name,
@@ -1536,12 +1467,6 @@ public class Program
         }
     }
 
-    /// <summary>
-    /// The PrintInstructions
-    /// </summary>
-    /// <param name="name">The name<see cref="string"/></param>
-    /// <param name="bytecode">The bytecode<see cref="List{Instruction}"/></param>
-    /// <param name="_functions">The _functions<see cref="Dictionary{string, FunctionInfo}"/></param>
     private static void PrintInstructions(string name, List<Instruction> bytecode, Dictionary<string, FunctionInfo> _functions)
     {
         Console.WriteLine($"=== INSTRUCTIONS ({name}) ===");
@@ -1580,10 +1505,6 @@ public class Program
         }
     }
 
-    /// <summary>
-    /// The ReadRedirectedInput
-    /// </summary>
-    /// <returns>The <see cref="string?"/></returns>
     private static string? ReadRedirectedInput()
     {
         while (true)
@@ -1716,10 +1637,6 @@ public class Program
         return msg.Contains("unterminated", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>
-    /// The ReadMultilineInput
-    /// </summary>
-    /// <returns>The <see cref="string?"/></returns>
     private static string? ReadMultilineInput()
     {
         if (Console.IsInputRedirected)

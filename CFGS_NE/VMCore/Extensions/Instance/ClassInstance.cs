@@ -1,8 +1,5 @@
 ﻿namespace CFGS_VM.VMCore.Extensions.Instance
 {
-    /// <summary>
-    /// Defines the <see cref="ClassInstance" />
-    /// </summary>
     public sealed class ClassInstance
     {
         /// <summary>

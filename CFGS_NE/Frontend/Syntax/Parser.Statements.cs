@@ -7,10 +7,6 @@ namespace CFGS_VM.Analytic.Core
 {
     public partial class Parser
     {
-        /// <summary>
-        /// The Statement
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt Statement()
         {
             if (_context.IsInMultipleVarDeclaration)
@@ -21,11 +17,6 @@ namespace CFGS_VM.Analytic.Core
                 : ParseStatementTopLevel();
         }
 
-        /// <summary>
-        /// The TryParseCommonStatement
-        /// </summary>
-        /// <param name="stmt">The stmt<see cref="Stmt"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         private bool TryParseCommonStatement(out Stmt stmt)
         {
             switch (_current.Type)
@@ -176,10 +167,6 @@ namespace CFGS_VM.Analytic.Core
                 _ => false
             };
 
-        /// <summary>
-        /// The ParseStatementInMemberScope
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseStatementInMemberScope()
         {
             switch (_current.Type)
@@ -207,10 +194,6 @@ namespace CFGS_VM.Analytic.Core
             return ParseExprStmt;
         }
 
-        /// <summary>
-        /// The ParseStatementTopLevel
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseStatementTopLevel()
         {
             if (_current.Type == TokenType.Export)
@@ -320,10 +303,6 @@ namespace CFGS_VM.Analytic.Core
             }
         }
 
-        /// <summary>
-        /// The ParseInitializerItems
-        /// </summary>
-        /// <returns>The <see cref="List{(string, Expr)}"/></returns>
         private List<(string, Expr)> ParseInitializerItems()
         {
             List<(string, Expr)> items = new();
@@ -364,11 +343,6 @@ namespace CFGS_VM.Analytic.Core
             return items;
         }
 
-        /// <summary>
-        /// The MaybeParseObjectInitializer
-        /// </summary>
-        /// <param name="target">The target<see cref="Expr"/></param>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr MaybeParseObjectInitializer(Expr target)
         {
             if (target is NewExpr) return target;
@@ -381,10 +355,6 @@ namespace CFGS_VM.Analytic.Core
             return target;
         }
 
-        /// <summary>
-        /// The ParseAssignOrIndexAssignOrPushOrExpr
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseAssignOrIndexAssignOrPushOrExpr(bool requireSemicolon = true)
         {
             int line = _current.Line;

@@ -6,10 +6,6 @@ namespace CFGS_VM.Analytic.Core
 {
     public partial class Parser
     {
-        /// <summary>
-        /// The ParseUsing
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseUsing()
         {
             int line = _current.Line, col = _current.Column;
@@ -48,10 +44,6 @@ namespace CFGS_VM.Analytic.Core
             return new UsingStmt(bindingName, bindingIsConst, resource, body, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseDefer
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseDefer()
             => throw new ParserException("defer is only allowed inside '{...}' blocks", _current.Line, _current.Column, _current.Filename);
 
@@ -67,10 +59,6 @@ namespace CFGS_VM.Analytic.Core
         private bool IsDeferScopeDeclarationStart
             => _current.Type == TokenType.Defer;
 
-        /// <summary>
-        /// The ParseUsingScopeDeclarationInBlock
-        /// </summary>
-        /// <returns>The <see cref="UsingStmt"/></returns>
         private UsingStmt ParseUsingScopeDeclarationInBlock()
         {
             int line = _current.Line, col = _current.Column;
@@ -107,10 +95,6 @@ namespace CFGS_VM.Analytic.Core
             return new UsingStmt(bindingName, bindingIsConst, resource, body, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseDeferScopeDeclarationInBlock
-        /// </summary>
-        /// <returns>The <see cref="TryStmt"/></returns>
         private TryStmt ParseDeferScopeDeclarationInBlock()
         {
             int line = _current.Line, col = _current.Column;
@@ -130,10 +114,6 @@ namespace CFGS_VM.Analytic.Core
             return new TryStmt(body, null, null, finallyBlock, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseBlockStatementsUntilRBrace
-        /// </summary>
-        /// <returns>The <see cref="List{Stmt}"/></returns>
         private List<Stmt> ParseBlockStatementsUntilRBrace()
         {
             List<Stmt> stmts = new();
@@ -161,10 +141,6 @@ namespace CFGS_VM.Analytic.Core
             return stmts;
         }
 
-        /// <summary>
-        /// The ParseThrow
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseThrow()
         {
             int line = _current.Line, col = _current.Column;
@@ -175,10 +151,6 @@ namespace CFGS_VM.Analytic.Core
             return new ThrowStmt(ex, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseTry
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseTry()
         {
             int line = _current.Line, col = _current.Column;
@@ -259,10 +231,6 @@ namespace CFGS_VM.Analytic.Core
             }
         }
 
-        /// <summary>
-        /// The ParseEmbeddedBlockOrSingleStatement
-        /// </summary>
-        /// <returns>The <see cref="BlockStmt"/></returns>
         private BlockStmt ParseEmbeddedBlockOrSingleStatement()
         {
             if (_current.Type == TokenType.LBrace)
@@ -274,10 +242,6 @@ namespace CFGS_VM.Analytic.Core
             return new BlockStmt(new List<Stmt> { one }, one.Line, one.Col, one.OriginFile);
         }
 
-        /// <summary>
-        /// The ParseBlock
-        /// </summary>
-        /// <returns>The <see cref="BlockStmt"/></returns>
         private BlockStmt ParseBlock()
         {
             int line = _current.Line;
@@ -292,10 +256,6 @@ namespace CFGS_VM.Analytic.Core
             return new BlockStmt(stmts, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseIf
-        /// </summary>
-        /// <returns>The <see cref="IfStmt"/></returns>
         private IfStmt ParseIf()
         {
             int line = _current.Line;
@@ -325,10 +285,6 @@ namespace CFGS_VM.Analytic.Core
             return new IfStmt(cond, thenBlk, elseBlk, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseWhile
-        /// </summary>
-        /// <returns>The <see cref="WhileStmt"/></returns>
         private WhileStmt ParseWhile()
         {
             int line = _current.Line;
@@ -344,10 +300,6 @@ namespace CFGS_VM.Analytic.Core
             return new WhileStmt(cond, body, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseDoWhile
-        /// </summary>
-        /// <returns>The <see cref="DoWhileStmt"/></returns>
         private DoWhileStmt ParseDoWhile()
         {
             int line = _current.Line;
@@ -366,10 +318,6 @@ namespace CFGS_VM.Analytic.Core
             return new DoWhileStmt(body, cond, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseForeach
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseForeach()
         {
             int line = _current.Line;
@@ -447,10 +395,6 @@ namespace CFGS_VM.Analytic.Core
             return new ForeachStmt(name, targetPattern, declare, iterable, useIndexValuePair, body, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseFor
-        /// </summary>
-        /// <returns>The <see cref="ForStmt"/></returns>
         private ForStmt ParseFor()
         {
             int line = _current.Line;

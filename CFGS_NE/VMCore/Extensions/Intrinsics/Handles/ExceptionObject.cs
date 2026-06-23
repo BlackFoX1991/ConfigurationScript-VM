@@ -51,10 +51,6 @@
             Stack = stack;
         }
 
-        /// <summary>
-        /// The ToString
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         public override string ToString()
         {
             string source = string.IsNullOrWhiteSpace(File) ? "<unknown>" : File;

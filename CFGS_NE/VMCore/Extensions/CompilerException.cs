@@ -1,8 +1,5 @@
 namespace CFGS_VM.VMCore.Extensions
 {
-    /// <summary>
-    /// Defines the <see cref="CompilerException" />
-    /// </summary>
     public sealed class CompilerException : Exception
     {
         /// <summary>

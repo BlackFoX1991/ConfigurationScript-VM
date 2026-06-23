@@ -48,10 +48,6 @@ namespace CFGS_VM.VMCore.Extensions.Intrinsics.Core
             Options = options ?? NativeCallOptions.Default;
         }
 
-        /// <summary>
-        /// The ToString
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         public override string ToString() => $"<intrinsic {Name}>";
     }
 }

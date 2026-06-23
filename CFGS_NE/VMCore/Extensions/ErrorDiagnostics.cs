@@ -3,9 +3,6 @@ using System.Reflection;
 
 namespace CFGS_VM.VMCore.Extensions
 {
-    /// <summary>
-    /// Defines the <see cref="ErrorDiagnostic" />
-    /// </summary>
     internal readonly record struct ErrorDiagnostic(
         string Code,
         string Category,
@@ -24,17 +21,8 @@ namespace CFGS_VM.VMCore.Extensions
         public bool HasLocation => !string.IsNullOrWhiteSpace(SourceFile) || Line.HasValue || Column.HasValue;
     }
 
-    /// <summary>
-    /// Defines the <see cref="ErrorDiagnostics" />
-    /// </summary>
     internal static class ErrorDiagnostics
     {
-        /// <summary>
-        /// The FromException
-        /// </summary>
-        /// <param name="ex">The ex<see cref="Exception"/></param>
-        /// <param name="fallbackSourceName">The fallbackSourceName<see cref="string?"/></param>
-        /// <returns>The <see cref="ErrorDiagnostic"/></returns>
         public static ErrorDiagnostic FromException(Exception ex, string? fallbackSourceName = null)
         {
             Exception effective = Unwrap(ex);
@@ -111,19 +99,9 @@ namespace CFGS_VM.VMCore.Extensions
             return diag;
         }
 
-        /// <summary>
-        /// The FormatHeadline
-        /// </summary>
-        /// <param name="diag">The diag<see cref="ErrorDiagnostic"/></param>
-        /// <returns>The <see cref="string"/></returns>
         public static string FormatHeadline(ErrorDiagnostic diag)
             => $"{diag.Code}: [{diag.Category}] {diag.Message}";
 
-        /// <summary>
-        /// The FormatLocation
-        /// </summary>
-        /// <param name="diag">The diag<see cref="ErrorDiagnostic"/></param>
-        /// <returns>The <see cref="string?"/></returns>
         public static string? FormatLocation(ErrorDiagnostic diag)
         {
             if (!diag.HasLocation)
@@ -170,19 +148,9 @@ namespace CFGS_VM.VMCore.Extensions
             return $"= help: {diag.Help}";
         }
 
-        /// <summary>
-        /// The FormatLanguageStack
-        /// </summary>
-        /// <param name="diag">The diag<see cref="ErrorDiagnostic"/></param>
-        /// <returns>The <see cref="string?"/></returns>
         public static string? FormatLanguageStack(ErrorDiagnostic diag)
             => NormalizeStack(diag.LanguageStack);
 
-        /// <summary>
-        /// The Unwrap
-        /// </summary>
-        /// <param name="ex">The ex<see cref="Exception"/></param>
-        /// <returns>The <see cref="Exception"/></returns>
         private static Exception Unwrap(Exception ex)
         {
             if (ex is AggregateException agg && agg.InnerExceptions.Count == 1 && agg.InnerExceptions[0] is not null)
@@ -192,11 +160,6 @@ namespace CFGS_VM.VMCore.Extensions
             return ex;
         }
 
-        /// <summary>
-        /// The NormalizeMessage
-        /// </summary>
-        /// <param name="message">The message<see cref="string?"/></param>
-        /// <returns>The <see cref="string"/></returns>
         private static string NormalizeMessage(string? message)
         {
             if (string.IsNullOrWhiteSpace(message))
@@ -427,11 +390,6 @@ namespace CFGS_VM.VMCore.Extensions
             }
         }
 
-        /// <summary>
-        /// The NormalizeStack
-        /// </summary>
-        /// <param name="stack">The stack<see cref="string?"/></param>
-        /// <returns>The <see cref="string?"/></returns>
         private static string? NormalizeStack(string? stack)
         {
             if (string.IsNullOrWhiteSpace(stack))
@@ -439,12 +397,6 @@ namespace CFGS_VM.VMCore.Extensions
             return stack.Trim();
         }
 
-        /// <summary>
-        /// The FirstNonEmpty
-        /// </summary>
-        /// <param name="a">The a<see cref="string?"/></param>
-        /// <param name="b">The b<see cref="string?"/></param>
-        /// <returns>The <see cref="string?"/></returns>
         private static string? FirstNonEmpty(string? a, string? b)
         {
             if (!string.IsNullOrWhiteSpace(a)) return a;

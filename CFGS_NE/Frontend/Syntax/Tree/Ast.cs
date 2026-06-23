@@ -22,9 +22,6 @@ namespace CFGS_VM.Analytic.Tree
         Init
     }
 
-    /// <summary>
-    /// Defines the <see cref="Node" />
-    /// </summary>
     public abstract class Node(int line, int col, string originFile)
     {
         /// <summary>
@@ -58,34 +55,19 @@ namespace CFGS_VM.Analytic.Tree
     }
 
 
-    /// <summary>
-    /// Defines the <see cref="Expr" />
-    /// </summary>
     public abstract class Expr(int line, int col, string fname) : Node(line, col, fname)
     {
     }
 
-    /// <summary>
-    /// Defines the <see cref="Stmt" />
-    /// </summary>
     public abstract class Stmt(int line, int col, string fname) : Node(line, col, fname)
     {
     }
 
-    /// <summary>
-    /// Defines the <see cref="EmptyStmt" />
-    /// </summary>
     public class EmptyStmt(TokenType tp, int line, int col, string originFile) : Stmt(line, col, originFile)
     {
-        /// <summary>
-        /// Defines the eType
-        /// </summary>
         public TokenType eType = tp;
     }
 
-    /// <summary>
-    /// Defines the <see cref="NullExpr" />
-    /// </summary>
     public class NullExpr(int line, int col, string fname) : Expr(line, col, fname)
     {
     }
@@ -107,47 +89,23 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="NumberExpr" />
-    /// </summary>
     public class NumberExpr(dynamic? v, int line, int col, string fname) : Expr(line, col, fname)
     {
-        /// <summary>
-        /// Defines the Value
-        /// </summary>
         public dynamic? Value = v;
     }
 
-    /// <summary>
-    /// Defines the <see cref="StringExpr" />
-    /// </summary>
     public class StringExpr(string v, int line, int col, string fname) : Expr(line, col, fname)
     {
-        /// <summary>
-        /// Defines the Value
-        /// </summary>
         public string Value = v;
     }
 
-    /// <summary>
-    /// Defines the <see cref="CharExpr" />
-    /// </summary>
     public class CharExpr(char v, int line, int col, string fname) : Expr(line, col, fname)
     {
-        /// <summary>
-        /// Defines the Value
-        /// </summary>
         public char Value = v;
     }
 
-    /// <summary>
-    /// Defines the <see cref="BoolExpr" />
-    /// </summary>
     public class BoolExpr : Expr
     {
-        /// <summary>
-        /// Defines the Value
-        /// </summary>
         public bool Value;
 
         /// <summary>
@@ -160,35 +118,17 @@ namespace CFGS_VM.Analytic.Tree
         public BoolExpr(bool v, int line, int col, string fname) : base(line, col, fname) => Value = v;
     }
 
-    /// <summary>
-    /// Defines the <see cref="VarExpr" />
-    /// </summary>
     public class VarExpr(string n, int line, int col, string fname) : Expr(line, col, fname)
     {
-        /// <summary>
-        /// Defines the Name
-        /// </summary>
         public string Name = n;
     }
 
-    /// <summary>
-    /// Defines the <see cref="BinaryExpr" />
-    /// </summary>
     public class BinaryExpr : Expr
     {
-        /// <summary>
-        /// Defines the Left
-        /// </summary>
         public Expr Left;
 
-        /// <summary>
-        /// Defines the Op
-        /// </summary>
         public TokenType Op;
 
-        /// <summary>
-        /// Defines the Right
-        /// </summary>
         public Expr Right;
 
         /// <summary>
@@ -206,9 +146,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="UnaryExpr" />
-    /// </summary>
     public class UnaryExpr : Expr
     {
         /// <summary>
@@ -236,9 +173,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="CompoundAssignStmt" />
-    /// </summary>
     public class CompoundAssignStmt : Stmt
     {
         /// <summary>
@@ -273,14 +207,8 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ArrayExpr" />
-    /// </summary>
     public class ArrayExpr : Expr
     {
-        /// <summary>
-        /// Defines the Elements
-        /// </summary>
         public List<Expr> Elements;
 
         /// <summary>
@@ -296,19 +224,10 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="IndexExpr" />
-    /// </summary>
     public class IndexExpr : Expr
     {
-        /// <summary>
-        /// Defines the Target
-        /// </summary>
         public Expr? Target;
 
-        /// <summary>
-        /// Defines the Index
-        /// </summary>
         public Expr? Index;
 
         /// <summary>
@@ -332,24 +251,12 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="SliceExpr" />
-    /// </summary>
     public class SliceExpr : Expr
     {
-        /// <summary>
-        /// Defines the Target
-        /// </summary>
         public Expr? Target;
 
-        /// <summary>
-        /// Defines the Start
-        /// </summary>
         public Expr? Start;
 
-        /// <summary>
-        /// Defines the End
-        /// </summary>
         public Expr? End;
 
         /// <summary>
@@ -369,9 +276,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="SliceSetStmt" />
-    /// </summary>
     public class SliceSetStmt : Stmt
     {
         /// <summary>
@@ -399,14 +303,8 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="DictExpr" />
-    /// </summary>
     public class DictExpr : Expr
     {
-        /// <summary>
-        /// Defines the Pairs
-        /// </summary>
         public List<(Expr Key, Expr Value)> Pairs;
 
         /// <summary>
@@ -422,9 +320,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ExprStmt" />
-    /// </summary>
     public class ExprStmt : Stmt
     {
         /// <summary>
@@ -445,9 +340,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="PrefixExpr" />
-    /// </summary>
     public class PrefixExpr : Expr
     {
         /// <summary>
@@ -475,9 +367,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="PostfixExpr" />
-    /// </summary>
     public class PostfixExpr : Expr
     {
         /// <summary>
@@ -505,19 +394,10 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="VarDecl" />
-    /// </summary>
     public class VarDecl : Stmt
     {
-        /// <summary>
-        /// Defines the Name
-        /// </summary>
         public string Name;
 
-        /// <summary>
-        /// Defines the Value
-        /// </summary>
         public Expr? Value;
 
         /// <summary>
@@ -539,19 +419,10 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ConstDecl" />
-    /// </summary>
     public class ConstDecl : Stmt
     {
-        /// <summary>
-        /// Defines the Name
-        /// </summary>
         public string Name;
 
-        /// <summary>
-        /// Defines the Value
-        /// </summary>
         public Expr Value;
 
         /// <summary>
@@ -569,9 +440,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="DestructureDeclStmt" />
-    /// </summary>
     public sealed class DestructureDeclStmt : Stmt
     {
         /// <summary>
@@ -606,9 +474,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="DestructureAssignStmt" />
-    /// </summary>
     public sealed class DestructureAssignStmt : Stmt
     {
         /// <summary>
@@ -636,9 +501,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ExportStmt" />
-    /// </summary>
     public sealed class ExportStmt : Stmt
     {
         /// <summary>
@@ -666,19 +528,10 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="AssignStmt" />
-    /// </summary>
     public class AssignStmt : Stmt
     {
-        /// <summary>
-        /// Defines the Name
-        /// </summary>
         public string Name;
 
-        /// <summary>
-        /// Defines the Value
-        /// </summary>
         public Expr Value;
 
         /// <summary>
@@ -695,9 +548,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="AssignIndexExprStmt" />
-    /// </summary>
     public class AssignIndexExprStmt : Stmt
     {
         /// <summary>
@@ -726,9 +576,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="AssignExprStmt" />
-    /// </summary>
     public class AssignExprStmt : Stmt
     {
         /// <summary>
@@ -757,9 +604,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="TryUnwrapExpr" />
-    /// </summary>
     public sealed class TryUnwrapExpr(Expr? inner, int line, int col, string file) : Expr(line, col, file)
     {
         /// <summary>
@@ -768,9 +612,6 @@ namespace CFGS_VM.Analytic.Tree
         public Expr? Inner { get; } = inner;
     }
 
-    /// <summary>
-    /// Defines the <see cref="PushStmt" />
-    /// </summary>
     public class PushStmt : Stmt
     {
         /// <summary>
@@ -798,14 +639,8 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="DeleteVarStmt" />
-    /// </summary>
     public class DeleteVarStmt : Stmt
     {
-        /// <summary>
-        /// Defines the Name
-        /// </summary>
         public string Name;
 
         /// <summary>
@@ -821,19 +656,10 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="DeleteIndexStmt" />
-    /// </summary>
     public class DeleteIndexStmt : Stmt
     {
-        /// <summary>
-        /// Defines the Name
-        /// </summary>
         public string Name;
 
-        /// <summary>
-        /// Defines the Index
-        /// </summary>
         public Expr Index;
 
         /// <summary>
@@ -850,9 +676,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="DeleteAllStmt" />
-    /// </summary>
     public class DeleteAllStmt : Stmt
     {
         /// <summary>
@@ -873,9 +696,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="DeleteExprStmt" />
-    /// </summary>
     public class DeleteExprStmt : Stmt
     {
         /// <summary>
@@ -903,9 +723,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="MethodCallExpr" />
-    /// </summary>
     public class MethodCallExpr : Expr
     {
         /// <summary>
@@ -941,109 +758,46 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ClassDeclStmt" />
-    /// </summary>
     public class ClassDeclStmt : Stmt
     {
-        /// <summary>
-        /// Defines the Name
-        /// </summary>
         public string Name;
 
-        /// <summary>
-        /// Defines the Methods
-        /// </summary>
         public List<FuncDeclStmt> Methods;
 
-        /// <summary>
-        /// Defines the Properties
-        /// </summary>
         public List<PropertyDeclStmt> Properties;
 
-        /// <summary>
-        /// Defines the StaticProperties
-        /// </summary>
         public List<PropertyDeclStmt> StaticProperties;
 
-        /// <summary>
-        /// Defines the Enums
-        /// </summary>
         public List<EnumDeclStmt> Enums;
 
-        /// <summary>
-        /// Defines the Fields
-        /// </summary>
         public Dictionary<string, Expr?> Fields;
 
-        /// <summary>
-        /// Defines the StaticFields
-        /// </summary>
         public Dictionary<string, Expr?> StaticFields;
 
-        /// <summary>
-        /// Defines the StaticMethods
-        /// </summary>
         public List<FuncDeclStmt> StaticMethods;
 
-        /// <summary>
-        /// Defines the FieldVisibility
-        /// </summary>
         public Dictionary<string, MemberVisibility> FieldVisibility;
 
-        /// <summary>
-        /// Defines the StaticFieldVisibility
-        /// </summary>
         public Dictionary<string, MemberVisibility> StaticFieldVisibility;
 
-        /// <summary>
-        /// Defines the MethodVisibility
-        /// </summary>
         public Dictionary<string, MemberVisibility> MethodVisibility;
 
-        /// <summary>
-        /// Defines the StaticMethodVisibility
-        /// </summary>
         public Dictionary<string, MemberVisibility> StaticMethodVisibility;
 
-        /// <summary>
-        /// Defines the EnumVisibility
-        /// </summary>
         public Dictionary<string, MemberVisibility> EnumVisibility;
 
-        /// <summary>
-        /// Defines the NestedClassVisibility
-        /// </summary>
         public Dictionary<string, MemberVisibility> NestedClassVisibility;
 
-        /// <summary>
-        /// Defines the ConstFields
-        /// </summary>
         public HashSet<string> ConstFields;
 
-        /// <summary>
-        /// Defines the StaticConstFields
-        /// </summary>
         public HashSet<string> StaticConstFields;
 
-        /// <summary>
-        /// Defines the BaseName
-        /// </summary>
         public string? BaseName;
 
-        /// <summary>
-        /// Defines the BaseCtorArgs
-        /// </summary>
         public List<Expr> BaseCtorArgs = new();
 
-        /// <summary>
-        /// Defines the ImplementedInterfaces
-        /// </summary>
         public List<string> ImplementedInterfaces;
 
-        /// <summary>
-        /// Defines the Parameters
-        /// </summary>
         public List<string> Parameters;
 
         /// <summary>
@@ -1129,9 +883,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="PropertyAccessorDecl" />
-    /// </summary>
     public sealed class PropertyAccessorDecl : Node
     {
         /// <summary>
@@ -1188,9 +939,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="PropertyDeclStmt" />
-    /// </summary>
     public sealed class PropertyDeclStmt : Node
     {
         /// <summary>
@@ -1537,9 +1285,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="InterfaceMethodDecl" />
-    /// </summary>
     public sealed class InterfaceMethodDecl : Node
     {
         /// <summary>
@@ -1633,9 +1378,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="InterfaceDeclStmt" />
-    /// </summary>
     public sealed class InterfaceDeclStmt : Stmt
     {
         /// <summary>
@@ -1689,9 +1431,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="InterfacePropertyDecl" />
-    /// </summary>
     public sealed class InterfacePropertyDecl : Node
     {
         /// <summary>
@@ -1730,9 +1469,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="EnumMemberNode" />
-    /// </summary>
     public class EnumMemberNode : Node
     {
         /// <summary>
@@ -1761,9 +1497,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="EnumDeclStmt" />
-    /// </summary>
     public class EnumDeclStmt : Stmt
     {
         /// <summary>
@@ -1792,9 +1525,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="NewExpr" />
-    /// </summary>
     // in deiner AST-Definition
     public sealed class NewExpr : Expr
     {
@@ -1813,9 +1543,6 @@ namespace CFGS_VM.Analytic.Tree
     }
 
 
-    /// <summary>
-    /// Defines the <see cref="GetFieldExpr" />
-    /// </summary>
     public class GetFieldExpr : Expr
     {
         /// <summary>
@@ -1844,9 +1571,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="SetFieldStmt" />
-    /// </summary>
     public class SetFieldStmt : Stmt
     {
         /// <summary>
@@ -1882,14 +1606,8 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="BlockStmt" />
-    /// </summary>
     public class BlockStmt : Stmt
     {
-        /// <summary>
-        /// Defines the Statements
-        /// </summary>
         public List<Stmt> Statements;
 
         /// <summary>
@@ -1916,9 +1634,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="OutExpr" />
-    /// </summary>
     public sealed class OutExpr : Expr
     {
         /// <summary>
@@ -1937,9 +1652,6 @@ namespace CFGS_VM.Analytic.Tree
             : base(line, col, file) => Body = body;
     }
 
-    /// <summary>
-    /// Defines the <see cref="ConditionalExpr" />
-    /// </summary>
     public class ConditionalExpr : Expr
     {
         /// <summary>
@@ -1975,24 +1687,12 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="IfStmt" />
-    /// </summary>
     public class IfStmt : Stmt
     {
-        /// <summary>
-        /// Defines the Condition
-        /// </summary>
         public Expr Condition;
 
-        /// <summary>
-        /// Defines the ThenBlock
-        /// </summary>
         public BlockStmt ThenBlock;
 
-        /// <summary>
-        /// Defines the ElseBranch
-        /// </summary>
         public Stmt? ElseBranch;
 
         /// <summary>
@@ -2012,9 +1712,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="WhileStmt" />
-    /// </summary>
     public class WhileStmt : Stmt
     {
         /// <summary>
@@ -2056,9 +1753,6 @@ namespace CFGS_VM.Analytic.Tree
     }
 
 
-    /// <summary>
-    /// Defines the <see cref="ForStmt" />
-    /// </summary>
     public class ForStmt : Stmt
     {
         /// <summary>
@@ -2100,9 +1794,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ForeachStmt" />
-    /// </summary>
     public sealed class ForeachStmt : Stmt
     {
         /// <summary>
@@ -2159,9 +1850,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="BreakStmt" />
-    /// </summary>
     public class BreakStmt : Stmt
     {
         /// <summary>
@@ -2175,9 +1863,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ContinueStmt" />
-    /// </summary>
     public class ContinueStmt : Stmt
     {
         /// <summary>
@@ -2191,24 +1876,12 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="MatchStmt" />
-    /// </summary>
     public class MatchStmt : Stmt
     {
-        /// <summary>
-        /// Defines the Expression
-        /// </summary>
         public Expr Expression;
 
-        /// <summary>
-        /// Defines the Cases
-        /// </summary>
         public List<CaseClause> Cases;
 
-        /// <summary>
-        /// Defines the DefaultCase
-        /// </summary>
         public BlockStmt? DefaultCase;
 
         /// <summary>
@@ -2228,23 +1901,14 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="MatchPattern" />
-    /// </summary>
     public abstract class MatchPattern(int line, int col, string file) : Node(line, col, file)
     {
     }
 
-    /// <summary>
-    /// Defines the <see cref="WildcardMatchPattern" />
-    /// </summary>
     public sealed class WildcardMatchPattern(int line, int col, string file) : MatchPattern(line, col, file)
     {
     }
 
-    /// <summary>
-    /// Defines the <see cref="BindingMatchPattern" />
-    /// </summary>
     public sealed class BindingMatchPattern : MatchPattern
     {
         /// <summary>
@@ -2265,9 +1929,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ValueMatchPattern" />
-    /// </summary>
     public sealed class ValueMatchPattern : MatchPattern
     {
         /// <summary>
@@ -2288,9 +1949,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ArrayMatchPattern" />
-    /// </summary>
     public sealed class ArrayMatchPattern : MatchPattern
     {
         /// <summary>
@@ -2311,9 +1969,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="DictMatchPattern" />
-    /// </summary>
     public sealed class DictMatchPattern : MatchPattern
     {
         /// <summary>
@@ -2334,9 +1989,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="CaseExprArm" />
-    /// </summary>
     public sealed class CaseExprArm : Node
     {
         /// <summary>
@@ -2371,9 +2023,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="MatchExpr" />
-    /// </summary>
     public sealed class MatchExpr : Expr
     {
         /// <summary>
@@ -2407,9 +2056,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="AwaitExpr" />
-    /// </summary>
     public sealed class AwaitExpr : Expr
     {
         /// <summary>
@@ -2431,29 +2077,14 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="TryStmt" />
-    /// </summary>
     public class TryStmt : Stmt
     {
-        /// <summary>
-        /// Defines the TryBlock
-        /// </summary>
         public BlockStmt TryBlock;
 
-        /// <summary>
-        /// Defines the CatchIdent
-        /// </summary>
         public string? CatchIdent;
 
-        /// <summary>
-        /// Defines the CatchBlock
-        /// </summary>
         public BlockStmt? CatchBlock;
 
-        /// <summary>
-        /// Defines the FinallyBlock
-        /// </summary>
         public BlockStmt? FinallyBlock;
 
         /// <summary>
@@ -2476,9 +2107,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="UsingStmt" />
-    /// </summary>
     public sealed class UsingStmt : Stmt
     {
         /// <summary>
@@ -2521,14 +2149,8 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ThrowStmt" />
-    /// </summary>
     public class ThrowStmt : Stmt
     {
-        /// <summary>
-        /// Defines the Value
-        /// </summary>
         public Expr Value;
 
         /// <summary>
@@ -2545,9 +2167,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="YieldStmt" />
-    /// </summary>
     public sealed class YieldStmt : Stmt
     {
         /// <summary>
@@ -2631,24 +2250,12 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="CaseClause" />
-    /// </summary>
     public class CaseClause : Node
     {
-        /// <summary>
-        /// Defines the Pattern
-        /// </summary>
         public MatchPattern Pattern;
 
-        /// <summary>
-        /// Defines the Guard
-        /// </summary>
         public Expr? Guard;
 
-        /// <summary>
-        /// Defines the Body
-        /// </summary>
         public BlockStmt Body;
 
         /// <summary>
@@ -2668,33 +2275,18 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="FuncDeclStmt" />
-    /// </summary>
     public class FuncDeclStmt : Stmt
     {
-        /// <summary>
-        /// Defines the Name
-        /// </summary>
         public string Name;
 
         public string? ExplicitInterfaceName { get; }
 
         public string RuntimeMemberName => string.IsNullOrWhiteSpace(ExplicitInterfaceName) ? Name : $"{ExplicitInterfaceName}.{Name}";
 
-        /// <summary>
-        /// Defines the Parameters
-        /// </summary>
         public List<string> Parameters;
 
-        /// <summary>
-        /// Defines the MinArgs
-        /// </summary>
         public int MinArgs;
 
-        /// <summary>
-        /// Defines the RestParameter
-        /// </summary>
         public string? RestParameter;
 
         /// <summary>
@@ -2702,9 +2294,6 @@ namespace CFGS_VM.Analytic.Tree
         /// </summary>
         public bool IsAsync;
 
-        /// <summary>
-        /// Defines the Body
-        /// </summary>
         public BlockStmt Body;
 
         /// <summary>
@@ -2748,9 +2337,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="FuncExpr" />
-    /// </summary>
     public class FuncExpr : Expr
     {
         /// <summary>
@@ -2815,9 +2401,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="NamedArgExpr" />
-    /// </summary>
     public sealed class NamedArgExpr : Expr
     {
         /// <summary>
@@ -2845,9 +2428,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="SpreadArgExpr" />
-    /// </summary>
     public sealed class SpreadArgExpr : Expr
     {
         /// <summary>
@@ -2868,9 +2448,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="CallExpr" />
-    /// </summary>
     public class CallExpr : Expr
     {
         /// <summary>
@@ -2910,14 +2487,8 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="ReturnStmt" />
-    /// </summary>
     public class ReturnStmt(Expr? value, int line, int col, string fname) : Stmt(line, col, fname)
     {
-        /// <summary>
-        /// Defines the Value
-        /// </summary>
         public Expr? Value = value;
     }
 }

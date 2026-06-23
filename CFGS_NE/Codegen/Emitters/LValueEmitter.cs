@@ -6,11 +6,6 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
-        /// <summary>
-        /// The CompileLValue
-        /// </summary>
-        /// <param name="target">The target<see cref="Expr?"/></param>
-        /// <param name="load">The load<see cref="bool"/></param>
         private void CompileLValue(Expr? target, bool load)
         {
             if (target is VarExpr v)
@@ -37,10 +32,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The CompileLValueStore
-        /// </summary>
-        /// <param name="target">The target<see cref="Expr?"/></param>
         private void CompileLValueStore(Expr? target)
         {
             if (target is VarExpr v)

@@ -9,27 +9,13 @@ namespace CFGS_VM.VMCore
 {
     public partial class VM
     {
-        /// <summary>
-        /// Defines the RunStopReason
-        /// </summary>
         private enum RunStopReason
         {
-            /// <summary>
-            /// Defines the Halted
-            /// </summary>
             Halted,
 
-            /// <summary>
-            /// Defines the AwaitPending
-            /// </summary>
             AwaitPending
         }
 
-        /// <summary>
-        /// The Run
-        /// </summary>
-        /// <param name="debugging">The debugging<see cref="bool"/></param>
-        /// <param name="lastPos">The lastPos<see cref="int"/></param>
         public void Run(bool debugging = false, int lastPos = 0)
         {
             if (_program is null || _program.Count == 0)
@@ -40,12 +26,6 @@ namespace CFGS_VM.VMCore
                 .GetResult();
         }
 
-        /// <summary>
-        /// The RunUntilAwaitOrHalt
-        /// </summary>
-        /// <param name="debugging">The debugging<see cref="bool"/></param>
-        /// <param name="lastPos">The lastPos<see cref="int"/></param>
-        /// <returns>The <see cref="RunStopReason"/></returns>
         private RunStopReason RunUntilAwaitOrHalt(bool debugging = false, int lastPos = 0, int minRouteCallDepth = 0, CancellationToken ct = default)
         {
             if (_program is null || _program.Count == 0)
@@ -234,14 +214,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The RunAsyncCore
-        /// </summary>
-        /// <param name="debugging">The debugging<see cref="bool"/></param>
-        /// <param name="lastPos">The lastPos<see cref="int"/></param>
-        /// <param name="ct">The ct<see cref="CancellationToken"/></param>
-        /// <param name="resetDebugStream">The resetDebugStream<see cref="bool"/></param>
-        /// <returns>The <see cref="Task"/></returns>
         private async Task RunAsyncCore(bool debugging, int lastPos, CancellationToken ct, bool resetDebugStream)
         {
             if (resetDebugStream)
@@ -295,13 +267,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The RunAsync
-        /// </summary>
-        /// <param name="debugging">The debugging<see cref="bool"/></param>
-        /// <param name="lastPos">The lastPos<see cref="int"/></param>
-        /// <param name="ct">The ct<see cref="CancellationToken"/></param>
-        /// <returns>The <see cref="Task"/></returns>
         public Task RunAsync(bool debugging = false, int lastPos = 0, CancellationToken ct = default)
             => RunAsyncCore(debugging, lastPos, ct, resetDebugStream: true);
 
@@ -342,12 +307,6 @@ namespace CFGS_VM.VMCore
         private VmDebugContext CreateDebugContext(int ip, Instruction instruction)
             => new(ip, instruction, _stack.Count, _scopes.Count, _callStack.Count);
 
-        /// <summary>
-        /// The SafeCurrentInstr
-        /// </summary>
-        /// <param name="insns">The insns<see cref="List{Instruction}"/></param>
-        /// <param name="ip">The ip<see cref="int"/></param>
-        /// <returns>The <see cref="Instruction"/></returns>
         private static Instruction SafeCurrentInstr(List<Instruction> insns, int ip)
         {
             if (insns == null || insns.Count == 0)

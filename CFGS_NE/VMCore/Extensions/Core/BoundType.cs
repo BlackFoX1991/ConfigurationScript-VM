@@ -2,9 +2,6 @@
 
 namespace CFGS_VM.VMCore.Extensions.Core
 {
-    /// <summary>
-    /// Defines the <see cref="BoundType" />
-    /// </summary>
     public sealed class BoundType
     {
         /// <summary>
@@ -28,10 +25,6 @@ namespace CFGS_VM.VMCore.Extensions.Core
             Outer = outer ?? throw new ArgumentNullException(nameof(outer));
         }
 
-        /// <summary>
-        /// The ToString
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         public override string ToString() => $"<boundtype {Type.ClassName}>";
     }
 }

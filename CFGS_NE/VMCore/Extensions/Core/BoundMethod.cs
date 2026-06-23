@@ -2,9 +2,6 @@
 
 namespace CFGS_VM.VMCore.Extensions.Core
 {
-    /// <summary>
-    /// Defines the <see cref="BoundMethod" />
-    /// </summary>
     public sealed class BoundMethod
     {
         /// <summary>
@@ -35,10 +32,6 @@ namespace CFGS_VM.VMCore.Extensions.Core
             DeclaringType = declaringType;
         }
 
-        /// <summary>
-        /// The ToString
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         public override string ToString() => $"<bound {Function}>";
     }
 }

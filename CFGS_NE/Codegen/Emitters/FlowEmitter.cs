@@ -10,20 +10,12 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
-        /// <summary>
-        /// The EmitPushScope
-        /// </summary>
-        /// <param name="node">The node<see cref="Node"/></param>
         private void EmitPushScope(Node node)
         {
             _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, node.Line, node.Col, node.OriginFile));
             _scopeDepth++;
         }
 
-        /// <summary>
-        /// The EmitPopScope
-        /// </summary>
-        /// <param name="node">The node<see cref="Node"/></param>
         private void EmitPopScope(Node node)
         {
             if (_scopeDepth <= 0)
@@ -33,13 +25,6 @@ namespace CFGS_VM.VMCore
             _scopeDepth--;
         }
 
-        /// <summary>
-        /// The ScopePopsTo
-        /// </summary>
-        /// <param name="fromDepth">The fromDepth<see cref="int"/></param>
-        /// <param name="targetDepth">The targetDepth<see cref="int"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
-        /// <returns>The <see cref="int"/></returns>
         private static int ScopePopsTo(int fromDepth, int targetDepth, Node node)
         {
             int pops = fromDepth - targetDepth;
@@ -48,11 +33,6 @@ namespace CFGS_VM.VMCore
             return pops;
         }
 
-        /// <summary>
-        /// The CompileBlockStatement
-        /// </summary>
-        /// <param name="b">The b<see cref="BlockStmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileBlockStatement(BlockStmt b, bool insideFunction)
         {
             if (insideFunction && b.IsFunctionBody)
@@ -107,11 +87,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The CompileIfStatement
-        /// </summary>
-        /// <param name="ifs">The ifs<see cref="IfStmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileIfStatement(IfStmt ifs, bool insideFunction)
         {
             CompileExpr(ifs.Condition);
@@ -134,11 +109,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The CompileDoWhileStatement
-        /// </summary>
-        /// <param name="dws">The dws<see cref="DoWhileStmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileDoWhileStatement(DoWhileStmt dws, bool insideFunction)
         {
             int loopStart = _insns.Count;
@@ -176,11 +146,6 @@ namespace CFGS_VM.VMCore
             _continueLists.Pop();
         }
 
-        /// <summary>
-        /// The CompileWhileStatement
-        /// </summary>
-        /// <param name="ws">The ws<see cref="WhileStmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileWhileStatement(WhileStmt ws, bool insideFunction)
         {
             int loopStart = _insns.Count;
@@ -213,11 +178,6 @@ namespace CFGS_VM.VMCore
             _continueLists.Pop();
         }
 
-        /// <summary>
-        /// The CompileForStatement
-        /// </summary>
-        /// <param name="fs">The fs<see cref="ForStmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileForStatement(ForStmt fs, bool insideFunction)
         {
             EmitPushScope(fs);
@@ -286,11 +246,6 @@ namespace CFGS_VM.VMCore
             EmitPopScope(fs);
         }
 
-        /// <summary>
-        /// The CompileForeachStatement
-        /// </summary>
-        /// <param name="fe">The fe<see cref="ForeachStmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileForeachStatement(ForeachStmt fe, bool insideFunction)
         {
             EmitPushScope(fe);
@@ -442,11 +397,6 @@ namespace CFGS_VM.VMCore
             EmitPopScope(fe);
         }
 
-        /// <summary>
-        /// The CompileTryStatement
-        /// </summary>
-        /// <param name="ts">The ts<see cref="TryStmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileTryStatement(TryStmt ts, bool insideFunction)
         {
             int tryPushIdx = _insns.Count;
@@ -504,11 +454,6 @@ namespace CFGS_VM.VMCore
                 ts.Line, ts.Col, ts.OriginFile);
         }
 
-        /// <summary>
-        /// The CompileUsingStatement
-        /// </summary>
-        /// <param name="us">The us<see cref="UsingStmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileUsingStatement(UsingStmt us, bool insideFunction)
         {
             EmitPushScope(us);
@@ -567,21 +512,12 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The CompileThrowStatement
-        /// </summary>
-        /// <param name="th">The th<see cref="ThrowStmt"/></param>
         private void CompileThrowStatement(ThrowStmt th)
         {
             CompileExpr(th.Value);
             _insns.Add(new Instruction(OpCode.THROW, null, th.Line, th.Col, th.OriginFile));
         }
 
-        /// <summary>
-        /// The CompileYieldStatement
-        /// </summary>
-        /// <param name="ys">The ys<see cref="YieldStmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileYieldStatement(YieldStmt ys, bool insideFunction)
         {
             if (!insideFunction)
@@ -594,10 +530,6 @@ namespace CFGS_VM.VMCore
             _insns.Add(new Instruction(OpCode.POP, null, ys.Line, ys.Col, ys.OriginFile));
         }
 
-        /// <summary>
-        /// The CompileContinueStatement
-        /// </summary>
-        /// <param name="node">The node<see cref="Node"/></param>
         private void CompileContinueStatement(Node node)
         {
             if (_continueLists.Count == 0)
@@ -608,10 +540,6 @@ namespace CFGS_VM.VMCore
             _continueLists.Peek().Add(new LoopLeavePatch(leaveIdx, _scopeDepth));
         }
 
-        /// <summary>
-        /// The CompileBreakStatement
-        /// </summary>
-        /// <param name="node">The node<see cref="Node"/></param>
         private void CompileBreakStatement(Node node)
         {
             if (_breakLists.Count == 0)
@@ -622,10 +550,6 @@ namespace CFGS_VM.VMCore
             _breakLists.Peek().Add(new LoopLeavePatch(leaveIdx, _scopeDepth));
         }
 
-        /// <summary>
-        /// The CompileReturnStatement
-        /// </summary>
-        /// <param name="rs">The rs<see cref="ReturnStmt"/></param>
         private void CompileReturnStatement(ReturnStmt rs)
         {
             if (rs.Value != null)
@@ -636,10 +560,6 @@ namespace CFGS_VM.VMCore
             _insns.Add(new Instruction(OpCode.RET, null, rs.Line, rs.Col, rs.OriginFile));
         }
 
-        /// <summary>
-        /// The CompileOutExpression
-        /// </summary>
-        /// <param name="ox">The ox<see cref="OutExpr"/></param>
         private void CompileOutExpression(OutExpr ox)
         {
             List<Stmt> stmts = ox.Body.Statements;
@@ -676,10 +596,6 @@ namespace CFGS_VM.VMCore
             EmitPopScope(ox);
         }
 
-        /// <summary>
-        /// The CompileConditionalExpression
-        /// </summary>
-        /// <param name="cnd">The cnd<see cref="ConditionalExpr"/></param>
         private void CompileConditionalExpression(ConditionalExpr cnd)
         {
             CompileExpr(cnd.Condition);

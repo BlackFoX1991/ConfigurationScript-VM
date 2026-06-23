@@ -5,9 +5,6 @@ namespace CFGS_VM.VMCore
 {
     public partial class VM
     {
-        /// <summary>
-        /// Defines the mutable runtime state carried across VM execution.
-        /// </summary>
         private sealed class VmState
         {
             /// <summary>

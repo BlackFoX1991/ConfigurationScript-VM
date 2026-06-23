@@ -14,50 +14,23 @@ using System.Threading;
 
 namespace CFGS_VM.VMCore
 {
-    /// <summary>
-    /// Defines the <see cref="VM" />
-    /// </summary>
     public partial class VM
     {
-        /// <summary>
-        /// Defines the NumKind
-        /// </summary>
         private enum NumKind
         {
-            /// <summary>
-            /// Defines the Int32
-            /// </summary>
             Int32,
 
-            /// <summary>
-            /// Defines the Int64
-            /// </summary>
             Int64,
 
-            /// <summary>
-            /// Defines the UInt64
-            /// </summary>
             UInt64,
 
-            /// <summary>
-            /// Defines the Double
-            /// </summary>
             Double,
 
-            /// <summary>
-            /// Defines the Decimal
-            /// </summary>
             Decimal,
 
-            /// <summary>
-            /// Defines the Maximal
-            /// </summary>
             Maximal,
         }
 
-        /// <summary>
-        /// Defines the DEBUG_BUFFER
-        /// </summary>
         public static int DEBUG_BUFFER = 100;
 
         private static readonly AsyncLocal<VM?> CurrentVmSlot = new();
@@ -85,19 +58,12 @@ namespace CFGS_VM.VMCore
 
         private int _minRouteCallDepth;
 
-        /// <summary>
-        /// The PopScopesToBase
-        /// </summary>
-        /// <param name="baseDepth">The baseDepth<see cref="int"/></param>
         private void PopScopesToBase(int baseDepth)
         {
             while (_scopes.Count > baseDepth)
                 _scopes.RemoveAt(_scopes.Count - 1);
         }
 
-        /// <summary>
-        /// Defines the _state
-        /// </summary>
         private readonly VmState _state = new();
 
         /// <summary>
@@ -130,10 +96,6 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private Stack<CallFrame> _callStack => _state.CallStack;
 
-        /// <summary>
-        /// The LoadFunctions
-        /// </summary>
-        /// <param name="funcs">The funcs<see cref="Dictionary{string, FunctionInfo}"/></param>
         public void LoadFunctions(Dictionary<string, FunctionInfo> funcs)
         {
             foreach (KeyValuePair<string, FunctionInfo> kv in funcs)
@@ -147,13 +109,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The TryGetLocalVar
-        /// </summary>
-        /// <param name="env">The env<see cref="Env"/></param>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="value">The value<see cref="object?"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         private static bool TryGetLocalVar(Env env, string name, out object? value)
         {
             lock (env.SyncRoot)
@@ -169,12 +124,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The SetLocalVar
-        /// </summary>
-        /// <param name="env">The env<see cref="Env"/></param>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="value">The value<see cref="object?"/></param>
         private static void SetLocalVar(Env env, string name, object? value)
         {
             lock (env.SyncRoot)
@@ -214,11 +163,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The IsReceiverName
-        /// </summary>
-        /// <param name="s">The s<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         private static bool IsReceiverName(string s) => s == "this" || s == "type";
 
         /// <summary>
@@ -263,7 +207,6 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public bool RestrictFileIoToWorkspace { get; set; } = false;
 
-        /// <summary>
         private bool _isDebugging;
 
         /// <summary>
@@ -293,44 +236,19 @@ namespace CFGS_VM.VMCore
             set => _state.AwaitResumeIp = value;
         }
 
-        /// <summary>
-        /// Defines the StepResult
-        /// </summary>
         private enum StepResult
         {
-            /// <summary>
-            /// Defines the Next
-            /// </summary>
             Next,
 
-            /// <summary>
-            /// Defines the Continue
-            /// </summary>
             Continue,
 
-            /// <summary>
-            /// Defines the Routed
-            /// </summary>
             Routed,
 
-            /// <summary>
-            /// Defines the Halt
-            /// </summary>
             Halt,
 
-            /// <summary>
-            /// Defines the Await
-            /// </summary>
             Await
         }
 
-        /// <summary>
-        /// The HandleInstruction
-        /// </summary>
-        /// <param name="_ip">The _ip<see cref="int"/></param>
-        /// <param name="_insns">The _insns<see cref="List{Instruction}"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="StepResult"/></returns>
         private StepResult HandleInstruction(ref int _ip, List<Instruction> _insns, Instruction instr)
         {
             switch (instr.Code)
@@ -948,10 +866,6 @@ namespace CFGS_VM.VMCore
             return StepResult.Next;
         }
 
-        /// <summary>
-        /// The LoadInstructions
-        /// </summary>
-        /// <param name="inst">The inst<see cref="List{Instruction}"/></param>
         public void LoadInstructions(List<Instruction> inst)
         {
             _program = inst;
@@ -995,7 +909,6 @@ namespace CFGS_VM.VMCore
                 global.RemoveLocal(functionName);
         }
 
-        /// <summary>
         private MemoryStream _debugStream;
 
         /// <summary>
@@ -1083,12 +996,6 @@ namespace CFGS_VM.VMCore
 
         internal Dictionary<string, Delegate> NativeClosureDelegateCache { get; } = new(StringComparer.Ordinal);
 
-        /// <summary>
-        /// The RequireStack
-        /// </summary>
-        /// <param name="needed">The needed<see cref="int"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <param name="opName">The opName<see cref="string?"/></param>
         private void RequireStack(int needed, Instruction instr, string? opName = null)
         {
             if (_stack.Count < needed)

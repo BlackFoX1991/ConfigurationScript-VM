@@ -224,9 +224,6 @@ namespace CFGS_VM.VMCore
         private static void SetStaticField(StaticInstance st, string name, object value)
             => WithMutableLock(st, () => st.Fields[name] = value);
 
-        /// <summary>
-        /// The CreateIndexException
-        /// </summary>
         private VMException CreateIndexException(object target, object idxObj, Instruction instr)
         {
             string tid = target?.GetType().FullName ?? "null";
@@ -246,19 +243,10 @@ namespace CFGS_VM.VMCore
         private static bool IsMemberAccessInstruction(Instruction instr)
             => instr.Operand is bool memberAccess && memberAccess;
 
-        /// <summary>
-        /// Defines the VisibilityPublic
-        /// </summary>
         private const int VisibilityPublic = 0;
 
-        /// <summary>
-        /// Defines the VisibilityPrivate
-        /// </summary>
         private const int VisibilityPrivate = 1;
 
-        /// <summary>
-        /// Defines the VisibilityProtected
-        /// </summary>
         private const int VisibilityProtected = 2;
 
         /// <summary>
@@ -270,9 +258,6 @@ namespace CFGS_VM.VMCore
             Init
         }
 
-        /// <summary>
-        /// The TryGetStaticType
-        /// </summary>
         private static bool TryGetStaticType(ClassInstance inst, out StaticInstance type)
         {
             if (TryGetInstanceField(inst, "__type", out object? tObj) && tObj is StaticInstance st)
@@ -285,9 +270,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The IsInterfaceType
-        /// </summary>
         private static bool IsInterfaceType(StaticInstance type)
         {
             if (!TryGetStaticField(type, "__is_interface", out object? raw) || raw == null)
@@ -320,9 +302,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The InterfaceExtendsOrEquals
-        /// </summary>
         private static bool InterfaceExtendsOrEquals(StaticInstance iface, StaticInstance target, HashSet<StaticInstance> visited)
         {
             if (!visited.Add(iface))
@@ -340,9 +319,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The ImplementsInterface
-        /// </summary>
         private static bool ImplementsInterface(StaticInstance classType, StaticInstance targetInterface)
         {
             StaticInstance? current = classType;
@@ -533,9 +509,6 @@ namespace CFGS_VM.VMCore
             return NormalizeVisibilityCode(visCode) == VisibilityPublic;
         }
 
-        /// <summary>
-        /// The NormalizeVisibilityCode
-        /// </summary>
         private static int NormalizeVisibilityCode(object? raw)
         {
             int code = raw switch
@@ -556,9 +529,6 @@ namespace CFGS_VM.VMCore
             };
         }
 
-        /// <summary>
-        /// The VisibilityLabel
-        /// </summary>
         private static string VisibilityLabel(int code)
         {
             return code switch
@@ -569,9 +539,6 @@ namespace CFGS_VM.VMCore
             };
         }
 
-        /// <summary>
-        /// The TryGetDeclaredVisibilityCode
-        /// </summary>
         private static bool TryGetDeclaredVisibilityCode(
             StaticInstance ownerType,
             bool expectInstance,
@@ -590,9 +557,6 @@ namespace CFGS_VM.VMCore
             return true;
         }
 
-        /// <summary>
-        /// The TryResolveDeclaredVisibilityInHierarchy
-        /// </summary>
         private static bool TryResolveDeclaredVisibilityInHierarchy(
             StaticInstance startType,
             bool expectInstance,
@@ -642,9 +606,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The TryGetDeclaredPropertyDescriptor
-        /// </summary>
         private static bool TryGetDeclaredPropertyDescriptor(
             StaticInstance ownerType,
             bool isStatic,
@@ -665,9 +626,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The TryResolveInstancePropertyInHierarchy
-        /// </summary>
         private static bool TryResolveInstancePropertyInHierarchy(
             ClassInstance start,
             string memberName,
@@ -698,9 +656,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The TryResolveStaticPropertyInHierarchy
-        /// </summary>
         private static bool TryResolveStaticPropertyInHierarchy(
             StaticInstance start,
             string memberName,
@@ -727,9 +682,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The TryResolveInstanceMemberInHierarchy
-        /// </summary>
         private static bool TryResolveInstanceMemberInHierarchy(
             ClassInstance start,
             string memberName,
@@ -759,9 +711,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The TryResolveStaticMemberInHierarchy
-        /// </summary>
         private static bool TryResolveStaticMemberInHierarchy(
             StaticInstance start,
             string memberName,
@@ -788,9 +737,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The GetCurrentAccessorType
-        /// </summary>
         private StaticInstance? GetCurrentAccessorType()
         {
             if (_callStack.Count > 0)
@@ -809,9 +755,6 @@ namespace CFGS_VM.VMCore
             return null;
         }
 
-        /// <summary>
-        /// The IsSameOrDerivedStaticType
-        /// </summary>
         private static bool IsSameOrDerivedStaticType(StaticInstance candidate, StaticInstance baseType)
         {
             StaticInstance current = candidate;
@@ -829,9 +772,6 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        /// <summary>
-        /// The IsRuntimeAccessAllowed
-        /// </summary>
         private bool IsRuntimeAccessAllowed(StaticInstance ownerType, int visibilityCode)
         {
             if (visibilityCode == VisibilityPublic)
@@ -849,9 +789,6 @@ namespace CFGS_VM.VMCore
             };
         }
 
-        /// <summary>
-        /// The EnforceRuntimeVisibility
-        /// </summary>
         private void EnforceRuntimeVisibility(
             StaticInstance ownerType,
             int visibilityCode,
@@ -872,9 +809,6 @@ namespace CFGS_VM.VMCore
             );
         }
 
-        /// <summary>
-        /// The EnforcePropertyAccessorVisibility
-        /// </summary>
         private void EnforcePropertyAccessorVisibility(
             StaticInstance ownerType,
             int visibilityCode,
@@ -896,9 +830,6 @@ namespace CFGS_VM.VMCore
             );
         }
 
-        /// <summary>
-        /// The GetPropertyAccessorClosure
-        /// </summary>
         private Closure GetPropertyAccessorClosure(object owner, string slotName, string propertyName, string accessorLabel, Instruction instr)
         {
             bool found = owner switch
@@ -954,9 +885,6 @@ namespace CFGS_VM.VMCore
             return true;
         }
 
-        /// <summary>
-        /// The ReadInstanceProperty
-        /// </summary>
         private object? ReadInstanceProperty(ClassInstance ownerInst, StaticInstance ownerType, RuntimePropertyDescriptor descriptor, Instruction instr)
         {
             if (!descriptor.HasGetter)
@@ -985,9 +913,6 @@ namespace CFGS_VM.VMCore
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
-        /// <summary>
-        /// The ReadStaticProperty
-        /// </summary>
         private object? ReadStaticProperty(StaticInstance ownerType, RuntimePropertyDescriptor descriptor, Instruction instr)
         {
             if (!descriptor.HasGetter)
@@ -1016,9 +941,6 @@ namespace CFGS_VM.VMCore
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
-        /// <summary>
-        /// The WriteInstanceProperty
-        /// </summary>
         private void WriteInstanceProperty(
             ClassInstance ownerInst,
             StaticInstance ownerType,
@@ -1068,9 +990,6 @@ namespace CFGS_VM.VMCore
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
-        /// <summary>
-        /// The WriteStaticProperty
-        /// </summary>
         private void WriteStaticProperty(
             StaticInstance ownerType,
             RuntimePropertyDescriptor descriptor,
@@ -1119,9 +1038,6 @@ namespace CFGS_VM.VMCore
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
-        /// <summary>
-        /// The GetIndexedValue
-        /// </summary>
         private object GetIndexedValue(object target, object idxObj, Instruction instr)
         {
             switch (target)
@@ -1360,9 +1276,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The SetIndexedValue
-        /// </summary>
         private void SetIndexedValue(
             ref object target,
             object idxObj,

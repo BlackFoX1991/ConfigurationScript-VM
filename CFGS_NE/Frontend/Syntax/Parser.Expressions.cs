@@ -7,10 +7,6 @@ namespace CFGS_VM.Analytic.Core
 {
     public partial class Parser
     {
-        /// <summary>
-        /// The Expr
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Expr()
         {
             if (EnterExpressionRecursion() > MaxRecursionDepth)
@@ -19,10 +15,6 @@ namespace CFGS_VM.Analytic.Core
             finally { ExitExpressionRecursion(); }
         }
 
-        /// <summary>
-        /// The Coalesce
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Coalesce()
         {
             Expr node = Or();
@@ -38,10 +30,6 @@ namespace CFGS_VM.Analytic.Core
             return node;
         }
 
-        /// <summary>
-        /// The Conditional
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Conditional()
         {
             Expr condition = Coalesce();
@@ -66,10 +54,6 @@ namespace CFGS_VM.Analytic.Core
             return condition;
         }
 
-        /// <summary>
-        /// The Or
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Or()
         {
             Expr node = And();
@@ -84,10 +68,6 @@ namespace CFGS_VM.Analytic.Core
             return node;
         }
 
-        /// <summary>
-        /// The And
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr And()
         {
             Expr node = Comparison();
@@ -102,10 +82,6 @@ namespace CFGS_VM.Analytic.Core
             return node;
         }
 
-        /// <summary>
-        /// The Comparison
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Comparison()
         {
             Expr node = BitwiseOr();
@@ -133,10 +109,6 @@ namespace CFGS_VM.Analytic.Core
             => type is TokenType.Eq or TokenType.Neq or TokenType.Lt or TokenType.Gt
                     or TokenType.Le or TokenType.Ge or TokenType.Is;
 
-        /// <summary>
-        /// The BitwiseOr
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr BitwiseOr()
         {
             Expr node = BitwiseXor();
@@ -152,10 +124,6 @@ namespace CFGS_VM.Analytic.Core
             return node;
         }
 
-        /// <summary>
-        /// The BitwiseXor
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr BitwiseXor()
         {
             Expr node = BitwiseAnd();
@@ -171,10 +139,6 @@ namespace CFGS_VM.Analytic.Core
             return node;
         }
 
-        /// <summary>
-        /// The BitwiseAnd
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr BitwiseAnd()
         {
             Expr node = Shift();
@@ -190,10 +154,6 @@ namespace CFGS_VM.Analytic.Core
             return node;
         }
 
-        /// <summary>
-        /// The Shift
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Shift()
         {
             Expr node = Additive();
@@ -209,10 +169,6 @@ namespace CFGS_VM.Analytic.Core
             return node;
         }
 
-        /// <summary>
-        /// The Additive
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Additive()
         {
             Expr node = Term();
@@ -228,10 +184,6 @@ namespace CFGS_VM.Analytic.Core
             return node;
         }
 
-        /// <summary>
-        /// The Power
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Power()
         {
             Expr? node = Unary();
@@ -249,10 +201,6 @@ namespace CFGS_VM.Analytic.Core
             return node;
         }
 
-        /// <summary>
-        /// The Term
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Term()
         {
             Expr node = Power();
@@ -268,10 +216,6 @@ namespace CFGS_VM.Analytic.Core
             return node;
         }
 
-        /// <summary>
-        /// The Factor
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Factor()
         {
             Expr? node;
@@ -577,10 +521,6 @@ namespace CFGS_VM.Analytic.Core
             return node ?? new NullExpr(_current.Line, _current.Column, _current.Filename);
         }
 
-        /// <summary>
-        /// The Unary
-        /// </summary>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr Unary()
         {
             if (_current.Type == TokenType.Await)
@@ -638,10 +578,6 @@ namespace CFGS_VM.Analytic.Core
             return Factor();
         }
 
-        /// <summary>
-        /// The ParseFuncDecl
-        /// </summary>
-        /// <returns>The <see cref="FuncDeclStmt"/></returns>
         private FuncDeclStmt ParseFuncDecl()
         {
             int line = _current.Line;
@@ -696,10 +632,6 @@ namespace CFGS_VM.Analytic.Core
             return new FuncDeclStmt(name, parameters, body, minArgs, restParameter, line, col, file, isAsync, parameterSpecs, explicitInterfaceName);
         }
 
-        /// <summary>
-        /// The ParseReturnStmt
-        /// </summary>
-        /// <returns>The <see cref="ReturnStmt"/></returns>
         private ReturnStmt ParseReturnStmt()
         {
             if (!IsInFunction)
@@ -720,10 +652,6 @@ namespace CFGS_VM.Analytic.Core
             return new ReturnStmt(value, line, col, file);
         }
 
-        /// <summary>
-        /// The ParseYieldStmt
-        /// </summary>
-        /// <returns>The <see cref="Stmt"/></returns>
         private Stmt ParseYieldStmt()
         {
             if (!IsInFunction)
@@ -744,11 +672,6 @@ namespace CFGS_VM.Analytic.Core
             return new YieldStmt(line, col, file);
         }
 
-        /// <summary>
-        /// The ParseExprList
-        /// </summary>
-        /// <param name="allowNamedArgs">The allowNamedArgs<see cref="bool"/></param>
-        /// <returns>The <see cref="List{Expr}"/></returns>
         private List<Expr> ParseExprList(bool allowNamedArgs = false)
         {
             List<Expr> list = new();
@@ -761,11 +684,6 @@ namespace CFGS_VM.Analytic.Core
             return list;
         }
 
-        /// <summary>
-        /// The ParseCallArgument
-        /// </summary>
-        /// <param name="allowNamedArgs">The allowNamedArgs<see cref="bool"/></param>
-        /// <returns>The <see cref="Expr"/></returns>
         private Expr ParseCallArgument(bool allowNamedArgs)
         {
             if (allowNamedArgs && _current.Type == TokenType.Star)

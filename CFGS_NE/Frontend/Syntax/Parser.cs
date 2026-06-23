@@ -4,9 +4,6 @@ using CFGS_VM.Analytic.Tree;
 
 namespace CFGS_VM.Analytic.Core
 {
-    /// <summary>
-    /// Defines the <see cref="Parser" />
-    /// </summary>
     public partial class Parser
     {
         public enum TopLevelMode
@@ -15,9 +12,6 @@ namespace CFGS_VM.Analytic.Core
             Module
         }
 
-        /// <summary>
-        /// Defines the _lexer
-        /// </summary>
         private readonly Lexer _lexer;
         private readonly TopLevelMode _topLevelMode;
 
@@ -93,10 +87,6 @@ namespace CFGS_VM.Analytic.Core
             return token.Value?.ToString() ?? "";
         }
 
-        /// <summary>
-        /// The Parse
-        /// </summary>
-        /// <returns>The <see cref="List{Stmt}"/></returns>
         public List<Stmt> Parse()
         {
             List<Stmt> stmts = new();

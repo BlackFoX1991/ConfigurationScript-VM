@@ -92,9 +92,6 @@ namespace CFGS_VM.VMCore
             return _stack.Count > 0 ? _stack.Pop() : null;
         }
 
-        /// <summary>
-        /// The WrapReturnForFrame
-        /// </summary>
         private static object? WrapReturnForFrame(CallFrame frame, object? retVal)
         {
             if (!frame.IsAsync)
@@ -103,9 +100,6 @@ namespace CFGS_VM.VMCore
             return FinalizeAsyncResult(retVal);
         }
 
-        /// <summary>
-        /// The CreateHotStartChildVm
-        /// </summary>
         private VM CreateHotStartChildVm()
         {
             if (_program is null || _program.Count == 0)
@@ -126,9 +120,6 @@ namespace CFGS_VM.VMCore
             return child;
         }
 
-        /// <summary>
-        /// The PrepareHotStartEntry
-        /// </summary>
         private void PrepareHotStartEntry(Env callEnv, object? receiver, StaticInstance? accessType)
         {
             if (_program is null || _program.Count == 0)
@@ -142,9 +133,6 @@ namespace CFGS_VM.VMCore
             _callStack.Push(new CallFrame(_program.Count, _scopes.Count, receiver, accessType, false));
         }
 
-        /// <summary>
-        /// The ConsumeHotStartResult
-        /// </summary>
         private object? ConsumeHotStartResult()
         {
             if (_stack.Count == 0)
@@ -152,9 +140,6 @@ namespace CFGS_VM.VMCore
             return _stack.Pop();
         }
 
-        /// <summary>
-        /// The TryStartHotAsyncCall
-        /// </summary>
         private bool TryStartHotAsyncCall(
             Closure f,
             List<object> args,
@@ -176,9 +161,6 @@ namespace CFGS_VM.VMCore
             return true;
         }
 
-        /// <summary>
-        /// The ExpandSpreadArguments
-        /// </summary>
         private List<object> ExpandSpreadArguments(List<object> rawArgs, Instruction instr)
         {
             List<object> expanded = new();
@@ -205,9 +187,6 @@ namespace CFGS_VM.VMCore
             return expanded;
         }
 
-        /// <summary>
-        /// The RunOffloadedInvocation
-        /// </summary>
         private static Task<object?> RunOffloadedInvocation(Func<object?> invoke)
         {
             return Task.Run<object?>(async () =>
@@ -219,9 +198,6 @@ namespace CFGS_VM.VMCore
             });
         }
 
-        /// <summary>
-        /// The InvokeBuiltinForCall
-        /// </summary>
         private static object? InvokeBuiltinForCall(BuiltinDescriptor desc, List<object> args, Instruction instr)
         {
             if (!desc.Options.OffloadBlockingWork)
@@ -231,9 +207,6 @@ namespace CFGS_VM.VMCore
             return RunOffloadedInvocation(() => desc.Invoke(argsCopy, instr));
         }
 
-        /// <summary>
-        /// The InvokeIntrinsicForCall
-        /// </summary>
         private static object? InvokeIntrinsicForCall(IntrinsicMethod method, object receiver, List<object> args, Instruction instr)
         {
             MarkAsyncHazardForMutableReceiver(receiver);
@@ -245,9 +218,6 @@ namespace CFGS_VM.VMCore
             return RunOffloadedInvocation(() => method.Invoke(receiver, argsCopy, instr));
         }
 
-        /// <summary>
-        /// The BuildCallEnv
-        /// </summary>
         private Env BuildCallEnv(Closure f, List<object> rawArgs, Instruction instr)
         {
             int piStart = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;

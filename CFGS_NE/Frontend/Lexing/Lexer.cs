@@ -2,9 +2,6 @@
 using System.Globalization;
 using System.Numerics;
 
-/// <summary>
-/// Defines the <see cref="Lexer" />
-/// </summary>
 public class Lexer
 {
     /// <summary>
@@ -12,9 +9,6 @@ public class Lexer
     /// </summary>
     public string FileName { get; set; }
 
-    /// <summary>
-    /// Defines the Keywords
-    /// </summary>
     public static readonly Dictionary<string, TokenType> Keywords = new(StringComparer.Ordinal)
         {
             { "var", TokenType.Var },
@@ -70,12 +64,6 @@ public class Lexer
 
         };
 
-    /// <summary>
-    /// The MakeToken
-    /// </summary>
-    /// <param name="type">The type<see cref="TokenType"/></param>
-    /// <param name="value">The value<see cref="object"/></param>
-    /// <returns>The <see cref="Token"/></returns>
     private Token MakeToken(TokenType type, object value)
     {
         value ??= string.Empty;
@@ -85,10 +73,6 @@ public class Lexer
         return new Token(type, value, _tokLine, _tokCol, FileName, length);
     }
 
-    /// <summary>
-    /// The SyncPos
-    /// </summary>
-    /// <param name="offset">The offset<see cref="int"/></param>
     private void SyncPos(int offset = 1)
     {
         for (int i = 0; i < offset; i++)
@@ -109,34 +93,16 @@ public class Lexer
         }
     }
 
-    /// <summary>
-    /// Defines the _text
-    /// </summary>
     public readonly string _text;
 
-    /// <summary>
-    /// Defines the _pos
-    /// </summary>
     private int _pos;
 
-    /// <summary>
-    /// Defines the _col
-    /// </summary>
     private int _col = 1;
 
-    /// <summary>
-    /// Defines the _line
-    /// </summary>
     private int _line = 1;
 
-    /// <summary>
-    /// Defines the _tokLine
-    /// </summary>
     private int _tokLine = 1;
 
-    /// <summary>
-    /// Defines the _tokCol
-    /// </summary>
     private int _tokCol = 1;
 
     /// <summary>
@@ -164,10 +130,6 @@ public class Lexer
     /// </summary>
     private char Peek => _pos + 1 < _text.Length ? _text[_pos + 1] : '\0';
 
-    /// <summary>
-    /// The GetNextToken
-    /// </summary>
-    /// <returns>The <see cref="Token"/></returns>
     public Token GetNextToken()
     {
         while (_pos < _text.Length)

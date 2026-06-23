@@ -227,9 +227,6 @@ namespace CFGS_VM.VMCore
         private static List<KeyValuePair<string, object>> SnapshotOrderedDictionaryEntries(Dictionary<string, object> dict)
             => WithMutableLock(dict, () => dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList());
 
-        /// <summary>
-        /// The RequireIntIndex
-        /// </summary>
         private int RequireIntIndex(object idxObj, Instruction instr)
         {
             switch (idxObj)
@@ -274,9 +271,6 @@ namespace CFGS_VM.VMCore
             return index < 0 ? index + count : index;
         }
 
-        /// <summary>
-        /// The DeleteSliceOnTarget
-        /// </summary>
         private void DeleteSliceOnTarget(ref object target, object startObj, object endObj, Instruction instr)
         {
             if (target is string)
@@ -309,9 +303,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The NormalizeSliceBounds
-        /// </summary>
         private (int start, int endEx) NormalizeSliceBounds(object? startObj, object? endObj, int len, Instruction instr)
         {
             int start = startObj == null ? 0 : RequireIntIndex(startObj, instr);
@@ -327,9 +318,6 @@ namespace CFGS_VM.VMCore
             return (start, endEx);
         }
 
-        /// <summary>
-        /// The NormalizeDictionaryWriteKey
-        /// </summary>
         private string NormalizeDictionaryWriteKey(
             Dictionary<string, object> dict,
             object? idxObj,

@@ -4,12 +4,6 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
-        /// <summary>
-        /// The TryGetNamespaceScopePath
-        /// </summary>
-        /// <param name="block">The block<see cref="BlockStmt"/></param>
-        /// <param name="namespacePath">The namespacePath<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         internal static bool TryGetNamespaceScopePath(BlockStmt block, out string namespacePath)
         {
             namespacePath = string.Empty;
@@ -29,12 +23,6 @@ namespace CFGS_VM.VMCore
             return TryExtractQualifiedPath(nsVar.Value, out namespacePath);
         }
 
-        /// <summary>
-        /// The TryExtractQualifiedPath
-        /// </summary>
-        /// <param name="expr">The expr<see cref="Expr"/></param>
-        /// <param name="path">The path<see cref="string"/></param>
-        /// <returns>The <see cref="bool"/></returns>
         private static bool TryExtractQualifiedPath(Expr expr, out string path)
         {
             switch (expr)

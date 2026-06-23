@@ -8,10 +8,6 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
-        /// <summary>
-        /// The EnterMatchArmLocals
-        /// </summary>
-        /// <returns>The <see cref="bool"/></returns>
         private bool EnterMatchArmLocals()
         {
             if (_localVarsStack.Count == 0)
@@ -21,22 +17,12 @@ namespace CFGS_VM.VMCore
             return true;
         }
 
-        /// <summary>
-        /// The LeaveMatchArmLocals
-        /// </summary>
-        /// <param name="entered">The entered<see cref="bool"/></param>
         private void LeaveMatchArmLocals(bool entered)
         {
             if (entered && _localVarsStack.Count > 0)
                 _localVarsStack.Pop();
         }
 
-        /// <summary>
-        /// The EmitVarDeclTracked
-        /// </summary>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
-        /// <param name="trackInLocals">The trackInLocals<see cref="bool"/></param>
         private void EmitVarDeclTracked(string name, Node node, bool trackInLocals)
         {
             _insns.Add(new Instruction(OpCode.VAR_DECL, name, node.Line, node.Col, node.OriginFile));
@@ -44,11 +30,6 @@ namespace CFGS_VM.VMCore
                 CurrentLocals.Add(name);
         }
 
-        /// <summary>
-        /// The EmitPatternFailJump
-        /// </summary>
-        /// <param name="failJumps">The failJumps<see cref="List{int}"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
         private void EmitPatternFailJump(List<int> failJumps, Node node)
         {
             int idx = _insns.Count;
@@ -56,12 +37,6 @@ namespace CFGS_VM.VMCore
             failJumps.Add(idx);
         }
 
-        /// <summary>
-        /// The EmitPatternMatch
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <param name="sourceVar">The sourceVar<see cref="string"/></param>
-        /// <param name="failJumps">The failJumps<see cref="List{int}"/></param>
         private void EmitPatternMatch(MatchPattern pattern, string sourceVar, List<int> failJumps)
         {
             switch (pattern)
@@ -130,59 +105,27 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// Defines the DestructureBindMode
-        /// </summary>
         private enum DestructureBindMode
         {
-            /// <summary>
-            /// Defines the VarDecl
-            /// </summary>
             VarDecl,
 
-            /// <summary>
-            /// Defines the ConstDecl
-            /// </summary>
             ConstDecl,
 
-            /// <summary>
-            /// Defines the Assign
-            /// </summary>
             Assign
         }
 
-        /// <summary>
-        /// The EmitDestructure
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <param name="value">The value<see cref="Expr"/></param>
-        /// <param name="mode">The mode<see cref="DestructureBindMode"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
         private void EmitDestructure(MatchPattern pattern, Expr value, DestructureBindMode mode, Node node)
         {
             CompileExpr(value);
             EmitDestructureBindingFromValue(pattern, mode, node);
         }
 
-        /// <summary>
-        /// The EmitDestructureBinding
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <param name="sourceVar">The sourceVar<see cref="string"/></param>
-        /// <param name="mode">The mode<see cref="DestructureBindMode"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
         private void EmitDestructureBinding(MatchPattern pattern, string sourceVar, DestructureBindMode mode, Node node)
         {
             _insns.Add(new Instruction(OpCode.LOAD_VAR, sourceVar, pattern.Line, pattern.Col, pattern.OriginFile));
             EmitDestructureBindingFromValue(pattern, mode, node);
         }
 
-        /// <summary>
-        /// The EmitDestructureBindingFromValue
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <param name="mode">The mode<see cref="DestructureBindMode"/></param>
-        /// <param name="node">The node<see cref="Node"/></param>
         private void EmitDestructureBindingFromValue(MatchPattern pattern, DestructureBindMode mode, Node node)
         {
             switch (pattern)
@@ -241,11 +184,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The CollectDestructureBindingNames
-        /// </summary>
-        /// <param name="pattern">The pattern<see cref="MatchPattern"/></param>
-        /// <returns>The <see cref="List{string}"/></returns>
         private static List<string> CollectDestructureBindingNames(MatchPattern pattern)
         {
             List<string> names = new();
@@ -280,11 +218,6 @@ namespace CFGS_VM.VMCore
             return names;
         }
 
-        /// <summary>
-        /// The CompileMatchStatement
-        /// </summary>
-        /// <param name="ms">The ms<see cref="MatchStmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileMatchStatement(MatchStmt ms, bool insideFunction)
         {
             EmitPushScope(ms);
@@ -333,10 +266,6 @@ namespace CFGS_VM.VMCore
                 _insns[idx] = new Instruction(OpCode.JMP, endTarget, ms.Line, ms.Col, ms.OriginFile);
         }
 
-        /// <summary>
-        /// The CompileMatchExpression
-        /// </summary>
-        /// <param name="me">The me<see cref="MatchExpr"/></param>
         private void CompileMatchExpression(MatchExpr me)
         {
             EmitPushScope(me);

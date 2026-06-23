@@ -6,9 +6,6 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
-        /// <summary>
-        /// The TryResolveBaseClassDecl
-        /// </summary>
         internal bool TryResolveBaseClassDecl(ClassDeclStmt decl, out ClassDeclStmt baseDecl)
         {
             baseDecl = null!;
@@ -36,9 +33,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The TryResolveClassDecl
-        /// </summary>
         internal bool TryResolveClassDecl(ClassDeclStmt context, string className, out ClassDeclStmt decl)
         {
             decl = null!;
@@ -61,9 +55,6 @@ namespace CFGS_VM.VMCore
             return _topLevelClassDecls.TryGetValue(className, out decl!);
         }
 
-        /// <summary>
-        /// The TryResolveBaseInterfaceDecl
-        /// </summary>
         internal bool TryResolveBaseInterfaceDecl(InterfaceDeclStmt context, string interfaceName, out InterfaceDeclStmt decl)
         {
             decl = null!;
@@ -86,9 +77,6 @@ namespace CFGS_VM.VMCore
             return _topLevelInterfaceDecls.TryGetValue(interfaceName, out decl!);
         }
 
-        /// <summary>
-        /// The TryResolveInterfaceDecl
-        /// </summary>
         internal bool TryResolveInterfaceDecl(ClassDeclStmt context, string interfaceName, out InterfaceDeclStmt decl)
         {
             decl = null!;
@@ -111,9 +99,6 @@ namespace CFGS_VM.VMCore
             return _topLevelInterfaceDecls.TryGetValue(interfaceName, out decl!);
         }
 
-        /// <summary>
-        /// The TryResolveClassDeclFromInterfaceBaseName
-        /// </summary>
         internal bool TryResolveClassDeclFromInterfaceBaseName(InterfaceDeclStmt context, string className, out ClassDeclStmt decl)
         {
             decl = null!;
@@ -136,9 +121,6 @@ namespace CFGS_VM.VMCore
             return _topLevelClassDecls.TryGetValue(className, out decl!);
         }
 
-        /// <summary>
-        /// The GetOrBuildInterfaceContract
-        /// </summary>
         internal Dictionary<string, InterfaceMethodDecl> GetOrBuildInterfaceContract(InterfaceDeclStmt iface)
         {
             if (_interfaceContractCache.TryGetValue(iface, out Dictionary<string, InterfaceMethodDecl>? cached))
@@ -183,9 +165,6 @@ namespace CFGS_VM.VMCore
             return contract;
         }
 
-        /// <summary>
-        /// The GetOrBuildInterfacePropertyContract
-        /// </summary>
         internal Dictionary<string, InterfacePropertyDecl> GetOrBuildInterfacePropertyContract(InterfaceDeclStmt iface)
         {
             if (_interfacePropertyContractCache.TryGetValue(iface, out Dictionary<string, InterfacePropertyDecl>? cached))

@@ -8,19 +8,10 @@ using System.Text.RegularExpressions;
 
 namespace CFGS.Microsoft.SQL
 {
-    /// <summary>
-    /// Defines the <see cref="SqlHandle" />
-    /// </summary>
     public sealed class SqlHandle : IDisposable
     {
-        /// <summary>
-        /// Defines the _serial
-        /// </summary>
         private readonly SemaphoreSlim _serial = new(1, 1);
 
-        /// <summary>
-        /// Defines the _disposed
-        /// </summary>
         private int _disposed = 0;
 
         /// <summary>
@@ -42,9 +33,6 @@ namespace CFGS.Microsoft.SQL
             Connection = connection;
         }
 
-        /// <summary>
-        /// The ThrowIfDisposed
-        /// </summary>
         private void ThrowIfDisposed()
         {
             if (Volatile.Read(ref _disposed) != 0)
@@ -93,9 +81,6 @@ namespace CFGS.Microsoft.SQL
             }
         }
 
-        /// <summary>
-        /// The EnsureOpen
-        /// </summary>
         public void EnsureOpen()
         {
             ThrowIfDisposed();
@@ -103,9 +88,6 @@ namespace CFGS.Microsoft.SQL
                 throw new InvalidOperationException("Die SQL-Verbindung ist nicht ge�ffnet.");
         }
 
-        /// <summary>
-        /// The BeginTransaction
-        /// </summary>
         public void BeginTransaction()
         {
             ExecuteSerialized(() =>
@@ -126,9 +108,6 @@ namespace CFGS.Microsoft.SQL
             }).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// The Commit
-        /// </summary>
         public void Commit()
         {
             ExecuteSerialized(() =>
@@ -151,9 +130,6 @@ namespace CFGS.Microsoft.SQL
             }).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// The Rollback
-        /// </summary>
         public void Rollback()
         {
             ExecuteSerialized(() =>
@@ -176,9 +152,6 @@ namespace CFGS.Microsoft.SQL
             }).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// The Dispose
-        /// </summary>
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -219,9 +192,6 @@ namespace CFGS.Microsoft.SQL
         }
     }
 
-    /// <summary>
-    /// Defines the <see cref="CFGS_STDLIB_MSSQL" />
-    /// </summary>
     public sealed class CFGS_STDLIB_MSSQL : IVmPlugin
     {
         /// <summary>
@@ -244,11 +214,6 @@ namespace CFGS.Microsoft.SQL
         private static string FirstLine(string? value)
             => (value ?? string.Empty).Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
 
-        /// <summary>
-        /// The Register
-        /// </summary>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {
             BuiltinRegistry namespaceBuiltins = new();
@@ -271,10 +236,6 @@ namespace CFGS.Microsoft.SQL
             namespaces.Register(NamespaceDescriptor.FromDescriptors("std.sql", members));
         }
 
-        /// <summary>
-        /// The RegisterBuiltins
-        /// </summary>
-        /// <param name="builtins">The builtins<see cref="IBuiltinRegistry"/></param>
         private static void RegisterBuiltins(IBuiltinRegistry builtins)
         {
             builtins.Register(new BuiltinDescriptor("sql_connect", 1, 1, (args, instr) =>
@@ -291,12 +252,6 @@ namespace CFGS.Microsoft.SQL
             }, NativeCallOptions.Awaitable));
         }
 
-        /// <summary>
-        /// The ConnectAsync
-        /// </summary>
-        /// <param name="connString">The connString<see cref="string"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <returns>The <see cref="Task{object?}"/></returns>
         private static async Task<object?> ConnectAsync(string connString, Instruction instr)
         {
             SqlConnection conn = new(connString);
@@ -313,10 +268,6 @@ namespace CFGS.Microsoft.SQL
             }
         }
 
-        /// <summary>
-        /// The RegisterIntrinsics
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
         private static void RegisterIntrinsics(IIntrinsicRegistry intrinsics)
         {
             Type T = typeof(SqlHandle);
@@ -473,14 +424,6 @@ namespace CFGS.Microsoft.SQL
             return 1;
         }
 
-        /// <summary>
-        /// The RegisterSqlDual
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        /// <param name="T">The T<see cref="Type"/></param>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="syncBody">The syncBody<see cref="Func{SqlCommand, object}"/></param>
-        /// <param name="asyncBody">The asyncBody<see cref="Func{SqlCommand, Task{object}}"/></param>
         private static void RegisterSqlDual(
             IIntrinsicRegistry intrinsics,
             Type T,
@@ -499,15 +442,6 @@ namespace CFGS.Microsoft.SQL
             }));
         }
 
-        /// <summary>
-        /// The RegisterSqlDual
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        /// <param name="T">The T<see cref="Type"/></param>
-        /// <param name="name">The name<see cref="string"/></param>
-        /// <param name="syncBody">The syncBody<see cref="Func{SqlCommand, object}"/></param>
-        /// <param name="asyncBody">The asyncBody<see cref="Func{SqlCommand, Task{object}}"/></param>
-        /// <param name="allowZeroArgsForQuery">The allowZeroArgsForQuery<see cref="bool"/></param>
         private static void RegisterSqlDual(
             IIntrinsicRegistry intrinsics,
             Type T,
@@ -519,11 +453,6 @@ namespace CFGS.Microsoft.SQL
             RegisterSqlDual(intrinsics, T, name, syncBody, asyncBody);
         }
 
-        /// <summary>
-        /// The RegisterSchemaDual
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        /// <param name="T">The T<see cref="Type"/></param>
         private static void RegisterSchemaDual(IIntrinsicRegistry intrinsics, Type T)
         {
             intrinsics.Register(T, new IntrinsicDescriptor("tables", 0, 0, (recv, a, instr) =>
@@ -680,11 +609,6 @@ namespace CFGS.Microsoft.SQL
             }, NativeCallOptions.Awaitable));
         }
 
-        /// <summary>
-        /// The RegisterProcedureAndViewInfo
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        /// <param name="T">The T<see cref="Type"/></param>
         private static void RegisterProcedureAndViewInfo(IIntrinsicRegistry intrinsics, Type T)
         {
             intrinsics.Register(T, new IntrinsicDescriptor("procedure_info", 1, 1, (recv, a, instr) =>
@@ -798,11 +722,6 @@ namespace CFGS.Microsoft.SQL
             }, NativeCallOptions.Awaitable));
         }
 
-        /// <summary>
-        /// The RegisterConstraintsAndFks
-        /// </summary>
-        /// <param name="intrinsics">The intrinsics<see cref="IIntrinsicRegistry"/></param>
-        /// <param name="T">The T<see cref="Type"/></param>
         private static void RegisterConstraintsAndFks(IIntrinsicRegistry intrinsics, Type T)
         {
             intrinsics.Register(T, new IntrinsicDescriptor("constraints", 1, 1, (recv, a, instr) =>
@@ -950,13 +869,6 @@ namespace CFGS.Microsoft.SQL
             }, NativeCallOptions.Awaitable));
         }
 
-        /// <summary>
-        /// The RunSerializedAsyncOnHandle
-        /// </summary>
-        /// <param name="recv">The recv<see cref="object"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <param name="body">The body<see cref="Func{SqlHandle, Task{object}}"/></param>
-        /// <returns>The <see cref="Task{object}"/></returns>
         private static async Task<object> RunSerializedAsyncOnHandle(object recv, Instruction instr, Func<SqlHandle, Task<object>> body)
         {
             SqlHandle handle = (SqlHandle)recv;
@@ -980,24 +892,9 @@ namespace CFGS.Microsoft.SQL
             }).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// The RunSerializedOffloadedOnHandle
-        /// </summary>
-        /// <param name="recv">The recv<see cref="object"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <param name="body">The body<see cref="Func{SqlHandle, object}"/></param>
-        /// <returns>The <see cref="Task{object}"/></returns>
         private static Task<object> RunSerializedOffloadedOnHandle(object recv, Instruction instr, Func<SqlHandle, object> body)
             => RunSerializedAsyncOnHandle(recv, instr, handle => Task.Run(() => body(handle)));
 
-        /// <summary>
-        /// The RunAsyncSql
-        /// </summary>
-        /// <param name="recv">The recv<see cref="object"/></param>
-        /// <param name="a">The a<see cref="List{object?}"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <param name="body">The body<see cref="Func{SqlCommand, Task{object}}"/></param>
-        /// <returns>The <see cref="Task{object}"/></returns>
         private static async Task<object> RunAsyncSql(object recv, List<object?> a, Instruction instr, Func<SqlCommand, Task<object>> body)
         {
             SqlHandle handle = (SqlHandle)recv;
@@ -1026,14 +923,6 @@ namespace CFGS.Microsoft.SQL
             }).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// The RunSqlSync
-        /// </summary>
-        /// <param name="recv">The recv<see cref="object"/></param>
-        /// <param name="a">The a<see cref="List{object?}"/></param>
-        /// <param name="instr">The instr<see cref="Instruction"/></param>
-        /// <param name="body">The body<see cref="Func{SqlCommand, object}"/></param>
-        /// <returns>The <see cref="object"/></returns>
         private static object RunSqlSync(object recv, List<object?> a, Instruction instr, Func<SqlCommand, object> body)
         {
             SqlHandle handle = (SqlHandle)recv;
@@ -1076,16 +965,8 @@ namespace CFGS.Microsoft.SQL
             return row;
         }
 
-        /// <summary>
-        /// Defines the TypeWithSizeRegex
-        /// </summary>
         private static readonly Regex TypeWithSizeRegex = new(@"^([a-z0-9_]+)\s*(\(\s*(\d+)\s*(,\s*\d+\s*)?\))?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        /// <summary>
-        /// The AddParameters
-        /// </summary>
-        /// <param name="cmd">The cmd<see cref="SqlCommand"/></param>
-        /// <param name="vmParams">The vmParams<see cref="Dictionary{string, object}"/></param>
         private static void AddParameters(SqlCommand cmd, Dictionary<string, object> vmParams)
         {
             foreach (KeyValuePair<string, object> kvp in vmParams)
@@ -1131,11 +1012,6 @@ namespace CFGS.Microsoft.SQL
             }
         }
 
-        /// <summary>
-        /// The ParseSqlTypeWithSize
-        /// </summary>
-        /// <param name="type">The type<see cref="string"/></param>
-        /// <returns>The <see cref="(SqlDbType, int?)"/></returns>
         private static (SqlDbType, int?) ParseSqlTypeWithSize(string type)
         {
             if (string.IsNullOrWhiteSpace(type))

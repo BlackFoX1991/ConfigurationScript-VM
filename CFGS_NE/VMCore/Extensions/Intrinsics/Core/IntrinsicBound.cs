@@ -22,10 +22,6 @@
             Method = m; Receiver = recv;
         }
 
-        /// <summary>
-        /// The ToString
-        /// </summary>
-        /// <returns>The <see cref="string"/></returns>
         public override string ToString() => $"<bound {Method.Name}>";
     }
 }

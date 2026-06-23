@@ -2,9 +2,6 @@
 
 namespace CFGS_VM.VMCore.Extensions.Core;
 
-/// <summary>
-/// Defines the <see cref="Closure" />
-/// </summary>
 public class Closure
 {
     /// <summary>
@@ -62,10 +59,6 @@ public class Closure
         IsAsync = isAsync;
     }
 
-    /// <summary>
-    /// The ToString
-    /// </summary>
-    /// <returns>The <see cref="string"/></returns>
     public override string ToString()
     {
         string paramList = string.Join(", ", Parameters);

@@ -134,10 +134,6 @@ namespace CFGS_VM.VMCore
             _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, accessor.Line, accessor.Col, accessor.OriginFile));
         }
 
-        /// <summary>
-        /// The CompileClassDeclaration
-        /// </summary>
-        /// <param name="cds">The cds<see cref="ClassDeclStmt"/></param>
         private void CompileClassDeclaration(ClassDeclStmt cds)
         {
             ReceiverContextKind prevReceiverContext = _receiverContext;
@@ -479,10 +475,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The CompileNewExpression
-        /// </summary>
-        /// <param name="ne">The ne<see cref="NewExpr"/></param>
         private void CompileNewExpression(NewExpr ne)
         {
             string[] parts = ne.ClassName.Split('.');
@@ -540,10 +532,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The CompileObjectInitializerExpression
-        /// </summary>
-        /// <param name="oi">The oi<see cref="ObjectInitExpr"/></param>
         private void CompileObjectInitializerExpression(ObjectInitExpr oi)
         {
             if (oi.Target is CallExpr ce &&

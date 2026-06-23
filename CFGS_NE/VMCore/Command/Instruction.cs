@@ -44,10 +44,6 @@ public class Instruction
         OriginFile = originFile;
     }
 
-    /// <summary>
-    /// The ToString
-    /// </summary>
-    /// <returns>The <see cref="string"/></returns>
     public override string ToString()
     {
         return Operand != null

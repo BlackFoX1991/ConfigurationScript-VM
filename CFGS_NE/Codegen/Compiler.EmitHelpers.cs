@@ -27,13 +27,6 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        /// <summary>
-        /// The OpFromToken
-        /// </summary>
-        /// <param name="t">The t<see cref="TokenType"/></param>
-        /// <param name="tp">The tp<see cref="Node"/></param>
-        /// <param name="outOfFile">The outOfFile<see cref="string"/></param>
-        /// <returns>The <see cref="OpCode"/></returns>
         private static OpCode OpFromToken(TokenType t, Node tp, string outOfFile) => t switch
         {
             TokenType.Plus => OpCode.ADD,
@@ -68,10 +61,6 @@ namespace CFGS_VM.VMCore
         private static object? IndexAccessOperand(IndexExpr indexExpr)
             => indexExpr.IsDotAccess ? true : null;
 
-        /// <summary>
-        /// The EnterFunctionLocals
-        /// </summary>
-        /// <param name="parameters">The parameters<see cref="IEnumerable{string}"/></param>
         private void EnterFunctionLocals(IEnumerable<string> parameters)
         {
             HashSet<string> inherited;
@@ -87,9 +76,6 @@ namespace CFGS_VM.VMCore
             _localVarsStack.Push(inherited);
         }
 
-        /// <summary>
-        /// The LeaveFunctionLocals
-        /// </summary>
         private void LeaveFunctionLocals()
         {
             if (_localVarsStack.Count > 0)

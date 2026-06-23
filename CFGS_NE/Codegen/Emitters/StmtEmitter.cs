@@ -90,11 +90,6 @@ namespace CFGS_VM.VMCore
             _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
         }
 
-        /// <summary>
-        /// The CompileStmt
-        /// </summary>
-        /// <param name="s">The s<see cref="Stmt"/></param>
-        /// <param name="insideFunction">The insideFunction<see cref="bool"/></param>
         private void CompileStmt(Stmt s, bool insideFunction)
         {
             switch (s)

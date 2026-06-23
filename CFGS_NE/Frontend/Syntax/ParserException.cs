@@ -1,8 +1,5 @@
 namespace CFGS_VM.Analytic.Ex
 {
-    /// <summary>
-    /// Defines the <see cref="ParserException" />
-    /// </summary>
     public sealed class ParserException : Exception
     {
         /// <summary>
