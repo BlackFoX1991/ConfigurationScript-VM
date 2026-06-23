@@ -1,0 +1,189 @@
+
+# This sample is a practical runtime stress test.
+# It prints timings for scalar-heavy loops, function and closure calls,
+# object state updates, and a bounded array mutation workload.
+#
+# Run with an optional scale factor to increase the workload:
+# dotnet .\dist\Debug\net10.0\CFGS_VM.dll .\CFGS_NE\Samples\09_embedding_tooling\03_runtime_stress_benchmark.cfs -p 5
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+func unix_ms_now() {
+    return UtcNow("yyyy-MM-dd HH:mm:ss.fff").toDateTime("yyyy-MM-dd HH:mm:ss.fff").toUnixMilliseconds();
+}
+
+func warmup_iterations(iterations) {
+    var scaled = int(iterations / 20);
+    if (scaled < 10_000) {
+        return scaled;
+    }
+
+    return int(math.min(scaled, 200_000));
+}
+
+func benchArithmetic(iterations) {
+    var acc = 0;
+    for (var i = 0; i < iterations; i = i + 1) {
+        acc = ((acc * 31) + i + 7) & 0x7fffffff;
+    }
+
+    return acc;
+}
+
+func nextValue(value, delta) {
+    return ((value * 17) + delta + 3) & 0x7fffffff;
+}
+
+func benchFunctionCalls(iterations) {
+    var acc = 1;
+    for (var i = 0; i < iterations; i = i + 1) {
+        acc = nextValue(acc, i);
+    }
+
+    return acc;
+}
+
+func makeStepper(factor, bias) {
+    return func(value, delta) {
+        return ((value * factor) + delta + bias) & 0x7fffffff;
+    };
+}
+
+func benchClosureCalls(iterations) {
+    var step = makeStepper(29, 11);
+    var acc = 1;
+    for (var i = 0; i < iterations; i = i + 1) {
+        acc = step(acc, i);
+    }
+
+    return acc;
+}
+
+class BenchCounter(seed) {
+    var value = 0;
+
+    func init(seed) {
+        this.value = seed;
+    }
+
+    func step(delta) {
+        this.value = ((this.value * 13) + delta + 5) & 0x7fffffff;
+        return this.value;
+    }
+}
+
+func benchObjectState(iterations) {
+    var counter = new BenchCounter(1);
+    var acc = 0;
+    for (var i = 0; i < iterations; i = i + 1) {
+        acc = (acc ^ counter.step(i)) & 0x7fffffff;
+    }
+
+    return (acc + counter.value) & 0x7fffffff;
+}
+
+func benchArrayWindow(iterations) {
+    var window = [];
+    for (var i = 0; i < 1024; i = i + 1) {
+        window.push(i & 255);
+    }
+
+    var acc = 0;
+    for (var i = 0; i < iterations; i = i + 1) {
+        var slot = i % 1024;
+        var value = (window[slot] + i + acc) & 255;
+        window[slot] = value;
+        acc = (acc + value) & 0x7fffffff;
+    }
+
+    return (acc + window[iterations % 1024]) & 0x7fffffff;
+}
+
+func runBench(label, iterations, work) {
+    var warmup = warmup_iterations(iterations);
+    if (warmup > 0) {
+        var _ = work(warmup);
+    }
+
+    var startedAt = unix_ms_now();
+    var result = work(iterations);
+    var elapsedMs = unix_ms_now() - startedAt;
+    var opsPerSecond = elapsedMs > 0
+    ? (double(iterations) * 1000.0) / double(elapsedMs)
+    : 0.0;
+
+    ensure("non-negative timing " + label, elapsedMs >= 0);
+    print(format("BENCH {0}: {1} ms | {2:F0} ops/s | checksum={3}", label, elapsedMs, opsPerSecond, result));
+
+    return {
+        "iterations": iterations,
+        "elapsedMs": elapsedMs,
+        "opsPerSecond": opsPerSecond,
+        "result": result
+    };
+}
+
+func safeCmdArgs() {
+    try {
+        return cmdArgs();
+    } catch () {
+        return null;
+    }
+}
+
+func readScale() {
+    var args = safeCmdArgs();
+    if (args == null || len(args) == 0) {
+        return 1;
+    }
+
+    return int(args[0]);
+}
+
+func main() {
+    # Small reference checks keep the benchmark self-validating.
+    ensure("reference arithmetic", benchArithmetic(16) == 288642824);
+    ensure("reference functions", benchFunctionCalls(16) == 1403756329);
+    ensure("reference closures", benchClosureCalls(16) == 1290069449);
+    ensure("reference object state", benchObjectState(16) == 357537969);
+    ensure("reference array window", benchArrayWindow(64) == 14782);
+
+    var scale = readScale();
+    ensure("scale positive", scale > 0);
+
+    var arithmeticIterations = 250_000 * scale;
+    var functionIterations = 125_000 * scale;
+    var closureIterations = 125_000 * scale;
+    var objectIterations = 100_000 * scale;
+    var arrayIterations = 100_000 * scale;
+
+    print("STRESS_TEST_BEGIN:scale=" + str(scale));
+    print(format(
+    "STRESS_TEST_CONFIG arithmetic={0} function={1} closure={2} object={3} array={4}",
+    arithmeticIterations,
+    functionIterations,
+    closureIterations,
+    objectIterations,
+    arrayIterations));
+
+    var startedAt = unix_ms_now();
+
+    var arithmetic = runBench("scalar arithmetic", arithmeticIterations, benchArithmetic);
+    var functions = runBench("function calls", functionIterations, benchFunctionCalls);
+    var closures = runBench("closure calls", closureIterations, benchClosureCalls);
+    var objects = runBench("object state", objectIterations, benchObjectState);
+    var arrays = runBench("array window", arrayIterations, benchArrayWindow);
+
+    var totalElapsedMs = unix_ms_now() - startedAt;
+    var totalChecksum =
+    (((arithmetic["result"] ^ functions["result"]) + closures["result"]) ^ objects["result"]) + arrays["result"];
+    totalChecksum = totalChecksum & 0x7fffffff;
+
+    print(format("STRESS_TEST_SUMMARY totalMs={0} checksum={1}", totalElapsedMs, totalChecksum));
+}
+
+main();
