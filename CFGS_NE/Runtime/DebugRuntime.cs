@@ -12,10 +12,10 @@ namespace CFGS_VM.VMCore
 
         public int DebugScopeCount => _scopes.Count;
 
-        public int DebugStackCount => _stack.Count;
+        public int DebugStackCount => _valueStack.Count;
 
         public IReadOnlyList<object?> GetDebugStackSnapshot()
-            => _stack.ToArray();
+            => _valueStack.Select(static value => ToHostObject(value)).ToArray();
 
         public IReadOnlyList<VmDebugVariable> GetDebugLocalsSnapshot()
             => _scopes.Count == 0 ? [] : SnapshotEnv(_scopes[^1]);
@@ -154,7 +154,7 @@ namespace CFGS_VM.VMCore
             {
                 return env.Vars
                     .OrderBy(static kv => kv.Key, StringComparer.Ordinal)
-                    .Select(kv => new VmDebugVariable(kv.Key, kv.Value, env.ConstVars.Contains(kv.Key)))
+                    .Select(kv => new VmDebugVariable(kv.Key, kv.Value.ToObject(), env.ConstVars.Contains(kv.Key)))
                     .ToList();
             }
         }

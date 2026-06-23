@@ -1,4 +1,6 @@
-﻿namespace CFGS_VM.VMCore.Extensions.Instance
+using CFGS_VM.VMCore;
+
+namespace CFGS_VM.VMCore.Extensions.Instance
 {
     public sealed class ClassInstance
     {
@@ -15,7 +17,7 @@
         /// <summary>
         /// Gets the Fields
         /// </summary>
-        public Dictionary<string, object> Fields { get; }
+        public Dictionary<string, Value> Fields { get; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ClassInstance"/> class.
@@ -24,7 +26,7 @@
         public ClassInstance(string className)
         {
             ClassName = className;
-            Fields = new Dictionary<string, object>();
+            Fields = new Dictionary<string, Value>();
         }
     }
 }

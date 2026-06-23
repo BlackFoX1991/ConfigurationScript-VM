@@ -14,75 +14,6 @@ namespace CFGS_VM.VMCore
             x is sbyte or byte or short or ushort or int or uint or long or ulong
               or float or double or decimal or char or BigInteger;
 
-        private static bool IsSignedIntegral(object x) => x is sbyte or short or int or long or nint;
-
-        private static bool IsUnsignedIntegral(object x) => x is byte or ushort or uint or ulong or nuint or char;
-
-        private static bool IsNegative(object x) => x switch
-        {
-            sbyte v => v < 0,
-            short v => v < 0,
-            int v => v < 0,
-            long v => v < 0,
-            nint v => v < 0,
-            _ => false
-        };
-
-        private static NumKind PromoteKind(object a, object b)
-        {
-            // Floating point and decimal must dominate BigInteger: a fractional value cannot be
-            // coerced into a BigInteger, so when they are mixed we widen the integer side into the
-            // floating/decimal domain instead. (For combos without BigInteger the relative order of
-            // decimal vs. double is unchanged.)
-            if (a is decimal || b is decimal) return NumKind.Decimal;
-            if (a is double || b is double || a is float || b is float) return NumKind.Double;
-            if (a is BigInteger || b is BigInteger) return NumKind.Maximal;
-
-            bool aUWide = a is ulong || a is nuint;
-            bool bUWide = b is ulong || b is nuint;
-            if ((aUWide && IsSignedIntegral(b) && IsNegative(b)) ||
-                (bUWide && IsSignedIntegral(a) && IsNegative(a)))
-                return NumKind.Maximal;
-
-            if (a is ulong || b is ulong) return NumKind.UInt64;
-            if (a is nuint || b is nuint) return NumKind.Int64;
-            if (a is long || b is long || a is nint || b is nint) return NumKind.Int64;
-            return NumKind.Int32;
-        }
-
-        internal static object CharToNumeric(object o)
-            => o is char ch ? (char.IsDigit(ch) ? (int)(ch - '0') : (int)ch) : o;
-
-        private static (object A, object B, NumKind K) CoercePair(object a, object b)
-        {
-            a = a is char ? CharToNumeric(a) : a;
-            b = b is char ? CharToNumeric(b) : b;
-
-            NumKind k = PromoteKind(a, b);
-            switch (k)
-            {
-                case NumKind.Maximal:
-                    return (ToBigIntegerInvariant(a), ToBigIntegerInvariant(b), k);
-                case NumKind.Decimal:
-                    return (ToDecimalInvariant(a), ToDecimalInvariant(b), k);
-                case NumKind.Double:
-                    return (ToDoubleInvariant(a), ToDoubleInvariant(b), k);
-                case NumKind.UInt64:
-                    try { return (ToUInt64Invariant(a), ToUInt64Invariant(b), k); }
-                    catch (OverflowException) { return (ToBigIntegerInvariant(a), ToBigIntegerInvariant(b), NumKind.Maximal); }
-                case NumKind.Int64:
-                    try { return (ToInt64Invariant(a), ToInt64Invariant(b), k); }
-                    catch (OverflowException) { return (ToBigIntegerInvariant(a), ToBigIntegerInvariant(b), NumKind.Maximal); }
-                default:
-                    try { return (ToInt32Invariant(a), ToInt32Invariant(b), NumKind.Int32); }
-                    catch (OverflowException)
-                    {
-                        try { return (ToInt64Invariant(a), ToInt64Invariant(b), NumKind.Int64); }
-                        catch (OverflowException) { return (ToBigIntegerInvariant(a), ToBigIntegerInvariant(b), NumKind.Maximal); }
-                    }
-            }
-        }
-
         private static int ToInt32Invariant(object x) => x switch
         {
             string s => int.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture),
@@ -178,56 +109,49 @@ namespace CFGS_VM.VMCore
             _ => throw new InvalidOperationException($"Not integral: {x?.GetType().Name ?? "null"}")
         };
 
-        private object PowBigIntegerOrThrow(BigInteger a, BigInteger b, Instruction instr)
+        private Value PowBigIntegerOrThrow(BigInteger a, BigInteger b, Instruction instr)
         {
             if (b.Sign < 0)
                 throw new VMException("EXPO with BigInteger requires non-negative exponent", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             if (b > int.MaxValue)
                 throw new VMException("EXPO exponent too large for BigInteger.Pow", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            return BigInteger.Pow(a, (int)b);
+            return Value.FromRef(BigInteger.Pow(a, (int)b));
         }
 
         /// <summary>
         /// Narrows a <see cref="BigInteger"/> to the smallest of int/long/BigInteger that can hold it.
         /// </summary>
-        private static object NarrowInteger(BigInteger bi)
+        private static Value NarrowIntegerValue(BigInteger bi)
         {
-            if (bi >= int.MinValue && bi <= int.MaxValue) return (int)bi;
-            if (bi >= long.MinValue && bi <= long.MaxValue) return (long)bi;
-            return bi;
+            if (bi >= int.MinValue && bi <= int.MaxValue) return Value.FromInt((int)bi);
+            if (bi >= long.MinValue && bi <= long.MaxValue) return Value.FromLong((long)bi);
+            return Value.FromRef(bi);
         }
 
         /// <summary>
         /// Integer exponentiation that preserves full precision (promotes to BigInteger on overflow).
         /// A negative exponent yields a fractional result and falls back to floating point.
         /// </summary>
-        private object IntegerExpo(BigInteger baseVal, BigInteger exp, Instruction instr)
+        private Value IntegerExpo(BigInteger baseVal, BigInteger exp, Instruction instr)
         {
             if (exp.Sign < 0)
-                return Math.Pow((double)baseVal, (double)exp);
+                return Value.FromDouble(Math.Pow((double)baseVal, (double)exp));
             if (exp > int.MaxValue)
                 throw new VMException("EXPO exponent too large", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            return NarrowInteger(BigInteger.Pow(baseVal, (int)exp));
+            return NarrowIntegerValue(BigInteger.Pow(baseVal, (int)exp));
         }
 
         /// <summary>
         /// Decimal exponentiation via double, with an explicit range check so an out-of-range
         /// result raises a clean VM error instead of a native OverflowException on the cast.
         /// </summary>
-        private object DecimalPow(decimal a, decimal b, Instruction instr)
+        private Value DecimalPow(decimal a, decimal b, Instruction instr)
         {
             double result = Math.Pow((double)a, (double)b);
             if (double.IsNaN(result) || double.IsInfinity(result) ||
                 result > (double)decimal.MaxValue || result < (double)decimal.MinValue)
                 throw new VMException("EXPO result is outside the representable decimal range", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            return (decimal)result;
-        }
-
-        private int ToInt32ForRepeat(object n)
-        {
-            BigInteger bi = n is BigInteger b ? b : ToBigInt(n);
-            if (bi.Sign < 0) throw new VMException("repeat count must be non-negative", 0, 0, null, IsDebugging, DebugStream!);
-            return checked((int)bi);
+            return Value.FromRef((decimal)result);
         }
 
         private static bool ToBool(object? v)
@@ -266,117 +190,687 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        private readonly struct HotNumericPair
+        {
+            public HotNumericPair(int left, int right)
+            {
+                Kind = NumKind.Int32;
+                Int32Left = left;
+                Int32Right = right;
+                Int64Left = 0L;
+                Int64Right = 0L;
+                DoubleLeft = 0.0;
+                DoubleRight = 0.0;
+            }
+
+            public HotNumericPair(long left, long right)
+            {
+                Kind = NumKind.Int64;
+                Int32Left = 0;
+                Int32Right = 0;
+                Int64Left = left;
+                Int64Right = right;
+                DoubleLeft = 0.0;
+                DoubleRight = 0.0;
+            }
+
+            public HotNumericPair(double left, double right)
+            {
+                Kind = NumKind.Double;
+                Int32Left = 0;
+                Int32Right = 0;
+                Int64Left = 0L;
+                Int64Right = 0L;
+                DoubleLeft = left;
+                DoubleRight = right;
+            }
+
+            public NumKind Kind { get; }
+
+            public int Int32Left { get; }
+
+            public int Int32Right { get; }
+
+            public long Int64Left { get; }
+
+            public long Int64Right { get; }
+
+            public double DoubleLeft { get; }
+
+            public double DoubleRight { get; }
+        }
+
+        private static int CharToNumeric(char ch)
+            => char.IsDigit(ch) ? ch - '0' : ch;
+
+        private static bool ToBool(Value v)
+            => v.Kind switch
+            {
+                ValueKind.Null => false,
+                ValueKind.Bool => v.AsBool,
+                ValueKind.Int => v.AsInt != 0,
+                ValueKind.Long => v.AsLong != 0L,
+                ValueKind.Double => v.AsDouble != 0.0 || double.IsNaN(v.AsDouble),
+                ValueKind.Char => v.AsChar != '\0',
+                _ => ToBool(v.Reference)
+            };
+
+        private static bool TryGetHotInt32(Value value, out int result)
+        {
+            switch (value.Kind)
+            {
+                case ValueKind.Int:
+                    result = value.AsInt;
+                    return true;
+                case ValueKind.Char:
+                    result = CharToNumeric(value.AsChar);
+                    return true;
+                default:
+                    result = default;
+                    return false;
+            }
+        }
+
+        private static bool TryGetHotInt64(Value value, out long result)
+        {
+            switch (value.Kind)
+            {
+                case ValueKind.Int:
+                    result = value.AsInt;
+                    return true;
+                case ValueKind.Long:
+                    result = value.AsLong;
+                    return true;
+                case ValueKind.Char:
+                    result = CharToNumeric(value.AsChar);
+                    return true;
+                default:
+                    result = default;
+                    return false;
+            }
+        }
+
+        private static bool TryGetHotDouble(Value value, out double result)
+        {
+            switch (value.Kind)
+            {
+                case ValueKind.Int:
+                    result = value.AsInt;
+                    return true;
+                case ValueKind.Long:
+                    result = value.AsLong;
+                    return true;
+                case ValueKind.Double:
+                    result = value.AsDouble;
+                    return true;
+                case ValueKind.Char:
+                    result = CharToNumeric(value.AsChar);
+                    return true;
+                default:
+                    result = default;
+                    return false;
+            }
+        }
+
+        private static bool TryCoerceHotNumericPair(Value left, Value right, out HotNumericPair pair)
+        {
+            if (left.Kind == ValueKind.Double || right.Kind == ValueKind.Double)
+            {
+                if (TryGetHotDouble(left, out double leftDouble) && TryGetHotDouble(right, out double rightDouble))
+                {
+                    pair = new HotNumericPair(leftDouble, rightDouble);
+                    return true;
+                }
+
+                pair = default;
+                return false;
+            }
+
+            if (left.Kind == ValueKind.Long || right.Kind == ValueKind.Long)
+            {
+                if (TryGetHotInt64(left, out long leftLong) && TryGetHotInt64(right, out long rightLong))
+                {
+                    pair = new HotNumericPair(leftLong, rightLong);
+                    return true;
+                }
+
+                pair = default;
+                return false;
+            }
+
+            if (TryGetHotInt32(left, out int leftInt) && TryGetHotInt32(right, out int rightInt))
+            {
+                pair = new HotNumericPair(leftInt, rightInt);
+                return true;
+            }
+
+            pair = default;
+            return false;
+        }
+
+        private static bool TryCoerceHotIntegralPair(Value left, Value right, out HotNumericPair pair)
+        {
+            if (left.Kind == ValueKind.Double || right.Kind == ValueKind.Double)
+            {
+                pair = default;
+                return false;
+            }
+
+            if (left.Kind == ValueKind.Long || right.Kind == ValueKind.Long)
+            {
+                if (TryGetHotInt64(left, out long leftLong) && TryGetHotInt64(right, out long rightLong))
+                {
+                    pair = new HotNumericPair(leftLong, rightLong);
+                    return true;
+                }
+
+                pair = default;
+                return false;
+            }
+
+            if (TryGetHotInt32(left, out int leftInt) && TryGetHotInt32(right, out int rightInt))
+            {
+                pair = new HotNumericPair(leftInt, rightInt);
+                return true;
+            }
+
+            pair = default;
+            return false;
+        }
+
+        private static bool TryGetHotShiftCount(Value value, out int shiftCount)
+        {
+            switch (value.Kind)
+            {
+                case ValueKind.Int:
+                    shiftCount = value.AsInt;
+                    return true;
+                case ValueKind.Long:
+                    shiftCount = checked((int)value.AsLong);
+                    return true;
+                case ValueKind.Char:
+                    shiftCount = CharToNumeric(value.AsChar);
+                    return true;
+                default:
+                    shiftCount = default;
+                    return false;
+            }
+        }
+
+        private static bool IsSignedIntegral(Value value)
+            => value.Kind switch
+            {
+                ValueKind.Int => true,
+                ValueKind.Long => true,
+                ValueKind.Ref => value.Reference is sbyte or short,
+                _ => false
+            };
+
+        private static bool IsNegative(Value value)
+            => value.Kind switch
+            {
+                ValueKind.Int => value.AsInt < 0,
+                ValueKind.Long => value.AsLong < 0L,
+                ValueKind.Ref => value.Reference switch
+                {
+                    sbyte v => v < 0,
+                    short v => v < 0,
+                    _ => false
+                },
+                _ => false
+            };
+
+        private static NumKind PromoteKind(Value a, Value b)
+        {
+            if ((a.Kind == ValueKind.Ref && a.Reference is decimal) ||
+                (b.Kind == ValueKind.Ref && b.Reference is decimal))
+                return NumKind.Decimal;
+            if (a.Kind == ValueKind.Double ||
+                b.Kind == ValueKind.Double ||
+                (a.Kind == ValueKind.Ref && a.Reference is float) ||
+                (b.Kind == ValueKind.Ref && b.Reference is float))
+                return NumKind.Double;
+            if ((a.Kind == ValueKind.Ref && a.Reference is BigInteger) ||
+                (b.Kind == ValueKind.Ref && b.Reference is BigInteger))
+                return NumKind.Maximal;
+
+            bool aUWide = a.Kind == ValueKind.Ref && a.Reference is ulong;
+            bool bUWide = b.Kind == ValueKind.Ref && b.Reference is ulong;
+            if ((aUWide && IsSignedIntegral(b) && IsNegative(b)) ||
+                (bUWide && IsSignedIntegral(a) && IsNegative(a)))
+                return NumKind.Maximal;
+
+            if ((a.Kind == ValueKind.Ref && a.Reference is ulong) ||
+                (b.Kind == ValueKind.Ref && b.Reference is ulong))
+                return NumKind.UInt64;
+            if (a.Kind == ValueKind.Long || b.Kind == ValueKind.Long)
+                return NumKind.Int64;
+            return NumKind.Int32;
+        }
+
+        private static int ToInt32Invariant(Value x) => x.Kind switch
+        {
+            ValueKind.Int => x.AsInt,
+            ValueKind.Long => checked((int)x.AsLong),
+            ValueKind.Double => Convert.ToInt32(x.AsDouble),
+            ValueKind.Char => CharToNumeric(x.AsChar),
+            ValueKind.Ref => ToInt32Invariant(x.Reference!),
+            _ => throw new InvalidOperationException($"Not numeric: {x.Kind}")
+        };
+
+        private static long ToInt64Invariant(Value x) => x.Kind switch
+        {
+            ValueKind.Int => x.AsInt,
+            ValueKind.Long => x.AsLong,
+            ValueKind.Double => Convert.ToInt64(x.AsDouble),
+            ValueKind.Char => CharToNumeric(x.AsChar),
+            ValueKind.Ref => ToInt64Invariant(x.Reference!),
+            _ => throw new InvalidOperationException($"Not numeric: {x.Kind}")
+        };
+
+        private static ulong ToUInt64Invariant(Value x) => x.Kind switch
+        {
+            ValueKind.Int => Convert.ToUInt64(x.AsInt),
+            ValueKind.Long => Convert.ToUInt64(x.AsLong),
+            ValueKind.Double => Convert.ToUInt64(x.AsDouble),
+            ValueKind.Char => Convert.ToUInt64(CharToNumeric(x.AsChar)),
+            ValueKind.Ref => ToUInt64Invariant(x.Reference!),
+            _ => throw new InvalidOperationException($"Not numeric: {x.Kind}")
+        };
+
+        private static double ToDoubleInvariant(Value x) => x.Kind switch
+        {
+            ValueKind.Int => x.AsInt,
+            ValueKind.Long => x.AsLong,
+            ValueKind.Double => x.AsDouble,
+            ValueKind.Char => CharToNumeric(x.AsChar),
+            ValueKind.Ref => ToDoubleInvariant(x.Reference!),
+            _ => throw new InvalidOperationException($"Not numeric: {x.Kind}")
+        };
+
+        private static decimal ToDecimalInvariant(Value x) => x.Kind switch
+        {
+            ValueKind.Int => x.AsInt,
+            ValueKind.Long => x.AsLong,
+            ValueKind.Double => Convert.ToDecimal(x.AsDouble),
+            ValueKind.Char => CharToNumeric(x.AsChar),
+            ValueKind.Ref => ToDecimalInvariant(x.Reference!),
+            _ => throw new InvalidOperationException($"Not numeric: {x.Kind}")
+        };
+
+        private static BigInteger ToBigIntegerInvariant(Value x) => x.Kind switch
+        {
+            ValueKind.Int => new BigInteger(x.AsInt),
+            ValueKind.Long => new BigInteger(x.AsLong),
+            ValueKind.Char => new BigInteger(CharToNumeric(x.AsChar)),
+            ValueKind.Ref => ToBigIntegerInvariant(x.Reference!),
+            ValueKind.Null => throw new InvalidOperationException("Not numeric: null"),
+            ValueKind.Double => throw new InvalidOperationException("Cannot coerce floating-point to BigInteger without explicit rounding."),
+            _ => throw new InvalidOperationException($"Not numeric: {x.Kind}")
+        };
+
+        private static BigInteger ToBigInt(Value x) => x.Kind switch
+        {
+            ValueKind.Int => new BigInteger(x.AsInt),
+            ValueKind.Long => new BigInteger(x.AsLong),
+            ValueKind.Char => new BigInteger(CharToNumeric(x.AsChar)),
+            ValueKind.Ref => ToBigInt(x.Reference!),
+            _ => throw new InvalidOperationException($"Not integral: {x.Kind}")
+        };
+
+        private int ToInt32ForRepeat(Value n)
+        {
+            BigInteger bi = n.Kind == ValueKind.Ref && n.Reference is BigInteger b ? b : ToBigInt(n);
+            if (bi.Sign < 0) throw new VMException("repeat count must be non-negative", 0, 0, null, IsDebugging, DebugStream!);
+            return checked((int)bi);
+        }
+
+        private static void CoerceFallbackNumericPair(
+            Value leftValue,
+            Value rightValue,
+            out Value left,
+            out Value right,
+            out NumKind kind)
+        {
+            kind = PromoteKind(leftValue, rightValue);
+            switch (kind)
+            {
+                case NumKind.Maximal:
+                    left = Value.FromRef(ToBigIntegerInvariant(leftValue));
+                    right = Value.FromRef(ToBigIntegerInvariant(rightValue));
+                    return;
+                case NumKind.Decimal:
+                    left = Value.FromRef(ToDecimalInvariant(leftValue));
+                    right = Value.FromRef(ToDecimalInvariant(rightValue));
+                    return;
+                case NumKind.Double:
+                    left = Value.FromDouble(ToDoubleInvariant(leftValue));
+                    right = Value.FromDouble(ToDoubleInvariant(rightValue));
+                    return;
+                case NumKind.UInt64:
+                    try
+                    {
+                        left = Value.FromRef(ToUInt64Invariant(leftValue));
+                        right = Value.FromRef(ToUInt64Invariant(rightValue));
+                        return;
+                    }
+                    catch (OverflowException)
+                    {
+                        kind = NumKind.Maximal;
+                        left = Value.FromRef(ToBigIntegerInvariant(leftValue));
+                        right = Value.FromRef(ToBigIntegerInvariant(rightValue));
+                        return;
+                    }
+                case NumKind.Int64:
+                    try
+                    {
+                        left = Value.FromLong(ToInt64Invariant(leftValue));
+                        right = Value.FromLong(ToInt64Invariant(rightValue));
+                        return;
+                    }
+                    catch (OverflowException)
+                    {
+                        kind = NumKind.Maximal;
+                        left = Value.FromRef(ToBigIntegerInvariant(leftValue));
+                        right = Value.FromRef(ToBigIntegerInvariant(rightValue));
+                        return;
+                    }
+                default:
+                    try
+                    {
+                        left = Value.FromInt(ToInt32Invariant(leftValue));
+                        right = Value.FromInt(ToInt32Invariant(rightValue));
+                        kind = NumKind.Int32;
+                        return;
+                    }
+                    catch (OverflowException)
+                    {
+                        try
+                        {
+                            left = Value.FromLong(ToInt64Invariant(leftValue));
+                            right = Value.FromLong(ToInt64Invariant(rightValue));
+                            kind = NumKind.Int64;
+                            return;
+                        }
+                        catch (OverflowException)
+                        {
+                            kind = NumKind.Maximal;
+                            left = Value.FromRef(ToBigIntegerInvariant(leftValue));
+                            right = Value.FromRef(ToBigIntegerInvariant(rightValue));
+                            return;
+                        }
+                    }
+            }
+        }
+
+        private static bool TryGetFallbackNumericValue(Value value, out Value number)
+        {
+            switch (value.Kind)
+            {
+                case ValueKind.Int:
+                case ValueKind.Long:
+                case ValueKind.Double:
+                    number = value;
+                    return true;
+                case ValueKind.Char:
+                    number = Value.FromInt(CharToNumeric(value.AsChar));
+                    return true;
+                case ValueKind.Ref when value.Reference is not null && IsNumber(value.Reference):
+                    number = value;
+                    return true;
+                default:
+                    number = default;
+                    return false;
+            }
+        }
+
+        private static bool TryGetFallbackIntegralValue(Value value, out Value number)
+        {
+            switch (value.Kind)
+            {
+                case ValueKind.Int:
+                case ValueKind.Long:
+                    number = value;
+                    return true;
+                case ValueKind.Char:
+                    number = Value.FromInt(CharToNumeric(value.AsChar));
+                    return true;
+                case ValueKind.Ref when value.Reference is not null && IsIntegralLike(value.Reference):
+                    number = value;
+                    return true;
+                default:
+                    number = default;
+                    return false;
+            }
+        }
+
+        private static bool TryGetStringReference(Value value, out string? text)
+        {
+            if (value.Kind == ValueKind.Ref && value.Reference is string s)
+            {
+                text = s;
+                return true;
+            }
+
+            text = null;
+            return false;
+        }
+
+        private static bool TryCoerceFallbackNumericPair(
+            Value leftValue,
+            Value rightValue,
+            out Value left,
+            out Value right,
+            out NumKind kind)
+        {
+            if (TryGetFallbackNumericValue(leftValue, out Value l) && TryGetFallbackNumericValue(rightValue, out Value r))
+            {
+                CoerceFallbackNumericPair(l, r, out left, out right, out kind);
+                return true;
+            }
+
+            left = default;
+            right = default;
+            kind = default;
+            return false;
+        }
+
+        private static bool TryCoerceFallbackIntegralPair(
+            Value leftValue,
+            Value rightValue,
+            out Value left,
+            out Value right,
+            out NumKind kind)
+        {
+            if (TryGetFallbackIntegralValue(leftValue, out Value l) && TryGetFallbackIntegralValue(rightValue, out Value r))
+            {
+                CoerceFallbackNumericPair(l, r, out left, out right, out kind);
+                return true;
+            }
+
+            left = default;
+            right = default;
+            kind = default;
+            return false;
+        }
+
+        private static bool IsCollectionReference(Value value)
+            => value.Kind == ValueKind.Ref &&
+               (value.Reference is List<object> || value.Reference is Dictionary<string, object>);
+
+        private string FormatDefaultConcatOperand(Value value)
+        {
+            return value.Kind switch
+            {
+                ValueKind.Null => string.Empty,
+                ValueKind.Bool => value.AsBool.ToString(),
+                ValueKind.Int => value.AsInt.ToString(),
+                ValueKind.Long => value.AsLong.ToString(),
+                ValueKind.Double => value.AsDouble.ToString(),
+                ValueKind.Char => value.AsChar.ToString(),
+                _ => value.Reference?.ToString() ?? string.Empty
+            };
+        }
+
+        private string FormatPrintedConcatOperand(Value value)
+        {
+            using StringWriter writer = new();
+            PrintValue(value, writer);
+            return writer.ToString();
+        }
+
         private StepResult HandleAddInstruction(Instruction instr)
         {
             RequireStack(2, instr, "ADD");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
 
-            if (IsNumber(l) && IsNumber(r))
+            if (TryCoerceHotNumericPair(leftValue, rightValue, out HotNumericPair hotPair))
             {
-                (object A, object B, NumKind K) = CoercePair(l, r);
-                object res = K switch
+                switch (hotPair.Kind)
                 {
-                    NumKind.Decimal => (object)((decimal)A + (decimal)B),
-                    NumKind.Double => (double)A + (double)B,
-                    NumKind.UInt64 => (ulong)A + (ulong)B,
-                    NumKind.Int64 => (long)A + (long)B,
-                    NumKind.Maximal => (BigInteger)A + (BigInteger)B,
-                    _ => (int)A + (int)B,
+                    case NumKind.Int32:
+                        _valueStack.Push(Value.FromInt(hotPair.Int32Left + hotPair.Int32Right));
+                        return StepResult.Next;
+                    case NumKind.Int64:
+                        _valueStack.Push(Value.FromLong(hotPair.Int64Left + hotPair.Int64Right));
+                        return StepResult.Next;
+                    case NumKind.Double:
+                        _valueStack.Push(Value.FromDouble(hotPair.DoubleLeft + hotPair.DoubleRight));
+                        return StepResult.Next;
+                }
+            }
+
+            if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
+            {
+                Value res = K switch
+                {
+                    NumKind.Decimal => Value.FromRef((decimal)A.Reference! + (decimal)B.Reference!),
+                    NumKind.Double => Value.FromDouble(A.AsDouble + B.AsDouble),
+                    NumKind.UInt64 => Value.FromRef((ulong)A.Reference! + (ulong)B.Reference!),
+                    NumKind.Int64 => Value.FromLong(A.AsLong + B.AsLong),
+                    NumKind.Maximal => Value.FromRef((BigInteger)A.Reference! + (BigInteger)B.Reference!),
+                    _ => Value.FromInt(A.AsInt + B.AsInt),
                 };
-                _stack.Push(res);
+                _valueStack.Push(res);
                 return StepResult.Next;
             }
 
-            if (l is null || r is null)
+            if (leftValue.IsNull || rightValue.IsNull)
             {
-                if (l is string || r is string)
-                    _stack.Push((l as string ?? "") + (r as string ?? ""));
+                if (TryGetStringReference(leftValue, out _) || TryGetStringReference(rightValue, out _))
+                    _valueStack.Push(Value.FromObject(FormatDefaultConcatOperand(leftValue) + FormatDefaultConcatOperand(rightValue)));
                 else
-                    _stack.Push(null!);
+                    _valueStack.Push(Value.Null);
                 return StepResult.Next;
             }
 
-            if (l is List<object> || r is List<object> ||
-                l is Dictionary<string, object> || r is Dictionary<string, object>)
+            if (IsCollectionReference(leftValue) || IsCollectionReference(rightValue))
             {
-                string ls;
-                string rs;
-                using (StringWriter lw = new()) { PrintValue(l, lw); ls = lw.ToString(); }
-                using (StringWriter rw = new()) { PrintValue(r, rw); rs = rw.ToString(); }
-                _stack.Push(ls + rs);
+                _valueStack.Push(Value.FromObject(FormatPrintedConcatOperand(leftValue) + FormatPrintedConcatOperand(rightValue)));
                 return StepResult.Next;
             }
 
-            _stack.Push(l.ToString() + r.ToString());
+            _valueStack.Push(Value.FromObject(FormatDefaultConcatOperand(leftValue) + FormatDefaultConcatOperand(rightValue)));
             return StepResult.Next;
         }
 
         private StepResult HandleSubInstruction(Instruction instr)
         {
             RequireStack(2, instr, "SUB");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null)
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+
+            if (TryCoerceHotNumericPair(leftValue, rightValue, out HotNumericPair hotPair))
             {
-                _stack.Push(null!);
+                switch (hotPair.Kind)
+                {
+                    case NumKind.Int32:
+                        _valueStack.Push(Value.FromInt(hotPair.Int32Left - hotPair.Int32Right));
+                        return StepResult.Next;
+                    case NumKind.Int64:
+                        _valueStack.Push(Value.FromLong(hotPair.Int64Left - hotPair.Int64Right));
+                        return StepResult.Next;
+                    case NumKind.Double:
+                        _valueStack.Push(Value.FromDouble(hotPair.DoubleLeft - hotPair.DoubleRight));
+                        return StepResult.Next;
+                }
+            }
+
+            if (leftValue.IsNull || rightValue.IsNull)
+            {
+                _valueStack.Push(Value.Null);
                 return StepResult.Next;
             }
 
-            if (!IsNumber(l) || !IsNumber(r))
+            if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
                 throw new VMException("SUB on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            (object A, object B, NumKind K) = CoercePair(l, r);
-            object res = K switch
+            Value res = K switch
             {
-                NumKind.Decimal => (object)((decimal)A - (decimal)B),
-                NumKind.Double => (double)A - (double)B,
-                NumKind.UInt64 => (ulong)A - (ulong)B,
-                NumKind.Int64 => (long)A - (long)B,
-                NumKind.Maximal => (BigInteger)A - (BigInteger)B,
-                _ => (int)A - (int)B,
+                NumKind.Decimal => Value.FromRef((decimal)A.Reference! - (decimal)B.Reference!),
+                NumKind.Double => Value.FromDouble(A.AsDouble - B.AsDouble),
+                NumKind.UInt64 => Value.FromRef((ulong)A.Reference! - (ulong)B.Reference!),
+                NumKind.Int64 => Value.FromLong(A.AsLong - B.AsLong),
+                NumKind.Maximal => Value.FromRef((BigInteger)A.Reference! - (BigInteger)B.Reference!),
+                _ => Value.FromInt(A.AsInt - B.AsInt),
             };
-            _stack.Push(res);
+            _valueStack.Push(res);
             return StepResult.Next;
         }
 
         private StepResult HandleMulInstruction(Instruction instr)
         {
             RequireStack(2, instr, "MUL");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
 
-            if (l is null || r is null)
+            if (TryCoerceHotNumericPair(leftValue, rightValue, out HotNumericPair hotPair))
             {
-                _stack.Push(null!);
-                return StepResult.Next;
-            }
-
-            if (IsNumber(l) && IsNumber(r))
-            {
-                (object A, object B, NumKind K) = CoercePair(l, r);
-                object res = K switch
+                switch (hotPair.Kind)
                 {
-                    NumKind.Decimal => (object)((decimal)A * (decimal)B),
-                    NumKind.Double => (double)A * (double)B,
-                    NumKind.UInt64 => (ulong)A * (ulong)B,
-                    NumKind.Int64 => (long)A * (long)B,
-                    NumKind.Maximal => (BigInteger)A * (BigInteger)B,
-                    _ => (int)A * (int)B,
+                    case NumKind.Int32:
+                        _valueStack.Push(Value.FromInt(hotPair.Int32Left * hotPair.Int32Right));
+                        return StepResult.Next;
+                    case NumKind.Int64:
+                        _valueStack.Push(Value.FromLong(hotPair.Int64Left * hotPair.Int64Right));
+                        return StepResult.Next;
+                    case NumKind.Double:
+                        _valueStack.Push(Value.FromDouble(hotPair.DoubleLeft * hotPair.DoubleRight));
+                        return StepResult.Next;
+                }
+            }
+
+            if (leftValue.IsNull || rightValue.IsNull)
+            {
+                _valueStack.Push(Value.Null);
+                return StepResult.Next;
+            }
+
+            if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
+            {
+                Value res = K switch
+                {
+                    NumKind.Decimal => Value.FromRef((decimal)A.Reference! * (decimal)B.Reference!),
+                    NumKind.Double => Value.FromDouble(A.AsDouble * B.AsDouble),
+                    NumKind.UInt64 => Value.FromRef((ulong)A.Reference! * (ulong)B.Reference!),
+                    NumKind.Int64 => Value.FromLong(A.AsLong * B.AsLong),
+                    NumKind.Maximal => Value.FromRef((BigInteger)A.Reference! * (BigInteger)B.Reference!),
+                    _ => Value.FromInt(A.AsInt * B.AsInt),
                 };
-                _stack.Push(res);
+                _valueStack.Push(res);
                 return StepResult.Next;
             }
 
-            if (l is string && IsNumber(r))
+            if (TryGetStringReference(leftValue, out string? leftString) && TryGetFallbackNumericValue(rightValue, out Value repeatRight))
             {
-                _stack.Push(string.Concat(Enumerable.Repeat(l as string ?? "", checked((int)ToInt32ForRepeat(r)))));
+                _valueStack.Push(Value.FromObject(string.Concat(Enumerable.Repeat(leftString ?? string.Empty, ToInt32ForRepeat(repeatRight)))));
                 return StepResult.Next;
             }
 
-            if (r is string && IsNumber(l))
+            if (TryGetStringReference(rightValue, out string? rightString) && TryGetFallbackNumericValue(leftValue, out Value repeatLeft))
             {
-                _stack.Push(string.Concat(Enumerable.Repeat(r as string ?? "", checked((int)ToInt32ForRepeat(l)))));
+                _valueStack.Push(Value.FromObject(string.Concat(Enumerable.Repeat(rightString ?? string.Empty, ToInt32ForRepeat(repeatLeft)))));
                 return StepResult.Next;
             }
 
@@ -386,254 +880,386 @@ namespace CFGS_VM.VMCore
         private StepResult HandleModInstruction(Instruction instr)
         {
             RequireStack(2, instr, "MOD");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null)
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+
+            if (TryCoerceHotNumericPair(leftValue, rightValue, out HotNumericPair hotPair))
             {
-                _stack.Push(null!);
+                switch (hotPair.Kind)
+                {
+                    case NumKind.Int32:
+                        if (hotPair.Int32Right == 0)
+                            throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        _valueStack.Push(Value.FromInt(hotPair.Int32Left % hotPair.Int32Right));
+                        return StepResult.Next;
+                    case NumKind.Int64:
+                        if (hotPair.Int64Right == 0L)
+                            throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        _valueStack.Push(Value.FromLong(hotPair.Int64Left % hotPair.Int64Right));
+                        return StepResult.Next;
+                    case NumKind.Double:
+                        if (hotPair.DoubleRight == 0.0)
+                            throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        _valueStack.Push(Value.FromDouble(hotPair.DoubleLeft % hotPair.DoubleRight));
+                        return StepResult.Next;
+                }
+            }
+
+            if (leftValue.IsNull || rightValue.IsNull)
+            {
+                _valueStack.Push(Value.Null);
                 return StepResult.Next;
             }
 
-            if (!IsNumber(l) || !IsNumber(r))
+            if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
                 throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            (object A, object B, NumKind K) = CoercePair(l, r);
             bool isZero = K switch
             {
-                NumKind.Int32 => (int)B == 0,
-                NumKind.Int64 => (long)B == 0L,
-                NumKind.UInt64 => (ulong)B == 0UL,
-                NumKind.Decimal => (decimal)B == 0m,
-                NumKind.Double => (double)B == 0.0,
-                NumKind.Maximal => ((BigInteger)B).IsZero,
+                NumKind.Int32 => B.AsInt == 0,
+                NumKind.Int64 => B.AsLong == 0L,
+                NumKind.UInt64 => (ulong)B.Reference! == 0UL,
+                NumKind.Decimal => (decimal)B.Reference! == 0m,
+                NumKind.Double => B.AsDouble == 0.0,
+                NumKind.Maximal => ((BigInteger)B.Reference!).IsZero,
                 _ => false
             };
             if (isZero)
                 throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            object res = K switch
+            Value res = K switch
             {
-                NumKind.Decimal => (object)((decimal)A % (decimal)B),
-                NumKind.Double => (double)A % (double)B,
-                NumKind.UInt64 => (ulong)A % (ulong)B,
-                NumKind.Int64 => (long)A % (long)B,
-                NumKind.Maximal => (BigInteger)A % (BigInteger)B,
-                _ => (int)A % (int)B,
+                NumKind.Decimal => Value.FromRef((decimal)A.Reference! % (decimal)B.Reference!),
+                NumKind.Double => Value.FromDouble(A.AsDouble % B.AsDouble),
+                NumKind.UInt64 => Value.FromRef((ulong)A.Reference! % (ulong)B.Reference!),
+                NumKind.Int64 => Value.FromLong(A.AsLong % B.AsLong),
+                NumKind.Maximal => Value.FromRef((BigInteger)A.Reference! % (BigInteger)B.Reference!),
+                _ => Value.FromInt(A.AsInt % B.AsInt),
             };
-            _stack.Push(res);
+            _valueStack.Push(res);
             return StepResult.Next;
         }
 
         private StepResult HandleDivInstruction(Instruction instr)
         {
             RequireStack(2, instr, "DIV");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null)
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+
+            if (TryCoerceHotNumericPair(leftValue, rightValue, out HotNumericPair hotPair))
             {
-                _stack.Push(null!);
+                switch (hotPair.Kind)
+                {
+                    case NumKind.Int32:
+                        if (hotPair.Int32Right == 0)
+                            throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        _valueStack.Push(Value.FromInt(hotPair.Int32Left / hotPair.Int32Right));
+                        return StepResult.Next;
+                    case NumKind.Int64:
+                        if (hotPair.Int64Right == 0L)
+                            throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        _valueStack.Push(Value.FromLong(hotPair.Int64Left / hotPair.Int64Right));
+                        return StepResult.Next;
+                    case NumKind.Double:
+                        if (hotPair.DoubleRight == 0.0)
+                            throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        _valueStack.Push(Value.FromDouble(hotPair.DoubleLeft / hotPair.DoubleRight));
+                        return StepResult.Next;
+                }
+            }
+
+            if (leftValue.IsNull || rightValue.IsNull)
+            {
+                _valueStack.Push(Value.Null);
                 return StepResult.Next;
             }
 
-            if (!IsNumber(l) || !IsNumber(r))
-                throw new VMException($"Runtime error: cannot DIV {l?.GetType()} and {r?.GetType()}",
+            if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
+                throw new VMException(
+                    $"Runtime error: cannot DIV {(leftValue.Kind == ValueKind.Ref ? leftValue.Reference?.GetType() : leftValue.Kind)} and {(rightValue.Kind == ValueKind.Ref ? rightValue.Reference?.GetType() : rightValue.Kind)}",
                     instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            (object A, object B, NumKind K) = CoercePair(l, r);
             bool isZero = K switch
             {
-                NumKind.Int32 => (int)B == 0,
-                NumKind.Int64 => (long)B == 0L,
-                NumKind.UInt64 => (ulong)B == 0UL,
-                NumKind.Decimal => (decimal)B == 0m,
-                NumKind.Double => (double)B == 0.0,
-                NumKind.Maximal => ((BigInteger)B).IsZero,
+                NumKind.Int32 => B.AsInt == 0,
+                NumKind.Int64 => B.AsLong == 0L,
+                NumKind.UInt64 => (ulong)B.Reference! == 0UL,
+                NumKind.Decimal => (decimal)B.Reference! == 0m,
+                NumKind.Double => B.AsDouble == 0.0,
+                NumKind.Maximal => ((BigInteger)B.Reference!).IsZero,
                 _ => false
             };
             if (isZero)
                 throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            object res = K switch
+            Value res = K switch
             {
-                NumKind.Decimal => (object)((decimal)A / (decimal)B),
-                NumKind.Double => (double)A / (double)B,
-                NumKind.UInt64 => (ulong)A / (ulong)B,
-                NumKind.Int64 => (long)A / (long)B,
-                NumKind.Maximal => (BigInteger)A / (BigInteger)B,
-                _ => (int)A / (int)B,
+                NumKind.Decimal => Value.FromRef((decimal)A.Reference! / (decimal)B.Reference!),
+                NumKind.Double => Value.FromDouble(A.AsDouble / B.AsDouble),
+                NumKind.UInt64 => Value.FromRef((ulong)A.Reference! / (ulong)B.Reference!),
+                NumKind.Int64 => Value.FromLong(A.AsLong / B.AsLong),
+                NumKind.Maximal => Value.FromRef((BigInteger)A.Reference! / (BigInteger)B.Reference!),
+                _ => Value.FromInt(A.AsInt / B.AsInt),
             };
-            _stack.Push(res);
+            _valueStack.Push(res);
             return StepResult.Next;
         }
 
         private StepResult HandleExpoInstruction(Instruction instr)
         {
             RequireStack(2, instr, "EXPO");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null)
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+
+            if (TryCoerceHotNumericPair(leftValue, rightValue, out HotNumericPair hotPair))
             {
-                _stack.Push(null!);
+                switch (hotPair.Kind)
+                {
+                    case NumKind.Double:
+                        _valueStack.Push(Value.FromDouble(Math.Pow(hotPair.DoubleLeft, hotPair.DoubleRight)));
+                        return StepResult.Next;
+                    case NumKind.Int64:
+                        _valueStack.Push(IntegerExpo(hotPair.Int64Left, hotPair.Int64Right, instr));
+                        return StepResult.Next;
+                    case NumKind.Int32:
+                        _valueStack.Push(IntegerExpo(hotPair.Int32Left, hotPair.Int32Right, instr));
+                        return StepResult.Next;
+                }
+            }
+
+            if (leftValue.IsNull || rightValue.IsNull)
+            {
+                _valueStack.Push(Value.Null);
                 return StepResult.Next;
             }
 
-            if (!IsNumber(l) || !IsNumber(r))
+            if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
                 throw new VMException("EXPO on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            (object A, object B, NumKind K) = CoercePair(l, r);
-            object res = K switch
+            Value res = K switch
             {
-                NumKind.Decimal => DecimalPow((decimal)A, (decimal)B, instr),
-                NumKind.Double => Math.Pow((double)A, (double)B),
-                NumKind.UInt64 => IntegerExpo((ulong)A, (ulong)B, instr),
-                NumKind.Int64 => IntegerExpo((long)A, (long)B, instr),
-                NumKind.Maximal => PowBigIntegerOrThrow((BigInteger)A, (BigInteger)B, instr),
-                _ => IntegerExpo((int)A, (int)B, instr),
+                NumKind.Decimal => DecimalPow((decimal)A.Reference!, (decimal)B.Reference!, instr),
+                NumKind.Double => Value.FromDouble(Math.Pow(A.AsDouble, B.AsDouble)),
+                NumKind.UInt64 => IntegerExpo((ulong)A.Reference!, (ulong)B.Reference!, instr),
+                NumKind.Int64 => IntegerExpo(A.AsLong, B.AsLong, instr),
+                NumKind.Maximal => PowBigIntegerOrThrow((BigInteger)A.Reference!, (BigInteger)B.Reference!, instr),
+                _ => IntegerExpo(A.AsInt, B.AsInt, instr),
             };
-            _stack.Push(res);
+            _valueStack.Push(res);
             return StepResult.Next;
         }
 
         private StepResult HandleBitAndInstruction(Instruction instr)
         {
             RequireStack(2, instr, "BIT_AND");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null) { _stack.Push(null!); return StepResult.Next; }
-            r = r is char ? CharToNumeric(r) : r;
-            l = l is char ? CharToNumeric(l) : l;
-            if (!(IsIntegralLike(l) && IsIntegralLike(r)))
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+
+            if (TryCoerceHotIntegralPair(leftValue, rightValue, out HotNumericPair hotPair))
+            {
+                if (hotPair.Kind == NumKind.Int64)
+                    _valueStack.Push(Value.FromLong(hotPair.Int64Left & hotPair.Int64Right));
+                else
+                    _valueStack.Push(Value.FromInt(hotPair.Int32Left & hotPair.Int32Right));
+                return StepResult.Next;
+            }
+
+            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (!TryCoerceFallbackIntegralPair(leftValue, rightValue, out Value l, out Value r, out NumKind kind))
                 throw new VMException("BIT_AND requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            if (l is BigInteger || r is BigInteger) _stack.Push(ToBigInt(l) & ToBigInt(r));
-            else if (l is long or ulong || r is long or ulong) _stack.Push(Convert.ToInt64(l) & Convert.ToInt64(r));
-            else _stack.Push(Convert.ToInt32(l) & Convert.ToInt32(r));
+            Value result = kind switch
+            {
+                NumKind.Maximal => Value.FromRef((BigInteger)l.Reference! & (BigInteger)r.Reference!),
+                NumKind.UInt64 => Value.FromRef((ulong)l.Reference! & (ulong)r.Reference!),
+                NumKind.Int64 => Value.FromLong(l.AsLong & r.AsLong),
+                _ => Value.FromInt(l.AsInt & r.AsInt)
+            };
+            _valueStack.Push(result);
             return StepResult.Next;
         }
 
         private StepResult HandleBitOrInstruction(Instruction instr)
         {
             RequireStack(2, instr, "BIT_OR");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null) { _stack.Push(null!); return StepResult.Next; }
-            r = r is char ? CharToNumeric(r) : r;
-            l = l is char ? CharToNumeric(l) : l;
-            if (!(IsIntegralLike(l) && IsIntegralLike(r)))
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+
+            if (TryCoerceHotIntegralPair(leftValue, rightValue, out HotNumericPair hotPair))
+            {
+                if (hotPair.Kind == NumKind.Int64)
+                    _valueStack.Push(Value.FromLong(hotPair.Int64Left | hotPair.Int64Right));
+                else
+                    _valueStack.Push(Value.FromInt(hotPair.Int32Left | hotPair.Int32Right));
+                return StepResult.Next;
+            }
+
+            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (!TryCoerceFallbackIntegralPair(leftValue, rightValue, out Value l, out Value r, out NumKind kind))
                 throw new VMException("BIT_OR requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            if (l is BigInteger || r is BigInteger) _stack.Push(ToBigInt(l) | ToBigInt(r));
-            else if (l is long or ulong || r is long or ulong) _stack.Push(Convert.ToInt64(l) | Convert.ToInt64(r));
-            else _stack.Push(Convert.ToInt32(l) | Convert.ToInt32(r));
+            Value result = kind switch
+            {
+                NumKind.Maximal => Value.FromRef((BigInteger)l.Reference! | (BigInteger)r.Reference!),
+                NumKind.UInt64 => Value.FromRef((ulong)l.Reference! | (ulong)r.Reference!),
+                NumKind.Int64 => Value.FromLong(l.AsLong | r.AsLong),
+                _ => Value.FromInt(l.AsInt | r.AsInt)
+            };
+            _valueStack.Push(result);
             return StepResult.Next;
         }
 
         private StepResult HandleBitXorInstruction(Instruction instr)
         {
             RequireStack(2, instr, "BIT_XOR");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null) { _stack.Push(null!); return StepResult.Next; }
-            r = r is char ? CharToNumeric(r) : r;
-            l = l is char ? CharToNumeric(l) : l;
-            if (!(IsIntegralLike(l) && IsIntegralLike(r)))
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+
+            if (TryCoerceHotIntegralPair(leftValue, rightValue, out HotNumericPair hotPair))
+            {
+                if (hotPair.Kind == NumKind.Int64)
+                    _valueStack.Push(Value.FromLong(hotPair.Int64Left ^ hotPair.Int64Right));
+                else
+                    _valueStack.Push(Value.FromInt(hotPair.Int32Left ^ hotPair.Int32Right));
+                return StepResult.Next;
+            }
+
+            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (!TryCoerceFallbackIntegralPair(leftValue, rightValue, out Value l, out Value r, out NumKind kind))
                 throw new VMException("BIT_XOR requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            if (l is BigInteger || r is BigInteger) _stack.Push(ToBigInt(l) ^ ToBigInt(r));
-            else if (l is long or ulong || r is long or ulong) _stack.Push(Convert.ToInt64(l) ^ Convert.ToInt64(r));
-            else _stack.Push(Convert.ToInt32(l) ^ Convert.ToInt32(r));
+            Value result = kind switch
+            {
+                NumKind.Maximal => Value.FromRef((BigInteger)l.Reference! ^ (BigInteger)r.Reference!),
+                NumKind.UInt64 => Value.FromRef((ulong)l.Reference! ^ (ulong)r.Reference!),
+                NumKind.Int64 => Value.FromLong(l.AsLong ^ r.AsLong),
+                _ => Value.FromInt(l.AsInt ^ r.AsInt)
+            };
+            _valueStack.Push(result);
             return StepResult.Next;
         }
 
         private StepResult HandleShiftLeftInstruction(Instruction instr)
         {
             RequireStack(2, instr, "SHL");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null) { _stack.Push(null!); return StepResult.Next; }
-            r = r is char ? CharToNumeric(r) : r;
-            l = l is char ? CharToNumeric(l) : l;
-            if (!(IsIntegralLike(l) && IsNumber(r)))
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+
+            if (TryGetHotShiftCount(rightValue, out int hotShift) &&
+                hotShift >= 0 &&
+                (leftValue.Kind == ValueKind.Int || leftValue.Kind == ValueKind.Long || leftValue.Kind == ValueKind.Char))
+            {
+                if (leftValue.Kind == ValueKind.Long)
+                    _valueStack.Push(Value.FromLong(leftValue.AsLong << (hotShift & 0x3F)));
+                else
+                    _valueStack.Push(Value.FromInt((leftValue.Kind == ValueKind.Int ? leftValue.AsInt : CharToNumeric(leftValue.AsChar)) << (hotShift & 0x1F)));
+                return StepResult.Next;
+            }
+
+            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (!(TryGetFallbackIntegralValue(leftValue, out Value l) && TryGetFallbackNumericValue(rightValue, out Value r)))
                 throw new VMException("SHL requires (integral) << int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            int sh = r is BigInteger rbi ? (int)rbi : Convert.ToInt32(r);
+            int sh = ToInt32Invariant(r);
             if (sh < 0)
                 throw new VMException("SHL requires a non-negative shift count", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            if (l is BigInteger lb) _stack.Push(lb << sh);
-            else if (l is long or ulong) _stack.Push(Convert.ToInt64(l) << (sh & 0x3F));
-            else _stack.Push(Convert.ToInt32(l) << (sh & 0x1F));
+            if (l.Kind == ValueKind.Ref && l.Reference is BigInteger lb) _valueStack.Push(Value.FromRef(lb << sh));
+            else if (l.Kind == ValueKind.Long || (l.Kind == ValueKind.Ref && l.Reference is ulong)) _valueStack.Push(Value.FromLong(ToInt64Invariant(l) << (sh & 0x3F)));
+            else _valueStack.Push(Value.FromInt(ToInt32Invariant(l) << (sh & 0x1F)));
             return StepResult.Next;
         }
 
         private StepResult HandleShiftRightInstruction(Instruction instr)
         {
             RequireStack(2, instr, "SHR");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null) { _stack.Push(null!); return StepResult.Next; }
-            r = r is char ? CharToNumeric(r) : r;
-            l = l is char ? CharToNumeric(l) : l;
-            if (!(IsIntegralLike(l) && IsNumber(r)))
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+
+            if (TryGetHotShiftCount(rightValue, out int hotShift) &&
+                hotShift >= 0 &&
+                (leftValue.Kind == ValueKind.Int || leftValue.Kind == ValueKind.Long || leftValue.Kind == ValueKind.Char))
+            {
+                if (leftValue.Kind == ValueKind.Long)
+                    _valueStack.Push(Value.FromLong(leftValue.AsLong >> (hotShift & 0x3F)));
+                else
+                    _valueStack.Push(Value.FromInt((leftValue.Kind == ValueKind.Int ? leftValue.AsInt : CharToNumeric(leftValue.AsChar)) >> (hotShift & 0x1F)));
+                return StepResult.Next;
+            }
+
+            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (!(TryGetFallbackIntegralValue(leftValue, out Value l) && TryGetFallbackNumericValue(rightValue, out Value r)))
                 throw new VMException("SHR requires (integral) >> int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            int sh = r is BigInteger rbi ? (int)rbi : Convert.ToInt32(r);
+            int sh = ToInt32Invariant(r);
             if (sh < 0)
                 throw new VMException("SHR requires a non-negative shift count", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            if (l is BigInteger lb) _stack.Push(lb >> sh);
-            else if (l is long or ulong) _stack.Push(Convert.ToInt64(l) >> (sh & 0x3F));
-            else _stack.Push(Convert.ToInt32(l) >> (sh & 0x1F));
+            if (l.Kind == ValueKind.Ref && l.Reference is BigInteger lb) _valueStack.Push(Value.FromRef(lb >> sh));
+            else if (l.Kind == ValueKind.Long || (l.Kind == ValueKind.Ref && l.Reference is ulong)) _valueStack.Push(Value.FromLong(ToInt64Invariant(l) >> (sh & 0x3F)));
+            else _valueStack.Push(Value.FromInt(ToInt32Invariant(l) >> (sh & 0x1F)));
             return StepResult.Next;
         }
 
-        /// <summary>
-        /// Numeric-aware equality. Numbers are compared through the same promotion path as the
-        /// relational operators (so large BigIntegerValues, large doubles and NaN are handled
-        /// without overflowing into a decimal). Strings use ordinal comparison; everything else
-        /// falls back to <see cref="object.Equals(object, object)"/>.
-        /// </summary>
-        private static bool NumericOrValueEquals(object l, object r)
+        private static bool NumericOrValueEquals(Value left, Value right)
         {
-            if (IsNumber(l) && IsNumber(r))
+            if (TryCoerceHotNumericPair(left, right, out HotNumericPair hotPair))
             {
-                (object A, object B, NumKind K) = CoercePair(l, r);
-                return K switch
+                return hotPair.Kind switch
                 {
-                    NumKind.Decimal => (decimal)A == (decimal)B,
-                    NumKind.Double => (double)A == (double)B,
-                    NumKind.UInt64 => (ulong)A == (ulong)B,
-                    NumKind.Int64 => (long)A == (long)B,
-                    NumKind.Maximal => (BigInteger)A == (BigInteger)B,
-                    _ => (int)A == (int)B,
+                    NumKind.Int64 => hotPair.Int64Left == hotPair.Int64Right,
+                    NumKind.Double => hotPair.DoubleLeft == hotPair.DoubleRight,
+                    _ => hotPair.Int32Left == hotPair.Int32Right,
                 };
             }
 
-            if (l is string ls && r is string rs)
-                return string.Equals(ls, rs, StringComparison.Ordinal);
+            if (left.Kind != ValueKind.Ref && right.Kind != ValueKind.Ref)
+                return left.Equals(right);
 
-            return Equals(l, r);
+            if (TryCoerceFallbackNumericPair(left, right, out Value A, out Value B, out NumKind K))
+            {
+                return K switch
+                {
+                    NumKind.Decimal => (decimal)A.Reference! == (decimal)B.Reference!,
+                    NumKind.Double => A.AsDouble == B.AsDouble,
+                    NumKind.UInt64 => (ulong)A.Reference! == (ulong)B.Reference!,
+                    NumKind.Int64 => A.AsLong == B.AsLong,
+                    NumKind.Maximal => (BigInteger)A.Reference! == (BigInteger)B.Reference!,
+                    _ => A.AsInt == B.AsInt,
+                };
+            }
+
+            if (left.Kind == ValueKind.Ref && right.Kind == ValueKind.Ref)
+            {
+                object? l = left.Reference;
+                object? r = right.Reference;
+                if (l is string ls && r is string rs)
+                    return string.Equals(ls, rs, StringComparison.Ordinal);
+                return Equals(l, r);
+            }
+
+            return false;
         }
 
         private StepResult HandleEqualInstruction(Instruction instr)
         {
             RequireStack(2, instr, "EQ");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            _stack.Push(NumericOrValueEquals(l, r));
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+            _valueStack.Push(Value.FromBool(NumericOrValueEquals(leftValue, rightValue)));
             return StepResult.Next;
         }
 
         private StepResult HandleNotEqualInstruction(Instruction instr)
         {
             RequireStack(2, instr, "NEQ");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            _stack.Push(!NumericOrValueEquals(l, r));
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+            _valueStack.Push(Value.FromBool(!NumericOrValueEquals(leftValue, rightValue)));
             return StepResult.Next;
         }
 
         private StepResult HandleIsTypeInstruction(Instruction instr)
         {
             RequireStack(2, instr, "IS_TYPE");
-            object? right = _stack.Pop();
-            object? left = _stack.Pop();
-            if (left is not ClassInstance ci || right is not StaticInstance target)
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+            if (leftValue.Reference is not ClassInstance ci || rightValue.Reference is not StaticInstance target)
             {
-                _stack.Push(false);
+                _valueStack.Push(Value.FromBool(false));
                 return StepResult.Next;
             }
 
@@ -644,158 +1270,235 @@ namespace CFGS_VM.VMCore
                     ? ImplementsInterface(instType, target) || StructurallyImplementsInterface(ci, instType, target)
                     : IsSameOrDerivedStaticType(instType, target);
             }
-            _stack.Push(found);
+            _valueStack.Push(Value.FromBool(found));
             return StepResult.Next;
         }
 
         private StepResult HandleLessThanInstruction(Instruction instr)
         {
             RequireStack(2, instr, "LT");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null) { _stack.Push(null!); return StepResult.Next; }
-            if (IsNumber(l) && IsNumber(r))
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+            if (TryCoerceHotNumericPair(leftValue, rightValue, out HotNumericPair hotPair))
             {
-                (object A, object B, NumKind K) = CoercePair(l, r);
-                _stack.Push(K switch
+                bool comparison = hotPair.Kind switch
                 {
-                    NumKind.Decimal => (decimal)A < (decimal)B,
-                    NumKind.Double => (double)A < (double)B,
-                    NumKind.UInt64 => (ulong)A < (ulong)B,
-                    NumKind.Int64 => (long)A < (long)B,
-                    NumKind.Maximal => (BigInteger)A < (BigInteger)B,
-                    _ => (int)A < (int)B,
-                });
+                    NumKind.Int64 => hotPair.Int64Left < hotPair.Int64Right,
+                    NumKind.Double => hotPair.DoubleLeft < hotPair.DoubleRight,
+                    _ => hotPair.Int32Left < hotPair.Int32Right,
+                };
+                _valueStack.Push(Value.FromBool(comparison));
                 return StepResult.Next;
             }
-            if (l is string ls && r is string rs) { _stack.Push(string.CompareOrdinal(ls, rs) < 0); return StepResult.Next; }
+
+            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
+            {
+                _valueStack.Push(Value.FromBool(K switch
+                {
+                    NumKind.Decimal => (decimal)A.Reference! < (decimal)B.Reference!,
+                    NumKind.Double => A.AsDouble < B.AsDouble,
+                    NumKind.UInt64 => (ulong)A.Reference! < (ulong)B.Reference!,
+                    NumKind.Int64 => A.AsLong < B.AsLong,
+                    NumKind.Maximal => (BigInteger)A.Reference! < (BigInteger)B.Reference!,
+                    _ => A.AsInt < B.AsInt,
+                }));
+                return StepResult.Next;
+            }
+            if (TryGetStringReference(leftValue, out string? ls) && TryGetStringReference(rightValue, out string? rs)) { _valueStack.Push(Value.FromBool(string.CompareOrdinal(ls, rs) < 0)); return StepResult.Next; }
             throw new VMException("Runtime error: LT on non-comparable types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
         private StepResult HandleGreaterThanInstruction(Instruction instr)
         {
             RequireStack(2, instr, "GT");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null) { _stack.Push(null!); return StepResult.Next; }
-            if (IsNumber(l) && IsNumber(r))
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+            if (TryCoerceHotNumericPair(leftValue, rightValue, out HotNumericPair hotPair))
             {
-                (object A, object B, NumKind K) = CoercePair(l, r);
-                _stack.Push(K switch
+                bool comparison = hotPair.Kind switch
                 {
-                    NumKind.Decimal => (decimal)A > (decimal)B,
-                    NumKind.Double => (double)A > (double)B,
-                    NumKind.UInt64 => (ulong)A > (ulong)B,
-                    NumKind.Int64 => (long)A > (long)B,
-                    NumKind.Maximal => (BigInteger)A > (BigInteger)B,
-                    _ => (int)A > (int)B,
-                });
+                    NumKind.Int64 => hotPair.Int64Left > hotPair.Int64Right,
+                    NumKind.Double => hotPair.DoubleLeft > hotPair.DoubleRight,
+                    _ => hotPair.Int32Left > hotPair.Int32Right,
+                };
+                _valueStack.Push(Value.FromBool(comparison));
                 return StepResult.Next;
             }
-            if (l is string ls && r is string rs) { _stack.Push(string.CompareOrdinal(ls, rs) > 0); return StepResult.Next; }
+
+            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
+            {
+                _valueStack.Push(Value.FromBool(K switch
+                {
+                    NumKind.Decimal => (decimal)A.Reference! > (decimal)B.Reference!,
+                    NumKind.Double => A.AsDouble > B.AsDouble,
+                    NumKind.UInt64 => (ulong)A.Reference! > (ulong)B.Reference!,
+                    NumKind.Int64 => A.AsLong > B.AsLong,
+                    NumKind.Maximal => (BigInteger)A.Reference! > (BigInteger)B.Reference!,
+                    _ => A.AsInt > B.AsInt,
+                }));
+                return StepResult.Next;
+            }
+            if (TryGetStringReference(leftValue, out string? ls) && TryGetStringReference(rightValue, out string? rs)) { _valueStack.Push(Value.FromBool(string.CompareOrdinal(ls, rs) > 0)); return StepResult.Next; }
             throw new VMException("Runtime error: GT on non-comparable types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
         private StepResult HandleLessThanOrEqualInstruction(Instruction instr)
         {
             RequireStack(2, instr, "LE");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null) { _stack.Push(null!); return StepResult.Next; }
-            if (IsNumber(l) && IsNumber(r))
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+            if (TryCoerceHotNumericPair(leftValue, rightValue, out HotNumericPair hotPair))
             {
-                (object A, object B, NumKind K) = CoercePair(l, r);
-                _stack.Push(K switch
+                bool comparison = hotPair.Kind switch
                 {
-                    NumKind.Decimal => (decimal)A <= (decimal)B,
-                    NumKind.Double => (double)A <= (double)B,
-                    NumKind.UInt64 => (ulong)A <= (ulong)B,
-                    NumKind.Int64 => (long)A <= (long)B,
-                    NumKind.Maximal => (BigInteger)A <= (BigInteger)B,
-                    _ => (int)A <= (int)B,
-                });
+                    NumKind.Int64 => hotPair.Int64Left <= hotPair.Int64Right,
+                    NumKind.Double => hotPair.DoubleLeft <= hotPair.DoubleRight,
+                    _ => hotPair.Int32Left <= hotPair.Int32Right,
+                };
+                _valueStack.Push(Value.FromBool(comparison));
                 return StepResult.Next;
             }
-            if (l is string ls && r is string rs) { _stack.Push(string.CompareOrdinal(ls, rs) <= 0); return StepResult.Next; }
+
+            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
+            {
+                _valueStack.Push(Value.FromBool(K switch
+                {
+                    NumKind.Decimal => (decimal)A.Reference! <= (decimal)B.Reference!,
+                    NumKind.Double => A.AsDouble <= B.AsDouble,
+                    NumKind.UInt64 => (ulong)A.Reference! <= (ulong)B.Reference!,
+                    NumKind.Int64 => A.AsLong <= B.AsLong,
+                    NumKind.Maximal => (BigInteger)A.Reference! <= (BigInteger)B.Reference!,
+                    _ => A.AsInt <= B.AsInt,
+                }));
+                return StepResult.Next;
+            }
+            if (TryGetStringReference(leftValue, out string? ls) && TryGetStringReference(rightValue, out string? rs)) { _valueStack.Push(Value.FromBool(string.CompareOrdinal(ls, rs) <= 0)); return StepResult.Next; }
             throw new VMException("Runtime error: LE on non-comparable types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
         private StepResult HandleGreaterThanOrEqualInstruction(Instruction instr)
         {
             RequireStack(2, instr, "GE");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            if (l is null || r is null) { _stack.Push(null!); return StepResult.Next; }
-            if (IsNumber(l) && IsNumber(r))
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+            if (TryCoerceHotNumericPair(leftValue, rightValue, out HotNumericPair hotPair))
             {
-                (object A, object B, NumKind K) = CoercePair(l, r);
-                _stack.Push(K switch
+                bool comparison = hotPair.Kind switch
                 {
-                    NumKind.Decimal => (decimal)A >= (decimal)B,
-                    NumKind.Double => (double)A >= (double)B,
-                    NumKind.UInt64 => (ulong)A >= (ulong)B,
-                    NumKind.Int64 => (long)A >= (long)B,
-                    NumKind.Maximal => (BigInteger)A >= (BigInteger)B,
-                    _ => (int)A >= (int)B,
-                });
+                    NumKind.Int64 => hotPair.Int64Left >= hotPair.Int64Right,
+                    NumKind.Double => hotPair.DoubleLeft >= hotPair.DoubleRight,
+                    _ => hotPair.Int32Left >= hotPair.Int32Right,
+                };
+                _valueStack.Push(Value.FromBool(comparison));
                 return StepResult.Next;
             }
-            if (l is string ls && r is string rs) { _stack.Push(string.CompareOrdinal(ls, rs) >= 0); return StepResult.Next; }
+
+            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
+            {
+                _valueStack.Push(Value.FromBool(K switch
+                {
+                    NumKind.Decimal => (decimal)A.Reference! >= (decimal)B.Reference!,
+                    NumKind.Double => A.AsDouble >= B.AsDouble,
+                    NumKind.UInt64 => (ulong)A.Reference! >= (ulong)B.Reference!,
+                    NumKind.Int64 => A.AsLong >= B.AsLong,
+                    NumKind.Maximal => (BigInteger)A.Reference! >= (BigInteger)B.Reference!,
+                    _ => A.AsInt >= B.AsInt,
+                }));
+                return StepResult.Next;
+            }
+            if (TryGetStringReference(leftValue, out string? ls) && TryGetStringReference(rightValue, out string? rs)) { _valueStack.Push(Value.FromBool(string.CompareOrdinal(ls, rs) >= 0)); return StepResult.Next; }
             throw new VMException("Runtime error: GE on non-comparable types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
         private StepResult HandleNotInstruction(Instruction instr)
         {
             RequireStack(1, instr, "NOT");
-            object v = _stack.Pop();
-            if (v is null) { _stack.Push(true); return StepResult.Next; }
-            _stack.Push(!ToBool(v));
+            Value value = _valueStack.Pop();
+            _valueStack.Push(Value.FromBool(!ToBool(value)));
             return StepResult.Next;
         }
 
         private StepResult HandleNegateInstruction(Instruction instr)
         {
             RequireStack(1, instr, "NEG");
-            object? v = _stack.Pop();
-            if (v is null) { _stack.Push(null!); return StepResult.Next; }
-            if (!IsNumber(v))
+            Value value = _valueStack.Pop();
+            switch (value.Kind)
+            {
+                case ValueKind.Null:
+                    _valueStack.Push(Value.Null);
+                    return StepResult.Next;
+                case ValueKind.Int:
+                    if (value.AsInt == int.MinValue)
+                        _valueStack.Push(Value.FromLong(-(long)value.AsInt));
+                    else
+                        _valueStack.Push(Value.FromInt(-value.AsInt));
+                    return StepResult.Next;
+                case ValueKind.Long:
+                    if (value.AsLong == long.MinValue)
+                        _valueStack.Push(Value.FromRef(-(BigInteger)value.AsLong));
+                    else
+                        _valueStack.Push(Value.FromLong(-value.AsLong));
+                    return StepResult.Next;
+                case ValueKind.Double:
+                    _valueStack.Push(Value.FromDouble(-value.AsDouble));
+                    return StepResult.Next;
+                case ValueKind.Char:
+                    _valueStack.Push(Value.FromInt(-CharToNumeric(value.AsChar)));
+                    return StepResult.Next;
+            }
+
+            if (!TryGetFallbackNumericValue(value, out Value v))
             {
                 throw new VMException(
-                    $"NEG only works on numeric types (got {v ?? "null"} of type {v?.GetType().Name ?? "null"})",
+                    $"NEG only works on numeric types (got {value.Reference ?? "null"} of type {value.Reference?.GetType().Name ?? value.Kind.ToString()})",
                     instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             }
 
-            object res =
-                v is decimal md ? (object)(-md) :
-                v is double dd ? (object)(-dd) :
-                v is float ff ? (object)(-ff) :
-                v is BigInteger bg ? NarrowInteger(-bg) :
-                v is long ll ? (ll == long.MinValue ? (object)(-(BigInteger)ll) : (object)(-ll)) :
-                v is ulong uu ? NarrowInteger(-(BigInteger)uu) :
-                v is uint ui ? (object)(-(long)ui) :
-                v is int ii ? (ii == int.MinValue ? (object)(-(long)ii) : (object)(-ii)) :
-                v is char ch ? (object)(-(int)ch) :
-                (object)(-Convert.ToInt32(v));
+            Value res = v.Kind switch
+            {
+                ValueKind.Int => v.AsInt == int.MinValue ? Value.FromLong(-(long)v.AsInt) : Value.FromInt(-v.AsInt),
+                ValueKind.Long => v.AsLong == long.MinValue ? Value.FromRef(-(BigInteger)v.AsLong) : Value.FromLong(-v.AsLong),
+                ValueKind.Double => Value.FromDouble(-v.AsDouble),
+                ValueKind.Char => Value.FromInt(-CharToNumeric(v.AsChar)),
+                ValueKind.Ref => v.Reference switch
+                {
+                    decimal md => Value.FromRef(-md),
+                    float ff => Value.FromRef(-ff),
+                    BigInteger bg => NarrowIntegerValue(-bg),
+                    ulong uu => NarrowIntegerValue(-(BigInteger)uu),
+                    uint ui => Value.FromLong(-(long)ui),
+                    short ss => Value.FromInt(-ss),
+                    ushort us => Value.FromInt(-us),
+                    byte ub => Value.FromInt(-ub),
+                    sbyte sb => Value.FromInt(-sb),
+                    _ => Value.FromInt(-Convert.ToInt32(v.Reference, CultureInfo.InvariantCulture))
+                },
+                _ => throw new InvalidOperationException($"Not numeric: {v.Kind}")
+            };
 
-            _stack.Push(res);
+            _valueStack.Push(res);
             return StepResult.Next;
         }
 
         private StepResult HandleAndInstruction(Instruction instr)
         {
             RequireStack(2, instr, "AND");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            _stack.Push(ToBool(l) && ToBool(r));
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+            _valueStack.Push(Value.FromBool(ToBool(leftValue) && ToBool(rightValue)));
             return StepResult.Next;
         }
 
         private StepResult HandleOrInstruction(Instruction instr)
         {
             RequireStack(2, instr, "OR");
-            object r = _stack.Pop();
-            object l = _stack.Pop();
-            _stack.Push(ToBool(l) || ToBool(r));
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+            _valueStack.Push(Value.FromBool(ToBool(leftValue) || ToBool(rightValue)));
             return StepResult.Next;
         }
     }

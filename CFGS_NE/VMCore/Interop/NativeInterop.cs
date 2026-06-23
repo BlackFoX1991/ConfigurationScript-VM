@@ -137,6 +137,15 @@ namespace CFGS_VM.VMCore.Interop
             };
         }
 
+        public static object? Invoke(object callable, IReadOnlyList<Value> args, VM? vm, Instruction instr)
+        {
+            List<object> convertedArgs = new(args.Count);
+            foreach (Value arg in args)
+                convertedArgs.Add(arg.ToObject()!);
+
+            return Invoke(callable, convertedArgs, vm, instr);
+        }
+
         private static object? InvokeCallable(ClrCallable callable, IReadOnlyList<object> args, VM? vm, Instruction instr)
         {
             (MethodBase member, object?[] converted) = SelectCallable(callable, args, vm, instr);
@@ -827,12 +836,14 @@ namespace CFGS_VM.VMCore.Interop
             object?[] args,
             Type returnType)
         {
-            List<object> convertedArgs = args.Select(arg => ConvertFromClr(arg)!).ToList();
-            object? result = vm.InvokeClosureSync(closure, convertedArgs, instr, receiver, accessType);
+            List<Value> convertedArgs = args
+                .Select(static arg => Value.FromObject(ConvertFromClr(arg)))
+                .ToList();
+            Value result = vm.InvokeClosureSyncValue(closure, convertedArgs, instr, receiver, accessType);
             if (returnType == typeof(void))
                 return null;
 
-            return ConvertToClr(result, returnType, vm, instr);
+            return ConvertToClr(result.ToObject(), returnType, vm, instr);
         }
 
         private static bool IsNumericType(Type type)

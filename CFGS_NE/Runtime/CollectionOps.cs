@@ -346,9 +346,9 @@ namespace CFGS_VM.VMCore
             RequireStack(ecount, instr, "NEW_ARRAY");
             object[] temp = new object[ecount];
             for (int i = ecount - 1; i >= 0; i--)
-                temp[i] = _stack.Pop();
+                temp[i] = PopRuntimeObject()!;
             List<object> list = CaptureMutableCollectionOwnership(new List<object>(temp));
-            _stack.Push(list);
+            PushRuntimeObject(list);
             return StepResult.Next;
         }
 
@@ -362,20 +362,20 @@ namespace CFGS_VM.VMCore
             else
                 RequireStack(3, instr, "SLICE_GET");
 
-            object endObj = _stack.Pop();
-            object startObj = _stack.Pop();
+            object endObj = PopRuntimeObject()!;
+            object startObj = PopRuntimeObject()!;
 
             object target;
             if (instr.Operand is string name)
             {
-                if (!TryResolveVarOwner(name, out Env owner, out object? current))
+                if (!TryResolveVarOwnerValue(name, out Env owner, out Value current))
                     throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(owner);
-                target = current!;
+                target = current.ToObject()!;
             }
             else
             {
-                target = _stack.Pop();
+                target = PopRuntimeObject()!;
             }
 
             switch (target)
@@ -385,7 +385,7 @@ namespace CFGS_VM.VMCore
                         MarkAsyncHazardForMutableCollection(arr);
                         int count = GetListCount(arr);
                         (int start, int end) = NormalizeSliceBounds(startObj, endObj, count, instr);
-                        _stack.Push(CaptureMutableCollectionOwnership(GetListRange(arr, start, end - start)));
+                        PushRuntimeObject(CaptureMutableCollectionOwnership(GetListRange(arr, start, end - start)));
                         return StepResult.Next;
                     }
 
@@ -402,14 +402,14 @@ namespace CFGS_VM.VMCore
                                 slice[keys[i]] = dictValue!;
                         }
 
-                        _stack.Push(slice);
+                        PushRuntimeObject(slice);
                         return StepResult.Next;
                     }
 
                 case string s:
                     {
                         (int start, int end) = NormalizeSliceBounds(startObj, endObj, s.Length, instr);
-                        _stack.Push(s.Substring(start, end - start));
+                        PushRuntimeObject(s.Substring(start, end - start));
                         return StepResult.Next;
                     }
 
@@ -434,24 +434,24 @@ namespace CFGS_VM.VMCore
             else
                 RequireStack(4, instr, "SLICE_SET");
 
-            object value = _stack.Pop();
-            object endObj = _stack.Pop();
-            object startObj = _stack.Pop();
+            object value = PopRuntimeObject()!;
+            object endObj = PopRuntimeObject()!;
+            object startObj = PopRuntimeObject()!;
 
             object target;
             if (instr.Operand is string name)
             {
-                if (!TryResolveVarOwner(name, out Env env, out object? current))
+                if (!TryResolveVarOwnerValue(name, out Env env, out Value current))
                     throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(env);
-                target = current!;
+                target = current.ToObject()!;
                 MarkAsyncHazardForMutableCollection(target);
                 ApplySliceSet(ref target, startObj, endObj, value, instr);
-                SetLocalVar(env, name, target);
+                SetLocalVarValue(env, name, Value.FromObject(target));
             }
             else
             {
-                target = _stack.Pop();
+                target = PopRuntimeObject()!;
                 MarkAsyncHazardForMutableCollection(target);
                 ApplySliceSet(ref target, startObj, endObj, value, instr);
             }
@@ -550,8 +550,8 @@ namespace CFGS_VM.VMCore
             (string key, object val)[] pairs = new (string key, object val)[dcount];
             for (int i = dcount - 1; i >= 0; i--)
             {
-                object value = _stack.Pop();
-                object key = _stack.Pop();
+                object value = PopRuntimeObject()!;
+                object key = PopRuntimeObject()!;
                 string sk = key?.ToString() ?? string.Empty;
                 pairs[i] = (sk, value);
             }
@@ -563,7 +563,7 @@ namespace CFGS_VM.VMCore
                 dict[key] = pairs[i].val;
             }
 
-            _stack.Push(dict);
+            PushRuntimeObject(dict);
             return StepResult.Next;
         }
 
@@ -572,11 +572,11 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private StepResult HandleIsDictionaryInstruction(Instruction instr)
         {
-            if (_stack.Count < 1)
+            if (_valueStack.Count < 1)
                 throw new VMException("Stack underflow in IS_DICT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            object v = _stack.Pop();
-            _stack.Push(v is Dictionary<string, object>);
+            object? v = PopRuntimeObject();
+            _valueStack.Push(Value.FromBool(v is Dictionary<string, object>));
             return StepResult.Next;
         }
 
@@ -585,11 +585,11 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private StepResult HandleIsArrayInstruction(Instruction instr)
         {
-            if (_stack.Count < 1)
+            if (_valueStack.Count < 1)
                 throw new VMException("Stack underflow in IS_ARRAY", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            object v = _stack.Pop();
-            _stack.Push(v is List<object>);
+            object? v = PopRuntimeObject();
+            _valueStack.Push(Value.FromBool(v is List<object>));
             return StepResult.Next;
         }
 
@@ -599,12 +599,12 @@ namespace CFGS_VM.VMCore
         private StepResult HandleDictionaryKeysInstruction(Instruction instr)
         {
             RequireStack(1, instr, "DICT_KEYS");
-            object v = _stack.Pop();
+            object? v = PopRuntimeObject();
             if (v is not Dictionary<string, object> dict)
                 throw new VMException("Runtime error: DICT_KEYS target must be dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             List<object> keys = CaptureMutableCollectionOwnership(SnapshotDictionaryKeys(dict).Cast<object>().ToList());
-            _stack.Push(keys);
+            PushRuntimeObject(keys);
             return StepResult.Next;
         }
 
@@ -614,17 +614,17 @@ namespace CFGS_VM.VMCore
         private StepResult HandleLengthInstruction(Instruction instr)
         {
             RequireStack(1, instr, "LEN");
-            object v = _stack.Pop();
+            object? v = PopRuntimeObject();
             switch (v)
             {
                 case List<object> arr:
-                    _stack.Push(GetListCount(arr));
+                    _valueStack.Push(Value.FromInt(GetListCount(arr)));
                     break;
                 case Dictionary<string, object> dict:
-                    _stack.Push(GetDictionaryCount(dict));
+                    _valueStack.Push(Value.FromInt(GetDictionaryCount(dict)));
                     break;
                 case string str:
-                    _stack.Push(str.Length);
+                    _valueStack.Push(Value.FromInt(str.Length));
                     break;
                 default:
                     throw new VMException("Runtime error: LEN target must be array, dictionary, or string", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -639,13 +639,13 @@ namespace CFGS_VM.VMCore
         private StepResult HandleHasKeyInstruction(Instruction instr)
         {
             RequireStack(2, instr, "HAS_KEY");
-            object keyObj = _stack.Pop();
-            object target = _stack.Pop();
+            object? keyObj = PopRuntimeObject();
+            object? target = PopRuntimeObject();
             if (target is not Dictionary<string, object> dict)
                 throw new VMException("Runtime error: HAS_KEY target must be dictionary", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             string key = keyObj?.ToString() ?? "";
-            _stack.Push(ContainsDictionaryKey(dict, key));
+            _valueStack.Push(Value.FromBool(ContainsDictionaryKey(dict, key)));
             return StepResult.Next;
         }
 
@@ -657,20 +657,20 @@ namespace CFGS_VM.VMCore
             if (instr.Operand == null)
             {
                 RequireStack(2, instr, "ARRAY_PUSH");
-                object target = _stack.Pop();
-                object value = _stack.Pop();
+                object target = PopRuntimeObject()!;
+                object value = PopRuntimeObject()!;
                 AppendToCollectionTarget(target, value, instr, null);
                 return StepResult.Next;
             }
 
             RequireStack(1, instr, "ARRAY_PUSH");
-            object pushedValue = _stack.Pop();
+            object pushedValue = PopRuntimeObject()!;
             string name = (string)instr.Operand;
-            if (!TryResolveVarOwner(name, out Env env, out object? obj))
+            if (!TryResolveVarOwnerValue(name, out Env env, out Value current))
                 throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             MarkAsyncHazardForEnvAccess(env);
-            AppendToCollectionTarget(obj!, pushedValue, instr, name);
+            AppendToCollectionTarget(current.ToObject()!, pushedValue, instr, name);
             return StepResult.Next;
         }
 
@@ -741,23 +741,23 @@ namespace CFGS_VM.VMCore
             else
                 RequireStack(3, instr, "ARRAY_DELETE_SLICE");
 
-            object endObj = _stack.Pop();
-            object startObj = _stack.Pop();
+            object endObj = PopRuntimeObject()!;
+            object startObj = PopRuntimeObject()!;
 
             object target;
             if (instr.Operand is string name)
             {
-                if (!TryResolveVarOwner(name, out Env env, out object? current))
+                if (!TryResolveVarOwnerValue(name, out Env env, out Value current))
                     throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(env);
-                target = current!;
+                target = current.ToObject()!;
                 MarkAsyncHazardForMutableCollection(target);
                 DeleteSliceOnTarget(ref target, startObj, endObj, instr);
-                SetLocalVar(env, name, target);
+                SetLocalVarValue(env, name, Value.FromObject(target));
             }
             else
             {
-                target = _stack.Pop();
+                target = PopRuntimeObject()!;
                 DeleteSliceOnTarget(ref target, startObj, endObj, instr);
             }
 
@@ -770,9 +770,9 @@ namespace CFGS_VM.VMCore
         private StepResult HandleArrayDeleteSliceAllInstruction(Instruction instr)
         {
             RequireStack(3, instr, "ARRAY_DELETE_SLICE_ALL");
-            object endObj = _stack.Pop();
-            object startObj = _stack.Pop();
-            object target = _stack.Pop();
+            object endObj = PopRuntimeObject()!;
+            object startObj = PopRuntimeObject()!;
+            object target = PopRuntimeObject()!;
             MarkAsyncHazardForMutableCollection(target);
 
             if (target is string)
@@ -824,22 +824,22 @@ namespace CFGS_VM.VMCore
             else
                 RequireStack(2, instr, "ARRAY_DELETE_ELEM");
 
-            object idxObj = _stack.Pop();
+            object idxObj = PopRuntimeObject()!;
 
             if (instr.Operand != null)
             {
                 string name = (string)instr.Operand;
-                if (!TryResolveVarOwner(name, out Env owner, out object? current))
+                if (!TryResolveVarOwnerValue(name, out Env owner, out Value current))
                     throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                 MarkAsyncHazardForEnvAccess(owner);
-                object target = current!;
+                object target = current.ToObject()!;
                 MarkAsyncHazardForMutableCollection(target);
                 DeleteSingleCollectionElement(target, idxObj, instr, name);
                 return StepResult.Next;
             }
 
-            object nonLocalTarget = _stack.Pop();
+            object nonLocalTarget = PopRuntimeObject()!;
             MarkAsyncHazardForMutableCollection(nonLocalTarget);
 
             if (nonLocalTarget is ClassInstance obj)
@@ -849,18 +849,19 @@ namespace CFGS_VM.VMCore
                 if (key.Length == 0)
                     throw new VMException("Runtime error: field name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                if (!TryGetInstanceField(obj, key, out object? field))
+                if (!TryGetInstanceFieldValue(obj, key, out Value fieldValue))
                     throw new VMException($"Runtime error: invalid instance member '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+                object? field = fieldValue.ToObject();
                 if (field is List<object>)
                 {
-                    SetInstanceField(obj, key, CaptureMutableCollectionOwnership(new List<object>()));
+                    SetInstanceFieldValue(obj, key, Value.FromObject(CaptureMutableCollectionOwnership(new List<object>())));
                     return StepResult.Next;
                 }
 
                 if (field is Dictionary<string, object>)
                 {
-                    SetInstanceField(obj, key, CaptureMutableCollectionOwnership(new Dictionary<string, object>()));
+                    SetInstanceFieldValue(obj, key, Value.FromObject(CaptureMutableCollectionOwnership(new Dictionary<string, object>())));
                     return StepResult.Next;
                 }
 
@@ -880,7 +881,7 @@ namespace CFGS_VM.VMCore
                 if (key.Length == 0)
                     throw new VMException("Runtime error: static member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                if (!TryGetStaticField(st, key, out object? field))
+                if (!TryGetStaticFieldValue(st, key, out Value fieldValue))
                 {
                     throw new VMException(
                         $"Runtime error: invalid static member '{key}' in class '{st.ClassName}'",
@@ -891,15 +892,16 @@ namespace CFGS_VM.VMCore
                         DebugStream!);
                 }
 
+                object? field = fieldValue.ToObject();
                 if (field is List<object>)
                 {
-                    SetStaticField(st, key, CaptureMutableCollectionOwnership(new List<object>()));
+                    SetStaticFieldValue(st, key, Value.FromObject(CaptureMutableCollectionOwnership(new List<object>())));
                     return StepResult.Next;
                 }
 
                 if (field is Dictionary<string, object>)
                 {
-                    SetStaticField(st, key, CaptureMutableCollectionOwnership(new Dictionary<string, object>()));
+                    SetStaticFieldValue(st, key, Value.FromObject(CaptureMutableCollectionOwnership(new Dictionary<string, object>())));
                     return StepResult.Next;
                 }
 
@@ -982,20 +984,21 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
 
             string name = (string)instr.Operand;
-            if (!TryResolveVarOwner(name, out Env env, out object? target))
+            if (!TryResolveVarOwnerValue(name, out Env env, out Value targetValue))
                 throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+            object? target = targetValue.ToObject();
             MarkAsyncHazardForEnvAccess(env);
             MarkAsyncHazardForMutableCollection(target);
             if (target is List<object>)
             {
-                SetLocalVar(env, name, CaptureMutableCollectionOwnership(new List<object>()));
+                SetLocalVarValue(env, name, Value.FromObject(CaptureMutableCollectionOwnership(new List<object>())));
                 return StepResult.Next;
             }
 
             if (target is Dictionary<string, object>)
             {
-                SetLocalVar(env, name, CaptureMutableCollectionOwnership(new Dictionary<string, object>()));
+                SetLocalVarValue(env, name, Value.FromObject(CaptureMutableCollectionOwnership(new Dictionary<string, object>())));
                 return StepResult.Next;
             }
 
@@ -1015,7 +1018,7 @@ namespace CFGS_VM.VMCore
         {
             RequireStack(1, instr, "ARRAY_CLEAR");
 
-            object target = _stack.Pop();
+            object target = PopRuntimeObject()!;
             MarkAsyncHazardForMutableCollection(target);
 
             if (target is List<object> list)
@@ -1046,8 +1049,8 @@ namespace CFGS_VM.VMCore
         {
             RequireStack(2, instr, "ARRAY_DELETE_ELEM_ALL");
 
-            object idxObj = _stack.Pop();
-            object target = _stack.Pop();
+            object idxObj = PopRuntimeObject()!;
+            object target = PopRuntimeObject()!;
             if (target is string)
             {
                 throw new VMException(

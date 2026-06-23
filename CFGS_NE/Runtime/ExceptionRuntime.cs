@@ -14,7 +14,7 @@ namespace CFGS_VM.VMCore
             int catchIp = (int)arr[0];
             int finallyIp = (int)arr[1];
 
-            TryHandler th = new(catchIp, finallyIp, _scopes.Count, _callStack.Count, _stack.Count);
+            TryHandler th = new(catchIp, finallyIp, _scopes.Count, _callStack.Count, _valueStack.Count);
             _tryHandlers.Push(th);
             return StepResult.Next;
         }
@@ -77,7 +77,7 @@ namespace CFGS_VM.VMCore
                     _tryHandlers.Pop();
 
                 _ip = fr.ReturnIp;
-                _stack.Push(WrapReturnForFrame(fr, retVal)!);
+                PushRuntimeObject(WrapReturnForFrame(fr, retVal));
                 return StepResult.Continue;
             }
 
@@ -121,7 +121,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Continue;
             }
 
-            if (h.Exception is object ex)
+            if (h.Exception is Value ex)
             {
                 _tryHandlers.Pop();
                 if (RouteExceptionToTryHandlers(ex, SafeCurrentInstr(_insns, _ip), out int nip))
@@ -131,7 +131,7 @@ namespace CFGS_VM.VMCore
                 }
 
                 Instruction instrNow = SafeCurrentInstr(_insns, _ip);
-                throw new VMException(ex.ToString()!, instrNow.Line, instrNow.Col, instrNow.OriginFile, IsDebugging, DebugStream!, BuildStackString(_insns, instrNow));
+                throw new VMException(ex.ToString(), instrNow.Line, instrNow.Col, instrNow.OriginFile, IsDebugging, DebugStream!, BuildStackString(_insns, instrNow));
             }
 
             _tryHandlers.Pop();
@@ -140,17 +140,17 @@ namespace CFGS_VM.VMCore
 
         private StepResult HandleThrowInstruction(ref int _ip, List<Instruction> _insns, Instruction instr)
         {
-            object? thrown = _stack.Count > 0 ? _stack.Pop() : null;
-            object exPayload = thrown is ExceptionObject eo
-                ? eo
-                : (thrown ?? new ExceptionObject(
+            Value thrown = _valueStack.Count > 0 ? _valueStack.Pop() : Value.Null;
+            Value exPayload = thrown.IsNull
+                ? Value.FromObject(new ExceptionObject(
                     type: "UserError",
                     message: "throw",
                     file: instr.OriginFile,
                     line: instr.Line,
                     col: instr.Col,
                     stack: BuildStackString(_insns, instr)
-                ));
+                ))
+                : thrown;
 
             if (RouteExceptionToTryHandlers(exPayload, instr, out int nip))
             {
@@ -168,11 +168,14 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private void TruncateOperandStackTo(int depth)
         {
-            while (_stack.Count > depth)
-                _stack.Pop();
+            while (_valueStack.Count > depth)
+                _valueStack.Pop();
         }
 
-        private bool RouteExceptionToTryHandlers(object exPayload, Instruction instr, out int newIp)
+        private bool RouteExceptionToTryHandlers(object? exPayload, Instruction instr, out int newIp)
+            => RouteExceptionToTryHandlers(ToRuntimeValue(exPayload), instr, out newIp);
+
+        private bool RouteExceptionToTryHandlers(Value exPayload, Instruction instr, out int newIp)
         {
             while (_tryHandlers.Count > 0)
             {
@@ -193,7 +196,7 @@ namespace CFGS_VM.VMCore
                 TruncateOperandStackTo(h.StackDepthAtTry);
                 if (h.CatchAddr >= 0)
                 {
-                    _stack.Push(exPayload);
+                    _valueStack.Push(exPayload);
                     newIp = h.CatchAddr;
                     h.CatchAddr = -1;
                     h.Exception = null;
@@ -237,12 +240,13 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        private VMException CreateUncaughtScriptException(object exPayload, Instruction instr, List<Instruction> insns)
+        private VMException CreateUncaughtScriptException(Value exPayload, Instruction instr, List<Instruction> insns)
         {
-            ExceptionObject uncaught = exPayload as ExceptionObject
+            object? rawPayload = exPayload.ToObject();
+            ExceptionObject uncaught = rawPayload as ExceptionObject
                 ?? new ExceptionObject(
                     type: "UserError",
-                    message: exPayload.ToString() ?? "throw",
+                    message: rawPayload?.ToString() ?? exPayload.ToString(),
                     file: instr.OriginFile,
                     line: instr.Line,
                     col: instr.Col,
@@ -288,8 +292,8 @@ namespace CFGS_VM.VMCore
 
         private string DumpStack()
         {
-            if (_stack == null || _stack.Count == 0) return "<empty>";
-            object[] arr = _stack.ToArray();
+            if (_valueStack == null || _valueStack.Count == 0) return "<empty>";
+            Value[] arr = _valueStack.ToArray();
             IEnumerable<string> parts = arr.Select(FormatVal);
             return string.Join(" | ", parts);
         }

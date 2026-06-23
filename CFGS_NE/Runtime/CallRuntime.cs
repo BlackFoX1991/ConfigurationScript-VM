@@ -31,10 +31,22 @@ namespace CFGS_VM.VMCore
                     instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
+        private static List<Value> ToRuntimeArgs(IEnumerable<object?> args)
+            => args.Select(static arg => ToRuntimeValue(arg)).ToList();
+
+        private static List<object> ToObjectArgs(IEnumerable<Value> args)
+            => args.Select(static arg => arg.ToObject()!).ToList();
+
         /// <summary>
         /// Invokes a named top-level CFGS function after the module body has finished loading.
         /// </summary>
         public async Task<object?> InvokeGlobalFunctionAsync(string name, List<object>? args = null, string? originFile = null, CancellationToken ct = default)
+            => await InvokeGlobalFunctionAsyncValue(name, args is null ? null : ToRuntimeArgs(args), originFile, ct).ConfigureAwait(false);
+
+        /// <summary>
+        /// Invokes a named top-level CFGS function after the module body has finished loading using tagged runtime arguments.
+        /// </summary>
+        internal async Task<object?> InvokeGlobalFunctionAsyncValue(string name, List<Value>? args = null, string? originFile = null, CancellationToken ct = default)
         {
             if (!Functions.TryGetValue(name, out FunctionInfo? func))
             {
@@ -68,12 +80,36 @@ namespace CFGS_VM.VMCore
         /// Invokes a CFGS closure synchronously from within an intrinsic/builtin.
         /// </summary>
         public object? InvokeClosureSync(Closure closure, List<object> args, Instruction instr, CancellationToken ct = default)
-            => InvokeClosureSync(closure, args, instr, receiver: null, accessType: null, ct);
+            => InvokeClosureSync(closure, ToRuntimeArgs(args), instr, receiver: null, accessType: null, ct);
 
         /// <summary>
         /// Invokes a CFGS closure synchronously with an optional implicit receiver.
         /// </summary>
         public object? InvokeClosureSync(Closure closure, List<object> args, Instruction instr, object? receiver, StaticInstance? accessType, CancellationToken ct = default)
+            => InvokeClosureSync(closure, ToRuntimeArgs(args), instr, receiver, accessType, ct);
+
+        /// <summary>
+        /// Invokes a CFGS closure synchronously from within the runtime using tagged values directly.
+        /// </summary>
+        public object? InvokeClosureSync(Closure closure, List<Value> args, Instruction instr, CancellationToken ct = default)
+            => InvokeClosureSyncValue(closure, args, instr, receiver: null, accessType: null, ct).ToObject();
+
+        /// <summary>
+        /// Invokes a CFGS closure synchronously with tagged arguments and an optional implicit receiver.
+        /// </summary>
+        public object? InvokeClosureSync(Closure closure, List<Value> args, Instruction instr, object? receiver, StaticInstance? accessType, CancellationToken ct = default)
+            => InvokeClosureSyncValue(closure, args, instr, receiver, accessType, ct).ToObject();
+
+        /// <summary>
+        /// Invokes a CFGS closure synchronously and returns the tagged runtime result.
+        /// </summary>
+        public Value InvokeClosureSyncValue(Closure closure, List<Value> args, Instruction instr, CancellationToken ct = default)
+            => InvokeClosureSyncValue(closure, args, instr, receiver: null, accessType: null, ct);
+
+        /// <summary>
+        /// Invokes a CFGS closure synchronously with tagged arguments and returns the tagged runtime result.
+        /// </summary>
+        public Value InvokeClosureSyncValue(Closure closure, List<Value> args, Instruction instr, object? receiver, StaticInstance? accessType, CancellationToken ct = default)
         {
             if (_program is null || _program.Count == 0)
                 throw new VMException("Cannot invoke closure: no program loaded.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -89,7 +125,7 @@ namespace CFGS_VM.VMCore
             if (reason == RunStopReason.AwaitPending)
                 throw new VMException("Runtime error: callback function must not use await.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            return _stack.Count > 0 ? _stack.Pop() : null;
+            return _valueStack.Count > 0 ? _valueStack.Pop() : Value.Null;
         }
 
         private static object? WrapReturnForFrame(CallFrame frame, object? retVal)
@@ -125,7 +161,7 @@ namespace CFGS_VM.VMCore
             if (_program is null || _program.Count == 0)
                 throw new InvalidOperationException("Hot-start async entry requires loaded program instructions.");
 
-            _stack.Clear();
+            _valueStack.Clear();
             _tryHandlers.Clear();
             _callStack.Clear();
             _scopes.Clear();
@@ -135,14 +171,14 @@ namespace CFGS_VM.VMCore
 
         private object? ConsumeHotStartResult()
         {
-            if (_stack.Count == 0)
+            if (_valueStack.Count == 0)
                 return null;
-            return _stack.Pop();
+            return _valueStack.Pop().ToObject();
         }
 
         private bool TryStartHotAsyncCall(
             Closure f,
-            List<object> args,
+            List<Value> args,
             object? receiver,
             StaticInstance? accessType,
             Instruction instr,
@@ -161,30 +197,53 @@ namespace CFGS_VM.VMCore
             return true;
         }
 
-        private List<object> ExpandSpreadArguments(List<object> rawArgs, Instruction instr)
+        private List<Value> ExpandSpreadArguments(List<Value> rawArgs, Instruction instr)
         {
-            List<object> expanded = new();
-            foreach (object arg in rawArgs)
+            List<Value> expanded = new();
+            foreach (Value arg in rawArgs)
             {
-                if (arg is not SpreadArgument spread)
+                if (arg.Kind != ValueKind.Ref || arg.Reference is not SpreadArgument spread)
                 {
                     expanded.Add(arg);
                     continue;
                 }
 
-                if (spread.Value is null)
+                if (spread.Value.IsNull)
                     throw new VMException("Runtime error: cannot spread null argument", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                if (spread.Value is not IList list)
+                if (spread.Value.Kind != ValueKind.Ref || spread.Value.Reference is not IList list)
                     throw new VMException(
-                        $"Runtime error: spread argument must be an array/list (got {spread.Value.GetType().Name})",
+                        $"Runtime error: spread argument must be an array/list (got {GetValueTypeName(spread.Value)})",
                         instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                 foreach (object? item in list)
-                    expanded.Add(item!);
+                    expanded.Add(ToRuntimeValue(item));
             }
 
             return expanded;
+        }
+
+        private static string GetValueTypeName(Value value)
+            => value.Kind switch
+            {
+                ValueKind.Null => "null",
+                ValueKind.Bool => nameof(Boolean),
+                ValueKind.Int => nameof(Int32),
+                ValueKind.Long => nameof(Int64),
+                ValueKind.Double => nameof(Double),
+                ValueKind.Char => nameof(Char),
+                _ => value.Reference?.GetType().Name ?? "null"
+            };
+
+        private object GetCallableTarget(Value value, Instruction instr)
+        {
+            if (value.IsNull)
+                throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            if (value.Kind != ValueKind.Ref || value.Reference is null)
+                throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+            return value.Reference;
         }
 
         private static Task<object?> RunOffloadedInvocation(Func<object?> invoke)
@@ -207,6 +266,9 @@ namespace CFGS_VM.VMCore
             return RunOffloadedInvocation(() => desc.Invoke(argsCopy, instr));
         }
 
+        private static object? InvokeBuiltinForCall(BuiltinDescriptor desc, List<Value> args, Instruction instr)
+            => InvokeBuiltinForCall(desc, ToObjectArgs(args), instr);
+
         private static object? InvokeIntrinsicForCall(IntrinsicMethod method, object receiver, List<object> args, Instruction instr)
         {
             MarkAsyncHazardForMutableReceiver(receiver);
@@ -218,7 +280,10 @@ namespace CFGS_VM.VMCore
             return RunOffloadedInvocation(() => method.Invoke(receiver, argsCopy, instr));
         }
 
-        private Env BuildCallEnv(Closure f, List<object> rawArgs, Instruction instr)
+        private static object? InvokeIntrinsicForCall(IntrinsicMethod method, object receiver, List<Value> args, Instruction instr)
+            => InvokeIntrinsicForCall(method, receiver, ToObjectArgs(args), instr);
+
+        private Env BuildCallEnv(Closure f, List<Value> rawArgs, Instruction instr)
         {
             int piStart = (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0])) ? 1 : 0;
             int total = f.Parameters.Count - piStart;
@@ -253,13 +318,13 @@ namespace CFGS_VM.VMCore
 
             int fixedCount = restIndex >= 0 ? restIndex : total;
 
-            List<object?> positional = new();
-            Dictionary<string, object?> named = new(StringComparer.Ordinal);
+            List<Value> positional = new();
+            Dictionary<string, Value> named = new(StringComparer.Ordinal);
             bool sawNamed = false;
 
-            foreach (object arg in rawArgs)
+            foreach (Value arg in rawArgs)
             {
-                if (arg is NamedArgument na)
+                if (arg.Kind == ValueKind.Ref && arg.Reference is NamedArgument na)
                 {
                     sawNamed = true;
                     if (named.ContainsKey(na.Name))
@@ -283,23 +348,24 @@ namespace CFGS_VM.VMCore
             for (int i = 0; i < fixedCount; i++)
                 paramIndex[f.Parameters[piStart + i]] = i;
 
-            object sentinel = new();
-            object?[] finalArgs = new object?[fixedCount];
-            for (int i = 0; i < fixedCount; i++)
-                finalArgs[i] = sentinel;
+            Value[] finalArgs = new Value[fixedCount];
+            bool[] assigned = new bool[fixedCount];
 
             int positionalToAssign = Math.Min(positional.Count, fixedCount);
             for (int i = 0; i < positionalToAssign; i++)
+            {
                 finalArgs[i] = positional[i];
+                assigned[i] = true;
+            }
 
             List<object?> restValues = new();
             if (restIndex >= 0)
             {
                 for (int i = fixedCount; i < positional.Count; i++)
-                    restValues.Add(positional[i]);
+                    restValues.Add(positional[i].ToObject());
             }
 
-            foreach (KeyValuePair<string, object?> kv in named)
+            foreach (KeyValuePair<string, Value> kv in named)
             {
                 if (restIndex >= 0 && string.Equals(kv.Key, f.RestParameter, StringComparison.Ordinal))
                     throw new VMException(
@@ -309,15 +375,16 @@ namespace CFGS_VM.VMCore
                 if (!paramIndex.TryGetValue(kv.Key, out int idx))
                     throw new VMException($"Runtime error: unknown named argument '{kv.Key}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                if (!ReferenceEquals(finalArgs[idx], sentinel))
+                if (assigned[idx])
                     throw new VMException($"Runtime error: argument '{kv.Key}' provided multiple times", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                 finalArgs[idx] = kv.Value;
+                assigned[idx] = true;
             }
 
             for (int i = 0; i < fixedCount; i++)
             {
-                if (ReferenceEquals(finalArgs[i], sentinel))
+                if (!assigned[i])
                 {
                     if (i < min)
                     {
@@ -334,16 +401,16 @@ namespace CFGS_VM.VMCore
                             instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }
 
-                    finalArgs[i] = null;
+                    finalArgs[i] = Value.Null;
                 }
             }
 
             Env callEnv = new(f.CapturedEnv);
             for (int i = 0; i < fixedCount; i++)
-                callEnv.Define(f.Parameters[piStart + i], finalArgs[i]!);
+                callEnv.DefineValue(f.Parameters[piStart + i], finalArgs[i]);
 
             if (restIndex >= 0)
-                callEnv.Define(f.Parameters[piStart + restIndex], CaptureMutableCollectionOwnership(restValues));
+                callEnv.DefineValue(f.Parameters[piStart + restIndex], ToRuntimeValue(CaptureMutableCollectionOwnership(restValues)));
 
             return callEnv;
         }
@@ -357,16 +424,16 @@ namespace CFGS_VM.VMCore
             {
                 if (TryGetBuiltin(funcName, out BuiltinDescriptor desc))
                 {
-                    List<object> args = new();
+                    List<Value> args = new();
                     for (int i = desc.ArityMin - 1; i >= 0; i--)
                     {
-                        if (_stack.Count == 0)
+                        if (_valueStack.Count == 0)
                             throw new VMException($"Runtime error: insufficient args for {funcName}()", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        args.Insert(0, _stack.Pop());
+                        args.Insert(0, _valueStack.Pop());
                     }
 
                     object? ret = InvokeBuiltinForCall(desc, args, instr);
-                    _stack.Push(ret!);
+                    PushRuntimeObject(ret);
                     return StepResult.Next;
                 }
 
@@ -378,7 +445,7 @@ namespace CFGS_VM.VMCore
                         $"Runtime error: cannot CALL method '{funcName}' without receiver. Use CALL_INDIRECT with a bound receiver.",
                         instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                _stack.Push(new Closure(func.Address, func.Parameters, func.MinArgs, _scopes[^1], funcName, func.RestParameter, func.isAsync));
+                PushRuntimeObject(new Closure(func.Address, func.Parameters, func.MinArgs, _scopes[^1], funcName, func.RestParameter, func.isAsync));
             }
 
             return HandleCallIndirectInstruction(ref _ip, instr);
@@ -393,8 +460,8 @@ namespace CFGS_VM.VMCore
                 throw new VMException("Runtime error: MAKE_NAMED_ARG requires a non-empty argument name", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             RequireStack(1, instr, "MAKE_NAMED_ARG");
-            object? value = _stack.Pop();
-            _stack.Push(new NamedArgument(argName, value));
+            Value value = _valueStack.Pop();
+            PushRuntimeObject(new NamedArgument(argName, value));
             return StepResult.Next;
         }
 
@@ -404,8 +471,8 @@ namespace CFGS_VM.VMCore
         private StepResult HandleMakeSpreadArgInstruction(Instruction instr)
         {
             RequireStack(1, instr, "MAKE_SPREAD_ARG");
-            object? value = _stack.Pop();
-            _stack.Push(new SpreadArgument(value));
+            Value value = _valueStack.Pop();
+            PushRuntimeObject(new SpreadArgument(value));
             return StepResult.Next;
         }
 
@@ -422,20 +489,20 @@ namespace CFGS_VM.VMCore
                 if (explicitArgCount < 0)
                     throw new VMException("Runtime error: negative argument count in CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                List<object> argsList = new();
+                List<Value> argsList = new();
                 for (int i = 0; i < explicitArgCount; i++)
                 {
-                    if (_stack.Count == 0)
+                    if (_valueStack.Count == 0)
                         throw new VMException(
                             $"Runtime error: not enough arguments for CALL_INDIRECT (expected {explicitArgCount})",
                             instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    argsList.Add(_stack.Pop());
+                    argsList.Add(_valueStack.Pop());
                 }
 
-                if (_stack.Count == 0)
+                if (_valueStack.Count == 0)
                     throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                object callee = _stack.Pop();
+                object callee = GetCallableTarget(_valueStack.Pop(), instr);
                 argsList = ExpandSpreadArguments(argsList, instr);
                 int actualArgCount = argsList.Count;
                 Closure f;
@@ -450,7 +517,7 @@ namespace CFGS_VM.VMCore
                             instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                     object? result = InvokeIntrinsicForCall(ibEx.Method, ibEx.Receiver, argsList, instr);
-                    _stack.Push(result!);
+                    PushRuntimeObject(result);
                     return StepResult.Continue;
                 }
                 else if (callee is BuiltinCallable bc)
@@ -464,7 +531,7 @@ namespace CFGS_VM.VMCore
                             instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                     object? result = InvokeBuiltinForCall(desc, argsList, instr);
-                    _stack.Push(result!);
+                    PushRuntimeObject(result);
                     return StepResult.Continue;
                 }
                 else if (callee is NamespaceBuiltinCallable nbc)
@@ -476,7 +543,7 @@ namespace CFGS_VM.VMCore
                             instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                     object? result = InvokeBuiltinForCall(desc, argsList, instr);
-                    _stack.Push(result!);
+                    PushRuntimeObject(result);
                     return StepResult.Continue;
                 }
                 else if (callee is ClrCallable clrCallable)
@@ -484,7 +551,7 @@ namespace CFGS_VM.VMCore
                     try
                     {
                         object? result = NativeInterop.Invoke(clrCallable, argsList, this, instr);
-                        _stack.Push(result!);
+                        PushRuntimeObject(result);
                         return StepResult.Continue;
                     }
                     catch (Exception ex)
@@ -497,7 +564,7 @@ namespace CFGS_VM.VMCore
                     try
                     {
                         object? result = NativeInterop.Invoke(clrDelegate, argsList, this, instr);
-                        _stack.Push(result!);
+                        PushRuntimeObject(result);
                         return StepResult.Continue;
                     }
                     catch (Exception ex)
@@ -510,7 +577,7 @@ namespace CFGS_VM.VMCore
                     try
                     {
                         object? result = NativeInterop.Invoke(clrEventAccessor, argsList, this, instr);
-                        _stack.Push(result!);
+                        PushRuntimeObject(result);
                         return StepResult.Continue;
                     }
                     catch (Exception ex)
@@ -533,7 +600,7 @@ namespace CFGS_VM.VMCore
 
                     if (f.Parameters.Count > 0 && IsReceiverName(f.Parameters[0]))
                     {
-                        if (argsList.Count > 0 && Equals(argsList[0], receiver))
+                        if (argsList.Count > 0 && argsList[0].Equals(ToRuntimeValue(receiver)))
                             throw new VMException(
                                 "Runtime error: receiver provided twice (BoundMethod already has implicit receiver).",
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -559,7 +626,7 @@ namespace CFGS_VM.VMCore
                         throw new VMException("Runtime error: nested type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }
 
-                    argsList.Insert(0, bt.Outer);
+                    argsList.Insert(0, ToRuntimeValue(bt.Outer));
                 }
                 else if (callee is Closure clos)
                 {
@@ -571,11 +638,11 @@ namespace CFGS_VM.VMCore
                             throw new VMException(
                                 $"Runtime error: missing '{f.Parameters[0]}' for method call.",
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        if (argsList[0] is NamedArgument)
+                        if (argsList[0].Kind == ValueKind.Ref && argsList[0].Reference is NamedArgument)
                             throw new VMException(
                                 $"Runtime error: '{f.Parameters[0]}' must be provided as the first positional argument.",
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        receiver = argsList[0];
+                        receiver = argsList[0].ToObject();
                         argsList.RemoveAt(0);
 
                         if (receiver is StaticInstance rst)
@@ -611,7 +678,7 @@ namespace CFGS_VM.VMCore
 
                 if (TryStartHotAsyncCall(f, argsList, receiver, accessType, instr, out Task<object?> hotTask))
                 {
-                    _stack.Push(hotTask);
+                    PushRuntimeObject(hotTask);
                     return StepResult.Continue;
                 }
 
@@ -625,10 +692,10 @@ namespace CFGS_VM.VMCore
                 return StepResult.Continue;
             }
 
-            if (_stack.Count == 0)
+            if (_valueStack.Count == 0)
                 throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            object calleeNoOperand = _stack.Pop();
+            object calleeNoOperand = GetCallableTarget(_valueStack.Pop(), instr);
             Closure fNoOperand;
             object? receiverNoOperand = null;
             StaticInstance? accessTypeNoOperand = null;
@@ -636,17 +703,17 @@ namespace CFGS_VM.VMCore
             if (calleeNoOperand is IntrinsicBound ib)
             {
                 int need = ib.Method.ArityMin;
-                List<object> argsB = new();
+                List<Value> argsB = new();
                 for (int i = 0; i < need; i++)
                 {
-                    if (_stack.Count == 0)
+                    if (_valueStack.Count == 0)
                         throw new VMException("Runtime error: insufficient args for intrinsic call",
                             instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    argsB.Add(_stack.Pop());
+                    argsB.Add(_valueStack.Pop());
                 }
 
                 object? result = InvokeIntrinsicForCall(ib.Method, ib.Receiver, argsB, instr);
-                _stack.Push(result!);
+                PushRuntimeObject(result);
                 return StepResult.Continue;
             }
             else if (calleeNoOperand is BuiltinCallable bc2)
@@ -655,34 +722,34 @@ namespace CFGS_VM.VMCore
                     throw new VMException($"Runtime error: unknown builtin '{bc2.Name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                 int need = desc.ArityMin;
-                List<object> argsB = new();
+                List<Value> argsB = new();
                 for (int i = 0; i < need; i++)
                 {
-                    if (_stack.Count == 0)
+                    if (_valueStack.Count == 0)
                         throw new VMException("Runtime error: insufficient args for builtin call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    argsB.Add(_stack.Pop());
+                    argsB.Add(_valueStack.Pop());
                 }
                 argsB.Reverse();
 
                 object? result = InvokeBuiltinForCall(desc, argsB, instr);
-                _stack.Push(result!);
+                PushRuntimeObject(result);
                 return StepResult.Continue;
             }
             else if (calleeNoOperand is NamespaceBuiltinCallable nbc2)
             {
                 BuiltinDescriptor desc = nbc2.Descriptor;
                 int need = desc.ArityMin;
-                List<object> argsB = new();
+                List<Value> argsB = new();
                 for (int i = 0; i < need; i++)
                 {
-                    if (_stack.Count == 0)
+                    if (_valueStack.Count == 0)
                         throw new VMException("Runtime error: insufficient args for builtin call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    argsB.Add(_stack.Pop());
+                    argsB.Add(_valueStack.Pop());
                 }
                 argsB.Reverse();
 
                 object? result = InvokeBuiltinForCall(desc, argsB, instr);
-                _stack.Push(result!);
+                PushRuntimeObject(result);
                 return StepResult.Continue;
             }
             else if (calleeNoOperand is BoundMethod bm2)
@@ -720,15 +787,15 @@ namespace CFGS_VM.VMCore
 
                 int total = fNoOperand.Parameters.Count;
 
-                List<object> argsTmp = new();
+                List<Value> argsTmp = new();
                 for (int i = 0; i < total - 1; i++)
                 {
-                    if (_stack.Count == 0)
+                    if (_valueStack.Count == 0)
                         throw new VMException("Runtime error: insufficient args for constructor call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    argsTmp.Add(_stack.Pop());
+                    argsTmp.Add(_valueStack.Pop());
                 }
                 argsTmp.Reverse();
-                argsTmp.Insert(0, bt2.Outer);
+                argsTmp.Insert(0, ToRuntimeValue(bt2.Outer));
 
                 int piStart2 = (fNoOperand.Parameters.Count > 0 && IsReceiverName(fNoOperand.Parameters[0])) ? 1 : 0;
                 int expected2 = fNoOperand.Parameters.Count - piStart2;
@@ -740,7 +807,7 @@ namespace CFGS_VM.VMCore
 
                 if (TryStartHotAsyncCall(fNoOperand, argsTmp, receiverNoOperand, accessTypeNoOperand, instr, out Task<object?> hotTask2))
                 {
-                    _stack.Push(hotTask2);
+                    PushRuntimeObject(hotTask2);
                     return StepResult.Continue;
                 }
 
@@ -757,11 +824,11 @@ namespace CFGS_VM.VMCore
 
                 if (fNoOperand.Parameters.Count > 0 && IsReceiverName(fNoOperand.Parameters[0]))
                 {
-                    if (_stack.Count == 0)
+                    if (_valueStack.Count == 0)
                         throw new VMException(
                             $"Runtime error: missing '{fNoOperand.Parameters[0]}' for method call.",
                             instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    receiverNoOperand = _stack.Pop();
+                    receiverNoOperand = _valueStack.Pop().ToObject();
 
                     if (receiverNoOperand is StaticInstance rst)
                         accessTypeNoOperand = rst;
@@ -797,12 +864,12 @@ namespace CFGS_VM.VMCore
             int piStart = (fNoOperand.Parameters.Count > 0 && IsReceiverName(fNoOperand.Parameters[0])) ? 1 : 0;
             int expected = fNoOperand.Parameters.Count - piStart;
 
-            List<object> argsList2 = new();
+            List<Value> argsList2 = new();
             for (int pi = fNoOperand.Parameters.Count - 1; pi >= piStart; pi--)
             {
-                if (_stack.Count == 0)
+                if (_valueStack.Count == 0)
                     throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                argsList2.Insert(0, _stack.Pop());
+                argsList2.Insert(0, _valueStack.Pop());
             }
 
             if (argsList2.Count != expected)
@@ -812,7 +879,7 @@ namespace CFGS_VM.VMCore
 
             if (TryStartHotAsyncCall(fNoOperand, argsList2, receiverNoOperand, accessTypeNoOperand, instr, out Task<object?> hotTaskNoOperand))
             {
-                _stack.Push(hotTaskNoOperand);
+                PushRuntimeObject(hotTaskNoOperand);
                 return StepResult.Continue;
             }
 
@@ -828,7 +895,7 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private StepResult HandleReturnInstruction(ref int _ip, Instruction instr)
         {
-            object? retVal = _stack.Count > 0 ? _stack.Pop() : null;
+            object? retVal = _valueStack.Count > 0 ? _valueStack.Pop() : null;
 
             TryHandler? nextFinally = null;
             foreach (TryHandler th in _tryHandlers)
@@ -865,7 +932,7 @@ namespace CFGS_VM.VMCore
                 _tryHandlers.Pop();
 
             _ip = fr.ReturnIp;
-            _stack.Push(WrapReturnForFrame(fr, retVal)!);
+            PushRuntimeObject(WrapReturnForFrame(fr, retVal));
             return StepResult.Continue;
         }
     }

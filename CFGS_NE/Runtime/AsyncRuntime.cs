@@ -26,11 +26,12 @@ namespace CFGS_VM.VMCore
         private StepResult HandleAwaitInstruction(ref int _ip, List<Instruction> _insns, Instruction instr)
         {
             RequireStack(1, instr, "AWAIT");
-            object? awaited = _stack.Pop();
+            Value awaited = _valueStack.Pop();
+            object? awaitedObject = awaited.ToObject();
 
-            if (!AwaitableAdapter.TryGetTask(awaited, out Task<object?>? task))
+            if (!AwaitableAdapter.TryGetTask(awaitedObject, out Task<object?>? task))
             {
-                _stack.Push(awaited);
+                _valueStack.Push(awaited);
                 return StepResult.Next;
             }
 
@@ -77,7 +78,7 @@ namespace CFGS_VM.VMCore
                     throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, payload.Stack);
                 }
 
-                _stack.Push(task.Result!);
+                _valueStack.Push(ToRuntimeValue(task.Result));
                 return StepResult.Next;
             }
 
@@ -124,7 +125,7 @@ namespace CFGS_VM.VMCore
                 try
                 {
                     object? res = await AwaitTaskAsync(task).ConfigureAwait(false);
-                    _stack.Push(res!);
+                    _valueStack.Push(ToRuntimeValue(res));
                     ip = resumeIp;
                 }
                 catch (Exception ex)

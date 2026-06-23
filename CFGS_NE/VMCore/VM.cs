@@ -5,7 +5,6 @@ using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Core;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Plugin;
-using System.Collections;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
@@ -49,9 +48,9 @@ namespace CFGS_VM.VMCore
 
         private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef, StaticInstance? AccessType, bool IsAsync);
 
-        private sealed class ScriptExceptionSignal(object payload, Instruction instr) : Exception
+        private sealed class ScriptExceptionSignal(Value payload, Instruction instr) : Exception
         {
-            public object Payload { get; } = payload;
+            public Value Payload { get; } = payload;
 
             public Instruction Instruction { get; } = instr;
         }
@@ -72,9 +71,26 @@ namespace CFGS_VM.VMCore
         private object? CurrentThis => _callStack.Count > 0 ? _callStack.Peek().ThisRef : null;
 
         /// <summary>
-        /// Gets the runtime stack.
+        /// Gets the raw tagged-value operand stack.
         /// </summary>
-        private Stack<object> _stack => _state.Stack;
+        private Stack<Value> _valueStack => _state.Stack;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static Value ToRuntimeValue(object? value)
+            => value is Value tagged ? tagged : Value.FromObject(value);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static object? ToHostObject(object? value)
+            => value is Value tagged ? tagged.ToObject() : value;
+
+        private void PushRuntimeObject(object? value)
+            => _valueStack.Push(ToRuntimeValue(value));
+
+        private object? PopRuntimeObject()
+            => _valueStack.Pop().ToObject();
+
+        private object? PeekRuntimeObject()
+            => _valueStack.Peek().ToObject();
 
         /// <summary>
         /// Gets the runtime scopes.
@@ -109,25 +125,25 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        private static bool TryGetLocalVar(Env env, string name, out object? value)
+        private static bool TryGetLocalVarValue(Env env, string name, out Value value)
         {
             lock (env.SyncRoot)
             {
-                if (env.Vars.TryGetValue(name, out object? local))
+                if (env.Vars.TryGetValue(name, out Value local))
                 {
                     value = local;
                     return true;
                 }
             }
 
-            value = null;
+            value = Value.Null;
             return false;
         }
 
-        private static void SetLocalVar(Env env, string name, object? value)
+        private static void SetLocalVarValue(Env env, string name, Value value)
         {
             lock (env.SyncRoot)
-                env.Vars[name] = value!;
+                env.Vars[name] = value;
         }
 
         /// <summary>
@@ -141,25 +157,25 @@ namespace CFGS_VM.VMCore
         /// <param name="owner">The environment that owns the resolved local.</param>
         /// <param name="value">The resolved value.</param>
         /// <returns>True if the variable was found.</returns>
-        private bool TryResolveVarOwner(string name, out Env owner, out object? value)
+        private bool TryResolveVarOwnerValue(string name, out Env owner, out Value value)
         {
             for (Env? env = _scopes.Count > 0 ? _scopes[^1] : null; env != null; env = env.Parent)
             {
-                if (TryGetLocalVar(env, name, out value))
+                if (TryGetLocalVarValue(env, name, out value))
                 {
                     owner = env;
                     return true;
                 }
             }
 
-            if (_scopes.Count > 0 && TryGetLocalVar(_scopes[0], name, out value))
+            if (_scopes.Count > 0 && TryGetLocalVarValue(_scopes[0], name, out value))
             {
                 owner = _scopes[0];
                 return true;
             }
 
             owner = null!;
-            value = null;
+            value = Value.Null;
             return false;
         }
 
@@ -254,52 +270,52 @@ namespace CFGS_VM.VMCore
             switch (instr.Code)
             {
                 case OpCode.PUSH_INT:
-                    if (instr.Operand is null) _stack.Push(0);
-                    else _stack.Push((int)instr.Operand);
+                    if (instr.Operand is null) _valueStack.Push(Value.FromInt(0));
+                    else _valueStack.Push(Value.FromInt((int)instr.Operand));
                     break;
 
                 case OpCode.PUSH_LNG:
-                    if (instr.Operand is null) _stack.Push((long)0);
-                    else _stack.Push((long)instr.Operand);
+                    if (instr.Operand is null) _valueStack.Push(Value.FromLong(0));
+                    else _valueStack.Push(Value.FromLong((long)instr.Operand));
                     break;
 
                 case OpCode.PUSH_FLT:
-                    if (instr.Operand is null) _stack.Push((float)0);
-                    else _stack.Push((float)instr.Operand);
+                    if (instr.Operand is null) PushRuntimeObject((float)0);
+                    else PushRuntimeObject((float)instr.Operand);
                     break;
 
                 case OpCode.PUSH_DBL:
-                    if (instr.Operand is null) _stack.Push(0.0);
-                    else _stack.Push((double)instr.Operand);
+                    if (instr.Operand is null) _valueStack.Push(Value.FromDouble(0.0));
+                    else _valueStack.Push(Value.FromDouble((double)instr.Operand));
                     break;
 
                 case OpCode.PUSH_DEC:
-                    if (instr.Operand is null) _stack.Push((decimal)0);
-                    else _stack.Push((decimal)instr.Operand);
+                    if (instr.Operand is null) PushRuntimeObject((decimal)0);
+                    else PushRuntimeObject((decimal)instr.Operand);
                     break;
 
                 case OpCode.PUSH_SPC:
-                    if (instr.Operand is null) _stack.Push((BigInteger)0);
-                    else _stack.Push((BigInteger)instr.Operand);
+                    if (instr.Operand is null) PushRuntimeObject((BigInteger)0);
+                    else PushRuntimeObject((BigInteger)instr.Operand);
                     break;
 
                 case OpCode.PUSH_STR:
-                    if (instr.Operand is null) _stack.Push("");
-                    else _stack.Push((string)instr.Operand);
+                    if (instr.Operand is null) PushRuntimeObject(string.Empty);
+                    else PushRuntimeObject((string)instr.Operand);
                     break;
 
                 case OpCode.PUSH_CHR:
-                    if (instr.Operand is null) _stack.Push((char)0);
-                    else _stack.Push((char)instr.Operand);
+                    if (instr.Operand is null) _valueStack.Push(Value.FromChar((char)0));
+                    else _valueStack.Push(Value.FromChar((char)instr.Operand));
                     break;
 
                 case OpCode.PUSH_BOOL:
-                    if (instr.Operand is null) _stack.Push(false);
-                    else _stack.Push((bool)instr.Operand);
+                    if (instr.Operand is null) _valueStack.Push(Value.FromBool(false));
+                    else _valueStack.Push(Value.FromBool((bool)instr.Operand));
                     break;
 
                 case OpCode.PUSH_NULL:
-                    _stack.Push(null!);
+                    _valueStack.Push(Value.Null);
                     break;
 
                 case OpCode.PUSH_CONST:
@@ -308,10 +324,10 @@ namespace CFGS_VM.VMCore
                         if (!AllowNativeInterop)
                             throw new VMException("Runtime error: native .NET interop is disabled for this VM.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                        _stack.Push(Interop.NativeInterop.LoadAssembly(nativeAssemblyReference, NativeAssemblyBaseDirectory));
+                        PushRuntimeObject(Interop.NativeInterop.LoadAssembly(nativeAssemblyReference, NativeAssemblyBaseDirectory));
                     }
                     else
-                        _stack.Push(instr.Operand!);
+                        PushRuntimeObject(instr.Operand);
                     break;
 
                 case OpCode.PUSH_SCOPE:
@@ -374,14 +390,14 @@ namespace CFGS_VM.VMCore
                     {
                         string className = instr.Operand?.ToString() ?? "<anon>";
                         ClassInstance obj = new(className);
-                        _stack.Push(obj);
+                        PushRuntimeObject(obj);
                         break;
                     }
                 case OpCode.NEW_STATIC:
                     {
                         string className = instr.Operand?.ToString() ?? "<anon>";
                         StaticInstance st = new(className);
-                        _stack.Push(st);
+                        PushRuntimeObject(st);
                         break;
                     }
 
@@ -412,10 +428,10 @@ namespace CFGS_VM.VMCore
                     {
                         if (instr.Operand is null) break;
 
-                        if (_stack.Count < 1)
+                        if (_valueStack.Count < 1)
                             throw new VMException("Runtime error: stack underflow (NEW_ENUM needs count)", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                        int count = Convert.ToInt32(_stack.Pop());
+                        int count = Convert.ToInt32(_valueStack.Pop().ToObject());
 
                         if (count < 0)
                             throw new VMException($"Runtime error: enum member count cannot be negative ({count})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -426,8 +442,8 @@ namespace CFGS_VM.VMCore
 
                         for (int i = 0; i < count; i++)
                         {
-                            object valueObj = _stack.Pop();
-                            object keyObj = _stack.Pop();
+                            object? valueObj = _valueStack.Pop().ToObject();
+                            object? keyObj = _valueStack.Pop().ToObject();
 
                             string key = keyObj?.ToString() ?? "null";
                             int value = Convert.ToInt32(valueObj);
@@ -435,29 +451,29 @@ namespace CFGS_VM.VMCore
                             ei.Add(key, value);
                         }
 
-                        _stack.Push(ei);
+                        PushRuntimeObject(ei);
                         break;
                     }
 
                 case OpCode.ROT:
                     {
                         RequireStack(3, instr, "ROT");
-                        object a = _stack.Pop();
-                        object b = _stack.Pop();
-                        object c = _stack.Pop();
-                        _stack.Push(b);
-                        _stack.Push(a);
-                        _stack.Push(c);
+                        Value a = _valueStack.Pop();
+                        Value b = _valueStack.Pop();
+                        Value c = _valueStack.Pop();
+                        _valueStack.Push(b);
+                        _valueStack.Push(a);
+                        _valueStack.Push(c);
                         break;
                     }
                 case OpCode.SWAP:
                     {
                         RequireStack(2, instr, "SWAP");
 
-                        object a = _stack.Pop();
-                        object b = _stack.Pop();
-                        _stack.Push(a);
-                        _stack.Push(b);
+                        Value a = _valueStack.Pop();
+                        Value b = _valueStack.Pop();
+                        _valueStack.Push(a);
+                        _valueStack.Push(b);
                         break;
                     }
 
@@ -507,7 +523,7 @@ namespace CFGS_VM.VMCore
                             object? th = CurrentThis;
                             if (th == null)
                                 throw new VMException("Runtime error: 'this' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                            _stack.Push(th);
+                            PushRuntimeObject(th);
                             break;
                         }
 
@@ -516,14 +532,14 @@ namespace CFGS_VM.VMCore
                             object? recv = CurrentThis;
                             if (recv is StaticInstance st)
                             {
-                                _stack.Push(st);
+                                PushRuntimeObject(st);
                                 break;
                             }
                             if (recv is ClassInstance inst)
                             {
-                                if (TryGetInstanceField(inst, "__type", out object? tObj) && tObj is StaticInstance st2)
+                                if (TryGetInstanceFieldValue(inst, "__type", out Value typeValue) && typeValue.ToObject() is StaticInstance st2)
                                 {
-                                    _stack.Push(st2);
+                                    PushRuntimeObject(st2);
                                     break;
                                 }
                                 throw new VMException("Runtime error: missing '__type' on instance for 'type'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -537,9 +553,9 @@ namespace CFGS_VM.VMCore
 
                             if (recv is ClassInstance inst)
                             {
-                                if (TryGetInstanceField(inst, "__base", out object? bObj) && bObj is ClassInstance baseInst)
+                                if (TryGetInstanceFieldValue(inst, "__base", out Value baseValue) && baseValue.ToObject() is ClassInstance baseInst)
                                 {
-                                    _stack.Push(baseInst);
+                                    PushRuntimeObject(baseInst);
                                     break;
                                 }
                                 throw new VMException("Runtime error: missing '__base' on instance for 'super'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -547,9 +563,9 @@ namespace CFGS_VM.VMCore
 
                             if (recv is StaticInstance st)
                             {
-                                if (TryGetStaticField(st, "__base", out object? sbObj) && sbObj is StaticInstance baseType)
+                                if (TryGetStaticFieldValue(st, "__base", out Value baseValue) && baseValue.ToObject() is StaticInstance baseType)
                                 {
-                                    _stack.Push(baseType);
+                                    PushRuntimeObject(baseType);
                                     break;
                                 }
                                 throw new VMException("Runtime error: missing '__base' on static type for 'super'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -563,9 +579,9 @@ namespace CFGS_VM.VMCore
 
                             if (recv is ClassInstance inst)
                             {
-                                if (TryGetInstanceField(inst, "__outer", out object? oObj) && oObj is ClassInstance outerInst)
+                                if (TryGetInstanceFieldValue(inst, "__outer", out Value outerValue) && outerValue.ToObject() is ClassInstance outerInst)
                                 {
-                                    _stack.Push(outerInst);
+                                    PushRuntimeObject(outerInst);
                                     break;
                                 }
                                 throw new VMException("Runtime error: missing '__outer' on instance for 'outer'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -579,22 +595,22 @@ namespace CFGS_VM.VMCore
                             throw new VMException("Runtime error: 'outer' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 
-                        if (TryResolveVarOwner(name, out Env owner, out object? val))
+                        if (TryResolveVarOwnerValue(name, out Env owner, out Value val))
                         {
                             MarkAsyncHazardForEnvAccess(owner);
-                            _stack.Push(val!);
+                            _valueStack.Push(val);
                             break;
                         }
 
                         if (TryGetRegisteredNamespaceRoot(name, out object namespaceObject))
                         {
-                            _stack.Push(namespaceObject);
+                            _valueStack.Push(Value.FromObject(namespaceObject));
                             break;
                         }
 
                         if (TryGetBuiltin(name, out BuiltinDescriptor d))
                         {
-                            _stack.Push(new BuiltinCallable(d.Name, d.ArityMin, d.ArityMax));
+                            _valueStack.Push(Value.FromObject(new BuiltinCallable(d.Name, d.ArityMin, d.ArityMax)));
                             break;
                         }
 
@@ -611,12 +627,12 @@ namespace CFGS_VM.VMCore
                             throw new VMException($"Runtime error: cannot declare '{name}' as a variable", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         RequireStack(1, instr, "VAR_DECL");
-                        object value = _stack.Pop();
+                        Value value = _valueStack.Pop();
                         Env scope = _scopes[^1];
                         if (scope.HasLocal(name))
                             throw new VMException($"Runtime error: variable '{name}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                        scope.Define(name, value);
+                        scope.DefineValue(name, value);
                         break;
                     }
 
@@ -629,12 +645,12 @@ namespace CFGS_VM.VMCore
                             throw new VMException($"Runtime error: cannot declare '{name}' as a constant", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         RequireStack(1, instr, "CONST_DECL");
-                        object value = _stack.Pop();
+                        Value value = _valueStack.Pop();
                         Env scope = _scopes[^1];
                         if (scope.HasLocal(name))
                             throw new VMException($"Runtime error: variable '{name}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                        scope.DefineConst(name, value);
+                        scope.DefineConstValue(name, value);
                         break;
                     }
 
@@ -647,8 +663,8 @@ namespace CFGS_VM.VMCore
                             throw new VMException($"Runtime error: cannot assign to '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         RequireStack(1, instr, "STORE_VAR");
-                        object value = _stack.Pop();
-                        if (!TryResolveVarOwner(name, out Env env, out _))
+                        Value value = _valueStack.Pop();
+                        if (!TryResolveVarOwnerValue(name, out Env env, out _))
                             throw new VMException(UndefinedAssignmentMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         MarkAsyncHazardForEnvAccess(env);
@@ -724,22 +740,21 @@ namespace CFGS_VM.VMCore
                 case OpCode.DUP:
                     {
                         RequireStack(1, instr, "DUP");
-                        object v = _stack.Peek();
-                        _stack.Push(v);
+                        _valueStack.Push(_valueStack.Peek());
                         break;
                     }
 
                 case OpCode.POP:
                     {
                         RequireStack(1, instr, "POP");
-                        _stack.Pop();
+                        _valueStack.Pop();
                         break;
                     }
 
                 case OpCode.DESTROY:
                     {
                         RequireStack(1, instr, "DESTROY");
-                        object? value = _stack.Pop();
+                        object? value = _valueStack.Pop().ToObject();
                         DestroyValue(value, instr, recursive: false);
                         break;
                     }
@@ -766,7 +781,7 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is null)
                             throw new VMException("Runtime error: JMP_IF_FALSE missing target", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         RequireStack(1, instr, "JMP_IF_FALSE");
-                        object v = _stack.Pop();
+                        Value v = _valueStack.Pop();
                         if (!ToBool(v))
                         {
                             _ip = (int)instr.Operand;
@@ -780,7 +795,7 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is null)
                             throw new VMException("Runtime error: JMP_IF_TRUE missing target", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         RequireStack(1, instr, "JMP_IF_TRUE");
-                        object v = _stack.Pop();
+                        Value v = _valueStack.Pop();
                         if (ToBool(v))
                         {
                             _ip = (int)instr.Operand;
@@ -824,7 +839,7 @@ namespace CFGS_VM.VMCore
                             throw new VMException($"Runtime error: PUSH_CLOSURE unknown function address {funcAddr}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         Env capturedEnv = _scopes[^1];
-                        _stack.Push(new Closure(
+                        PushRuntimeObject(new Closure(
                             funcAddr,
                             funcInfo.Parameters,
                             funcInfo.MinArgs,
@@ -889,7 +904,7 @@ namespace CFGS_VM.VMCore
 
         private void ResetReplExecutionState()
         {
-            _stack.Clear();
+            _valueStack.Clear();
             _callStack.Clear();
             _tryHandlers.Clear();
             _awaitTask = null;
@@ -998,9 +1013,9 @@ namespace CFGS_VM.VMCore
 
         private void RequireStack(int needed, Instruction instr, string? opName = null)
         {
-            if (_stack.Count < needed)
+            if (_valueStack.Count < needed)
                 throw new VMException(
-                    $"Runtime error: {(opName ?? instr.Code.ToString())} needs {needed} stack values (have {_stack.Count})",
+                    $"Runtime error: {(opName ?? instr.Code.ToString())} needs {needed} stack values (have {_valueStack.Count})",
                     instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
@@ -1051,7 +1066,7 @@ namespace CFGS_VM.VMCore
                 foreach (StaticInstance iface in EnumerateDirectInterfaces(current))
                     AddInterfaceRecursive(iface, seen, result);
 
-                current = TryGetStaticField(current, "__base", out object? baseObj) && baseObj is StaticInstance baseType
+                current = TryGetStaticFieldValue(current, "__base", out Value baseValue) && baseValue.ToObject() is StaticInstance baseType
                     ? baseType
                     : null;
             }
@@ -1100,9 +1115,9 @@ namespace CFGS_VM.VMCore
             {
                 ["name"] = iface.ClassName,
                 ["bases"] = EnumerateDirectInterfaces(iface).Cast<object>().ToList(),
-                ["methods"] = TryGetStaticField(iface, "__interface_methods", out object? methods) ? methods! : new List<object>(),
-                ["properties"] = TryGetStaticField(iface, "__interface_properties", out object? properties) ? properties! : new List<object>(),
-                ["indexers"] = TryGetStaticField(iface, "__interface_indexers", out object? indexers) ? indexers! : new List<object>()
+                ["methods"] = TryGetStaticFieldValue(iface, "__interface_methods", out Value methods) ? methods.ToObject()! : new List<object>(),
+                ["properties"] = TryGetStaticFieldValue(iface, "__interface_properties", out Value properties) ? properties.ToObject()! : new List<object>(),
+                ["indexers"] = TryGetStaticFieldValue(iface, "__interface_indexers", out Value indexers) ? indexers.ToObject()! : new List<object>()
             };
 
             return result;
@@ -1130,16 +1145,21 @@ namespace CFGS_VM.VMCore
             }
 
             string explicitName = $"{iface.ClassName}.{methodName}";
-            if (!TryResolveInstanceMemberInHierarchy(instance, explicitName, out _, out StaticInstance? ownerType, out object? member) ||
-                member is not Closure closure)
+            Closure closure;
+            if (!TryResolveInstanceMemberValueInHierarchy(instance, explicitName, out _, out StaticInstance? ownerType, out Value memberValue) ||
+                memberValue.Reference is not Closure resolvedClosure)
             {
-                if (!TryResolveInstanceMemberInHierarchy(instance, methodName, out _, out ownerType, out member) ||
-                    member is not Closure fallbackClosure)
+                if (!TryResolveInstanceMemberValueInHierarchy(instance, methodName, out _, out ownerType, out memberValue) ||
+                    memberValue.Reference is not Closure fallbackClosure)
                 {
                     throw new VMException($"Runtime error: interface_call could not find method '{methodName}' for interface '{iface.ClassName}'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 }
 
                 closure = fallbackClosure;
+            }
+            else
+            {
+                closure = resolvedClosure;
             }
 
             return InvokeClosureSync(closure, callArgs, instr, instance, ownerType);

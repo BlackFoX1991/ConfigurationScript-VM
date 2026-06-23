@@ -1,4 +1,5 @@
-﻿using CFGS_VM.VMCore.Extensions.Core;
+using CFGS_VM.VMCore;
+using CFGS_VM.VMCore.Extensions.Core;
 
 namespace CFGS_VM.VMCore.Extensions.Core;
 
@@ -65,7 +66,7 @@ public class Closure
         string captured = "";
         if (CapturedEnv != null)
         {
-            List<KeyValuePair<string, object>> snapshot;
+            List<KeyValuePair<string, Value>> snapshot;
             lock (CapturedEnv.SyncRoot)
                 snapshot = CapturedEnv.Vars.ToList();
 
@@ -75,10 +76,15 @@ public class Closure
                 .OrderBy(kv => kv.Key, StringComparer.Ordinal)
                 .Select(kvp =>
                 {
-                    if (kvp.Value == null) return $"{kvp.Key}=null";
-                    if (kvp.Value is Closure) return $"{kvp.Key}=<closure>";
-                    if (kvp.Value is FunctionInfo fi) return $"{kvp.Key}=<fn:{fi.Address.ToString()}>";
-                    return $"{kvp.Key}={kvp.Value.GetType().Name}";
+                    Value value = kvp.Value;
+                    if (value.IsNull) return $"{kvp.Key}=null";
+                    if (value.Kind != ValueKind.Ref)
+                        return $"{kvp.Key}={value.Kind}";
+
+                    object raw = value.Reference!;
+                    if (raw is Closure) return $"{kvp.Key}=<closure>";
+                    if (raw is FunctionInfo fi) return $"{kvp.Key}=<fn:{fi.Address.ToString()}>";
+                    return $"{kvp.Key}={raw.GetType().Name}";
                 });
                 captured = $" captured: {{{string.Join(", ", pairs)}}}";
             }

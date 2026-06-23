@@ -179,9 +179,10 @@ namespace CFGS_VM.VMCore
 
                     TryHandler top = _tryHandlers.Peek();
 
-                    if (top.Exception is not object deferredEx || top.InFinally)
+                    if (!top.Exception.HasValue || top.InFinally)
                         continue;
 
+                    Value deferredEx = top.Exception.Value;
                     top.Exception = null;
 
                     if (RouteExceptionToTryHandlers(deferredEx, _program[routedSafeIp], out int routedIp))
@@ -232,7 +233,7 @@ namespace CFGS_VM.VMCore
                 try
                 {
                     object? res = await AwaitTaskAsync(task).ConfigureAwait(false);
-                    _stack.Push(res!);
+                    _valueStack.Push(ToRuntimeValue(res));
                 }
                 catch (Exception ex)
                 {
@@ -278,8 +279,9 @@ namespace CFGS_VM.VMCore
         {
             int di = Math.Clamp(ip, 0, _program!.Count - 1);
             Instruction dinstr = _program[di];
+            string stackText = string.Join(", ", _valueStack.Reverse().Select(FormatVal));
             DebugStream!.Write(Encoding.Default.GetBytes(
-                $"[DEBUG] {dinstr.Line} ->  IP={ip}, STACK=[{string.Join(", ", _stack.Reverse())}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
+                $"[DEBUG] {dinstr.Line} ->  IP={ip}, STACK=[{stackText}], SCOPES={_scopes.Count}, CALLSTACK={_callStack.Count}\n"));
             DebugStream!.Write(Encoding.Default.GetBytes(
                 $"[DEBUG] {dinstr} (Line {dinstr.Line}, Col {dinstr.Col})\n"));
         }
@@ -305,7 +307,7 @@ namespace CFGS_VM.VMCore
         }
 
         private VmDebugContext CreateDebugContext(int ip, Instruction instruction)
-            => new(ip, instruction, _stack.Count, _scopes.Count, _callStack.Count);
+            => new(ip, instruction, _valueStack.Count, _scopes.Count, _callStack.Count);
 
         private static Instruction SafeCurrentInstr(List<Instruction> insns, int ip)
         {

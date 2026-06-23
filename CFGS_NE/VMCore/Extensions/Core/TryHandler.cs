@@ -1,4 +1,6 @@
-﻿namespace CFGS_VM.VMCore.Extensions.Core
+using CFGS_VM.VMCore;
+
+namespace CFGS_VM.VMCore.Extensions.Core
 {
     public class TryHandler
     {
@@ -8,7 +10,7 @@
 
         public int FinallyAddr;
 
-        public object? Exception;
+        public Value? Exception;
 
         public int ScopeDepthAtTry;
 
@@ -56,4 +58,3 @@
         }
     }
 }
-

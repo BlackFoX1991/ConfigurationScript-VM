@@ -12,6 +12,7 @@ namespace CFGS_VM.VMCore
     {
         public object? GetMember(object? target, string memberName, string? originFile = null)
         {
+            target = ToHostObject(target);
             if (target is null)
                 throw new ArgumentNullException(nameof(target));
             if (string.IsNullOrWhiteSpace(memberName))
@@ -23,6 +24,7 @@ namespace CFGS_VM.VMCore
 
         public void SetMember(object? target, string memberName, object? value, string? originFile = null)
         {
+            target = ToHostObject(target);
             if (target is null)
                 throw new ArgumentNullException(nameof(target));
             if (string.IsNullOrWhiteSpace(memberName))
@@ -49,14 +51,17 @@ namespace CFGS_VM.VMCore
             return InvokeValueAsync(target, args, originFile, ct);
         }
 
-        public async Task<object?> InvokeValueAsync(object? callable, IEnumerable<object?>? args = null, string? originFile = null, CancellationToken ct = default)
+        public Task<object?> InvokeValueAsync(object? callable, IEnumerable<object?>? args = null, string? originFile = null, CancellationToken ct = default)
+            => InvokeRuntimeValueAsync(callable, NormalizeRuntimeArgs(args), originFile, ct);
+
+        private async Task<object?> InvokeRuntimeValueAsync(object? callable, List<Value> runtimeArgs, string? originFile, CancellationToken ct)
         {
+            callable = ToHostObject(callable);
             if (callable is null)
                 throw new ArgumentNullException(nameof(callable));
             ct.ThrowIfCancellationRequested();
 
             Instruction instr = new(OpCode.CALL_INDIRECT, null, -1, -1, originFile ?? string.Empty);
-            List<object> runtimeArgs = args?.Select(static arg => NormalizeHostValue(arg)!).ToList() ?? [];
             object? result;
 
             switch (callable)
@@ -111,8 +116,8 @@ namespace CFGS_VM.VMCore
 
                 case BoundType boundType:
                     object? nestedCtor = GetIndexedValue(boundType.Type, "new", CreateHostMemberInstruction(OpCode.INDEX_GET, originFile));
-                    runtimeArgs.Insert(0, boundType.Outer);
-                    result = await InvokeValueAsync(nestedCtor, runtimeArgs, originFile, ct).ConfigureAwait(false);
+                    runtimeArgs.Insert(0, ToRuntimeValue(boundType.Outer));
+                    result = await InvokeRuntimeValueAsync(nestedCtor, runtimeArgs, originFile, ct).ConfigureAwait(false);
                     break;
 
                 case Closure closure:
@@ -123,7 +128,7 @@ namespace CFGS_VM.VMCore
                         if (runtimeArgs.Count == 0)
                             throw new VMException($"Runtime error: missing '{closure.Parameters[0]}' for method call.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                        receiver = runtimeArgs[0];
+                        receiver = runtimeArgs[0].ToObject();
                         runtimeArgs.RemoveAt(0);
                         accessType = ResolveAccessType(receiver);
                     }
@@ -133,7 +138,7 @@ namespace CFGS_VM.VMCore
 
                 case StaticInstance staticType:
                     object? ctor = GetIndexedValue(staticType, "new", CreateHostMemberInstruction(OpCode.INDEX_GET, originFile));
-                    result = await InvokeValueAsync(ctor, runtimeArgs, originFile, ct).ConfigureAwait(false);
+                    result = await InvokeRuntimeValueAsync(ctor, runtimeArgs, originFile, ct).ConfigureAwait(false);
                     break;
 
                 default:
@@ -148,7 +153,7 @@ namespace CFGS_VM.VMCore
 
         private async Task<object?> InvokeClosureHostAsync(
             Closure closure,
-            List<object> args,
+            List<Value> args,
             object? receiver,
             StaticInstance? accessType,
             Instruction instr,
@@ -159,6 +164,9 @@ namespace CFGS_VM.VMCore
 
             return InvokeClosureSync(closure, args, instr, receiver, accessType, ct);
         }
+
+        private static List<Value> NormalizeRuntimeArgs(IEnumerable<object?>? args)
+            => args?.Select(static arg => ToRuntimeValue(NormalizeHostValue(arg))).ToList() ?? [];
 
         private object? ResolveQualifiedRuntimeValue(string qualifiedName, string? originFile)
         {

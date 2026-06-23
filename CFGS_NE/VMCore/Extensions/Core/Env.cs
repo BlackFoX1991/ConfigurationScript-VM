@@ -1,4 +1,6 @@
-﻿namespace CFGS_VM.VMCore.Extensions.Core
+using CFGS_VM.VMCore;
+
+namespace CFGS_VM.VMCore.Extensions.Core
 {
     /// <summary>
     /// Outcome of an atomic in-place assignment to a local variable.
@@ -19,7 +21,7 @@
     {
         public readonly object SyncRoot = new();
 
-        public Dictionary<string, object> Vars = new();
+        public Dictionary<string, Value> Vars = new();
 
         public HashSet<string> ConstVars = new(StringComparer.Ordinal);
 
@@ -34,19 +36,34 @@
             Parent = parent;
         }
 
-        public bool TryGetValue(string name, out object? value)
+        public bool TryGetValueValue(string name, out Value value)
         {
             Env? parent;
             lock (SyncRoot)
             {
-                if (Vars.TryGetValue(name, out object? local))
+                if (Vars.TryGetValue(name, out Value local))
                 {
                     value = local;
                     return true;
                 }
                 parent = Parent;
             }
-            if (parent != null) return parent.TryGetValue(name, out value);
+
+            if (parent != null)
+                return parent.TryGetValueValue(name, out value);
+
+            value = Value.Null;
+            return false;
+        }
+
+        public bool TryGetValue(string name, out object? value)
+        {
+            if (TryGetValueValue(name, out Value local))
+            {
+                value = local.ToObject();
+                return true;
+            }
+
             value = null;
             return false;
         }
@@ -57,7 +74,7 @@
                 return Vars.ContainsKey(name);
         }
 
-        public bool Set(string name, object value)
+        public bool SetValue(string name, Value value)
         {
             Env? parent;
             lock (SyncRoot)
@@ -69,17 +86,26 @@
                 }
                 parent = Parent;
             }
-            if (parent != null) return parent.Set(name, value);
+
+            if (parent != null)
+                return parent.SetValue(name, value);
+
             return false;
         }
 
-        public void Define(string name, object value)
+        public bool Set(string name, object? value)
+            => SetValue(name, Value.FromObject(value));
+
+        public void DefineValue(string name, Value value)
         {
             lock (SyncRoot)
                 Vars[name] = value;
         }
 
-        public void DefineConst(string name, object value)
+        public void Define(string name, object? value)
+            => DefineValue(name, Value.FromObject(value));
+
+        public void DefineConstValue(string name, Value value)
         {
             lock (SyncRoot)
             {
@@ -87,6 +113,9 @@
                 ConstVars.Add(name);
             }
         }
+
+        public void DefineConst(string name, object? value)
+            => DefineConstValue(name, Value.FromObject(value));
 
         public bool IsConstLocal(string name)
         {
@@ -111,7 +140,7 @@
         /// <param name="name">The local name.</param>
         /// <param name="value">The new value.</param>
         /// <returns>The <see cref="LocalAssign"/> outcome.</returns>
-        public LocalAssign SetLocalIfNotConst(string name, object value)
+        public LocalAssign SetLocalIfNotConst(string name, Value value)
         {
             lock (SyncRoot)
             {
@@ -123,5 +152,8 @@
                 return LocalAssign.Ok;
             }
         }
+
+        public LocalAssign SetLocalIfNotConst(string name, object? value)
+            => SetLocalIfNotConst(name, Value.FromObject(value));
     }
 }

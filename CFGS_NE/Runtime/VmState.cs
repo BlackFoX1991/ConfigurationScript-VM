@@ -10,7 +10,7 @@ namespace CFGS_VM.VMCore
             /// <summary>
             /// Gets the operand stack.
             /// </summary>
-            public Stack<object> Stack { get; } = new();
+            public Stack<Value> Stack { get; } = new();
 
             /// <summary>
             /// Gets the lexical scope chain.

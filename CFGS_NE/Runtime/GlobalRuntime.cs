@@ -11,6 +11,9 @@ namespace CFGS_VM.VMCore
         {
             switch (value)
             {
+                case Value tagged:
+                    return tagged.ToObject();
+
                 case null:
                 case string:
                 case char:
@@ -77,7 +80,16 @@ namespace CFGS_VM.VMCore
 
             Env global = _scopes[0];
             lock (global.SyncRoot)
-                return global.Vars.TryGetValue(name, out value);
+            {
+                if (global.Vars.TryGetValue(name, out Value local))
+                {
+                    value = ToHostObject(local);
+                    return true;
+                }
+            }
+
+            value = null;
+            return false;
         }
 
         public object? GetGlobal(string name)
@@ -98,7 +110,7 @@ namespace CFGS_VM.VMCore
 
             Env global = _scopes[0];
             lock (global.SyncRoot)
-                return global.Vars.ToDictionary(static kv => kv.Key, static kv => (object?)kv.Value, StringComparer.Ordinal);
+                return global.Vars.ToDictionary(static kv => kv.Key, static kv => ToHostObject(kv.Value), StringComparer.Ordinal);
         }
 
         public void SetGlobal(string name, object? value)
@@ -115,7 +127,7 @@ namespace CFGS_VM.VMCore
                 if (global.ConstVars.Contains(name))
                     throw new InvalidOperationException($"Global variable '{name}' is const and cannot be changed.");
 
-                global.Vars[name] = NormalizeHostValue(value)!;
+                global.Vars[name] = ToRuntimeValue(NormalizeHostValue(value));
             }
         }
 
@@ -133,13 +145,18 @@ namespace CFGS_VM.VMCore
                 if (global.ConstVars.Contains(name))
                     return false;
 
-                global.Vars[name] = NormalizeHostValue(value)!;
+                global.Vars[name] = ToRuntimeValue(NormalizeHostValue(value));
                 return true;
             }
         }
 
         public static T? ConvertToHostValue<T>(object? value)
-            => ConvertHostValue<T>(value);
+        {
+            if (value is T typed)
+                return typed;
+
+            return ConvertHostValue<T>(ToHostObject(value));
+        }
 
         private static Dictionary<string, object> NormalizeHostDictionary(IDictionary dictionary)
         {

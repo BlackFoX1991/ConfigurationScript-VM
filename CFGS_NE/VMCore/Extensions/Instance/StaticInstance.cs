@@ -1,4 +1,6 @@
-﻿namespace CFGS_VM.VMCore.Extensions.Instance
+using CFGS_VM.VMCore;
+
+namespace CFGS_VM.VMCore.Extensions.Instance
 {
     public sealed class StaticInstance
     {
@@ -8,12 +10,12 @@
         public object SyncRoot { get; } = new();
 
         public string ClassName { get; }
-        public Dictionary<string, object> Fields { get; }
+        public Dictionary<string, Value> Fields { get; }
 
         public StaticInstance(string className)
         {
             ClassName = className;
-            Fields = new Dictionary<string, object>();
+            Fields = new Dictionary<string, Value>();
         }
     }
 }

@@ -12,10 +12,27 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Formats a runtime value for compact debug output.
         /// </summary>
+        private string FormatVal(Value value)
+        {
+            return value.Kind switch
+            {
+                ValueKind.Null => "null",
+                ValueKind.Bool => $"{value.AsBool} : Boolean",
+                ValueKind.Int => $"{value.AsInt.ToString(CultureInfo.InvariantCulture)} : Int32",
+                ValueKind.Long => $"{value.AsLong.ToString(CultureInfo.InvariantCulture)} : Int64",
+                ValueKind.Double => $"{value.AsDouble.ToString(CultureInfo.InvariantCulture)} : Double",
+                ValueKind.Char => $"{value.AsChar} : Char",
+                _ => FormatVal(value.Reference)
+            };
+        }
+
         private string FormatVal(object? v)
         {
             if (v == null)
                 return "null";
+
+            if (v is Value tagged)
+                return FormatVal(tagged);
 
             return v switch
             {
@@ -61,6 +78,42 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Writes a runtime value as JSON.
         /// </summary>
+        private static void WriteJsonValue(Value v, TextWriter w, HashSet<object>? seen = null, int mode = 2)
+        {
+            switch (v.Kind)
+            {
+                case ValueKind.Null:
+                    w.Write("null");
+                    return;
+
+                case ValueKind.Bool:
+                    w.Write(v.AsBool ? "true" : "false");
+                    return;
+
+                case ValueKind.Int:
+                    w.Write(v.AsInt.ToString(CultureInfo.InvariantCulture));
+                    return;
+
+                case ValueKind.Long:
+                    w.Write(v.AsLong.ToString(CultureInfo.InvariantCulture));
+                    return;
+
+                case ValueKind.Double:
+                    w.Write(v.AsDouble.ToString(CultureInfo.InvariantCulture));
+                    return;
+
+                case ValueKind.Char:
+                    w.Write('"');
+                    w.Write(JsonEscapeString(v.AsChar.ToString()));
+                    w.Write('"');
+                    return;
+
+                default:
+                    WriteJsonValue(v.Reference, w, seen, mode);
+                    return;
+            }
+        }
+
         private static void WriteJsonValue(object? v, TextWriter w, HashSet<object>? seen = null, int mode = 2)
         {
             seen ??= new HashSet<object>(ReferenceEqualityComparer.Instance);
@@ -68,6 +121,12 @@ namespace CFGS_VM.VMCore
             if (v is null)
             {
                 w.Write("null");
+                return;
+            }
+
+            if (v is Value tagged)
+            {
+                WriteJsonValue(tagged, w, seen, mode);
                 return;
             }
 
@@ -192,10 +251,48 @@ namespace CFGS_VM.VMCore
             return sb.ToString();
         }
 
+        public static string JsonStringify(Value v, int mode = 2)
+        {
+            StringBuilder sb = new();
+            using StringWriter sw = new(sb, CultureInfo.InvariantCulture);
+            WriteJsonValue(v, sw, null, mode);
+            return sb.ToString();
+        }
+
         /// <summary>
         /// Writes a runtime value in CFGS display format.
         /// </summary>
-        public static void PrintValue(object v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false)
+        public static void PrintValue(Value v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false)
+        {
+            switch (v.Kind)
+            {
+                case ValueKind.Null:
+                    w.Write("null");
+                    break;
+                case ValueKind.Bool:
+                    w.Write(v.AsBool ? "true" : "false");
+                    break;
+                case ValueKind.Int:
+                    w.Write(v.AsInt.ToString(CultureInfo.InvariantCulture));
+                    break;
+                case ValueKind.Long:
+                    w.Write(v.AsLong.ToString(CultureInfo.InvariantCulture));
+                    break;
+                case ValueKind.Double:
+                    w.Write(v.AsDouble.ToString(CultureInfo.InvariantCulture));
+                    break;
+                case ValueKind.Char:
+                    w.Write(v.AsChar);
+                    break;
+                default:
+                    PrintValue(v.Reference, w, mode, seen, escapeNewlines);
+                    break;
+            }
+
+            w.Flush();
+        }
+
+        public static void PrintValue(object? v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false)
         {
             static string UnescapeForPrinting(string s)
             {
@@ -212,6 +309,12 @@ namespace CFGS_VM.VMCore
             if (v == null)
             {
                 w.Write("null");
+                return;
+            }
+
+            if (v is Value tagged)
+            {
+                PrintValue(tagged, w, mode, seen, escapeNewlines);
                 return;
             }
 

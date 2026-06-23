@@ -1551,18 +1551,21 @@ namespace CFGS_VM.StandardLibrary
             if (value is ClassInstance inst)
             {
                 Dictionary<string, object>? visMap = null;
-                if (LockMutableRuntime(inst, () => inst.Fields.TryGetValue("__type", out object? innerType) ? innerType : null) is StaticInstance st
-                    && LockMutableRuntime(st, () => st.Fields.TryGetValue("__vis_inst", out object? innerVis) ? innerVis : null) is Dictionary<string, object> vm)
+                if (LockMutableRuntime(inst, () => inst.Fields.TryGetValue("__type", out Value innerType) ? innerType.ToObject() : null) is StaticInstance st
+                    && LockMutableRuntime(st, () => st.Fields.TryGetValue("__vis_inst", out Value innerVis) ? innerVis.ToObject() : null) is Dictionary<string, object> vm)
                 {
                     visMap = vm;
                 }
 
                 var result = new Dictionary<string, object>();
-                foreach (var kvp in LockMutableRuntime(inst, () => inst.Fields.ToList()))
+                foreach (var kvp in LockMutableRuntime(inst, () => inst.Fields
+                    .Select(static kv => new KeyValuePair<string, object?>(kv.Key, kv.Value.ToObject()))
+                    .ToList()))
                 {
+                    object? fieldValue = kvp.Value;
                     if (kvp.Key.StartsWith("__")) continue;
-                    if (kvp.Value is Closure) continue;
-                    if (kvp.Value is StaticInstance) continue;
+                    if (fieldValue is Closure) continue;
+                    if (fieldValue is StaticInstance) continue;
 
                     if (visMap != null && LockMutableRuntime(visMap, () => visMap.TryGetValue(kvp.Key, out object? rawVis) ? rawVis : null) is object rawVis)
                     {
@@ -1570,7 +1573,7 @@ namespace CFGS_VM.StandardLibrary
                         if (vis != 0) continue;
                     }
 
-                    result[kvp.Key] = NormalizeForJson(kvp.Value)!;
+                    result[kvp.Key] = NormalizeForJson(fieldValue)!;
                 }
                 return result;
             }

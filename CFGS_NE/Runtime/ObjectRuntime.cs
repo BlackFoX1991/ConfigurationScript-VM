@@ -89,8 +89,8 @@ namespace CFGS_VM.VMCore
             SetRuntimeFlag(obj, "__destroying", true);
             try
             {
-                if (TryResolveInstanceMemberInHierarchy(obj, "destroy", out ClassInstance ownerInst, out StaticInstance? ownerType, out object? member) &&
-                    member is Closure clos &&
+                if (TryResolveInstanceMemberValueInHierarchy(obj, "destroy", out ClassInstance ownerInst, out StaticInstance? ownerType, out Value memberValue) &&
+                    memberValue.Reference is Closure clos &&
                     clos.Parameters.Count > 0 &&
                     clos.Parameters[0] == "this")
                 {
@@ -105,7 +105,7 @@ namespace CFGS_VM.VMCore
                             DebugStream!);
                     }
 
-                    InvokeClosureSync(clos, [], instr, ownerInst, ownerType);
+                    InvokeClosureSyncValue(clos, [], instr, ownerInst, ownerType);
                 }
 
                 if (recursive)
@@ -139,7 +139,7 @@ namespace CFGS_VM.VMCore
             if (bound.Method.ArityMin != 0 || bound.Method.ArityMax != 0)
                 return false;
 
-            object? result = InvokeIntrinsicForCall(bound.Method, bound.Receiver, [], instr);
+            object? result = InvokeIntrinsicForCall(bound.Method, bound.Receiver, new List<Value>(), instr);
             if (AwaitableAdapter.TryGetTask(result, out _))
             {
                 throw new VMException(
@@ -171,9 +171,9 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private static bool TryGetRuntimeFlag(ClassInstance obj, string slotName)
         {
-            return TryGetInstanceField(obj, slotName, out object? raw) &&
-                   raw is bool flag &&
-                   flag;
+            return TryGetInstanceFieldValue(obj, slotName, out Value raw) &&
+                   raw.Kind == ValueKind.Bool &&
+                   raw.AsBool;
         }
 
         /// <summary>
@@ -181,15 +181,15 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private static void SetRuntimeFlag(ClassInstance obj, string slotName, bool value)
         {
-            SetInstanceField(obj, slotName, value);
+            SetInstanceFieldValue(obj, slotName, Value.FromBool(value));
         }
 
         /// <summary>
         /// Tries to read an instance field.
         /// </summary>
-        private static bool TryGetInstanceField(ClassInstance obj, string name, out object? value)
+        private static bool TryGetInstanceFieldValue(ClassInstance obj, string name, out Value value)
         {
-            object? local = null;
+            Value local = Value.Null;
             bool found = WithMutableLock(obj, () => obj.Fields.TryGetValue(name, out local));
             value = local;
             return found;
@@ -198,21 +198,23 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Writes an instance field.
         /// </summary>
-        private static void SetInstanceField(ClassInstance obj, string name, object value)
+        private static void SetInstanceFieldValue(ClassInstance obj, string name, Value value)
             => WithMutableLock(obj, () => obj.Fields[name] = value);
 
         /// <summary>
         /// Returns a snapshot copy of instance fields.
         /// </summary>
         private static List<KeyValuePair<string, object>> SnapshotInstanceFields(ClassInstance obj)
-            => WithMutableLock(obj, () => obj.Fields.ToList());
+            => WithMutableLock(obj, () => obj.Fields
+                .Select(static kv => new KeyValuePair<string, object>(kv.Key, kv.Value.ToObject()!))
+                .ToList());
 
         /// <summary>
         /// Tries to read a static field.
         /// </summary>
-        private static bool TryGetStaticField(StaticInstance st, string name, out object? value)
+        private static bool TryGetStaticFieldValue(StaticInstance st, string name, out Value value)
         {
-            object? local = null;
+            Value local = Value.Null;
             bool found = WithMutableLock(st, () => st.Fields.TryGetValue(name, out local));
             value = local;
             return found;
@@ -221,7 +223,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Writes a static field.
         /// </summary>
-        private static void SetStaticField(StaticInstance st, string name, object value)
+        private static void SetStaticFieldValue(StaticInstance st, string name, Value value)
             => WithMutableLock(st, () => st.Fields[name] = value);
 
         private VMException CreateIndexException(object target, object idxObj, Instruction instr)
@@ -260,7 +262,7 @@ namespace CFGS_VM.VMCore
 
         private static bool TryGetStaticType(ClassInstance inst, out StaticInstance type)
         {
-            if (TryGetInstanceField(inst, "__type", out object? tObj) && tObj is StaticInstance st)
+            if (TryGetInstanceFieldValue(inst, "__type", out Value typeValue) && typeValue.Reference is StaticInstance st)
             {
                 type = st;
                 return true;
@@ -272,17 +274,24 @@ namespace CFGS_VM.VMCore
 
         private static bool IsInterfaceType(StaticInstance type)
         {
-            if (!TryGetStaticField(type, "__is_interface", out object? raw) || raw == null)
+            if (!TryGetStaticFieldValue(type, "__is_interface", out Value raw))
                 return false;
 
-            return raw switch
+            return raw.Kind switch
             {
-                bool b => b,
-                int i => i != 0,
-                long l => l != 0,
-                short s => s != 0,
-                byte b => b != 0,
-                BigInteger bi => bi != BigInteger.Zero,
+                ValueKind.Bool => raw.AsBool,
+                ValueKind.Int => raw.AsInt != 0,
+                ValueKind.Long => raw.AsLong != 0,
+                ValueKind.Char => raw.AsChar != '\0',
+                ValueKind.Ref => raw.Reference switch
+                {
+                    null => false,
+                    bool b => b,
+                    short s => s != 0,
+                    byte b => b != 0,
+                    BigInteger bi => bi != BigInteger.Zero,
+                    _ => true
+                },
                 _ => true
             };
         }
@@ -292,7 +301,7 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private static IEnumerable<StaticInstance> EnumerateDirectInterfaces(StaticInstance type)
         {
-            if (!TryGetStaticField(type, "__interfaces", out object? raw) || raw is not List<object> entries)
+            if (!TryGetStaticFieldValue(type, "__interfaces", out Value interfacesValue) || interfacesValue.Reference is not List<object> entries)
                 yield break;
 
             foreach (object? entry in SnapshotList(entries))
@@ -332,7 +341,7 @@ namespace CFGS_VM.VMCore
                         return true;
                 }
 
-                current = TryGetStaticField(current, "__base", out object? bObj) && bObj is StaticInstance baseType
+                current = TryGetStaticFieldValue(current, "__base", out Value baseValue) && baseValue.Reference is StaticInstance baseType
                     ? baseType
                     : null;
             }
@@ -378,12 +387,11 @@ namespace CFGS_VM.VMCore
                 int minArgs = MetadataInt(method, "minArgs");
                 bool isAsync = MetadataBool(method, "async");
 
-                object? member;
                 StaticInstance? ownerType;
                 if (isStatic)
                 {
-                    if (!TryResolveStaticMemberInHierarchy(instanceType, name, out StaticInstance staticOwner, out member) ||
-                        member is not Closure staticClosure ||
+                    if (!TryResolveStaticMemberValueInHierarchy(instanceType, name, out StaticInstance staticOwner, out Value memberValue) ||
+                        memberValue.Reference is not Closure staticClosure ||
                         !IsPublicMember(staticOwner, expectInstance: false, name) ||
                         !ClosureShapeMatches(staticClosure, arity, minArgs, isAsync))
                     {
@@ -392,8 +400,8 @@ namespace CFGS_VM.VMCore
                 }
                 else
                 {
-                    if (!TryResolveInstanceMemberInHierarchy(instance, name, out _, out ownerType, out member) ||
-                        member is not Closure closure ||
+                    if (!TryResolveInstanceMemberValueInHierarchy(instance, name, out _, out ownerType, out Value memberValue) ||
+                        memberValue.Reference is not Closure closure ||
                         ownerType == null ||
                         !IsPublicMember(ownerType, expectInstance: true, name) ||
                         !ClosureShapeMatches(closure, arity, minArgs, isAsync))
@@ -442,8 +450,8 @@ namespace CFGS_VM.VMCore
                 int arity = MetadataInt(indexer, "arity");
                 int minArgs = MetadataInt(indexer, "minArgs");
 
-                if (!TryResolveInstanceMemberInHierarchy(instance, methodName, out _, out StaticInstance? ownerType, out object? member) ||
-                    member is not Closure closure ||
+                if (!TryResolveInstanceMemberValueInHierarchy(instance, methodName, out _, out StaticInstance? ownerType, out Value memberValue) ||
+                    memberValue.Reference is not Closure closure ||
                     ownerType == null ||
                     !IsPublicMember(ownerType, expectInstance: true, methodName) ||
                     !ClosureShapeMatches(closure, arity, minArgs, isAsync: false))
@@ -457,7 +465,7 @@ namespace CFGS_VM.VMCore
 
         private static IEnumerable<Dictionary<string, object>> ReadInterfaceMetadataList(StaticInstance iface, string slot)
         {
-            if (!TryGetStaticField(iface, slot, out object? raw) || raw is not List<object> entries)
+            if (!TryGetStaticFieldValue(iface, slot, out Value slotValue) || slotValue.Reference is not List<object> entries)
                 yield break;
 
             foreach (object? entry in SnapshotList(entries))
@@ -547,7 +555,7 @@ namespace CFGS_VM.VMCore
         {
             code = VisibilityPublic;
             string mapName = expectInstance ? "__vis_inst" : "__vis_static";
-            if (!TryGetStaticField(ownerType, mapName, out object? mapObj) || mapObj is not Dictionary<string, object> map)
+            if (!TryGetStaticFieldValue(ownerType, mapName, out Value mapValue) || mapValue.Reference is not Dictionary<string, object> map)
                 return false;
 
             if (!TryGetDictionaryValue(map, memberName, out object? rawCode))
@@ -573,7 +581,7 @@ namespace CFGS_VM.VMCore
                     return true;
                 }
 
-                if (!TryGetStaticField(current, "__base", out object? bObj) || bObj is not StaticInstance baseType)
+                if (!TryGetStaticFieldValue(current, "__base", out Value baseValue) || baseValue.Reference is not StaticInstance baseType)
                     break;
 
                 current = baseType;
@@ -593,12 +601,14 @@ namespace CFGS_VM.VMCore
             StaticInstance current = startType;
             while (true)
             {
-                if (TryGetStaticField(current, mapName, out object? mapObj) &&
-                    mapObj is Dictionary<string, object> map &&
+                if (TryGetStaticFieldValue(current, mapName, out Value mapValue) &&
+                    mapValue.Reference is Dictionary<string, object> map &&
                     ContainsDictionaryKey(map, fieldName))
+                {
                     return true;
+                }
 
-                if (!TryGetStaticField(current, "__base", out object? bObj) || bObj is not StaticInstance baseType)
+                if (!TryGetStaticFieldValue(current, "__base", out Value baseValue) || baseValue.Reference is not StaticInstance baseType)
                     break;
 
                 current = baseType;
@@ -613,8 +623,8 @@ namespace CFGS_VM.VMCore
             out RuntimePropertyDescriptor descriptor)
         {
             string mapName = isStatic ? "__props_static" : "__props_inst";
-            if (TryGetStaticField(ownerType, mapName, out object? mapObj) &&
-                mapObj is Dictionary<string, object> map &&
+            if (TryGetStaticFieldValue(ownerType, mapName, out Value mapValue) &&
+                mapValue.Reference is Dictionary<string, object> map &&
                 TryGetDictionaryValue(map, memberName, out object? raw) &&
                 raw is RuntimePropertyDescriptor runtimePropertyDescriptor)
             {
@@ -644,7 +654,7 @@ namespace CFGS_VM.VMCore
                     return true;
                 }
 
-                if (!TryGetInstanceField(current, "__base", out object? bObj) || bObj is not ClassInstance baseInst)
+                if (!TryGetInstanceFieldValue(current, "__base", out Value baseValue) || baseValue.Reference is not ClassInstance baseInst)
                     break;
 
                 current = baseInst;
@@ -671,7 +681,7 @@ namespace CFGS_VM.VMCore
                     return true;
                 }
 
-                if (!TryGetStaticField(current, "__base", out object? bObj) || bObj is not StaticInstance baseType)
+                if (!TryGetStaticFieldValue(current, "__base", out Value baseValue) || baseValue.Reference is not StaticInstance baseType)
                     break;
 
                 current = baseType;
@@ -682,24 +692,25 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
-        private static bool TryResolveInstanceMemberInHierarchy(
+        private static bool TryResolveInstanceMemberValueInHierarchy(
             ClassInstance start,
             string memberName,
             out ClassInstance ownerInst,
             out StaticInstance? ownerType,
-            out object? value)
+            out Value value)
         {
             ClassInstance current = start;
             while (true)
             {
-                if (TryGetInstanceField(current, memberName, out value))
+                if (TryGetInstanceFieldValue(current, memberName, out Value memberValue))
                 {
                     ownerInst = current;
                     ownerType = TryGetStaticType(current, out StaticInstance st) ? st : null;
+                    value = memberValue;
                     return true;
                 }
 
-                if (!TryGetInstanceField(current, "__base", out object? bObj) || bObj is not ClassInstance baseInst)
+                if (!TryGetInstanceFieldValue(current, "__base", out Value baseValue) || baseValue.Reference is not ClassInstance baseInst)
                     break;
 
                 current = baseInst;
@@ -707,33 +718,34 @@ namespace CFGS_VM.VMCore
 
             ownerInst = null!;
             ownerType = null;
-            value = null;
+            value = Value.Null;
             return false;
         }
 
-        private static bool TryResolveStaticMemberInHierarchy(
+        private static bool TryResolveStaticMemberValueInHierarchy(
             StaticInstance start,
             string memberName,
             out StaticInstance ownerType,
-            out object? value)
+            out Value value)
         {
             StaticInstance current = start;
             while (true)
             {
-                if (TryGetStaticField(current, memberName, out value))
+                if (TryGetStaticFieldValue(current, memberName, out Value memberValue))
                 {
                     ownerType = current;
+                    value = memberValue;
                     return true;
                 }
 
-                if (!TryGetStaticField(current, "__base", out object? bObj) || bObj is not StaticInstance baseType)
+                if (!TryGetStaticFieldValue(current, "__base", out Value baseValue) || baseValue.Reference is not StaticInstance baseType)
                     break;
 
                 current = baseType;
             }
 
             ownerType = null!;
-            value = null;
+            value = Value.Null;
             return false;
         }
 
@@ -763,7 +775,7 @@ namespace CFGS_VM.VMCore
                 if (ReferenceEquals(current, baseType))
                     return true;
 
-                if (!TryGetStaticField(current, "__base", out object? bObj) || bObj is not StaticInstance parent)
+                if (!TryGetStaticFieldValue(current, "__base", out Value baseValue) || baseValue.Reference is not StaticInstance parent)
                     break;
 
                 current = parent;
@@ -832,21 +844,14 @@ namespace CFGS_VM.VMCore
 
         private Closure GetPropertyAccessorClosure(object owner, string slotName, string propertyName, string accessorLabel, Instruction instr)
         {
-            bool found = owner switch
+            Closure? closure = owner switch
             {
-                ClassInstance inst => TryGetInstanceField(inst, slotName, out object? _),
-                StaticInstance st => TryGetStaticField(st, slotName, out object? _),
-                _ => false
-            };
-
-            object? raw = owner switch
-            {
-                ClassInstance inst when TryGetInstanceField(inst, slotName, out object? value) => value,
-                StaticInstance st when TryGetStaticField(st, slotName, out object? value) => value,
+                ClassInstance inst when TryGetInstanceFieldValue(inst, slotName, out Value value) => value.Reference as Closure,
+                StaticInstance st when TryGetStaticFieldValue(st, slotName, out Value value) => value.Reference as Closure,
                 _ => null
             };
 
-            if (found && raw is Closure closure)
+            if (closure != null)
                 return closure;
 
             throw new VMException(
@@ -854,11 +859,11 @@ namespace CFGS_VM.VMCore
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
-        private bool TryInvokeInstanceIndexerGetter(ClassInstance obj, object? idxObj, Instruction instr, out object? value)
+        private bool TryInvokeInstanceIndexerGetter(ClassInstance obj, Value idxValue, Instruction instr, out Value value)
         {
-            value = null;
-            if (!TryResolveInstanceMemberInHierarchy(obj, "get_index", out _, out StaticInstance? ownerType, out object? member) ||
-                member is not Closure closure)
+            value = Value.Null;
+            if (!TryResolveInstanceMemberValueInHierarchy(obj, "get_index", out _, out StaticInstance? ownerType, out Value memberValue) ||
+                memberValue.Reference is not Closure closure)
             {
                 return false;
             }
@@ -866,14 +871,14 @@ namespace CFGS_VM.VMCore
             if (ownerType != null && TryGetDeclaredVisibilityCode(ownerType, expectInstance: true, "get_index", out int visCode))
                 EnforceRuntimeVisibility(ownerType, visCode, "get_index", isStatic: false, instr);
 
-            value = InvokeClosureSync(closure, new List<object> { idxObj! }, instr, obj, ownerType);
+            value = InvokeClosureSyncValue(closure, [idxValue], instr, obj, ownerType);
             return true;
         }
 
-        private bool TryInvokeInstanceIndexerSetter(ClassInstance obj, object? idxObj, object value, Instruction instr)
+        private bool TryInvokeInstanceIndexerSetter(ClassInstance obj, Value idxValue, Value value, Instruction instr)
         {
-            if (!TryResolveInstanceMemberInHierarchy(obj, "set_index", out _, out StaticInstance? ownerType, out object? member) ||
-                member is not Closure closure)
+            if (!TryResolveInstanceMemberValueInHierarchy(obj, "set_index", out _, out StaticInstance? ownerType, out Value memberValue) ||
+                memberValue.Reference is not Closure closure)
             {
                 return false;
             }
@@ -881,7 +886,7 @@ namespace CFGS_VM.VMCore
             if (ownerType != null && TryGetDeclaredVisibilityCode(ownerType, expectInstance: true, "set_index", out int visCode))
                 EnforceRuntimeVisibility(ownerType, visCode, "set_index", isStatic: false, instr);
 
-            InvokeClosureSync(closure, new List<object> { idxObj!, value }, instr, obj, ownerType);
+            InvokeClosureSyncValue(closure, [idxValue, value], instr, obj, ownerType);
             return true;
         }
 
@@ -899,13 +904,14 @@ namespace CFGS_VM.VMCore
             if (descriptor.GetterSlotName != null)
             {
                 Closure closure = GetPropertyAccessorClosure(ownerInst, descriptor.GetterSlotName, descriptor.Name, "getter", instr);
-                return InvokeClosureSync(closure, [], instr, ownerInst, ownerType);
+                return InvokeClosureSyncValue(closure, [], instr, ownerInst, ownerType).ToObject();
             }
 
             if (descriptor.HasAutoStorage && descriptor.BackingFieldName != null)
             {
-                TryGetInstanceField(ownerInst, descriptor.BackingFieldName, out object? value);
-                return value;
+                return TryGetInstanceFieldValue(ownerInst, descriptor.BackingFieldName, out Value value)
+                    ? value.ToObject()
+                    : null;
             }
 
             throw new VMException(
@@ -927,13 +933,14 @@ namespace CFGS_VM.VMCore
             if (descriptor.GetterSlotName != null)
             {
                 Closure closure = GetPropertyAccessorClosure(ownerType, descriptor.GetterSlotName, descriptor.Name, "getter", instr);
-                return InvokeClosureSync(closure, [], instr, ownerType, ownerType);
+                return InvokeClosureSyncValue(closure, [], instr, ownerType, ownerType).ToObject();
             }
 
             if (descriptor.HasAutoStorage && descriptor.BackingFieldName != null)
             {
-                TryGetStaticField(ownerType, descriptor.BackingFieldName, out object? value);
-                return value;
+                return TryGetStaticFieldValue(ownerType, descriptor.BackingFieldName, out Value value)
+                    ? value.ToObject()
+                    : null;
             }
 
             throw new VMException(
@@ -964,7 +971,7 @@ namespace CFGS_VM.VMCore
                 if (descriptor.InitSlotName != null)
                 {
                     Closure closure = GetPropertyAccessorClosure(ownerInst, descriptor.InitSlotName, descriptor.Name, "init accessor", instr);
-                    InvokeClosureSync(closure, [value], instr, ownerInst, ownerType);
+                    InvokeClosureSyncValue(closure, [Value.FromObject(value)], instr, ownerInst, ownerType);
                     return;
                 }
             }
@@ -974,14 +981,14 @@ namespace CFGS_VM.VMCore
                 if (descriptor.SetterSlotName != null)
                 {
                     Closure closure = GetPropertyAccessorClosure(ownerInst, descriptor.SetterSlotName, descriptor.Name, "setter", instr);
-                    InvokeClosureSync(closure, [value], instr, ownerInst, ownerType);
+                    InvokeClosureSyncValue(closure, [Value.FromObject(value)], instr, ownerInst, ownerType);
                     return;
                 }
             }
 
             if (descriptor.HasAutoStorage && descriptor.BackingFieldName != null)
             {
-                SetInstanceField(ownerInst, descriptor.BackingFieldName, value);
+                SetInstanceFieldValue(ownerInst, descriptor.BackingFieldName, Value.FromObject(value));
                 return;
             }
 
@@ -1012,7 +1019,7 @@ namespace CFGS_VM.VMCore
                 if (descriptor.InitSlotName != null)
                 {
                     Closure closure = GetPropertyAccessorClosure(ownerType, descriptor.InitSlotName, descriptor.Name, "init accessor", instr);
-                    InvokeClosureSync(closure, [value], instr, ownerType, ownerType);
+                    InvokeClosureSyncValue(closure, [Value.FromObject(value)], instr, ownerType, ownerType);
                     return;
                 }
             }
@@ -1022,14 +1029,14 @@ namespace CFGS_VM.VMCore
                 if (descriptor.SetterSlotName != null)
                 {
                     Closure closure = GetPropertyAccessorClosure(ownerType, descriptor.SetterSlotName, descriptor.Name, "setter", instr);
-                    InvokeClosureSync(closure, [value], instr, ownerType, ownerType);
+                    InvokeClosureSyncValue(closure, [Value.FromObject(value)], instr, ownerType, ownerType);
                     return;
                 }
             }
 
             if (descriptor.HasAutoStorage && descriptor.BackingFieldName != null)
             {
-                SetStaticField(ownerType, descriptor.BackingFieldName, value);
+                SetStaticFieldValue(ownerType, descriptor.BackingFieldName, Value.FromObject(value));
                 return;
             }
 
@@ -1141,16 +1148,16 @@ namespace CFGS_VM.VMCore
 
                         if (!IsMemberAccessInstruction(instr))
                         {
-                            if (TryInvokeInstanceIndexerGetter(obj, idxObj, instr, out object? indexValue))
-                                return indexValue!;
+                            if (TryInvokeInstanceIndexerGetter(obj, ToRuntimeValue(idxObj), instr, out Value indexValue))
+                                return indexValue.ToObject()!;
 
                             throw CreateIndexException(target, idxObj!, instr);
                         }
 
                         if (key == "outer")
                         {
-                            if (TryGetInstanceField(obj, "__outer", out object? outerVal))
-                                return outerVal!;
+                            if (TryGetInstanceFieldValue(obj, "__outer", out Value outerValue))
+                                return outerValue.ToObject()!;
 
                             throw new VMException(
                                 "Runtime error: missing '__outer' on instance for 'outer'.",
@@ -1161,7 +1168,7 @@ namespace CFGS_VM.VMCore
                         if (TryResolveInstancePropertyInHierarchy(obj, key, out ClassInstance ownerPropertyInst, out StaticInstance ownerPropertyType, out RuntimePropertyDescriptor propertyDescriptor))
                             return ReadInstanceProperty(ownerPropertyInst, ownerPropertyType, propertyDescriptor, instr)!;
 
-                        if (TryResolveInstanceMemberInHierarchy(obj, key, out _, out StaticInstance? ownerInstanceType, out object? instanceValue))
+                        if (TryResolveInstanceMemberValueInHierarchy(obj, key, out _, out StaticInstance? ownerInstanceType, out Value instanceValue))
                         {
                             if (ownerInstanceType != null &&
                                 TryGetDeclaredVisibilityCode(ownerInstanceType, expectInstance: true, key, out int visCode))
@@ -1169,22 +1176,22 @@ namespace CFGS_VM.VMCore
                                 EnforceRuntimeVisibility(ownerInstanceType, visCode, key, isStatic: false, instr);
                             }
 
-                            if (instanceValue is Closure clos &&
+                            if (instanceValue.Reference is Closure clos &&
                                 clos.Parameters.Count > 0 && clos.Parameters[0] == "this")
                             {
                                 return new BoundMethod(clos, obj, ownerInstanceType);
                             }
 
-                            return instanceValue!;
+                            return instanceValue.ToObject()!;
                         }
 
                         if (TryGetStaticType(obj, out StaticInstance objType) &&
-                            TryResolveStaticMemberInHierarchy(objType, key, out StaticInstance ownerStaticType, out object? staticValue))
+                            TryResolveStaticMemberValueInHierarchy(objType, key, out StaticInstance ownerStaticType, out Value staticValue))
                         {
                             if (TryGetDeclaredVisibilityCode(ownerStaticType, expectInstance: false, key, out int visCode))
                                 EnforceRuntimeVisibility(ownerStaticType, visCode, key, isStatic: true, instr);
 
-                            if (staticValue is Closure sClos)
+                            if (staticValue.Reference is Closure sClos)
                             {
                                 if ((sClos.Parameters.Count > 0 && sClos.Parameters[0] == "type") ||
                                     string.Equals(key, "new", StringComparison.Ordinal))
@@ -1192,13 +1199,13 @@ namespace CFGS_VM.VMCore
                                     return new BoundMethod(sClos, objType, ownerStaticType);
                                 }
 
-                                return staticValue;
+                                return staticValue.Reference;
                             }
 
-                            if (staticValue is StaticInstance nestedType)
+                            if (staticValue.Reference is StaticInstance nestedType)
                                 return new BoundType(nestedType, obj);
 
-                            return staticValue!;
+                            return staticValue.ToObject()!;
                         }
 
                         throw new VMException($"Runtime error: invalid instance member '{key}' in class '{obj.ClassName}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1223,19 +1230,19 @@ namespace CFGS_VM.VMCore
                         if (TryResolveStaticPropertyInHierarchy(st, key, out StaticInstance ownerPropertyType, out RuntimePropertyDescriptor propertyDescriptor))
                             return ReadStaticProperty(ownerPropertyType, propertyDescriptor, instr)!;
 
-                        if (TryResolveStaticMemberInHierarchy(st, key, out StaticInstance ownerStaticType, out object? staticValue))
+                        if (TryResolveStaticMemberValueInHierarchy(st, key, out StaticInstance ownerStaticType, out Value staticValue))
                         {
                             if (TryGetDeclaredVisibilityCode(ownerStaticType, expectInstance: false, key, out int visCode))
                                 EnforceRuntimeVisibility(ownerStaticType, visCode, key, isStatic: true, instr);
 
-                            if (staticValue is Closure clos &&
+                            if (staticValue.Reference is Closure clos &&
                                 ((clos.Parameters.Count > 0 && clos.Parameters[0] == "type") ||
                                  string.Equals(key, "new", StringComparison.Ordinal)))
                             {
                                 return new BoundMethod(clos, st, ownerStaticType);
                             }
 
-                            return staticValue!;
+                            return staticValue.ToObject()!;
                         }
 
                         throw new VMException(
@@ -1342,7 +1349,7 @@ namespace CFGS_VM.VMCore
                             writeMode != PropertyWriteMode.Init &&
                             !IsMemberAccessInstruction(instr))
                         {
-                            if (TryInvokeInstanceIndexerSetter(obj, idxObj, value, instr))
+                            if (TryInvokeInstanceIndexerSetter(obj, ToRuntimeValue(idxObj), Value.FromObject(value), instr))
                                 break;
 
                             throw new VMException("Runtime error: class instances are not indexable; use dot access for members.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1388,7 +1395,7 @@ namespace CFGS_VM.VMCore
                         }
 
                         if (!allowReservedRuntimeSlotWrites &&
-                            !TryResolveInstanceMemberInHierarchy(obj, key, out _, out _, out _))
+                            !TryResolveInstanceMemberValueInHierarchy(obj, key, out _, out _, out _))
                         {
                             throw new VMException(
                                 $"Runtime error: invalid instance member '{key}' in class '{obj.ClassName}'",
@@ -1412,7 +1419,7 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 
-                        SetInstanceField(obj, key, value);
+                        SetInstanceFieldValue(obj, key, Value.FromObject(value));
                         break;
                     }
 
@@ -1454,7 +1461,7 @@ namespace CFGS_VM.VMCore
                         }
 
                         if (!allowReservedRuntimeSlotWrites &&
-                            !TryResolveStaticMemberInHierarchy(st, key, out _, out _))
+                            !TryResolveStaticMemberValueInHierarchy(st, key, out _, out _))
                         {
                             throw new VMException(
                                 $"Runtime error: invalid static member '{key}' in class '{st.ClassName}'.",
@@ -1476,7 +1483,7 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 
-                        SetStaticField(st, key, value);
+                        SetStaticFieldValue(st, key, Value.FromObject(value));
                         break;
                     }
 
@@ -1510,22 +1517,22 @@ namespace CFGS_VM.VMCore
             else
                 RequireStack(2, instr, "INDEX_GET");
 
-            object idxObj = _stack.Pop();
+            object idxObj = PopRuntimeObject()!;
             object target;
 
             if (instr.Operand is string nameFromEnv)
             {
-                if (!TryResolveVarOwner(nameFromEnv, out Env owner, out object? current))
+                if (!TryResolveVarOwnerValue(nameFromEnv, out Env owner, out Value current))
                     throw new VMException(UndefinedVariableMessage(nameFromEnv), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 MarkAsyncHazardForEnvAccess(owner);
-                target = current!;
+                target = current.ToObject()!;
             }
             else
             {
-                target = _stack.Pop();
+                target = PopRuntimeObject()!;
             }
 
-            _stack.Push(GetIndexedValue(target, idxObj, instr));
+            PushRuntimeObject(GetIndexedValue(target, idxObj, instr));
             return StepResult.Next;
         }
 
@@ -1541,23 +1548,23 @@ namespace CFGS_VM.VMCore
             else
                 RequireStack(3, instr, "INDEX_SET");
 
-            object value = _stack.Pop();
-            object idxObj = _stack.Pop();
+            object value = PopRuntimeObject()!;
+            object idxObj = PopRuntimeObject()!;
             object target;
 
             if (instr.Operand is string nameFromEnv)
             {
-                if (!TryResolveVarOwner(nameFromEnv, out Env env, out object? current))
+                if (!TryResolveVarOwnerValue(nameFromEnv, out Env env, out Value current))
                     throw new VMException(UndefinedVariableMessage(nameFromEnv), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                 MarkAsyncHazardForEnvAccess(env);
-                target = current!;
+                target = current.ToObject()!;
                 SetIndexedValue(ref target, idxObj, value, instr, writeMode, allowReservedRuntimeSlotWrites);
-                SetLocalVar(env, nameFromEnv, target);
+                SetLocalVarValue(env, nameFromEnv, Value.FromObject(target));
             }
             else
             {
-                target = _stack.Pop();
+                target = PopRuntimeObject()!;
                 SetIndexedValue(ref target, idxObj, value, instr, writeMode, allowReservedRuntimeSlotWrites);
             }
 

@@ -89,8 +89,8 @@ namespace CFGS_VM.Hosting
         private async Task<object?> InvokeCoreAsync(string functionName, IEnumerable<object?>? args, CancellationToken effectiveToken)
         {
             effectiveToken.ThrowIfCancellationRequested();
-            List<object> runtimeArgs = args?.Select(static arg => VM.NormalizeHostValue(arg)!).ToList() ?? [];
-            Task<object?> call = _vm.InvokeGlobalFunctionAsync(functionName, runtimeArgs, OriginFile, effectiveToken);
+            List<Value> runtimeArgs = args?.Select(static arg => Value.FromObject(VM.NormalizeHostValue(arg))).ToList() ?? [];
+            Task<object?> call = _vm.InvokeGlobalFunctionAsyncValue(functionName, runtimeArgs, OriginFile, effectiveToken);
             return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
         }
 
