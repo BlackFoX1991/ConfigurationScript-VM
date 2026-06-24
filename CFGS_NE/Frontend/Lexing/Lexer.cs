@@ -497,6 +497,9 @@ public class Lexer
             if (c == '!' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.Neq, "!="); }
             if (c == '<' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.Le, "<="); }
             if (c == '>' && Peek == '=') { SyncPos(2); return MakeToken(TokenType.Ge, ">="); }
+            // Longest-match: the 3-char merge operators must be tested before the 2-char shifts.
+            if (c == '<' && Peek == '<' && _pos + 2 < _text.Length && _text[_pos + 2] == '<') { SyncPos(3); return MakeToken(TokenType.MergeLeft, "<<<"); }
+            if (c == '>' && Peek == '>' && _pos + 2 < _text.Length && _text[_pos + 2] == '>') { SyncPos(3); return MakeToken(TokenType.MergeRight, ">>>"); }
             if (c == '<' && Peek == '<') { SyncPos(2); return MakeToken(TokenType.bShiftL, "<<"); }
             if (c == '>' && Peek == '>') { SyncPos(2); return MakeToken(TokenType.bShiftR, ">>"); }
             if (c == '&' && Peek == '&') { SyncPos(2); return MakeToken(TokenType.AndAnd, "&&"); }

@@ -75,4 +75,13 @@ ensure("string conversion", str(major) + "." + str(minor) == "7.1");
 ensure("number conversion", int("42") == 42);
 ensure("typeof", typeof(values) == "Array");
 
+# Arrays concatenate with '+'. Dictionaries merge with '<<<' (left wins) and '>>>' (right wins).
+var combined = [1, 2] + [3, 4];
+ensure("array concat", len(combined) == 4 && combined[3] == 4);
+
+var defaults = {"port": 80, "tls": false};
+var overrides = {"port": 8080};
+ensure("dict merge right wins", (defaults >>> overrides)["port"] == 8080);
+ensure("dict merge left wins", (defaults <<< overrides)["port"] == 80);
+
 print("BASICS_OK:" + appName + ":" + label);

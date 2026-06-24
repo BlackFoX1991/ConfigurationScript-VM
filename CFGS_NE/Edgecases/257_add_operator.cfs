@@ -18,10 +18,22 @@ edge_eq("str_null", "x" + null, "x");
 edge_eq("num_str", 5 + "!", "5!");
 edge_eq("str_array", "a" + [1, 2], "a[1, 2]");
 
-# Incompatible operand combinations are now type errors.
+# Array + Array concatenates into a fresh array and does not mutate the operands.
+# Dictionaries are NOT merged with '+' (use '<<<' / '>>>'); '+' on two dicts is a type error.
+var a1 = [1, 2];
+var a2 = [3, 4];
+var joined = a1 + a2;
+edge_eq("array_concat_len", len(joined), 4);
+edge_eq("array_concat_0", joined[0], 1);
+edge_eq("array_concat_3", joined[3], 4);
+edge_eq("array_concat_no_mutate_left", len(a1), 2);
+edge_eq("array_concat_no_mutate_right", len(a2), 2);
+
+# Incompatible operand combinations are type errors.
 edge_throws("bool_plus_bool", func() { return true + false; });
 edge_throws("null_plus_num",  func() { return null + 5; });
-edge_throws("array_plus_array", func() { return [1, 2] + [3, 4]; });
 edge_throws("bool_plus_num",  func() { return true + 1; });
+edge_throws("array_plus_dict", func() { return [1, 2] + {"a": 1}; });
+edge_throws("dict_plus_dict",  func() { return {"a": 1} + {"b": 2}; });
 
 edge_finish("257_add_operator");

@@ -11,7 +11,7 @@ After that, its builtins and intrinsics are available globally.
 
 ## Builtins and Native Namespaces at a Glance
 
-The standard library exposes ordinary global builtins such as `print`, `len`, `typeof`, and `task`. It also exposes native CFGS namespaces such as `encoding`, `console`, `fs`, `file`, `math`, `regex`, and `json`.
+The standard library exposes ordinary global builtins such as `print`, `len`, `typeof`, and `task`. It also exposes native CFGS namespaces such as `encoding`, `console`, `fs`, `file`, `math`, `regex`, `json`, and `eventlog`.
 
 Native namespace roots are accessed directly with dot syntax. They are not factory functions.
 
@@ -90,6 +90,25 @@ destroy(r);
 - `getl()` reads one line from stdin.
 - `getc()` reads one character from stdin.
 - `format(fmt, ...)` uses .NET `string.Format`.
+
+### Windows Event Log
+
+The `eventlog` namespace reads from and writes to the Windows Event Log. It is Windows only. On any other platform every call raises a runtime error. Creating a new event source needs administrator rights the first time, so a `write` to an unknown source from a non-elevated process fails with a clear error.
+
+- `eventlog.write(source, message, level = "info")` writes an entry. `level` is one of `"info"`, `"warning"`, or `"error"`. The source is created automatically if it does not exist yet.
+- `eventlog.read(logName, count = 50)` returns up to `count` entries from a log such as `"Application"`, newest first. Each entry is a dictionary with the keys `source`, `message`, `level`, `time`, and `id`.
+- `eventlog.exists(source)` returns whether an event source is registered.
+- `eventlog.create(source, logName = "Application")` registers an event source.
+- `eventlog.remove(source)` removes an event source.
+
+```cfs
+eventlog.write("MyApp", "Service started", "info");
+
+var entries = eventlog.read("Application", 5);
+foreach (var i, e in entries) {
+    console.print(e["level"] + " " + e["source"] + ": " + e["message"]);
+}
+```
 
 ### Files, Paths, and Working Directory
 

@@ -26,6 +26,10 @@
 
         bShiftR,
 
+        MergeLeft,
+
+        MergeRight,
+
         bOr,
 
         bAnd,

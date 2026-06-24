@@ -710,6 +710,13 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.SHR:
                     return HandleShiftRightInstruction(instr);
+
+                case OpCode.MERGE_LEFT:
+                    return HandleMergeInstruction(instr, rightWins: false);
+
+                case OpCode.MERGE_RIGHT:
+                    return HandleMergeInstruction(instr, rightWins: true);
+
                 case OpCode.EQ:
                     return HandleEqualInstruction(instr);
 

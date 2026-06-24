@@ -915,6 +915,18 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
+            // Array + Array concatenates into a new array (left elements then right). The result is a
+            // fresh array and the operands are never mutated. Dictionaries are NOT merged with '+';
+            // use the dedicated '<<<' / '>>>' merge operators for that.
+            if (leftValue.Reference is List<object> leftList && rightValue.Reference is List<object> rightList)
+            {
+                List<object> mergedList = new(leftList.Count + rightList.Count);
+                mergedList.AddRange(leftList);
+                mergedList.AddRange(rightList);
+                _valueStack.Push(Value.FromRef(mergedList));
+                return StepResult.Next;
+            }
+
             if (leftValue.IsNull || rightValue.IsNull)
                 throw NullOperand(instr, "ADD");
 
@@ -1322,6 +1334,38 @@ namespace CFGS_VM.VMCore
             if (l.Kind == ValueKind.Ref && l.Reference is BigInteger lb) _valueStack.Push(Value.FromRef(lb >> sh));
             else if (l.Kind == ValueKind.Long || (l.Kind == ValueKind.Ref && l.Reference is ulong)) _valueStack.Push(Value.FromLong(ToInt64Invariant(l) >> (sh & 0x3F)));
             else _valueStack.Push(Value.FromInt(ToInt32Invariant(l) >> (sh & 0x1F)));
+            return StepResult.Next;
+        }
+
+        /// <summary>
+        /// Dictionary merge operators '&lt;&lt;&lt;' (left wins) and '&gt;&gt;&gt;' (right wins). Both operands
+        /// must be dictionaries; the result is a new dictionary (operands are never mutated) that keeps
+        /// the left operand's key order, with new keys from the right appended. On a key collision the
+        /// winning side (per <paramref name="rightWins"/>) supplies the value.
+        /// </summary>
+        private StepResult HandleMergeInstruction(Instruction instr, bool rightWins)
+        {
+            string op = rightWins ? ">>>" : "<<<";
+            RequireStack(2, instr, op);
+            Value rightValue = _valueStack.Pop();
+            Value leftValue = _valueStack.Pop();
+
+            if (leftValue.Reference is not Dictionary<string, object> leftDict ||
+                rightValue.Reference is not Dictionary<string, object> rightDict)
+            {
+                throw new VMException(
+                    $"Runtime error: '{op}' requires two dictionaries",
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            }
+
+            Dictionary<string, object> merged = new(leftDict, leftDict.Comparer);
+            foreach (KeyValuePair<string, object> entry in rightDict)
+            {
+                if (rightWins || !merged.ContainsKey(entry.Key))
+                    merged[entry.Key] = entry.Value;
+            }
+
+            _valueStack.Push(Value.FromRef(merged));
             return StepResult.Next;
         }
 

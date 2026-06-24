@@ -42,7 +42,7 @@ The following topics are covered completely across the English documentation set
 - Language basics. Comments. Literals. Number formats. Strings. Chars. Booleans. `null`.
 - Variables and constants. `var`. `const`. Scopes. Shadowing. Top level rules.
 - Data types. Arrays. Dictionaries. Strings. Class instances. Enums. DateTime. DirectoryInfo. FileHandle. BinaryFileHandle. Byte arrays. Exception objects. Tasks.
-- Operators. Arithmetic. Comparisons. Logic. Bitwise operators. Power. Increment. Decrement. Compound assignments. Ternary. Null coalescing.
+- Operators. Arithmetic. Comparisons. Logic. Bitwise operators. Power. Increment. Decrement. Compound assignments. Ternary. Null coalescing. Dictionary merge with `<<<` and `>>>`.
 - Data syntax. Array literals. Dictionary literals. Dot access. Index access. Slicing. Slice replacement. Push syntax. Delete syntax.
 - Control flow. `if`. `else`. `while`. `do while`. `for`. `foreach`. `break`. `continue`.
 - Error handling. `try`. `catch`. `finally`. `throw`.
@@ -54,7 +54,7 @@ The following topics are covered completely across the English documentation set
 - Namespaces. Qualified names. Multiple declarations. `use` directives. Name resolution.
 - Modules. `export`. Bare imports. Named imports. Alias imports. Namespace imports. Single symbol imports. File imports. URL imports. DLL imports. Header rules. Import resolution. Cycles.
 - Async model. `async func`. `await`. `yield`. Top level await inside expressions. Hot start behavior. Await on lists and dictionaries. Await on Task and ValueTask values returned by plugins.
-- Standard library. All builtins. Native namespace roots such as `encoding`, `regex`, `json`, `math`, `console`, `fs`, and `file`. All string, array, dictionary, DateTime, DirectoryInfo, FileHandle, BinaryFileHandle, exception, and task intrinsics.
+- Standard library. All builtins. Native namespace roots such as `encoding`, `regex`, `json`, `math`, `console`, `fs`, `file`, and `eventlog`. All string, array, dictionary, DateTime, DirectoryInfo, FileHandle, BinaryFileHandle, exception, and task intrinsics.
 - Official repository plugins. Standard library. HTTP. SQL. XML with DOM editing, XPath, namespaces, serialization, PDF with document creation, page editing, metadata, attachments, and Crypto with hashing, HMAC, PBKDF2, AES GCM, RSA, ECDSA, Ed25519, X25519, JWT, HOTP and TOTP, and X509.
 - Plugin development. `IVmPlugin`. `INamespaceRegistry`. `NamespaceDescriptor`. `NativeCallOptions`. `BuiltinDescriptor`. `IntrinsicDescriptor`. Attribute based registration. `BuiltinAttribute`. `IntrinsicAttribute`. Packaging and importing.
 - Package management. `cfgs.json`. `cfgs.lock.json`. Local plugin install. Restore into `.cfgs/plugins`. Reproducible plugin hashes.

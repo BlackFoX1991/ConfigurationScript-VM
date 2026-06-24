@@ -141,8 +141,25 @@ namespace CFGS_VM.Analytic.Core
 
         private Expr BitwiseAnd()
         {
-            Expr node = Shift();
+            Expr node = Merge();
             while (_current.Type == TokenType.bAnd)
+            {
+                TokenType op = _current.Type;
+                int line = _current.Line;
+                int col = _current.Column;
+                string file = _current.Filename;
+                Eat(op);
+                node = new BinaryExpr(node, op, Merge(), line, col, file);
+            }
+            return node;
+        }
+
+        // Dictionary merge operators: '<<<' (left wins on key conflicts) and '>>>' (right wins).
+        // The arrows point at the winning side. Left-associative, like the surrounding binary levels.
+        private Expr Merge()
+        {
+            Expr node = Shift();
+            while (_current.Type == TokenType.MergeLeft || _current.Type == TokenType.MergeRight)
             {
                 TokenType op = _current.Type;
                 int line = _current.Line;

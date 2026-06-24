@@ -36,6 +36,8 @@ namespace CFGS_VM.VMCore
             TokenType.Modulo => OpCode.MOD,
             TokenType.bShiftR => OpCode.SHR,
             TokenType.bShiftL => OpCode.SHL,
+            TokenType.MergeLeft => OpCode.MERGE_LEFT,
+            TokenType.MergeRight => OpCode.MERGE_RIGHT,
             TokenType.bOr => OpCode.BIT_OR,
             TokenType.bXor => OpCode.BIT_XOR,
             TokenType.bAnd => OpCode.BIT_AND,

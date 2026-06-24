@@ -1,0 +1,41 @@
+import "edge_assert.cfs";
+
+# Dictionary merge operators: '<<<' (left wins on key conflicts) and '>>>' (right wins).
+# The arrows point at the winning side. Both produce a new dictionary and never mutate operands.
+
+edge_begin("258_dict_merge_operators");
+
+var l = {"a": 1, "b": 2};
+var r = {"b": 99, "c": 3};
+
+# '>>>' : right wins on the shared key 'b'.
+var rw = l >>> r;
+edge_eq("rw_keep_left_only", rw["a"], 1);
+edge_eq("rw_right_wins", rw["b"], 99);
+edge_eq("rw_add_right_only", rw["c"], 3);
+
+# '<<<' : left wins on the shared key 'b'.
+var lw = l <<< r;
+edge_eq("lw_keep_left_only", lw["a"], 1);
+edge_eq("lw_left_wins", lw["b"], 2);
+edge_eq("lw_add_right_only", lw["c"], 3);
+
+# Symmetry: a <<< b is the same as b >>> a.
+var swapped = r >>> l;
+edge_eq("swap_equiv_b", lw["b"], swapped["b"]);
+edge_eq("swap_equiv_a", lw["a"], swapped["a"]);
+
+# Operands are not mutated.
+edge_eq("no_mutate_left", len(l), 2);
+edge_eq("no_mutate_right", len(r), 2);
+edge_eq("no_mutate_left_value", l["b"], 2);
+
+# Chaining is left-associative.
+var chained = {"x": 1} >>> {"x": 2} >>> {"x": 3};
+edge_eq("chain_right_wins", chained["x"], 3);
+
+# Both operands must be dictionaries.
+edge_throws("merge_non_dict_right", func() { return {"a": 1} >>> 5; });
+edge_throws("merge_non_dict_left",  func() { return [1, 2] <<< {"a": 1}; });
+
+edge_finish("258_dict_merge_operators");

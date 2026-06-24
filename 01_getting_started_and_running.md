@@ -97,6 +97,23 @@ The built in REPL help also describes these interactions.
 - `-s ansi 0` or `-s ansi 1` disables or enables ANSI output.
 - `-p` or `-params` separates script arguments from CLI arguments.
 
+### Running as a Windows Service
+
+These options are Windows only. Install and uninstall need an elevated (administrator) command prompt.
+
+- `-as_service <file.cfs|file.cfb>` runs a script as a Windows service. It is started by the Windows Service Control Manager, not directly from a console. When the service is stopped, the running script receives a cancellation signal and ends cooperatively, so a service script is normally a `main` that loops until it is stopped.
+- `-install_service <name> -script <file>` registers a service that runs the given script. Optional flags: `-display <text>` sets the display name, `-desc <text>` sets the description, and `-startup auto|manual` sets the start type (default `auto`).
+- `-uninstall_service <name>` stops and removes the service.
+
+Service lifecycle events and unhandled script errors are written to the Windows Event Log under the source `CFGS`, because a service has no console.
+
+```text
+cfgs.exe -install_service MyJob -script C:\jobs\job.cfs
+sc start MyJob
+sc stop MyJob
+cfgs.exe -uninstall_service MyJob
+```
+
 In debug mode the CLI writes a `log_file.log` into the current working directory after execution.
 In interactive debugger mode the VM stops before instructions and accepts commands such as `step`, `next`, `continue`, `break`, `locals`, `globals`, `stack`, `callstack`, and `print`. For details, see [Debugging CFGS Scripts](17_debugging.md).
 For diagnostic codes, source spans, and machine-readable check output, see [Diagnostics and Error Codes](19_diagnostics.md).

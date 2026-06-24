@@ -177,5 +177,9 @@
         YIELD,
 
         NEW_DICT_INTERNAL,
+
+        MERGE_LEFT,
+
+        MERGE_RIGHT,
     }
 }

@@ -58,6 +58,8 @@ CFGS supports several number formats.
 
 Depending on size and shape, values are represented internally as `int`, `long`, `double`, `decimal`, or `BigInteger`.
 
+Hexadecimal, binary, and octal literals are read as unsigned magnitudes. A literal that exceeds 64 bits promotes to `BigInteger` instead of wrapping, so `0xFFFFFFFFFFFFFFFF`, `0b1111111111111111111111111111111111111111111111111111111111111111`, and `0o1777777777777777777777` all denote the same positive value, not `-1`.
+
 ### Strings
 
 Strings use double quotes.
@@ -86,6 +88,14 @@ var newline = '\n';
 ```
 
 A char literal must contain exactly one character.
+
+When a char takes part in arithmetic, comparison, or equality, it coerces to its Unicode code point. This is uniform for every char, including digit characters, so `'A'` is 65 and `'5'` is 53.
+
+```cfs
+print('A' + 1);    # 66
+print('5' + 1);    # 54
+print('A' == 65);  # true
+```
 
 ## Variables and Constants
 
@@ -140,10 +150,22 @@ CFGS covers the usual operator families.
 - Null coalescing. `??`
 - Ternary. `condition ? then : else`
 - Bitwise. `&`, `|`, `^`, `<<`, `>>`
+- Dictionary merge. `<<<`, `>>>`
 - Increment and decrement. `++x`, `x++`, `--x`, `x--`
 - Compound assignments. `+=`, `-=`, `*=`, `/=`, `%=`
 
 Power is right associative. `2 ** 3 ** 2` is evaluated as `2 ** (3 ** 2)`.
+
+The `+` operator is overloaded by operand type:
+
+- Two numbers add.
+- If at least one operand is a string, both operands are converted to text and concatenated.
+- Two arrays concatenate into a new array (see Arrays below).
+- Any other combination, such as `true + false` or `[1, 2] + {"a": 1}`, is a runtime error.
+
+`+` no longer merges dictionaries. Use the `<<<` and `>>>` operators for that (see Dictionaries).
+
+An arithmetic or bitwise operator with a `null` operand is a runtime error. `null + 5`, `5 - null`, and `null & 1` all fail instead of silently producing `null`.
 
 ## Arrays
 
@@ -171,6 +193,17 @@ arr[-1] = 99;     # assign to the last element
 print(text[-1]);  # last character of a string
 ```
 
+### Concatenation
+
+`+` joins two arrays into a new array. The operands are not modified.
+
+```cfs
+var a = [1, 2];
+var b = [3, 4];
+print(a + b);   # [1, 2, 3, 4]
+print(a);       # [1, 2] (unchanged)
+```
+
 ### Push Syntax
 
 The language has a dedicated append shorthand.
@@ -195,6 +228,22 @@ Access works through brackets and often also through dot access.
 print(cfg["host"]);
 print(cfg.host);
 ```
+
+### Merging
+
+Two dictionaries can be merged with the `<<<` and `>>>` operators. Both return a new dictionary and do not modify their operands. The arrows point at the side that wins when a key is present in both.
+
+```cfs
+var base    = {"host": "localhost", "port": 80};
+var overlay = {"port": 8080, "tls": true};
+
+print(base >>> overlay);   # right wins on "port": {"host": "localhost", "port": 8080, "tls": true}
+print(base <<< overlay);   # left wins on "port":  {"host": "localhost", "port": 80, "tls": true}
+```
+
+`a <<< b` is the same as `b >>> a`. The result keeps the left operand's key order and appends any new keys from the right operand. Both operands must be dictionaries.
+
+For an in place merge that mutates the receiver, use the `.merge(other)` intrinsic instead.
 
 ### Dictionary Push
 

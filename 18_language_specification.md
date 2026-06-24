@@ -43,6 +43,10 @@ The lexer recognizes these token families:
 - comments
 - end of file
 
+Numeric literals may be written in decimal, hexadecimal (`0x`), binary (`0b`), or octal (`0o`) form, with optional `_` digit separators. Non-decimal literals are interpreted as unsigned magnitudes and promote to `BigInteger` when they exceed 64 bits; they never carry a two's-complement sign.
+
+Operators are matched with longest-match precedence. In particular the three-character merge operators `<<<` and `>>>` are recognized before the two-character shift operators `<<` and `>>`.
+
 Whitespace separates tokens where needed and otherwise has no semantic meaning, except inside string and character literals.
 
 Comments are ignored by later language phases and MUST NOT affect runtime behavior.
@@ -147,7 +151,20 @@ The null coalescing operator MUST evaluate and return the right operand only whe
 
 ## Operators
 
-Arithmetic operators operate on numeric values unless a documented overload-like behavior exists, such as string concatenation.
+Arithmetic operators operate on numeric values unless a documented overload exists.
+
+The `+` operator is overloaded by operand type, evaluated in this order:
+
+1. If both operands are numeric, they add.
+2. Otherwise, if at least one operand is a string, both operands are converted to their textual form and concatenated.
+3. Otherwise, if both operands are arrays, the result is a new array containing the left operand's elements followed by the right operand's elements. The operands are not modified.
+4. Any other operand combination MUST fail with a runtime error.
+
+A char operand in any arithmetic, comparison, or equality operation coerces to its Unicode code point. This applies uniformly, including to digit characters, so `'5'` evaluates as 53.
+
+Any arithmetic or bitwise operator (`+`, `-`, `*`, `/`, `%`, `**`, `&`, `|`, `^`, `<<`, `>>`) applied to a `null` operand MUST fail with a runtime error rather than producing `null`.
+
+The dictionary merge operators `<<<` and `>>>` require two dictionaries and produce a new dictionary; the operands are not modified. `<<<` keeps the left operand's value on a key conflict, `>>>` keeps the right operand's value. The result preserves the left operand's key order and appends keys that occur only on the right. `a <<< b` is equivalent to `b >>> a`. These operators are left-associative and bind between the bitwise-and level and the shift level, so they are looser than `<<` and `>>` but tighter than `&`.
 
 Comparison operators return boolean values. Comparison operators MUST NOT be chained: an
 expression such as `a < b < c` is a parse error. Use parentheses to express a deliberate
@@ -554,6 +571,8 @@ Debug log mode is enabled with `-d` or `-debug`.
 
 Interactive VM debugging is enabled with `-di`, `-debugger`, or `--debugger`.
 
+Windows service hosting is a Windows-only facility. `-as_service <script>` runs a script under the Windows Service Control Manager: the script starts when the service starts and observes a cancellation signal when the service stops, so a long-running script terminates cooperatively. `-as_service` MUST be started by the service control manager and not from an interactive console. `-install_service NAME -script FILE` registers such a service and `-uninstall_service NAME` removes it; both delegate to the platform service tooling and require administrator rights. Service lifecycle events and unhandled script errors are reported to the Windows Event Log because a service has no console.
+
 ## CFB Bytecode Artifacts
 
 `.cfb` files are compiled CFGS bytecode artifacts.
@@ -564,7 +583,7 @@ CFB files MUST NOT store local source file paths or local plugin file paths as d
 
 Running a CFB file MUST NOT re-run lexing, parsing, lowering, semantic validation, or bytecode emission for the main script.
 
-The VM MUST reject unsupported or invalid binary artifact shapes.
+The VM MUST reject unsupported or invalid binary artifact shapes. A conforming loader MUST validate length-prefixed element counts against the remaining input and reject unknown opcodes, so that a corrupt or hostile artifact fails with a clear data error instead of an unbounded allocation.
 
 Future bytecode compatibility changes SHOULD be versioned explicitly.
 
