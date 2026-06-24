@@ -31,7 +31,8 @@ internal static class Program
             AsyncHotStartInheritsVmPolicy,
             WorkspaceIsVmScoped,
             PluginLoadRejectsMismatchedPackageLockHash,
-            HostingPreservesStructuredDiagnosticCode
+            HostingPreservesStructuredDiagnosticCode,
+            CfbLoaderRejectsCorruptElementCounts
         ];
 
         List<string> failures = [];
@@ -582,6 +583,46 @@ func writeInWorkspace(path) {
         string file = Path.Combine(directory, "test.cfs");
         File.WriteAllText(file, NormalizeNewlines(source));
         return file;
+    }
+
+    private static void CfbLoaderRejectsCorruptElementCounts()
+    {
+        // A hostile/corrupt .cfb could declare an enormous element count and force the loader into a
+        // huge allocation (OutOfMemoryException) before reading any data. The loader must instead
+        // reject out-of-range counts with a clean InvalidDataException. We hand-craft a valid header
+        // followed by a bogus plugin count of int.MaxValue.
+        string path = Path.Combine(Path.GetTempPath(), $"cfgs_cfb_corrupt_{Guid.NewGuid():N}.cfb");
+        try
+        {
+            using (FileStream fs = File.Create(path))
+            using (BinaryWriter writer = new(fs, System.Text.Encoding.UTF8, leaveOpen: false))
+            {
+                writer.Write(System.Text.Encoding.ASCII.GetBytes("CFB1"));
+                writer.Write(CompiledScript.CurrentBytecodeVersion);
+                writer.Write("test");        // name
+                writer.Write(string.Empty);  // sourceHash
+                writer.Write("1.0");         // compilerVersion
+                writer.Write(false);         // shouldAutoInvokeMain
+                writer.Write(int.MaxValue);  // malicious plugin count
+            }
+
+            bool threw = false;
+            try
+            {
+                _ = CfbFile.Load(path);
+            }
+            catch (InvalidDataException)
+            {
+                threw = true;
+            }
+
+            AssertTrue(threw, "CfbFile.Load must reject an out-of-range element count with InvalidDataException");
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     private static string NormalizeNewlines(string text)

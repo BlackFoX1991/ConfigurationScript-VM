@@ -1,0 +1,33 @@
+import "edge_assert.cfs";
+
+# Null no longer silently propagates through arithmetic/bitwise operators; it is a clean
+# runtime error. Valid operations are unaffected. (ADD is covered separately in 257/258.)
+
+edge_begin("256_null_operations");
+
+# Null on either side of an arithmetic/bitwise operator throws.
+edge_throws("sub_null_right", func() { return 5 - null; });
+edge_throws("sub_null_left",  func() { return null - 5; });
+edge_throws("mul_null",       func() { return null * 5; });
+edge_throws("div_null",       func() { return 10 / null; });
+edge_throws("mod_null",       func() { return 10 % null; });
+edge_throws("expo_null",      func() { return null ** 2; });
+edge_throws("bit_and_null",   func() { return null & 1; });
+edge_throws("bit_or_null",    func() { return 1 | null; });
+edge_throws("bit_xor_null",   func() { return null ^ 1; });
+edge_throws("shl_null",       func() { return null << 1; });
+edge_throws("shr_null",       func() { return 8 >> null; });
+
+# Valid operations still work.
+edge_eq("sub_ok", 5 - 3, 2);
+edge_eq("mul_ok", 4 * 3, 12);
+edge_eq("div_ok", 10 / 2, 5);
+edge_eq("mod_ok", 10 % 3, 1);
+edge_eq("expo_ok", 2 ** 5, 32);
+edge_eq("and_ok", 6 & 2, 2);
+edge_eq("or_ok", 4 | 1, 5);
+edge_eq("xor_ok", 5 ^ 1, 4);
+edge_eq("shl_ok", 1 << 4, 16);
+edge_eq("shr_ok", 8 >> 1, 4);
+
+edge_finish("256_null_operations");

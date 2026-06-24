@@ -146,16 +146,21 @@ public class Lexer
             {
                 if (Peek == '+')
                 {
+                    int blockLine = _line, blockCol = _col;
                     SyncPos(2);
+                    bool terminated = false;
                     while (_pos < _text.Length)
                     {
                         if (_text[_pos] == '+' && Peek == '#')
                         {
                             SyncPos(2);
+                            terminated = true;
                             break;
                         }
                         SyncPos();
                     }
+                    if (!terminated)
+                        throw new LexerException("unterminated block comment (expected '+#')", blockLine, blockCol, FileName);
                     continue;
                 }
                 else
@@ -337,12 +342,13 @@ public class Lexer
                     if (Current == 'x' || Current == 'X')
                     {
                         SyncPos();
-                        string hex = "";
+                        System.Text.StringBuilder hexBuilder = new();
                         while (Uri.IsHexDigit(Current) || Current == '_')
                         {
-                            if (Current != '_') hex += Current;
+                            if (Current != '_') hexBuilder.Append(Current);
                             SyncPos();
                         }
+                        string hex = hexBuilder.ToString();
                         if (hex.Length == 0) throw new LexerException("invalid hex literal", startLine, startCol, FileName);
 
                         try
@@ -358,21 +364,20 @@ public class Lexer
                     else if (Current == 'b' || Current == 'B')
                     {
                         SyncPos();
-                        string bin = "";
+                        System.Text.StringBuilder binBuilder = new();
                         while (Current == '0' || Current == '1' || Current == '_')
                         {
-                            if (Current != '_') bin += Current;
+                            if (Current != '_') binBuilder.Append(Current);
                             SyncPos();
                         }
+                        string bin = binBuilder.ToString();
                         if (bin.Length == 0) throw new LexerException("invalid binary literal", startLine, startCol, FileName);
 
                         try
                         {
-                            long l = Convert.ToInt64(bin, 2);
-                            return MakeToken(TokenType.Number, l <= int.MaxValue ? (object)(int)l : l);
-                        }
-                        catch (OverflowException)
-                        {
+                            // Parse as an unsigned magnitude (like the hex path). Convert.ToInt64(bin, 2)
+                            // would interpret a 64-bit literal's high bit as a sign, so 0b<64×1> wrongly
+                            // becomes -1 instead of promoting to BigInteger.
                             BigInteger bi = ParseBaseBigInteger(bin, 2);
                             return MakeToken(TokenType.Number, NarrowIntOrBig(bi));
                         }
@@ -384,21 +389,19 @@ public class Lexer
                     else if (Current == 'o' || Current == 'O')
                     {
                         SyncPos();
-                        string oct = "";
+                        System.Text.StringBuilder octBuilder = new();
                         while ((Current >= '0' && Current <= '7') || Current == '_')
                         {
-                            if (Current != '_') oct += Current;
+                            if (Current != '_') octBuilder.Append(Current);
                             SyncPos();
                         }
+                        string oct = octBuilder.ToString();
                         if (oct.Length == 0) throw new LexerException("invalid octal literal", startLine, startCol, FileName);
 
                         try
                         {
-                            long l = Convert.ToInt64(oct, 8);
-                            return MakeToken(TokenType.Number, l <= int.MaxValue ? (object)(int)l : l);
-                        }
-                        catch (OverflowException)
-                        {
+                            // Parse as an unsigned magnitude (like the hex path) so a 64-bit octal literal
+                            // promotes to BigInteger instead of being read as a negative two's-complement value.
                             BigInteger bi = ParseBaseBigInteger(oct, 8);
                             return MakeToken(TokenType.Number, NarrowIntOrBig(bi));
                         }
@@ -480,10 +483,11 @@ public class Lexer
 
             if (char.IsLetter(c) || c == '_')
             {
-                string id = "";
-                while (char.IsLetterOrDigit(Current) || Current == '_') { id += Current; SyncPos(); }
-                if (Keywords.ContainsKey(id))
-                    return MakeToken(Keywords[id], id);
+                System.Text.StringBuilder idBuilder = new();
+                while (char.IsLetterOrDigit(Current) || Current == '_') { idBuilder.Append(Current); SyncPos(); }
+                string id = idBuilder.ToString();
+                if (Keywords.TryGetValue(id, out TokenType keywordType))
+                    return MakeToken(keywordType, id);
                 else
                     return MakeToken(TokenType.Ident, id);
 

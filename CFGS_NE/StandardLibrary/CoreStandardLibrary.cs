@@ -65,6 +65,7 @@ namespace CFGS_VM.StandardLibrary
             RegisterJsonNamespace(intrinsics);
             RegisterMathNamespace(intrinsics);
             RegisterConsoleNamespace(intrinsics);
+            RegisterEventLogNamespace(intrinsics);
         }
 
         private static void RegisterNamespaces(INamespaceRegistry namespaces)
@@ -89,6 +90,10 @@ namespace CFGS_VM.StandardLibrary
             RegisterNamespaceAliases(namespaces, "math", MathNamespace.Instance, [
                 "abs", "rand", "floor", "ceil", "round", "min", "max", "sqrt", "pow",
                 "log", "log10", "sin", "cos", "tan", "sign", "trunc", "PI", "pi", "E", "e"
+            ]);
+
+            RegisterNamespaceAliases(namespaces, "eventlog", EventLogNamespace.Instance, [
+                "write", "read", "exists", "create", "remove"
             ]);
 
         }
@@ -371,6 +376,214 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("getcAsync", 0, 0, (recv, a, instr) => ConsoleGetCharAsyncVm()));
             intrinsics.Register(T, new IntrinsicDescriptor("readLineAsync", 0, 0, (recv, a, instr) => ConsoleGetLineAsyncVm()));
             intrinsics.Register(T, new IntrinsicDescriptor("readCharAsync", 0, 0, (recv, a, instr) => ConsoleGetCharAsyncVm()));
+        }
+
+        private static void RegisterEventLogNamespace(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(EventLogNamespace);
+
+            intrinsics.Register(T, new IntrinsicDescriptor("write", 2, 3, (recv, a, instr) => EventLogWriteVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("read", 1, 2, (recv, a, instr) => EventLogReadVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("exists", 1, 1, (recv, a, instr) => EventLogExistsVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("create", 1, 2, (recv, a, instr) => EventLogCreateVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("remove", 1, 1, (recv, a, instr) => EventLogRemoveVm(a, instr)));
+        }
+
+        private static VMException EventLogError(string message, Instruction instr)
+            => new VMException(message, instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+
+        private static string RequireEventLogString(List<object> args, int index, string name, Instruction instr)
+        {
+            string? value = args.Count > index ? args[index]?.ToString() : null;
+            if (string.IsNullOrEmpty(value))
+                throw EventLogError($"Runtime error: eventlog argument '{name}' must be a non-empty string", instr);
+            return value;
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        private static System.Diagnostics.EventLogEntryType MapEventLogLevel(string level, Instruction instr)
+        {
+            switch (level.Trim().ToLowerInvariant())
+            {
+                case "info":
+                case "information":
+                    return System.Diagnostics.EventLogEntryType.Information;
+                case "warn":
+                case "warning":
+                    return System.Diagnostics.EventLogEntryType.Warning;
+                case "error":
+                    return System.Diagnostics.EventLogEntryType.Error;
+                default:
+                    throw EventLogError($"Runtime error: eventlog level '{level}' is invalid (expected 'info', 'warning' or 'error')", instr);
+            }
+        }
+
+        private static object EventLogWriteVm(List<object> args, Instruction instr)
+        {
+            if (!OperatingSystem.IsWindows())
+                throw EventLogError("Runtime error: eventlog is only available on Windows", instr);
+            return EventLogWriteWindows(args, instr);
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        private static object EventLogWriteWindows(List<object> args, Instruction instr)
+        {
+            string source = RequireEventLogString(args, 0, "source", instr);
+            string message = RequireEventLogString(args, 1, "message", instr);
+            string level = args.Count >= 3 ? (args[2]?.ToString() ?? "info") : "info";
+            System.Diagnostics.EventLogEntryType type = MapEventLogLevel(level, instr);
+
+            try
+            {
+                if (!System.Diagnostics.EventLog.SourceExists(source))
+                    System.Diagnostics.EventLog.CreateEventSource(source, "Application");
+
+                using System.Diagnostics.EventLog log = new System.Diagnostics.EventLog("Application") { Source = source };
+                log.WriteEntry(message, type);
+                return 1;
+            }
+            catch (System.Security.SecurityException ex)
+            {
+                throw EventLogError($"Runtime error: eventlog.write requires administrator rights to register the source '{source}' ({ex.Message})", instr);
+            }
+            catch (Exception ex) when (ex is not VMException)
+            {
+                throw EventLogError($"Runtime error: eventlog.write failed ({ex.GetType().Name}: {ex.Message})", instr);
+            }
+        }
+
+        private static object EventLogReadVm(List<object> args, Instruction instr)
+        {
+            if (!OperatingSystem.IsWindows())
+                throw EventLogError("Runtime error: eventlog is only available on Windows", instr);
+            return EventLogReadWindows(args, instr);
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        private static object EventLogReadWindows(List<object> args, Instruction instr)
+        {
+            string logName = RequireEventLogString(args, 0, "logName", instr);
+            int count = 50;
+            if (args.Count >= 2 && args[1] is not null)
+            {
+                try { count = Convert.ToInt32(args[1], CultureInfo.InvariantCulture); }
+                catch (Exception ex) { throw EventLogError($"Runtime error: eventlog.read count is not a valid integer ({ex.Message})", instr); }
+            }
+
+            if (count <= 0)
+                return new List<object>();
+
+            try
+            {
+                using System.Diagnostics.EventLog log = new System.Diagnostics.EventLog(logName);
+                System.Diagnostics.EventLogEntryCollection entries = log.Entries;
+                int total = entries.Count;
+                int take = Math.Min(count, total);
+
+                List<object> result = new(take);
+                // Newest first: walk from the end of the collection backwards.
+                for (int i = total - 1; i >= total - take; i--)
+                {
+                    System.Diagnostics.EventLogEntry entry = entries[i];
+                    result.Add(new Dictionary<string, object>
+                    {
+                        ["source"] = entry.Source ?? string.Empty,
+                        ["message"] = entry.Message ?? string.Empty,
+                        ["level"] = entry.EntryType.ToString(),
+                        ["time"] = entry.TimeGenerated.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                        ["id"] = entry.InstanceId
+                    });
+                }
+
+                return result;
+            }
+            catch (System.Security.SecurityException ex)
+            {
+                throw EventLogError($"Runtime error: eventlog.read requires sufficient rights to read log '{logName}' ({ex.Message})", instr);
+            }
+            catch (Exception ex) when (ex is not VMException)
+            {
+                throw EventLogError($"Runtime error: eventlog.read failed ({ex.GetType().Name}: {ex.Message})", instr);
+            }
+        }
+
+        private static object EventLogExistsVm(List<object> args, Instruction instr)
+        {
+            if (!OperatingSystem.IsWindows())
+                throw EventLogError("Runtime error: eventlog is only available on Windows", instr);
+            return EventLogExistsWindows(args, instr);
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        private static object EventLogExistsWindows(List<object> args, Instruction instr)
+        {
+            string source = RequireEventLogString(args, 0, "source", instr);
+            try
+            {
+                return System.Diagnostics.EventLog.SourceExists(source);
+            }
+            catch (Exception ex) when (ex is not VMException)
+            {
+                throw EventLogError($"Runtime error: eventlog.exists failed ({ex.GetType().Name}: {ex.Message})", instr);
+            }
+        }
+
+        private static object EventLogCreateVm(List<object> args, Instruction instr)
+        {
+            if (!OperatingSystem.IsWindows())
+                throw EventLogError("Runtime error: eventlog is only available on Windows", instr);
+            return EventLogCreateWindows(args, instr);
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        private static object EventLogCreateWindows(List<object> args, Instruction instr)
+        {
+            string source = RequireEventLogString(args, 0, "source", instr);
+            string logName = args.Count >= 2 && args[1] is not null
+                ? RequireEventLogString(args, 1, "logName", instr)
+                : "Application";
+
+            try
+            {
+                if (!System.Diagnostics.EventLog.SourceExists(source))
+                    System.Diagnostics.EventLog.CreateEventSource(source, logName);
+                return 1;
+            }
+            catch (System.Security.SecurityException ex)
+            {
+                throw EventLogError($"Runtime error: eventlog.create requires administrator rights to register the source '{source}' ({ex.Message})", instr);
+            }
+            catch (Exception ex) when (ex is not VMException)
+            {
+                throw EventLogError($"Runtime error: eventlog.create failed ({ex.GetType().Name}: {ex.Message})", instr);
+            }
+        }
+
+        private static object EventLogRemoveVm(List<object> args, Instruction instr)
+        {
+            if (!OperatingSystem.IsWindows())
+                throw EventLogError("Runtime error: eventlog is only available on Windows", instr);
+            return EventLogRemoveWindows(args, instr);
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        private static object EventLogRemoveWindows(List<object> args, Instruction instr)
+        {
+            string source = RequireEventLogString(args, 0, "source", instr);
+            try
+            {
+                if (System.Diagnostics.EventLog.SourceExists(source))
+                    System.Diagnostics.EventLog.DeleteEventSource(source);
+                return 1;
+            }
+            catch (System.Security.SecurityException ex)
+            {
+                throw EventLogError($"Runtime error: eventlog.remove requires administrator rights to delete the source '{source}' ({ex.Message})", instr);
+            }
+            catch (Exception ex) when (ex is not VMException)
+            {
+                throw EventLogError($"Runtime error: eventlog.remove failed ({ex.GetType().Name}: {ex.Message})", instr);
+            }
         }
 
         private static void RegisterTaskNamespace(IIntrinsicRegistry intrinsics)

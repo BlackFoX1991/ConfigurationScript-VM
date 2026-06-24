@@ -1,0 +1,22 @@
+import "edge_assert.cfs";
+
+# A char coerces uniformly to its Unicode code point in arithmetic, comparison and equality.
+# Previously digit chars were special-cased to their digit value ('5'+1 == 6); now '5' == 53.
+
+edge_begin("255_char_codepoint_arithmetic");
+
+# Arithmetic uses the code point for every char, digit or not.
+edge_eq("digit_char_plus", '5' + 1, 54);
+edge_eq("letter_char_plus", 'A' + 1, 66);
+edge_eq("two_digit_chars", '0' + '0', 96);
+edge_eq("char_minus_char", 'b' - 'a', 1);
+
+# Equality compares the code point too (consistent with arithmetic).
+edge_eq("letter_eq_codepoint", 'A' == 65, true);
+edge_eq("digit_eq_codepoint", '5' == 53, true);
+edge_eq("digit_not_eq_digitvalue", '5' == 5, false);
+
+# Long path: char coerces to its code point when paired with a long.
+edge_eq("char_plus_long", 'A' + 10000000000, 10000000065);
+
+edge_finish("255_char_codepoint_arithmetic");

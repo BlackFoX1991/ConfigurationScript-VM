@@ -91,12 +91,12 @@ namespace CFGS_VM.VMCore
             string compilerVersion = reader.ReadString();
             bool shouldAutoInvokeMain = reader.ReadBoolean();
 
-            int pluginCount = reader.ReadInt32();
+            int pluginCount = ReadCount(reader);
             List<string> requiredPlugins = new(pluginCount);
             for (int i = 0; i < pluginCount; i++)
                 requiredPlugins.Add(reader.ReadString());
 
-            int functionCount = reader.ReadInt32();
+            int functionCount = ReadCount(reader);
             Dictionary<string, FunctionInfo> functions = new(StringComparer.Ordinal);
             for (int i = 0; i < functionCount; i++)
             {
@@ -105,7 +105,7 @@ namespace CFGS_VM.VMCore
                 int minArgs = reader.ReadInt32();
                 string? restParameter = reader.ReadBoolean() ? reader.ReadString() : null;
                 bool isAsync = reader.ReadBoolean();
-                int parameterCount = reader.ReadInt32();
+                int parameterCount = ReadCount(reader);
                 List<string> parameters = new(parameterCount);
                 for (int p = 0; p < parameterCount; p++)
                     parameters.Add(reader.ReadString());
@@ -113,11 +113,14 @@ namespace CFGS_VM.VMCore
                 functions[key] = new FunctionInfo(parameters, address, minArgs, restParameter, isAsync);
             }
 
-            int instructionCount = reader.ReadInt32();
+            int instructionCount = ReadCount(reader);
             List<Instruction> instructions = new(instructionCount);
             for (int i = 0; i < instructionCount; i++)
             {
-                OpCode code = (OpCode)reader.ReadInt32();
+                int rawCode = reader.ReadInt32();
+                if (!Enum.IsDefined(typeof(OpCode), rawCode))
+                    throw new InvalidDataException($"corrupt CFB file: unknown opcode {rawCode}");
+                OpCode code = (OpCode)rawCode;
                 object? operand = ReadOperand(reader);
                 int line = reader.ReadInt32();
                 int col = reader.ReadInt32();
@@ -202,6 +205,22 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        /// <summary>
+        /// Reads a length-prefixed element count and validates it against the bytes remaining in the
+        /// stream. Every element serializes to at least one byte, so the remaining byte count is a safe
+        /// upper bound. This prevents a corrupt or hostile <c>.cfb</c> from forcing a huge allocation
+        /// (e.g. <c>count = int.MaxValue</c> → <see cref="OutOfMemoryException"/>) before any data is read.
+        /// </summary>
+        private static int ReadCount(BinaryReader reader)
+        {
+            int count = reader.ReadInt32();
+            long remaining = reader.BaseStream.Length - reader.BaseStream.Position;
+            if (count < 0 || count > remaining)
+                throw new InvalidDataException(
+                    $"corrupt CFB file: element count {count} exceeds remaining data ({remaining} bytes)");
+            return count;
+        }
+
         private static object? ReadOperand(BinaryReader reader)
         {
             OperandKind kind = (OperandKind)reader.ReadByte();
@@ -218,7 +237,7 @@ namespace CFGS_VM.VMCore
                     reader.ReadInt32(),
                     reader.ReadInt32()
                 ]),
-                OperandKind.BigInteger => new BigInteger(reader.ReadBytes(reader.ReadInt32())),
+                OperandKind.BigInteger => new BigInteger(reader.ReadBytes(ReadCount(reader))),
                 OperandKind.String => reader.ReadString(),
                 OperandKind.Char => reader.ReadChar(),
                 OperandKind.Boolean => reader.ReadBoolean(),
@@ -231,7 +250,7 @@ namespace CFGS_VM.VMCore
 
         private static object?[] ReadObjectArray(BinaryReader reader)
         {
-            int count = reader.ReadInt32();
+            int count = ReadCount(reader);
             object?[] values = new object?[count];
             for (int i = 0; i < count; i++)
                 values[i] = ReadOperand(reader);

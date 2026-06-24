@@ -38,6 +38,10 @@
   <ItemGroup>
     <!-- Required by the built-in standard library's encoding namespace (CodePagesEncodingProvider). -->
     <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.8" />
+    <!-- Windows service hosting (-as_service) and Windows Event Log access (eventlog namespace).
+         Windows-only; all usages are guarded with OperatingSystem.IsWindows(). -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+    <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.0" />
   </ItemGroup>
 
 </Project>

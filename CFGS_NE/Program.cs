@@ -61,7 +61,7 @@ public class Program
     /// </summary>
     public static bool IsInteractiveDebug { get; private set; } = false;
 
-    public const string Version = "v9.1.1";
+    public const string Version = "v10.0.0";
 
     public static bool AnsiMode = true;
 
@@ -86,6 +86,10 @@ public class Program
 [ Check    : -check file.cfs [--json]                                          ]
 [ Lint     : -lint file-or-folder [--json] [--warnings-as-errors]              ]
 [ Format   : -format file-or-folder [--write|--check] [--json]                 ]
+[ Service  : -as_service file.cfs            (run script as Windows service)    ]
+[            -install_service NAME -script file.cfs [-display T] [-desc T]      ]
+[                              [-startup auto|manual]                           ]
+[            -uninstall_service NAME                                            ]
 [ Packages : init | install plugin.dll | restore                               ]
 [------------------------------ REPL INFO -------------------------------------]
 [ $help shows help, $exit/$quit leaves REPL                                    ]
@@ -101,6 +105,12 @@ public class Program
         if (TryGetLspArguments(args, out string[] lspArgs))
         {
             Environment.ExitCode = await RunLspModeAsync(lspArgs);
+            return;
+        }
+
+        if (TryGetServiceCommand(args, out ServiceCliCommand serviceCommand))
+        {
+            Environment.ExitCode = RunServiceCommand(serviceCommand);
             return;
         }
 
@@ -300,22 +310,7 @@ public class Program
                 foreach (string file in files)
                 {
                     currentSourceForError = file;
-
-                    string workingDirectory =
-                        FrontendPipeline.TryGetWorkingDirectory(file)
-                        ?? Path.GetDirectoryName(Environment.ProcessPath)
-                        ?? AppContext.BaseDirectory;
-
-                    if (file.EndsWith(".cfb", StringComparison.OrdinalIgnoreCase))
-                    {
-                        await RunCompiledFileAsync(file, IsDebug, IsInteractiveDebug, workingDirectory: workingDirectory);
-                    }
-                    else
-                    {
-                        string input = File.ReadAllText(file);
-                        await RunSourceAsync(input, file, IsDebug, IsInteractiveDebug, workingDirectory: workingDirectory);
-                    }
-
+                    await RunScriptFileAsync(file, IsDebug, IsInteractiveDebug);
                     currentSourceForError = null;
                 }
             }
@@ -738,6 +733,258 @@ public class Program
         }
 
         return 0;
+    }
+
+    private enum ServiceCommandKind
+    {
+        Host,
+        Install,
+        Uninstall
+    }
+
+    private sealed class ServiceCliCommand
+    {
+        public ServiceCommandKind Kind { get; init; }
+        public string? ScriptPath { get; set; }
+        public string? ServiceName { get; set; }
+        public string? DisplayName { get; set; }
+        public string? Description { get; set; }
+        public string Startup { get; set; } = "auto";
+    }
+
+    private static bool TryGetServiceCommand(string[] args, out ServiceCliCommand command)
+    {
+        command = null!;
+        if (args.Length == 0)
+            return false;
+
+        string first = args[0].Trim();
+
+        if (string.Equals(first, "-as_service", StringComparison.OrdinalIgnoreCase))
+        {
+            string? script = null;
+            for (int i = 1; i < args.Length; i++)
+            {
+                string arg = args[i].Trim();
+                if (string.Equals(arg, "-script", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(arg, "--script", StringComparison.OrdinalIgnoreCase))
+                {
+                    script = ReadOptionValue(args, ref i, arg);
+                    continue;
+                }
+
+                if (script is null && !arg.StartsWith("-", StringComparison.Ordinal))
+                    script = args[i];
+            }
+
+            command = new ServiceCliCommand { Kind = ServiceCommandKind.Host, ScriptPath = script };
+            return true;
+        }
+
+        if (string.Equals(first, "-install_service", StringComparison.OrdinalIgnoreCase))
+        {
+            ServiceCliCommand install = new() { Kind = ServiceCommandKind.Install };
+            for (int i = 1; i < args.Length; i++)
+            {
+                string arg = args[i].Trim();
+                switch (arg.ToLowerInvariant())
+                {
+                    case "-script":
+                    case "--script":
+                        install.ScriptPath = ReadOptionValue(args, ref i, arg);
+                        break;
+
+                    case "-display":
+                    case "--display":
+                        install.DisplayName = ReadOptionValue(args, ref i, arg);
+                        break;
+
+                    case "-desc":
+                    case "--desc":
+                    case "--description":
+                        install.Description = ReadOptionValue(args, ref i, arg);
+                        break;
+
+                    case "-startup":
+                    case "--startup":
+                        install.Startup = ReadOptionValue(args, ref i, arg);
+                        break;
+
+                    default:
+                        if (install.ServiceName is null && !arg.StartsWith("-", StringComparison.Ordinal))
+                            install.ServiceName = args[i];
+                        break;
+                }
+            }
+
+            command = install;
+            return true;
+        }
+
+        if (string.Equals(first, "-uninstall_service", StringComparison.OrdinalIgnoreCase))
+        {
+            ServiceCliCommand uninstall = new() { Kind = ServiceCommandKind.Uninstall };
+            for (int i = 1; i < args.Length; i++)
+            {
+                string arg = args[i].Trim();
+                if (uninstall.ServiceName is null && !arg.StartsWith("-", StringComparison.Ordinal))
+                    uninstall.ServiceName = args[i];
+            }
+
+            command = uninstall;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static int RunServiceCommand(ServiceCliCommand command)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Console.Error.WriteLine("[CFGS] service commands are only supported on Windows.");
+            return 1;
+        }
+
+        switch (command.Kind)
+        {
+            case ServiceCommandKind.Host:
+                if (string.IsNullOrWhiteSpace(command.ScriptPath))
+                {
+                    Console.Error.WriteLine("[CFGS] -as_service requires a script path.");
+                    return 1;
+                }
+
+                return CFGS_VM.Hosting.CfgsServiceHost.Run(command.ScriptPath);
+
+            case ServiceCommandKind.Install:
+                return InstallService(command);
+
+            case ServiceCommandKind.Uninstall:
+                return UninstallService(command);
+
+            default:
+                return 1;
+        }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static int InstallService(ServiceCliCommand command)
+    {
+        if (string.IsNullOrWhiteSpace(command.ServiceName))
+        {
+            Console.Error.WriteLine("[CFGS] -install_service requires a service name.");
+            return 1;
+        }
+
+        if (string.IsNullOrWhiteSpace(command.ScriptPath))
+        {
+            Console.Error.WriteLine("[CFGS] -install_service requires -script <path>.");
+            return 1;
+        }
+
+        string script = Path.GetFullPath(command.ScriptPath);
+        if (!File.Exists(script))
+        {
+            Console.Error.WriteLine($"[CFGS] service script not found: {script}");
+            return 1;
+        }
+
+        string? exePath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exePath))
+        {
+            Console.Error.WriteLine("[CFGS] could not determine the CFGS executable path.");
+            return 1;
+        }
+
+        string startKeyword = command.Startup.Trim().ToLowerInvariant() switch
+        {
+            "manual" or "demand" => "demand",
+            _ => "auto"
+        };
+
+        // sc.exe wants the binPath value wrapped in quotes, with the inner exe/script paths
+        // escaped (\") so paths containing spaces survive its argument parser.
+        string binValue = $"\\\"{exePath}\\\" -as_service \\\"{script}\\\"";
+        string displayName = string.IsNullOrWhiteSpace(command.DisplayName) ? command.ServiceName! : command.DisplayName!;
+        string createArgs = $"create {command.ServiceName} binPath= \"{binValue}\" start= {startKeyword} DisplayName= \"{displayName}\"";
+
+        int code = RunSc(createArgs);
+        if (code != 0)
+        {
+            Console.Error.WriteLine("[CFGS] failed to create the service (administrator rights required).");
+            return code;
+        }
+
+        if (!string.IsNullOrWhiteSpace(command.Description))
+            RunSc($"description {command.ServiceName} \"{command.Description}\"");
+
+        Console.WriteLine($"[CFGS] installed service '{command.ServiceName}' (start={startKeyword}).");
+        Console.WriteLine($"[CFGS] start it with: sc start {command.ServiceName}");
+        return 0;
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static int UninstallService(ServiceCliCommand command)
+    {
+        if (string.IsNullOrWhiteSpace(command.ServiceName))
+        {
+            Console.Error.WriteLine("[CFGS] -uninstall_service requires a service name.");
+            return 1;
+        }
+
+        // Best-effort stop before deletion; ignore its exit code (service may already be stopped).
+        RunSc($"stop {command.ServiceName}");
+
+        int code = RunSc($"delete {command.ServiceName}");
+        if (code != 0)
+        {
+            Console.Error.WriteLine("[CFGS] failed to delete the service (administrator rights required, or service not found).");
+            return code;
+        }
+
+        Console.WriteLine($"[CFGS] uninstalled service '{command.ServiceName}'.");
+        return 0;
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static int RunSc(string arguments)
+    {
+        try
+        {
+            System.Diagnostics.ProcessStartInfo psi = new()
+            {
+                FileName = "sc.exe",
+                Arguments = arguments,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            using System.Diagnostics.Process? process = System.Diagnostics.Process.Start(psi);
+            if (process is null)
+            {
+                Console.Error.WriteLine("[CFGS] could not start sc.exe");
+                return 1;
+            }
+
+            string stdout = process.StandardOutput.ReadToEnd();
+            string stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (!string.IsNullOrWhiteSpace(stdout))
+                Console.WriteLine(stdout.TrimEnd());
+            if (!string.IsNullOrWhiteSpace(stderr))
+                Console.Error.WriteLine(stderr.TrimEnd());
+
+            return process.ExitCode;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[CFGS] sc.exe invocation failed: {ex.Message}");
+            return 1;
+        }
     }
 
     private static int RunLintCommand(LintCliCommand command)
@@ -1263,6 +1510,34 @@ public class Program
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
     }
 
+    /// <summary>
+    /// Runs a single script file (source <c>.cfs</c> or compiled <c>.cfb</c>), resolving its working
+    /// directory the same way the CLI loop does. The <paramref name="ct"/> is honored cooperatively by
+    /// the VM dispatch loop and is forwarded to the script's <c>main</c> entry point, so a long-running
+    /// script (e.g. a Windows service) can be stopped by cancelling the token.
+    /// </summary>
+    internal static async Task RunScriptFileAsync(
+        string file,
+        bool debug = false,
+        bool interactiveDebug = false,
+        CancellationToken ct = default)
+    {
+        string workingDirectory =
+            FrontendPipeline.TryGetWorkingDirectory(file)
+            ?? Path.GetDirectoryName(Environment.ProcessPath)
+            ?? AppContext.BaseDirectory;
+
+        if (file.EndsWith(".cfb", StringComparison.OrdinalIgnoreCase))
+        {
+            await RunCompiledFileAsync(file, debug, interactiveDebug, ct, workingDirectory: workingDirectory);
+        }
+        else
+        {
+            string input = File.ReadAllText(file);
+            await RunSourceAsync(input, file, debug, interactiveDebug, ct, workingDirectory: workingDirectory);
+        }
+    }
+
     private static async Task RunSourceAsync(
         string source,
         string name,
@@ -1299,7 +1574,7 @@ public class Program
         await vm.RunAsync(debug, 0, ct);
 
         if ((sharedVm is null || isRepl) && compiled.ShouldAutoInvokeMain)
-            _ = await vm.InvokeGlobalFunctionAsync("main", originFile: name);
+            _ = await vm.InvokeGlobalFunctionAsync("main", originFile: name, ct: ct);
 
         if (debug)
             WriteDebugLog(vm, workingDirectory);
@@ -1374,7 +1649,7 @@ public class Program
         await vm.RunAsync(debug, 0, ct);
 
         if (compiled.ShouldAutoInvokeMain)
-            _ = await vm.InvokeGlobalFunctionAsync("main", originFile: file);
+            _ = await vm.InvokeGlobalFunctionAsync("main", originFile: file, ct: ct);
 
         if (debug)
             WriteDebugLog(vm, workingDirectory);

@@ -1,0 +1,29 @@
+import "edge_assert.cfs";
+
+# Binary and octal literals parse as unsigned magnitudes (like hex): a 64-bit literal
+# with bit 63 set promotes to BigInteger instead of being read as a negative
+# two's-complement value. Previously 0b<64x1> and 0o1777777777777777777777 yielded -1.
+
+edge_begin("254_numeric_base_literals");
+
+# Small values across bases.
+edge_eq("hex_small", 0xFF, 255);
+edge_eq("bin_small", 0b1010, 10);
+edge_eq("oct_small", 0o17, 15);
+
+# Underscore digit separators are allowed in every base.
+edge_eq("hex_sep", 0xF_F, 255);
+edge_eq("bin_sep", 0b1111_1111, 255);
+edge_eq("oct_sep", 0o7_7, 63);
+
+# The 64-bit-all-ones value must be the unsigned magnitude in every base, never -1.
+edge_eq("hex_u64_max", 0xFFFFFFFFFFFFFFFF, 18446744073709551615);
+edge_eq("bin_u64_max", 0b1111111111111111111111111111111111111111111111111111111111111111, 18446744073709551615);
+edge_eq("oct_u64_max", 0o1777777777777777777777, 18446744073709551615);
+
+# All three bases agree with each other (regression for the binary/octal sign bug).
+edge_eq("bin_eq_hex_u64", 0b1111111111111111111111111111111111111111111111111111111111111111, 0xFFFFFFFFFFFFFFFF);
+edge_eq("oct_eq_hex_u64", 0o1777777777777777777777, 0xFFFFFFFFFFFFFFFF);
+edge_true("bin_u64_not_negative", 0b1111111111111111111111111111111111111111111111111111111111111111 > 0);
+
+edge_finish("254_numeric_base_literals");

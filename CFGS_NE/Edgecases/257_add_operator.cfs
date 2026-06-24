@@ -1,0 +1,27 @@
+import "edge_assert.cfs";
+
+# '+' is numeric addition OR string concatenation (requires >= 1 string operand). Any other
+# operand combination is a type error, consistent with '-', '*', '%'. Previously '+' silently
+# stringified anything (true + false == "truefalse") and turned null + 5 into null.
+
+edge_begin("257_add_operator");
+
+# Numeric addition.
+edge_eq("num_add", 1 + 2, 3);
+edge_eq("num_add_double", 1.5 + 2, 3.5);
+
+# String concatenation: the other operand is stringified.
+edge_eq("str_str", "x" + "y", "xy");
+edge_eq("str_num", "n=" + 5, "n=5");
+edge_eq("str_bool", "x" + true, "xtrue");
+edge_eq("str_null", "x" + null, "x");
+edge_eq("num_str", 5 + "!", "5!");
+edge_eq("str_array", "a" + [1, 2], "a[1, 2]");
+
+# Incompatible operand combinations are now type errors.
+edge_throws("bool_plus_bool", func() { return true + false; });
+edge_throws("null_plus_num",  func() { return null + 5; });
+edge_throws("array_plus_array", func() { return [1, 2] + [3, 4]; });
+edge_throws("bool_plus_num",  func() { return true + 1; });
+
+edge_finish("257_add_operator");

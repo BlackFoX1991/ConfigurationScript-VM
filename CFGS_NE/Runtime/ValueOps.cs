@@ -206,6 +206,14 @@ namespace CFGS_VM.VMCore
             => new("Runtime error: arithmetic overflow (result is outside the representable decimal range)",
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+        /// <summary>
+        /// Error for a null operand in an arithmetic/bitwise operator. Null no longer silently
+        /// propagates (which masked bugs); it is a clean runtime error, consistent across operators.
+        /// </summary>
+        private VMException NullOperand(Instruction instr, string op)
+            => new($"Runtime error: {op} on null is not allowed",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
         private Value AddDecimal(decimal a, decimal b, Instruction instr)
         {
             try { return Value.FromRef(a + b); }
@@ -336,8 +344,11 @@ namespace CFGS_VM.VMCore
             public double DoubleRight { get; }
         }
 
-        private static int CharToNumeric(char ch)
-            => char.IsDigit(ch) ? ch - '0' : ch;
+        // A char coerces to its Unicode code point uniformly ('5' -> 53, 'A' -> 65). Previously digit
+        // chars were special-cased to their digit value, which made char arithmetic and equality
+        // inconsistent ('5'+1 == 6 but 'A'+1 == 66). Explicit string/char->number conversions are
+        // handled elsewhere and are unaffected.
+        private static int CharToNumeric(char ch) => ch;
 
         private static bool ToBool(Value v)
             => v.Kind switch
@@ -888,23 +899,26 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            if (leftValue.IsNull || rightValue.IsNull)
+            // Beyond numerics, '+' is only a string-concatenation operator: it requires at least one
+            // string operand. The other operand is stringified (collections via their printed form).
+            // This keeps '+' consistent with '-', '*', '%' which reject non-numeric/non-string operands,
+            // instead of silently turning e.g. true + false into "truefalse" or null + 5 into null.
+            bool leftIsString = TryGetStringReference(leftValue, out _);
+            bool rightIsString = TryGetStringReference(rightValue, out _);
+
+            if (leftIsString || rightIsString)
             {
-                if (TryGetStringReference(leftValue, out _) || TryGetStringReference(rightValue, out _))
-                    _valueStack.Push(Value.FromObject(FormatDefaultConcatOperand(leftValue) + FormatDefaultConcatOperand(rightValue)));
+                if (IsCollectionReference(leftValue) || IsCollectionReference(rightValue))
+                    _valueStack.Push(Value.FromObject(FormatPrintedConcatOperand(leftValue) + FormatPrintedConcatOperand(rightValue)));
                 else
-                    _valueStack.Push(Value.Null);
+                    _valueStack.Push(Value.FromObject(FormatDefaultConcatOperand(leftValue) + FormatDefaultConcatOperand(rightValue)));
                 return StepResult.Next;
             }
 
-            if (IsCollectionReference(leftValue) || IsCollectionReference(rightValue))
-            {
-                _valueStack.Push(Value.FromObject(FormatPrintedConcatOperand(leftValue) + FormatPrintedConcatOperand(rightValue)));
-                return StepResult.Next;
-            }
+            if (leftValue.IsNull || rightValue.IsNull)
+                throw NullOperand(instr, "ADD");
 
-            _valueStack.Push(Value.FromObject(FormatDefaultConcatOperand(leftValue) + FormatDefaultConcatOperand(rightValue)));
-            return StepResult.Next;
+            throw new VMException("ADD on incompatible types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
         private StepResult HandleSubInstruction(Instruction instr)
@@ -930,10 +944,7 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-            {
-                _valueStack.Push(Value.Null);
-                return StepResult.Next;
-            }
+                throw NullOperand(instr, "SUB");
 
             if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
                 throw new VMException("SUB on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -974,10 +985,7 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-            {
-                _valueStack.Push(Value.Null);
-                return StepResult.Next;
-            }
+                throw NullOperand(instr, "MUL");
 
             if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
             {
@@ -1038,10 +1046,7 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-            {
-                _valueStack.Push(Value.Null);
-                return StepResult.Next;
-            }
+                throw NullOperand(instr, "MOD");
 
             if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
                 throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1101,10 +1106,7 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-            {
-                _valueStack.Push(Value.Null);
-                return StepResult.Next;
-            }
+                throw NullOperand(instr, "DIV");
 
             if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
                 throw new VMException(
@@ -1160,10 +1162,7 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-            {
-                _valueStack.Push(Value.Null);
-                return StepResult.Next;
-            }
+                throw NullOperand(instr, "EXPO");
 
             if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
                 throw new VMException("EXPO on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1196,7 +1195,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "BIT_AND");
             if (!TryCoerceFallbackIntegralPair(leftValue, rightValue, out Value l, out Value r, out NumKind kind))
                 throw new VMException("BIT_AND requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             Value result = kind switch
@@ -1225,7 +1224,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "BIT_OR");
             if (!TryCoerceFallbackIntegralPair(leftValue, rightValue, out Value l, out Value r, out NumKind kind))
                 throw new VMException("BIT_OR requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             Value result = kind switch
@@ -1254,7 +1253,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "BIT_XOR");
             if (!TryCoerceFallbackIntegralPair(leftValue, rightValue, out Value l, out Value r, out NumKind kind))
                 throw new VMException("BIT_XOR requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             Value result = kind switch
@@ -1285,7 +1284,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "SHL");
             if (!(TryGetFallbackIntegralValue(leftValue, out Value l) && TryGetFallbackNumericValue(rightValue, out Value r)))
                 throw new VMException("SHL requires (integral) << int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             int sh = ToInt32Invariant(r);
@@ -1314,7 +1313,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "SHR");
             if (!(TryGetFallbackIntegralValue(leftValue, out Value l) && TryGetFallbackNumericValue(rightValue, out Value r)))
                 throw new VMException("SHR requires (integral) >> int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             int sh = ToInt32Invariant(r);
