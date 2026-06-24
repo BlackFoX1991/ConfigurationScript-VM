@@ -3,6 +3,11 @@
 public class Token
 {
     /// <summary>
+    /// Gets the stable token index within the lexed token stream.
+    /// </summary>
+    public int Index { get; }
+
+    /// <summary>
     /// Gets the Type
     /// </summary>
     public TokenType Type { get; }
@@ -33,6 +38,16 @@ public class Token
     public int Length { get; }
 
     /// <summary>
+    /// Gets the zero-based start offset in the source text.
+    /// </summary>
+    public int StartOffset { get; }
+
+    /// <summary>
+    /// Gets the zero-based end offset in the source text.
+    /// </summary>
+    public int EndOffset => StartOffset + Length;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="Token"/> class.
     /// </summary>
     /// <param name="type">The type<see cref="TokenType"/></param>
@@ -40,14 +55,16 @@ public class Token
     /// <param name="line">The line<see cref="int"/></param>
     /// <param name="col">The col<see cref="int"/></param>
     /// <param name="filename">The filename<see cref="string"/></param>
-    public Token(TokenType type, object value, int line, int col, string filename, int length = 0)
+    public Token(TokenType type, object value, int line, int col, string filename, int length = 0, int index = -1, int startOffset = -1)
     {
+        Index = index;
         Type = type;
         Value = value;
         Line = line;
         Column = col;
         Filename = filename;
         Length = Math.Max(1, length);
+        StartOffset = Math.Max(0, startOffset);
     }
 
     public override string ToString()

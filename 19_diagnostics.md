@@ -115,6 +115,13 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS8012`: unreachable statement after terminating control flow.
 - `CFGS8013`: top-level function is never called in the same file.
 - `CFGS8014`: async function does not await anything.
+- `CFGS8015`: local, parameter, or import shadows an outer declaration.
+- `CFGS8016`: imported binding is never used.
+- `CFGS8017`: empty control-flow block.
+- `CFGS8018`: suspicious equality comparison with an always-known outcome.
+- `CFGS8019`: constant condition.
+- `CFGS8020`: unreachable statement after guaranteed terminating control flow.
+- `CFGS8021`: magic number.
 - `CFGS9000`: host or system error.
 
 ## Lint Mode
@@ -152,9 +159,9 @@ JSON output uses a compact diagnostic array.
 
 Warnings and errors return a non-zero process exit code. Informational diagnostics alone do not fail the command.
 
-`--fix` applies only safe source-style fixes and then lints the updated source again. It can remove trailing whitespace, collapse excessive blank lines, add a missing final newline, and convert leading tabs to spaces unless `--allow-tabs` is set. Semantic diagnostics such as `CFGS8011`-`CFGS8014` are reported but are not auto-fixed.
+`--fix` applies only safe source-style fixes and then lints the updated source again. It can remove trailing whitespace, collapse excessive blank lines, add a missing final newline, and convert leading tabs to spaces unless `--allow-tabs` is set. Semantic and policy diagnostics such as `CFGS8011`-`CFGS8021` are reported but are not auto-fixed.
 
-Lint options may be set in the nearest `cfgs.json`:
+Lint options may be set in the nearest `cfgs.json`. Existing flat keys under `tooling` remain valid. The richer rule configuration lives under `tooling.lint`, and those nested values override the flat defaults from the same manifest.
 
 ```json
 {
@@ -162,12 +169,31 @@ Lint options may be set in the nearest `cfgs.json`:
     "maxLineLength": 140,
     "warningsAsErrors": false,
     "allowTabs": false,
-    "indentSize": 4
+    "indentSize": 4,
+    "lint": {
+      "preset": "recommended",
+      "rules": {
+        "CFGS8018": "error",
+        "CFGS8021": "off"
+      }
+    }
   }
 }
 ```
 
-The CLI options `--max-line-length`, `--warnings-as-errors`, `--allow-tabs`, and `--indent` override those defaults.
+`preset` supports `recommended` and `strict`. `rules` accepts booleans, severity strings (`info`, `warning`, `error`, `off`), or objects with `enabled` and `severity`.
+
+The CLI options `--max-line-length`, `--warnings-as-errors`, `--allow-tabs`, and `--indent` override the manifest defaults.
+
+Lint suppressions may be attached inline:
+
+```cfs
+# cfgs-disable CFGS8016
+# cfgs-disable-next-line CFGS8018
+var value = 42; # cfgs-disable-line CFGS8021
+```
+
+The legacy `# lint:disable`, `# lint:disable-next-line`, and `# lint:disable-line` forms remain supported for backward compatibility.
 
 ## Format Mode
 

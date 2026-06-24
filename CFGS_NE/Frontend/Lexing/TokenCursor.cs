@@ -8,7 +8,8 @@ namespace CFGS_VM.Analytic.Core
     /// </summary>
     internal sealed class TokenCursor
     {
-        private readonly Lexer _lexer;
+        private readonly IReadOnlyList<Token> _tokens;
+        private int _index;
 
         /// <summary>
         /// Gets the current token under the parser cursor.
@@ -21,14 +22,41 @@ namespace CFGS_VM.Analytic.Core
         public Token Next { get; private set; }
 
         /// <summary>
+        /// Gets the last token that was consumed by the cursor.
+        /// </summary>
+        public Token? LastConsumed { get; private set; }
+
+        /// <summary>
+        /// Gets the full token stream.
+        /// </summary>
+        public IReadOnlyList<Token> Tokens => _tokens;
+
+        /// <summary>
+        /// Gets the current token index within the token stream.
+        /// </summary>
+        public int CurrentIndex => _index;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="TokenCursor"/> class.
         /// </summary>
         /// <param name="lexer">The source lexer.</param>
         public TokenCursor(Lexer lexer)
         {
-            _lexer = lexer ?? throw new ArgumentNullException(nameof(lexer));
-            Current = _lexer.GetNextToken();
-            Next = _lexer.GetNextToken();
+            ArgumentNullException.ThrowIfNull(lexer);
+
+            List<Token> tokens = [];
+            while (true)
+            {
+                Token token = lexer.GetNextToken();
+                tokens.Add(token);
+                if (token.Type == TokenType.EOF)
+                    break;
+            }
+
+            _tokens = tokens;
+            _index = 0;
+            Current = _tokens[0];
+            Next = _tokens.Count > 1 ? _tokens[1] : _tokens[0];
         }
 
         /// <summary>
@@ -36,8 +64,12 @@ namespace CFGS_VM.Analytic.Core
         /// </summary>
         public void Advance()
         {
-            Current = Next;
-            Next = _lexer.GetNextToken();
+            LastConsumed = Current;
+            if (_index < _tokens.Count - 1)
+                _index++;
+
+            Current = _tokens[_index];
+            Next = _index + 1 < _tokens.Count ? _tokens[_index + 1] : _tokens[^1];
         }
 
         /// <summary>

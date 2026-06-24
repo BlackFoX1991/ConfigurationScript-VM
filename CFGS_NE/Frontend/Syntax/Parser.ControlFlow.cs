@@ -61,6 +61,7 @@ namespace CFGS_VM.Analytic.Core
 
         private UsingStmt ParseUsingScopeDeclarationInBlock()
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line, col = _current.Column;
             string file = _current.Filename;
 
@@ -90,13 +91,14 @@ namespace CFGS_VM.Analytic.Core
             string bodyFile = _current.Filename;
 
             List<Stmt> remaining = ParseBlockStatementsUntilRBrace();
-            BlockStmt body = new(remaining, bodyLine, bodyCol, bodyFile);
+            BlockStmt body = StampNode(new BlockStmt(remaining, bodyLine, bodyCol, bodyFile), _current.Index);
 
-            return new UsingStmt(bindingName, bindingIsConst, resource, body, line, col, file);
+            return StampNode(new UsingStmt(bindingName, bindingIsConst, resource, body, line, col, file), startTokenIndex);
         }
 
         private TryStmt ParseDeferScopeDeclarationInBlock()
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line, col = _current.Column;
             string file = _current.Filename;
 
@@ -109,9 +111,9 @@ namespace CFGS_VM.Analytic.Core
             string bodyFile = _current.Filename;
 
             List<Stmt> remaining = ParseBlockStatementsUntilRBrace();
-            BlockStmt body = new(remaining, bodyLine, bodyCol, bodyFile);
+            BlockStmt body = StampNode(new BlockStmt(remaining, bodyLine, bodyCol, bodyFile), _current.Index);
 
-            return new TryStmt(body, null, null, finallyBlock, line, col, file);
+            return StampNode(new TryStmt(body, null, null, finallyBlock, line, col, file), startTokenIndex);
         }
 
         private List<Stmt> ParseBlockStatementsUntilRBrace()
@@ -121,21 +123,35 @@ namespace CFGS_VM.Analytic.Core
             while (_current.Type != TokenType.RBrace)
             {
                 if (_current.Type == TokenType.EOF)
-                    throw new ParserException("expected '}' before end of file", _current.Line, _current.Column, _current.Filename);
-
-                if (IsUsingScopeDeclarationStart)
                 {
-                    stmts.Add(ParseUsingScopeDeclarationInBlock());
+                    if (!IsTolerant)
+                        throw new ParserException("expected '}' before end of file", _current.Line, _current.Column, _current.Filename);
+
+                    RecordDiagnostic(new ParserException("expected '}' before end of file", _current.Line, _current.Column, _current.Filename));
                     break;
                 }
 
-                if (IsDeferScopeDeclarationStart)
+                try
                 {
-                    stmts.Add(ParseDeferScopeDeclarationInBlock());
-                    break;
-                }
+                    if (IsUsingScopeDeclarationStart)
+                    {
+                        stmts.Add(ParseUsingScopeDeclarationInBlock());
+                        break;
+                    }
 
-                stmts.Add(Statement());
+                    if (IsDeferScopeDeclarationStart)
+                    {
+                        stmts.Add(ParseDeferScopeDeclarationInBlock());
+                        break;
+                    }
+
+                    stmts.Add(Statement());
+                }
+                catch (Exception ex) when (IsTolerant && ex is ParserException or LexerException)
+                {
+                    AddErrorStatement(stmts, ex);
+                    RecoverAfterStatementError(TokenType.RBrace);
+                }
             }
 
             return stmts;
@@ -239,11 +255,12 @@ namespace CFGS_VM.Analytic.Core
             }
 
             Stmt one = Statement();
-            return new BlockStmt(new List<Stmt> { one }, one.Line, one.Col, one.OriginFile);
+            return CopyNodeSpan(new BlockStmt(new List<Stmt> { one }, one.Line, one.Col, one.OriginFile), one);
         }
 
         private BlockStmt ParseBlock()
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line;
             int col = _current.Column;
             string file = _current.Filename;
@@ -251,9 +268,12 @@ namespace CFGS_VM.Analytic.Core
             Eat(TokenType.LBrace);
             List<Stmt> stmts = ParseBlockStatementsUntilRBrace();
 
-            Eat(TokenType.RBrace);
+            if (_current.Type == TokenType.RBrace)
+                Eat(TokenType.RBrace);
+            else if (!IsTolerant)
+                Eat(TokenType.RBrace);
 
-            return new BlockStmt(stmts, line, col, file);
+            return StampNode(new BlockStmt(stmts, line, col, file), startTokenIndex);
         }
 
         private IfStmt ParseIf()

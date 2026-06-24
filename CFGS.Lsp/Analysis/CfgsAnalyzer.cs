@@ -202,6 +202,9 @@ internal sealed class CfgsAnalyzer
         string origin = GetDocumentOrigin(documentUri);
         SourceResolver sources = new(documentUri, origin, sourceText, openDocumentSources);
         Dictionary<string, List<CfgsDiagnostic>> diagnosticsByUri = CreateUriMap<List<CfgsDiagnostic>>();
+        IReadOnlyList<CfgsSymbol> documentSymbols = [];
+        IReadOnlyList<CfgsSymbol> allSymbols = [];
+        CfgsSemanticModel semanticModel = new([], new Dictionary<string, CfgsSymbol>(), [], [], []);
 
         try
         {
@@ -209,29 +212,66 @@ internal sealed class CfgsAnalyzer
                 loadPluginDll: _ => { },
                 loadImportSource: sources.GetOverlaySourceText,
                 workingDirectory: FrontendPipeline.TryGetWorkingDirectory(origin));
-            List<Stmt> ast = frontendPipeline.BuildLoweredAst(origin, sourceText);
+            FrontendTolerantBuildResult frontendBuild = frontendPipeline.BuildLoweredAstTolerant(origin, sourceText);
 
-            Compiler compiler = new(origin);
-            compiler.Compile(ast);
+            foreach (ParserException diagnostic in frontendBuild.Diagnostics)
+            {
+                AddExceptionDiagnostic(
+                    diagnosticsByUri,
+                    sources,
+                    documentUri,
+                    diagnostic.Filename,
+                    diagnostic.Line,
+                    diagnostic.Column,
+                    diagnostic.RawMessage,
+                    diagnostic.DiagnosticCode ?? InferDiagnosticCode(diagnostic.Category, diagnostic.RawMessage),
+                    diagnostic.SpanLength);
+            }
 
-            SymbolCollector collector = new(sources, origin, documentUri);
-            collector.Collect(ast);
-            CfgsSemanticModel semanticModel = new CfgsSemanticModelBuilder(documentUri, origin, sourceText, openDocumentSources).Build(ast);
+            List<Stmt> ast = frontendBuild.LoweredAst;
 
-            EnsureDocumentEntry(diagnosticsByUri, documentUri);
-            return new CfgsAnalysisResult(documentUri, origin, sourceText, diagnosticsByUri, collector.DocumentSymbols, collector.AllSymbols, semanticModel);
-        }
-        catch (LexerException ex)
-        {
-            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
-        }
-        catch (ParserException ex)
-        {
-            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
-        }
-        catch (CompilerException ex)
-        {
-            AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.FileSource, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
+            try
+            {
+                SymbolCollector collector = new(sources, origin, documentUri);
+                collector.Collect(ast);
+                documentSymbols = collector.DocumentSymbols;
+                allSymbols = collector.AllSymbols;
+            }
+            catch (Exception ex)
+            {
+                AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, origin, 1, 1, ex.Message, "CFGS9000");
+            }
+
+            try
+            {
+                semanticModel = new CfgsSemanticModelBuilder(documentUri, origin, sourceText, openDocumentSources).Build(ast);
+            }
+            catch (Exception ex)
+            {
+                AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, origin, 1, 1, ex.Message, "CFGS9000");
+            }
+
+            try
+            {
+                Compiler compiler = new(origin);
+                compiler.Compile(ast);
+            }
+            catch (CompilerException ex)
+            {
+                AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.FileSource, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
+            }
+            catch (LexerException ex)
+            {
+                AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
+            }
+            catch (ParserException ex)
+            {
+                AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
+            }
+            catch (Exception ex)
+            {
+                AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, origin, 1, 1, ex.Message, "CFGS9000");
+            }
         }
         catch (Exception ex)
         {
@@ -239,7 +279,7 @@ internal sealed class CfgsAnalyzer
         }
 
         EnsureDocumentEntry(diagnosticsByUri, documentUri);
-        return new CfgsAnalysisResult(documentUri, origin, sourceText, diagnosticsByUri, [], [], new CfgsSemanticModel([], new Dictionary<string, CfgsSymbol>(), [], [], []));
+        return new CfgsAnalysisResult(documentUri, origin, sourceText, diagnosticsByUri, documentSymbols, allSymbols, semanticModel);
     }
 
     public IReadOnlyList<CfgsCompletionItem> GetCompletions(CfgsAnalysisResult result)
@@ -273,7 +313,7 @@ internal sealed class CfgsAnalyzer
         return items.Values.OrderBy(static item => item.Label, StringComparer.Ordinal).ToList();
     }
 
-    public IReadOnlyList<int> GetSemanticTokens(CfgsAnalysisResult result)
+    public IReadOnlyList<int> GetSemanticTokens(CfgsAnalysisResult result, RangeInfo? range = null)
     {
         List<CfgsSemanticTokenSpan> spans = [];
 
@@ -288,6 +328,9 @@ internal sealed class CfgsAnalyzer
             if (!TryMapSemanticToken(symbol, occurrence.IsDeclaration, out CfgsSemanticTokenSpan span))
                 continue;
 
+            if (range is not null && !Intersects(span, range.Value))
+                continue;
+
             spans.Add(span);
         }
 
@@ -300,7 +343,12 @@ internal sealed class CfgsAnalyzer
                 continue;
 
             if (TryMapSemanticToken(symbol, isDeclaration: true, out CfgsSemanticTokenSpan span))
+            {
+                if (range is not null && !Intersects(span, range.Value))
+                    continue;
+
                 spans.Add(span);
+            }
         }
 
         List<CfgsSemanticTokenSpan> ordered = spans
@@ -335,6 +383,31 @@ internal sealed class CfgsAnalyzer
         }
 
         return data;
+    }
+
+    private static bool Intersects(CfgsSemanticTokenSpan span, RangeInfo range)
+    {
+        int spanStartLine = span.Line;
+        int spanStartCharacter = span.Character;
+        int spanEndLine = span.Line;
+        int spanEndCharacter = span.Character + Math.Max(0, span.Length);
+
+        if (spanStartLine < range.Start.Line || (spanStartLine == range.Start.Line && spanStartCharacter < range.Start.Character))
+        {
+            spanStartLine = range.Start.Line;
+            spanStartCharacter = range.Start.Character;
+        }
+
+        if (spanEndLine > range.End.Line || (spanEndLine == range.End.Line && spanEndCharacter > range.End.Character))
+        {
+            spanEndLine = range.End.Line;
+            spanEndCharacter = range.End.Character;
+        }
+
+        if (spanStartLine > spanEndLine)
+            return false;
+
+        return spanStartLine != spanEndLine || spanStartCharacter < spanEndCharacter;
     }
 
     public IReadOnlyList<CfgsSymbol> FindDefinitions(CfgsAnalysisResult result, int line, int character)

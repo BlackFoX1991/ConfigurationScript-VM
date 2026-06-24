@@ -13,6 +13,7 @@ namespace CFGS_VM.Analytic.Core
         {
             while (_current.Type == TokenType.Use)
             {
+                int startTokenIndex = MarkNodeStart();
                 int line = _current.Line;
                 int col = _current.Column;
                 string file = _current.Filename;
@@ -20,7 +21,7 @@ namespace CFGS_VM.Analytic.Core
                 Eat(TokenType.Use);
                 List<string> parts = ParseNamespacePath();
                 Eat(TokenType.Semi);
-                stmts.Add(new UseNamespaceStmt(parts, line, col, file));
+                stmts.Add(StampNode(new UseNamespaceStmt(parts, line, col, file), startTokenIndex));
             }
         }
     }

@@ -56,6 +56,7 @@ namespace CFGS_VM.Analytic.Core
 
         private Stmt ParseNamespaceBodyStatement()
         {
+            int startTokenIndex = MarkNodeStart();
             if (_current.Type == TokenType.Export)
                 throw new ParserException(
                     "export is not allowed inside namespace body",
@@ -77,7 +78,7 @@ namespace CFGS_VM.Analytic.Core
                     _current.Line, _current.Column, _current.Filename);
 
             if (TryParseModuleScopeStatement(out Stmt stmt))
-                return stmt;
+                return StampNode(stmt, startTokenIndex);
 
             throw new ParserException(
                 $"invalid namespace statement {_current.Type}",
@@ -86,6 +87,7 @@ namespace CFGS_VM.Analytic.Core
 
         private NamespaceDeclStmt ParseNamespaceDeclStatement(bool allowFileScoped = true)
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line;
             int col = _current.Column;
             string file = _current.Filename;
@@ -119,13 +121,37 @@ namespace CFGS_VM.Analytic.Core
                 List<Stmt> fileScopedBodyStatements = new();
                 while (_current.Type != TokenType.EOF)
                 {
-                    Stmt bodyStmt = ParseNamespaceBodyStatement();
-                    fileScopedBodyStatements.Add(bodyStmt);
+                    try
+                    {
+                        Stmt bodyStmt = ParseNamespaceBodyStatement();
+                        fileScopedBodyStatements.Add(bodyStmt);
+                    }
+                    catch (Exception ex) when (IsTolerant && ex is ParserException or LexerException)
+                    {
+                        AddErrorStatement(fileScopedBodyStatements, ex);
+                        if (_current.Type is TokenType.Export or TokenType.Import or TokenType.Use or TokenType.Namespace)
+                            Advance();
+                        RecoverAfterStatementError();
+                    }
                 }
 
-                ValidateTopLevelSymbolUniqueness(fileScopedBodyStatements);
+                if (IsTolerant)
+                {
+                    try
+                    {
+                        ValidateTopLevelSymbolUniqueness(fileScopedBodyStatements);
+                    }
+                    catch (Exception ex) when (ex is ParserException or LexerException)
+                    {
+                        RecordDiagnostic(ex);
+                    }
+                }
+                else
+                {
+                    ValidateTopLevelSymbolUniqueness(fileScopedBodyStatements);
+                }
                 _knownNamespaceRoots.Add(root);
-                return new NamespaceDeclStmt(parts, fileScopedBodyStatements, line, col, file, isFileScoped: true);
+                return StampNode(new NamespaceDeclStmt(parts, fileScopedBodyStatements, line, col, file, isFileScoped: true), startTokenIndex);
             }
 
             Eat(TokenType.LBrace);
@@ -134,17 +160,50 @@ namespace CFGS_VM.Analytic.Core
             while (_current.Type != TokenType.RBrace)
             {
                 if (_current.Type == TokenType.EOF)
-                    throw new ParserException("expected '}' before end of file in namespace body", _current.Line, _current.Column, _current.Filename);
+                {
+                    if (!IsTolerant)
+                        throw new ParserException("expected '}' before end of file in namespace body", _current.Line, _current.Column, _current.Filename);
 
-                Stmt bodyStmt = ParseNamespaceBodyStatement();
-                bodyStmts.Add(bodyStmt);
+                    RecordDiagnostic(new ParserException("expected '}' before end of file in namespace body", _current.Line, _current.Column, _current.Filename));
+                    break;
+                }
+
+                try
+                {
+                    Stmt bodyStmt = ParseNamespaceBodyStatement();
+                    bodyStmts.Add(bodyStmt);
+                }
+                catch (Exception ex) when (IsTolerant && ex is ParserException or LexerException)
+                {
+                    AddErrorStatement(bodyStmts, ex);
+                    if (_current.Type is TokenType.Export or TokenType.Import or TokenType.Use or TokenType.Namespace)
+                        Advance();
+                    RecoverAfterStatementError(TokenType.RBrace);
+                }
             }
 
-            Eat(TokenType.RBrace);
+            if (_current.Type == TokenType.RBrace)
+                Eat(TokenType.RBrace);
+            else if (!IsTolerant)
+                Eat(TokenType.RBrace);
 
-            ValidateTopLevelSymbolUniqueness(bodyStmts);
+            if (IsTolerant)
+            {
+                try
+                {
+                    ValidateTopLevelSymbolUniqueness(bodyStmts);
+                }
+                catch (Exception ex) when (ex is ParserException or LexerException)
+                {
+                    RecordDiagnostic(ex);
+                }
+            }
+            else
+            {
+                ValidateTopLevelSymbolUniqueness(bodyStmts);
+            }
             _knownNamespaceRoots.Add(root);
-            return new NamespaceDeclStmt(parts, bodyStmts, line, col, file);
+            return StampNode(new NamespaceDeclStmt(parts, bodyStmts, line, col, file), startTokenIndex);
         }
     }
 }

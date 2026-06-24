@@ -38,6 +38,16 @@ namespace CFGS_VM.Analytic.Tree
         /// Gets the OriginFile
         /// </summary>
         public string OriginFile { get; } = originFile;
+
+        /// <summary>
+        /// Gets or sets the start token index for the original syntax node.
+        /// </summary>
+        public int SyntaxStartTokenIndex { get; set; } = -1;
+
+        /// <summary>
+        /// Gets or sets the end token index for the original syntax node.
+        /// </summary>
+        public int SyntaxEndTokenIndex { get; set; } = -1;
     }
 
     // +++ AST +++
@@ -66,6 +76,11 @@ namespace CFGS_VM.Analytic.Tree
     public class EmptyStmt(TokenType tp, int line, int col, string originFile) : Stmt(line, col, originFile)
     {
         public TokenType eType = tp;
+    }
+
+    public sealed class ErrorStmt(string message, int line, int col, string originFile) : Stmt(line, col, originFile)
+    {
+        public string Message { get; } = message;
     }
 
     public class NullExpr(int line, int col, string fname) : Expr(line, col, fname)
@@ -806,6 +821,21 @@ namespace CFGS_VM.Analytic.Tree
         public List<ClassDeclStmt> NestedClasses { get; } = new();
 
         /// <summary>
+        /// Gets or sets the original class member declarations in source order for tooling scenarios such as formatting.
+        /// </summary>
+        public List<Node> SyntaxMembers { get; set; } = new();
+
+        /// <summary>
+        /// Gets or sets the declared visibility when this class appears as a nested class member.
+        /// </summary>
+        public MemberVisibility Visibility { get; set; } = MemberVisibility.Public;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the nested class used an explicit visibility modifier.
+        /// </summary>
+        public bool HasExplicitVisibility { get; set; }
+
+        /// <summary>
         /// Gets a value indicating whether IsNested
         /// </summary>
         public bool IsNested { get; }
@@ -972,6 +1002,11 @@ namespace CFGS_VM.Analytic.Tree
         public bool HasAutoStorage { get; }
 
         /// <summary>
+        /// Gets or sets a value indicating whether the property used an explicit visibility modifier.
+        /// </summary>
+        public bool HasExplicitVisibility { get; set; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="PropertyDeclStmt"/> class.
         /// </summary>
         public PropertyDeclStmt(
@@ -992,6 +1027,44 @@ namespace CFGS_VM.Analytic.Tree
             Accessors = accessors;
             Initializer = initializer;
             HasAutoStorage = hasAutoStorage;
+        }
+    }
+
+    /// <summary>
+    /// Defines one class field declaration in original source order for tooling scenarios such as formatting.
+    /// </summary>
+    public sealed class ClassFieldDeclSyntax : Node
+    {
+        public string Name { get; }
+
+        public Expr? Initializer { get; }
+
+        public MemberVisibility Visibility { get; }
+
+        public bool HasExplicitVisibility { get; }
+
+        public bool IsStatic { get; }
+
+        public bool IsConst { get; }
+
+        public ClassFieldDeclSyntax(
+            string name,
+            Expr? initializer,
+            MemberVisibility visibility,
+            bool hasExplicitVisibility,
+            bool isStatic,
+            bool isConst,
+            int line,
+            int col,
+            string file)
+            : base(line, col, file)
+        {
+            Name = name;
+            Initializer = initializer;
+            Visibility = visibility;
+            HasExplicitVisibility = hasExplicitVisibility;
+            IsStatic = isStatic;
+            IsConst = isConst;
         }
     }
 
@@ -1403,6 +1476,11 @@ namespace CFGS_VM.Analytic.Tree
         public List<string> BaseInterfaces { get; }
 
         /// <summary>
+        /// Gets or sets the original interface member declarations in source order for tooling scenarios such as formatting.
+        /// </summary>
+        public List<Node> SyntaxMembers { get; set; } = new();
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="InterfaceDeclStmt"/> class.
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>
@@ -1508,6 +1586,16 @@ namespace CFGS_VM.Analytic.Tree
         /// Gets the Members
         /// </summary>
         public List<EnumMemberNode> Members { get; }
+
+        /// <summary>
+        /// Gets or sets the declared visibility when this enum appears as a class member.
+        /// </summary>
+        public MemberVisibility Visibility { get; set; } = MemberVisibility.Public;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the enum used an explicit visibility modifier.
+        /// </summary>
+        public bool HasExplicitVisibility { get; set; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="EnumDeclStmt"/> class.
@@ -2300,6 +2388,21 @@ namespace CFGS_VM.Analytic.Tree
         /// Gets or sets the raw parameter specifications used for lowering.
         /// </summary>
         public List<FunctionParameterSpec> ParameterSpecs { get; set; }
+
+        /// <summary>
+        /// Gets or sets the declared visibility when this function appears as a class member.
+        /// </summary>
+        public MemberVisibility Visibility { get; set; } = MemberVisibility.Public;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the function used an explicit visibility modifier.
+        /// </summary>
+        public bool HasExplicitVisibility { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the function was declared with the static modifier in a class body.
+        /// </summary>
+        public bool IsStaticMember { get; set; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="FuncDeclStmt"/> class.

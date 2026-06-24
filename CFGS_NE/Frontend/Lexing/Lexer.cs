@@ -70,7 +70,7 @@ public class Lexer
         int length = _line == _tokLine
             ? Math.Max(1, _col - _tokCol)
             : Math.Max(1, value.ToString()?.Length ?? 1);
-        return new Token(type, value, _tokLine, _tokCol, FileName, length);
+        return new Token(type, value, _tokLine, _tokCol, FileName, length, _tokenIndex++, _tokPos);
     }
 
     private void SyncPos(int offset = 1)
@@ -104,6 +104,10 @@ public class Lexer
     private int _tokLine = 1;
 
     private int _tokCol = 1;
+
+    private int _tokPos;
+
+    private int _tokenIndex;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Lexer"/> class.
@@ -177,6 +181,7 @@ public class Lexer
 
             _tokLine = _line;
             _tokCol = _col;
+            _tokPos = _pos;
 
             if (Current == '\"')
             {
@@ -551,6 +556,7 @@ public class Lexer
         }
         _tokLine = _line;
         _tokCol = _col;
+        _tokPos = _pos;
         return MakeToken(TokenType.EOF, "");
     }
 }

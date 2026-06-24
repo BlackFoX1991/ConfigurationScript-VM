@@ -8,6 +8,7 @@ namespace CFGS_VM.Analytic.Core
     {
         private EnumDeclStmt ParseEnumDecl()
         {
+            int startTokenIndex = MarkNodeStart();
             int declLine = _current.Line;
             int declCol = _current.Column;
 
@@ -33,6 +34,7 @@ namespace CFGS_VM.Analytic.Core
 
             while (_current.Type != TokenType.RBrace)
             {
+                int memberStartTokenIndex = MarkNodeStart();
                 int memberLine = _current.Line;
                 int memberCol = _current.Column;
 
@@ -77,7 +79,7 @@ namespace CFGS_VM.Analytic.Core
                         _current.Filename);
                 }
 
-                members.Add(new EnumMemberNode(memberName, value, memberLine, memberCol, _current.Filename));
+                members.Add(StampNode(new EnumMemberNode(memberName, value, memberLine, memberCol, _current.Filename), memberStartTokenIndex));
 
                 nextAutoValue = value + 1;
 
@@ -96,7 +98,7 @@ namespace CFGS_VM.Analytic.Core
 
             Eat(TokenType.RBrace);
 
-            return new EnumDeclStmt(name, members, declLine, declCol, _current.Filename);
+            return StampNode(new EnumDeclStmt(name, members, declLine, declCol, _current.Filename), startTokenIndex);
         }
 
         private static MemberVisibility ParseMemberVisibility(TokenType type)
@@ -148,6 +150,7 @@ namespace CFGS_VM.Analytic.Core
 
         private PropertyDeclStmt ParseClassPropertyDecl(bool isStatic, MemberVisibility visibility, string className)
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line;
             int col = _current.Column;
             string file = _current.Filename;
@@ -170,6 +173,7 @@ namespace CFGS_VM.Analytic.Core
 
             while (_current.Type != TokenType.RBrace)
             {
+                int accessorStartTokenIndex = MarkNodeStart();
                 MemberVisibility accessorVisibility = visibility;
                 bool hasExplicitVisibility = false;
 
@@ -251,7 +255,7 @@ namespace CFGS_VM.Analytic.Core
                 if (kind != PropertyAccessorKind.Get && !isAuto && string.IsNullOrWhiteSpace(valueParameterName))
                     valueParameterName = "value";
 
-                accessors.Add(new PropertyAccessorDecl(
+                accessors.Add(StampNode(new PropertyAccessorDecl(
                     kind,
                     accessorVisibility,
                     hasExplicitVisibility,
@@ -260,7 +264,7 @@ namespace CFGS_VM.Analytic.Core
                     isAuto,
                     line,
                     col,
-                    file));
+                    file), accessorStartTokenIndex));
             }
 
             Eat(TokenType.RBrace);
@@ -310,11 +314,12 @@ namespace CFGS_VM.Analytic.Core
                     file);
             }
 
-            return new PropertyDeclStmt(name, visibility, isStatic, accessors, initializer, hasAutoStorage, line, col, file);
+            return StampNode(new PropertyDeclStmt(name, visibility, isStatic, accessors, initializer, hasAutoStorage, line, col, file), startTokenIndex);
         }
 
         private InterfacePropertyDecl ParseInterfacePropertyDecl(bool isStatic)
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line;
             int col = _current.Column;
             string file = _current.Filename;
@@ -374,11 +379,12 @@ namespace CFGS_VM.Analytic.Core
             if (!hasGetter && !hasSetter && !hasInit)
                 throw new ParserException($"interface property '{name}' must declare at least one accessor", line, col, file);
 
-            return new InterfacePropertyDecl(name, hasGetter, hasSetter, hasInit, line, col, file, isStatic);
+            return StampNode(new InterfacePropertyDecl(name, hasGetter, hasSetter, hasInit, line, col, file, isStatic), startTokenIndex);
         }
 
         private InterfaceIndexerDecl ParseInterfaceIndexerDecl()
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line;
             int col = _current.Column;
             string file = _current.Filename;
@@ -410,11 +416,12 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException($"interface index {(isSetter ? "set" : "get")} contract requires {expected}", line, col, file);
             }
 
-            return new InterfaceIndexerDecl(isSetter, parameters, minArgs, restParameter, line, col, file);
+            return StampNode(new InterfaceIndexerDecl(isSetter, parameters, minArgs, restParameter, line, col, file), startTokenIndex);
         }
 
         private InterfaceMethodDecl ParseInterfaceMethodDecl(bool isStatic)
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line;
             int col = _current.Column;
             string file = _current.Filename;
@@ -461,11 +468,12 @@ namespace CFGS_VM.Analytic.Core
                 }
             }
 
-            return new InterfaceMethodDecl(name, parameters, minArgs, restParameter, line, col, file, isAsync, isStatic, body, parameterSpecs);
+            return StampNode(new InterfaceMethodDecl(name, parameters, minArgs, restParameter, line, col, file, isAsync, isStatic, body, parameterSpecs), startTokenIndex);
         }
 
         private InterfaceDeclStmt ParseInterfaceDecl()
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line;
             int col = _current.Column;
             string file = _current.Filename;
@@ -505,8 +513,10 @@ namespace CFGS_VM.Analytic.Core
             List<InterfaceMethodDecl> methods = new();
             List<InterfacePropertyDecl> properties = new();
             List<InterfaceIndexerDecl> indexers = new();
+            List<Node> syntaxMembers = new();
             while (_current.Type != TokenType.RBrace)
             {
+                int memberStartTokenIndex = MarkNodeStart();
                 bool isStatic = false;
                 if (_current.Type == TokenType.Static)
                 {
@@ -516,7 +526,10 @@ namespace CFGS_VM.Analytic.Core
 
                 if (_current.Type == TokenType.Property)
                 {
-                    properties.Add(ParseInterfacePropertyDecl(isStatic));
+                    InterfacePropertyDecl property = ParseInterfacePropertyDecl(isStatic);
+                    property.SyntaxStartTokenIndex = memberStartTokenIndex;
+                    properties.Add(property);
+                    syntaxMembers.Add(property);
                     continue;
                 }
 
@@ -524,7 +537,10 @@ namespace CFGS_VM.Analytic.Core
                     _current.Type == TokenType.Ident &&
                     string.Equals(_current.Value?.ToString(), "index", StringComparison.Ordinal))
                 {
-                    indexers.Add(ParseInterfaceIndexerDecl());
+                    InterfaceIndexerDecl indexer = ParseInterfaceIndexerDecl();
+                    indexer.SyntaxStartTokenIndex = memberStartTokenIndex;
+                    indexers.Add(indexer);
+                    syntaxMembers.Add(indexer);
                     continue;
                 }
 
@@ -537,15 +553,23 @@ namespace CFGS_VM.Analytic.Core
                         _current.Filename);
                 }
 
-                methods.Add(ParseInterfaceMethodDecl(isStatic));
+                InterfaceMethodDecl method = ParseInterfaceMethodDecl(isStatic);
+                method.SyntaxStartTokenIndex = memberStartTokenIndex;
+                methods.Add(method);
+                syntaxMembers.Add(method);
             }
 
             Eat(TokenType.RBrace);
-            return new InterfaceDeclStmt(name, methods, properties, indexers, baseInterfaces, line, col, file);
+            InterfaceDeclStmt result = new InterfaceDeclStmt(name, methods, properties, indexers, baseInterfaces, line, col, file)
+            {
+                SyntaxMembers = syntaxMembers
+            };
+            return StampNode(result, startTokenIndex);
         }
 
         private ClassDeclStmt ParseClassDecl()
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line;
             int col = _current.Column;
 
@@ -596,6 +620,7 @@ namespace CFGS_VM.Analytic.Core
             List<FuncDeclStmt> methods = new();
             List<PropertyDeclStmt> properties = new();
             Dictionary<string, Expr?> fields = new();
+            List<Node> syntaxMembers = new();
 
             List<FuncDeclStmt> staticMethods = new();
             List<PropertyDeclStmt> staticProperties = new();
@@ -623,6 +648,7 @@ namespace CFGS_VM.Analytic.Core
 
             while (_current.Type != TokenType.RBrace)
             {
+                int memberStartTokenIndex = MarkNodeStart();
                 bool staticSet = false;
                 bool seenStatic = false;
                 bool seenVisibility = false;
@@ -670,6 +696,10 @@ namespace CFGS_VM.Analytic.Core
 
                 if (_current.Type == TokenType.Var || (constSet && _current.Type == TokenType.Ident))
                 {
+                    int memberLine = _current.Line;
+                    int memberCol = _current.Column;
+                    string memberFile = _current.Filename;
+
                     if (_current.Type == TokenType.Var)
                         Eat(TokenType.Var);
 
@@ -700,16 +730,28 @@ namespace CFGS_VM.Analytic.Core
                         if (constSet)
                             constFields.Add(fieldName);
                     }
+
+                    syntaxMembers.Add(StampNode(new ClassFieldDeclSyntax(
+                        fieldName,
+                        init,
+                        visibility,
+                        seenVisibility,
+                        staticSet,
+                        constSet,
+                        memberLine,
+                        memberCol,
+                        memberFile), memberStartTokenIndex));
                 }
                 else if (_current.Type == TokenType.Class)
                 {
                     if (staticSet)
                         throw new ParserException("nested classes cannot be static", _current.Line, _current.Column, _current.Filename);
                     ClassDeclStmt inner = ParseClassDecl();
+                    List<Node> innerSyntaxMembers = inner.SyntaxMembers;
 
                     if (CheckFieldNames(inner.Name))
                         throw new ParserException($"Field '{inner.Name}' already declared in class '{name}'", _current.Line, _current.Column, _current.Filename);
-                    inner = new ClassDeclStmt(
+                    inner = CopyNodeSpan(new ClassDeclStmt(
                         inner.Name,
                         inner.Methods,
                         inner.Properties,
@@ -734,17 +776,26 @@ namespace CFGS_VM.Analytic.Core
                         enumVisibility: inner.EnumVisibility,
                         nestedClassVisibility: inner.NestedClassVisibility,
                         constFields: inner.ConstFields,
-                        staticConstFields: inner.StaticConstFields);
+                        staticConstFields: inner.StaticConstFields), inner);
+                    inner.SyntaxMembers = innerSyntaxMembers;
+                    inner.Visibility = visibility;
+                    inner.HasExplicitVisibility = seenVisibility;
+                    inner.SyntaxStartTokenIndex = memberStartTokenIndex;
                     nestedClasses.Add(inner);
                     nestedClassVisibility[inner.Name] = visibility;
+                    syntaxMembers.Add(inner);
                 }
                 else if (_current.Type == TokenType.Enum)
                 {
                     EnumDeclStmt enm = ParseEnumDecl();
                     if (CheckFieldNames(enm.Name))
                         throw new ParserException($"Field '{enm.Name}' already declared in class '{name}'", _current.Line, _current.Column, _current.Filename);
+                    enm.Visibility = visibility;
+                    enm.HasExplicitVisibility = seenVisibility;
+                    enm.SyntaxStartTokenIndex = memberStartTokenIndex;
                     staticEnums.Add(enm);
                     enumVisibility[enm.Name] = visibility;
+                    syntaxMembers.Add(enm);
                 }
                 else if (_current.Type == TokenType.Func || _current.Type == TokenType.Async)
                 {
@@ -762,6 +813,11 @@ namespace CFGS_VM.Analytic.Core
                         methods.Add(func);
                         methodVisibility[memberName] = visibility;
                     }
+                    func.Visibility = visibility;
+                    func.HasExplicitVisibility = seenVisibility;
+                    func.IsStaticMember = staticSet;
+                    func.SyntaxStartTokenIndex = memberStartTokenIndex;
+                    syntaxMembers.Add(func);
                 }
                 else if (_current.Type == TokenType.Property)
                 {
@@ -777,11 +833,14 @@ namespace CFGS_VM.Analytic.Core
                     PropertyDeclStmt property = ParseClassPropertyDecl(staticSet, visibility, name);
                     if (CheckFieldNames(property.Name))
                         throw new ParserException($"Field '{property.Name}' already declared in class '{name}'", property.Line, property.Col, property.OriginFile);
+                    property.HasExplicitVisibility = seenVisibility;
+                    property.SyntaxStartTokenIndex = memberStartTokenIndex;
 
                     if (staticSet)
                         staticProperties.Add(property);
                     else
                         properties.Add(property);
+                    syntaxMembers.Add(property);
                 }
                 else
                 {
@@ -795,7 +854,7 @@ namespace CFGS_VM.Analytic.Core
 
             Eat(TokenType.RBrace);
             ExitFunctionOrClassContext();
-            return new ClassDeclStmt(
+            ClassDeclStmt result = new ClassDeclStmt(
                 name,
                 methods,
                 properties,
@@ -821,6 +880,8 @@ namespace CFGS_VM.Analytic.Core
                 nestedClassVisibility,
                 constFields,
                 staticConstFields);
+            result.SyntaxMembers = syntaxMembers;
+            return StampNode(result, startTokenIndex);
         }
 
         /// <summary>
@@ -908,6 +969,7 @@ namespace CFGS_VM.Analytic.Core
         {
             get
             {
+                int startTokenIndex = MarkNodeStart();
                 int declLine = _current.Line;
                 int declCol = _current.Column;
                 string declFile = _current.Filename;
@@ -935,7 +997,7 @@ namespace CFGS_VM.Analytic.Core
                     Expr destructValue = Expr();
                     Eat(TokenType.Semi);
 
-                    return new DestructureDeclStmt(pattern, destructValue, isConst: true, declLine, declCol, declFile);
+                    return StampNode(new DestructureDeclStmt(pattern, destructValue, isConst: true, declLine, declCol, declFile), startTokenIndex);
                 }
 
                 declLine = _current.Line;
@@ -953,12 +1015,13 @@ namespace CFGS_VM.Analytic.Core
                 Expr value = Expr();
                 Eat(TokenType.Semi);
 
-                return new ConstDecl(name, value, declLine, declCol, declFile);
+                return StampNode(new ConstDecl(name, value, declLine, declCol, declFile), startTokenIndex);
             }
         }
 
         private Stmt ParseExportDecl()
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line;
             int col = _current.Column;
             string file = _current.Filename;
@@ -980,11 +1043,12 @@ namespace CFGS_VM.Analytic.Core
             if (!TryGetNamedTopLevel(inner, out string? name) || string.IsNullOrWhiteSpace(name))
                 throw new ParserException("exported declaration must have a symbol name", line, col, file);
 
-            return new ExportStmt(name, inner, line, col, file);
+            return StampNode(new ExportStmt(name, inner, line, col, file), startTokenIndex);
         }
 
         private Stmt ParseSingleVarDecl()
         {
+            int startTokenIndex = MarkNodeStart();
             Eat(TokenType.Var);
             int declLine = _current.Line;
             int declCol = _current.Column;
@@ -1012,7 +1076,7 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException("export var only supports a single declaration", _current.Line, _current.Column, _current.Filename);
 
             Eat(TokenType.Semi);
-            return new VarDecl(name, value, declLine, declCol, declFile);
+            return StampNode(new VarDecl(name, value, declLine, declCol, declFile), startTokenIndex);
         }
     }
 }

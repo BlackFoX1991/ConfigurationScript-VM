@@ -17,13 +17,27 @@ internal static class Program
             FormatterIsIdempotent,
             FormatterNormalizesIndentationAndSpacing,
             FormatterKeepsUnaryOperatorsTight,
+            FormatterPreservesMergeOperators,
             FormatterHandlesTernarySpacing,
             FormatterIgnoresBracesInsideStringsAndComments,
+            FormatterPreservesCommentOnlyFiles,
+            FormatterPreservesHeaderTrailingAndSuppressionComments,
+            FormatterPreservesCommentsInsideClassesAndEnums,
+            FormatterAstPathFormatsImportsAndObjectInitializers,
+            FormatterAstPathFormatsClassesAndProperties,
+            FormatterAstPathFormatsInterfacesAndEnums,
+            FormatterWrapsLongCallsCollectionsAndConditions,
+            FormatterWrapsLongNewExpressionsAndInitializers,
+            FormatterPreservesShortUsingSyntaxViaFallback,
             LinterReportsStyleAndAstDiagnostics,
             LinterFixesOnlySafeStyleIssues,
             LinterSupportsSuppressions,
+            LinterReportsExpandedRuleSet,
+            LinterSuppressesExpandedRuleSet,
+            LinterStrictPresetEnablesAdditionalRules,
             LinterDoesNotFlagExportedOrNamespacedApiFunctionsAsUnused,
             CliLintJsonProducesStableDiagnosticShape,
+            CliLintHonorsToolingLintConfig,
             HostingFileIoPermissionScopeAppliesToInvocations,
             HostingDefaultsDenyFileIo,
             WorkspaceJailRejectsEscapingPaths,
@@ -133,6 +147,23 @@ return +1;
         AssertTrue(actual.Contains("return +1;", StringComparison.Ordinal), "formatter must keep unary plus tight");
     }
 
+    private static void FormatterPreservesMergeOperators()
+    {
+        string source = """
+func main(){
+var a={"x":1}<<<{"x":2};
+var b={"x":1}>>>{"x":2};
+return a;
+}
+""";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
+        AssertTrue(actual.Contains("<<<", StringComparison.Ordinal), "formatter must keep the '<<<' operator intact");
+        AssertTrue(actual.Contains(">>>", StringComparison.Ordinal), "formatter must keep the '>>>' operator intact");
+        AssertFalse(actual.Contains("<< <", StringComparison.Ordinal), "formatter must not split '<<<' into '<< <'");
+        AssertFalse(actual.Contains(">> >", StringComparison.Ordinal), "formatter must not split '>>>' into '>> >'");
+    }
+
     private static void FormatterHandlesTernarySpacing()
     {
         string source = "var label=active?\"yes\":\"no\";\n";
@@ -170,6 +201,276 @@ func render(){
         AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "formatter should ignore braces inside strings and block comments");
     }
 
+    private static void FormatterPreservesCommentOnlyFiles()
+    {
+        string source = """
+# headline
+
+#+
+block comment
++#
+""" + "\n";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
+        AssertEqual(NormalizeNewlines(source), NormalizeNewlines(actual), "formatter should preserve comment-only documents");
+    }
+
+    private static void FormatterPreservesHeaderTrailingAndSuppressionComments()
+    {
+        string source = """
+# file header
+func main(){ # keep after brace
+# cfgs-disable-next-line CFGS8001
+var value=1; # keep trailing
+
+return value;
+}
+# file footer
+""";
+
+        string expected = """
+# file header
+func main(){ # keep after brace
+    # cfgs-disable-next-line CFGS8001
+    var value = 1; # keep trailing
+
+    return value;
+}
+# file footer
+""" + "\n";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
+        AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "formatter should preserve header, trailing and suppression comments on the AST path");
+    }
+
+    private static void FormatterPreservesCommentsInsideClassesAndEnums()
+    {
+        string source = """
+class Box(){
+# before field
+var value=1; # field comment
+
+enum Mode{
+Off,
+# keep enum comment
+On=3
+}
+}
+""";
+
+        string expected = """
+class Box(){
+    # before field
+    var value = 1; # field comment
+
+    enum Mode{
+        Off,
+        # keep enum comment
+        On = 3
+    }
+}
+""" + "\n";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
+        AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "formatter should preserve comments inside class and enum bodies");
+    }
+
+    private static void FormatterAstPathFormatsImportsAndObjectInitializers()
+    {
+        string source = """
+import{answer as ans,Box}from "mod.cfs";
+func main(){
+var box=new Box(1){value:2};
+return ans;
+}
+""";
+
+        string expected = """
+import { answer as ans, Box } from "mod.cfs";
+func main(){
+    var box = new Box(1) { value: 2 };
+    return ans;
+}
+""" + "\n";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
+        AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "AST formatter should normalize imports and object initializers structurally");
+    }
+
+    private static void FormatterPreservesShortUsingSyntaxViaFallback()
+    {
+        string source = """
+func main(){
+using var resource=newResource();
+return resource;
+}
+""";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
+        AssertTrue(actual.Contains("using var resource = newResource();", StringComparison.Ordinal), "formatter must preserve short using syntax instead of rewriting it through lowered AST");
+        AssertFalse(actual.Contains("using(var resource = newResource())", StringComparison.Ordinal), "formatter must not expand short using declarations into block using syntax");
+    }
+
+    private static void FormatterAstPathFormatsClassesAndProperties()
+    {
+        string source = """
+export class Box(v):Base(v),IThing{
+public static var shared=1;
+private var _name="";
+property name{
+get{return this._name;}
+private set(next){this._name=next;}
+}
+static property version{get;set;}=1;
+enum Mode{Off,On=3,Auto}
+class Inner(){
+func run(){return Box.version;}
+}
+protected static func build(seed){return new Box(seed){name:"x"};}
+}
+""";
+
+        string expected = """
+export class Box(v) : Base(v), IThing{
+    public static var shared = 1;
+    private var _name = "";
+    property name{
+        get{
+            return this._name;
+        }
+        private set(next){
+            this._name = next;
+        }
+    }
+    static property version { get; set; } = 1;
+    enum Mode{
+        Off,
+        On = 3,
+        Auto
+    }
+    class Inner(){
+        func run(){
+            return Box.version;
+        }
+    }
+    protected static func build(seed){
+        return new Box(seed) { name: "x" };
+    }
+}
+""" + "\n";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
+        AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "AST formatter should handle class members, nested types and properties structurally");
+    }
+
+    private static void FormatterAstPathFormatsInterfacesAndEnums()
+    {
+        string source = """
+export interface IThing:IBase,IRunnable{
+property name{get;set;}
+static property kind{get;}
+index get(key);
+index set(key,value);
+async func load(id);
+func label(){return this.name;}
+}
+export enum Mode{A=1,B,C=4}
+""";
+
+        string expected = """
+export interface IThing : IBase, IRunnable{
+    property name { get; set; }
+    static property kind { get; }
+    index get(key);
+    index set(key, value);
+    async func load(id);
+    func label(){
+        return this.name;
+    }
+}
+export enum Mode{
+    A = 1,
+    B,
+    C = 4
+}
+""" + "\n";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
+        AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "AST formatter should handle interface contracts and enum canonicalization structurally");
+    }
+
+    private static void FormatterWrapsLongCallsCollectionsAndConditions()
+    {
+        string source = """
+func main(){
+var values=[alpha,beta,gamma,delta];
+var mapping={"alpha":alphaValue,"beta":betaValue,"gamma":gammaValue};
+var result=combine(firstValue,secondValue,thirdValue,fourthValue);
+if(firstCondition&&secondCondition&&thirdCondition){
+return result;
+}
+}
+""";
+
+        string expected = """
+func main(){
+    var values = [
+        alpha,
+        beta,
+        gamma,
+        delta
+    ];
+    var mapping = {
+        "alpha": alphaValue,
+        "beta": betaValue,
+        "gamma": gammaValue
+    };
+    var result = combine(
+        firstValue,
+        secondValue,
+        thirdValue,
+        fourthValue
+    );
+    if(firstCondition &&
+        secondCondition &&
+        thirdCondition){
+        return result;
+    }
+}
+""" + "\n";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false, MaxLineWidth: 40)).Text;
+        AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "AST formatter should wrap long calls, collections and logical conditions when max line width is constrained");
+    }
+
+    private static void FormatterWrapsLongNewExpressionsAndInitializers()
+    {
+        string source = """
+func main(){
+var box=new Box(firstValue,secondValue,thirdValue){primary:firstValue,secondary:secondValue,tertiary:thirdValue};
+return box;
+}
+""";
+
+        string expected = """
+func main(){
+    var box = new Box(
+        firstValue,
+        secondValue,
+        thirdValue
+    ) {
+        primary: firstValue,
+        secondary: secondValue,
+        tertiary: thirdValue
+    };
+    return box;
+}
+""" + "\n";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false, MaxLineWidth: 40)).Text;
+        AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "AST formatter should wrap long constructor calls and object initializers when max line width is constrained");
+    }
+
     private static void LinterFixesOnlySafeStyleIssues()
     {
         string source = "func main(){    \n\tvar value = 1;\n\n\n\n}\n";
@@ -188,7 +489,7 @@ func render(){
     private static void LinterSupportsSuppressions()
     {
         string file = WriteTempCfgs("""
-# lint:disable-next-line CFGS8013
+# cfgs-disable-next-line CFGS8013
 func helper(){
     var unused = 1; # lint:disable-line CFGS8011
     return 1;
@@ -200,6 +501,137 @@ func helper(){
 
         AssertFalse(codes.Contains("CFGS8013", StringComparer.Ordinal), "next-line suppression did not suppress CFGS8013");
         AssertFalse(codes.Contains("CFGS8011", StringComparer.Ordinal), "line suppression did not suppress CFGS8011");
+    }
+
+    private static void LinterReportsExpandedRuleSet()
+    {
+        (_, string file) = WriteTempCfgsProject(
+            """
+import dep from "./d.cfs";
+
+func main(flag){
+    var value = 1;
+    func inner(value){
+        if(1 == "1"){
+            return value;
+        }else{
+            return value + 1;
+        }
+        var after = value;
+    }
+
+    if(flag){
+    }
+
+    return inner(value);
+}
+""",
+            additionalFiles: new Dictionary<string, string>
+            {
+                ["d.cfs"] = """
+export const dep = 1;
+"""
+            });
+
+        CfgsLintResult result = CfgsLinter.LintFile(file, new CfgsLintOptions(), global::Program.Version);
+        string[] codes = result.Diagnostics.Select(static d => d.Code).Distinct(StringComparer.Ordinal).ToArray();
+
+        AssertContains(codes, "CFGS8015", "shadowing diagnostic missing");
+        AssertContains(codes, "CFGS8016", "unused import diagnostic missing");
+        AssertContains(codes, "CFGS8017", "empty block diagnostic missing");
+        AssertContains(codes, "CFGS8018", "suspicious equality diagnostic missing");
+        AssertContains(codes, "CFGS8020", "guaranteed-termination unreachable diagnostic missing");
+    }
+
+    private static void LinterSuppressesExpandedRuleSet()
+    {
+        (_, string file) = WriteTempCfgsProject(
+            """
+import dep from "./d.cfs"; # cfgs-disable-line CFGS8016
+
+func shadow(flag){
+    var value = 1;
+    if(flag){
+        var value = 1; # cfgs-disable-line CFGS8015
+        value = value + 1;
+    }
+
+    if(flag){ # cfgs-disable-line CFGS8017
+    }
+
+    if(1 == "1"){ # cfgs-disable-line CFGS8018
+        return value;
+    }
+
+    return value;
+}
+
+func strictOnly(){
+    if([]){ # cfgs-disable-line CFGS8019
+        return 1;
+    }
+
+    return 42; # cfgs-disable-line CFGS8021
+}
+
+func terminates(flag){
+    if(flag){
+        return 1;
+    }else{
+        return 1;
+    }
+
+    var after = 0; # cfgs-disable-line CFGS8020
+}
+""",
+            additionalFiles: new Dictionary<string, string>
+            {
+                ["d.cfs"] = """
+export const dep = 1;
+"""
+            });
+
+        CfgsLintResult result = CfgsLinter.LintFile(
+            file,
+            new CfgsLintOptions { Preset = CfgsLintPreset.Strict },
+            global::Program.Version);
+
+        string[] codes = result.Diagnostics.Select(static d => d.Code).Distinct(StringComparer.Ordinal).ToArray();
+
+        AssertFalse(codes.Contains("CFGS8015", StringComparer.Ordinal), "cfgs-disable-line did not suppress CFGS8015");
+        AssertFalse(codes.Contains("CFGS8016", StringComparer.Ordinal), "cfgs-disable-line did not suppress CFGS8016");
+        AssertFalse(codes.Contains("CFGS8017", StringComparer.Ordinal), "cfgs-disable-line did not suppress CFGS8017");
+        AssertFalse(codes.Contains("CFGS8018", StringComparer.Ordinal), "cfgs-disable-line did not suppress CFGS8018");
+        AssertFalse(codes.Contains("CFGS8019", StringComparer.Ordinal), "cfgs-disable-line did not suppress CFGS8019");
+        AssertFalse(codes.Contains("CFGS8020", StringComparer.Ordinal), "cfgs-disable-line did not suppress CFGS8020");
+        AssertFalse(codes.Contains("CFGS8021", StringComparer.Ordinal), "cfgs-disable-line did not suppress CFGS8021");
+    }
+
+    private static void LinterStrictPresetEnablesAdditionalRules()
+    {
+        string file = WriteTempCfgs("""
+func main(){
+    if([]){
+        return 1;
+    }
+
+    return 42;
+}
+""");
+
+        CfgsLintResult recommended = CfgsLinter.LintFile(file, new CfgsLintOptions(), global::Program.Version);
+        CfgsLintResult strict = CfgsLinter.LintFile(
+            file,
+            new CfgsLintOptions { Preset = CfgsLintPreset.Strict },
+            global::Program.Version);
+
+        string[] recommendedCodes = recommended.Diagnostics.Select(static d => d.Code).Distinct(StringComparer.Ordinal).ToArray();
+        string[] strictCodes = strict.Diagnostics.Select(static d => d.Code).Distinct(StringComparer.Ordinal).ToArray();
+
+        AssertFalse(recommendedCodes.Contains("CFGS8019", StringComparer.Ordinal), "recommended preset must not enable CFGS8019");
+        AssertFalse(recommendedCodes.Contains("CFGS8021", StringComparer.Ordinal), "recommended preset must not enable CFGS8021");
+        AssertContains(strictCodes, "CFGS8019", "strict preset must enable CFGS8019");
+        AssertContains(strictCodes, "CFGS8021", "strict preset must enable CFGS8021");
     }
 
     private static void LinterDoesNotFlagExportedOrNamespacedApiFunctionsAsUnused()
@@ -272,6 +704,79 @@ func privateHelper(){
         AssertTrue(line.GetInt32() > 0, "line must be 1-based");
         AssertTrue(column.GetInt32() > 0, "column must be 1-based");
         AssertTrue(spanLength.GetInt32() > 0, "spanLength must be positive");
+    }
+
+    private static void CliLintHonorsToolingLintConfig()
+    {
+        (_, string file) = WriteTempCfgsProject(
+            """
+import dep from "./d.cfs";
+
+func main(){
+    if([]){
+        return 1;
+    }
+
+    var note = "1234567890";
+    return 42;
+}
+""",
+            cfgsJson: """
+{
+  "tooling": {
+    "maxLineLength": 12,
+    "lint": {
+      "preset": "strict",
+      "maxLineLength": 8,
+      "rules": {
+        "CFGS8003": "warning",
+        "CFGS8016": false,
+        "CFGS8021": {
+          "severity": "error"
+        }
+      }
+    }
+  }
+}
+""",
+            additionalFiles: new Dictionary<string, string>
+            {
+                ["d.cfs"] = """
+export const dep = 1;
+"""
+            });
+
+        string vmAssembly = typeof(global::Program).Assembly.Location;
+
+        using Process process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            ArgumentList = { vmAssembly, "-lint", file, "--json", "--max-line-length", "30" },
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        }) ?? throw new InvalidOperationException("failed to start dotnet process");
+
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit(15000);
+
+        AssertEqual(1, process.ExitCode, $"lint command should surface strict diagnostics: {stderr}");
+
+        using JsonDocument document = JsonDocument.Parse(stdout);
+        JsonElement root = document.RootElement;
+        string[] codes = root.EnumerateArray()
+            .Select(static d => d.GetProperty("code").GetString() ?? string.Empty)
+            .ToArray();
+
+        AssertFalse(codes.Contains("CFGS8003", StringComparer.Ordinal), "CLI max-line-length must override manifest values");
+        AssertFalse(codes.Contains("CFGS8016", StringComparer.Ordinal), "tooling.lint rule disable must suppress CFGS8016");
+        AssertContains(codes, "CFGS8019", "strict preset from tooling.lint must enable CFGS8019");
+        AssertContains(codes, "CFGS8021", "strict preset from tooling.lint must enable CFGS8021");
+
+        JsonElement magicNumberDiagnostic = root.EnumerateArray()
+            .First(static d => string.Equals(d.GetProperty("code").GetString(), "CFGS8021", StringComparison.Ordinal));
+        AssertEqual("error", magicNumberDiagnostic.GetProperty("severity").GetString(), "tooling.lint severity override must apply to CFGS8021");
     }
 
     private static void HostingFileIoPermissionScopeAppliesToInvocations()
@@ -577,12 +1082,36 @@ func writeInWorkspace(path) {
     }
 
     private static string WriteTempCfgs(string source)
+        => WriteTempCfgsProject(source).File;
+
+    private static (string Directory, string File) WriteTempCfgsProject(
+        string source,
+        string? cfgsJson = null,
+        IReadOnlyDictionary<string, string>? additionalFiles = null)
     {
         string directory = Path.Combine(Path.GetTempPath(), "cfgs-tooling-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
+
         string file = Path.Combine(directory, "test.cfs");
         File.WriteAllText(file, NormalizeNewlines(source));
-        return file;
+
+        if (!string.IsNullOrWhiteSpace(cfgsJson))
+            File.WriteAllText(Path.Combine(directory, "cfgs.json"), NormalizeNewlines(cfgsJson));
+
+        if (additionalFiles is not null)
+        {
+            foreach ((string relativePath, string content) in additionalFiles)
+            {
+                string targetPath = Path.Combine(directory, relativePath);
+                string? targetDirectory = Path.GetDirectoryName(targetPath);
+                if (!string.IsNullOrWhiteSpace(targetDirectory))
+                    Directory.CreateDirectory(targetDirectory);
+
+                File.WriteAllText(targetPath, NormalizeNewlines(content));
+            }
+        }
+
+        return (directory, file);
     }
 
     private static void CfbLoaderRejectsCorruptElementCounts()

@@ -1,11 +1,13 @@
 using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Tokens;
+using CFGS_VM.Analytic.Tree;
 
 namespace CFGS_VM.Analytic.Core
 {
     public partial class Parser
     {
         private readonly TokenCursor _cursor;
+        private readonly List<ParserException> _diagnostics = [];
 
         /// <summary>
         /// Gets the current token.
@@ -17,7 +19,10 @@ namespace CFGS_VM.Analytic.Core
         /// </summary>
         private Token _next => _cursor.Next;
 
+        internal IReadOnlyList<Token> Tokens => _cursor.Tokens;
+
         private readonly ParserContext _context = new();
+        private bool IsTolerant => _tolerant;
 
         /// <summary>
         /// Gets a value indicating whether IsInFunctionOrClass
@@ -120,6 +125,32 @@ namespace CFGS_VM.Analytic.Core
         private void Eat(TokenType type)
         {
             _cursor.Eat(type);
+        }
+
+        private int MarkNodeStart()
+            => _current.Index >= 0 ? _current.Index : _cursor.CurrentIndex;
+
+        private T StampNode<T>(T node, int startTokenIndex) where T : Node
+        {
+            node.SyntaxStartTokenIndex = Math.Max(0, startTokenIndex);
+            node.SyntaxEndTokenIndex = GetNodeEndTokenIndex(startTokenIndex);
+            return node;
+        }
+
+        private int GetNodeEndTokenIndex(int fallbackStartTokenIndex)
+        {
+            if (_cursor.LastConsumed is not null)
+                return _cursor.LastConsumed.Index;
+
+            int candidate = _current.Index - 1;
+            return candidate >= fallbackStartTokenIndex ? candidate : fallbackStartTokenIndex;
+        }
+
+        private static T CopyNodeSpan<T>(T target, Node source) where T : Node
+        {
+            target.SyntaxStartTokenIndex = source.SyntaxStartTokenIndex;
+            target.SyntaxEndTokenIndex = source.SyntaxEndTokenIndex;
+            return target;
         }
     }
 }

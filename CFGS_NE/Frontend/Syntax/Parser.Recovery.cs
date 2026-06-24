@@ -1,0 +1,186 @@
+using CFGS_VM.Analytic.Ex;
+using CFGS_VM.Analytic.Tokens;
+using CFGS_VM.Analytic.Tree;
+
+namespace CFGS_VM.Analytic.Core
+{
+    public partial class Parser
+    {
+        private void ParseImportHeaderTolerant(List<Stmt> stmts)
+        {
+            while (_current.Type == TokenType.Import)
+            {
+                try
+                {
+                    ParseImportHeader(stmts);
+                }
+                catch (Exception ex) when (ex is ParserException or LexerException)
+                {
+                    AddErrorStatement(stmts, ex);
+                    RecoverAfterStatementError();
+                }
+            }
+        }
+
+        private void ParseUseHeaderTolerant(List<Stmt> stmts)
+        {
+            while (_current.Type == TokenType.Use)
+            {
+                try
+                {
+                    ParseUseHeader(stmts);
+                }
+                catch (Exception ex) when (ex is ParserException or LexerException)
+                {
+                    AddErrorStatement(stmts, ex);
+                    RecoverAfterStatementError();
+                }
+            }
+        }
+
+        private void TryParseTopLevelStatement(List<Stmt> stmts, bool allowFileScopedNamespace)
+        {
+            try
+            {
+                if (_current.Type == TokenType.Import)
+                    throw new ParserException(
+                        "Invalid import statement. Imports are only allowed in the header of the script",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+
+                if (_current.Type == TokenType.Use)
+                    throw new ParserException(
+                        "Invalid use statement. Use directives are only allowed in the header of the script",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+
+                if (_current.Type == TokenType.Namespace)
+                {
+                    NamespaceDeclStmt nsStmt = ParseNamespaceDeclStatement(allowFileScopedNamespace);
+                    stmts.Add(nsStmt);
+                    TrackKnownTopLevelSymbols([nsStmt]);
+                    return;
+                }
+
+                Stmt stmt = Statement();
+                stmts.Add(stmt);
+                TrackKnownTopLevelSymbols([stmt]);
+            }
+            catch (Exception ex) when (ex is ParserException or LexerException)
+            {
+                AddErrorStatement(stmts, ex);
+                if (_current.Type is TokenType.Import or TokenType.Use)
+                    Advance();
+                RecoverAfterStatementError();
+            }
+        }
+
+        private void AddErrorStatement(List<Stmt> statements, Exception ex)
+        {
+            ParserException diagnostic = NormalizeDiagnostic(ex);
+            _diagnostics.Add(diagnostic);
+            statements.Add(new ErrorStmt(diagnostic.RawMessage, diagnostic.Line, diagnostic.Column, diagnostic.Filename));
+        }
+
+        private void RecordDiagnostic(Exception ex)
+        {
+            _diagnostics.Add(NormalizeDiagnostic(ex));
+        }
+
+        private static ParserException NormalizeDiagnostic(Exception ex)
+        {
+            return ex switch
+            {
+                ParserException parserException => parserException,
+                LexerException lexerException => new ParserException(
+                    lexerException.RawMessage,
+                    lexerException.Line,
+                    lexerException.Column,
+                    lexerException.Filename,
+                    lexerException.SpanLength,
+                    lexerException.DiagnosticCode),
+                _ => new ParserException(ex.Message, 1, 1, string.Empty, diagnosticCode: "CFGS9000")
+            };
+        }
+
+        private void FinalizeTopLevelStateTolerant(List<Stmt> stmts)
+        {
+            try
+            {
+                ValidateTopLevelSymbolUniqueness(stmts);
+            }
+            catch (Exception ex) when (ex is ParserException or LexerException)
+            {
+                RecordDiagnostic(ex);
+            }
+
+            try
+            {
+                IndexTopLevelSymbols(stmts);
+            }
+            catch (Exception ex) when (ex is ParserException or LexerException)
+            {
+                RecordDiagnostic(ex);
+            }
+        }
+
+        private void RecoverAfterStatementError(TokenType? closingToken = null)
+        {
+            while (_current.Type != TokenType.EOF)
+            {
+                if (_current.Type == TokenType.Semi)
+                {
+                    Advance();
+                    return;
+                }
+
+                if (closingToken.HasValue && _current.Type == closingToken.Value)
+                    return;
+
+                if (_current.Type == TokenType.RBrace)
+                    return;
+
+                if (IsHardStatementBoundary(_current.Type))
+                    return;
+
+                Advance();
+            }
+        }
+
+        private static bool IsHardStatementBoundary(TokenType type)
+        {
+            return type switch
+            {
+                TokenType.Var or
+                TokenType.Const or
+                TokenType.Func or
+                TokenType.Async or
+                TokenType.Class or
+                TokenType.Interface or
+                TokenType.Enum or
+                TokenType.ForEach or
+                TokenType.Try or
+                TokenType.Using or
+                TokenType.Defer or
+                TokenType.Throw or
+                TokenType.Return or
+                TokenType.Yield or
+                TokenType.Delete or
+                TokenType.Match or
+                TokenType.If or
+                TokenType.While or
+                TokenType.Do or
+                TokenType.Break or
+                TokenType.Continue or
+                TokenType.For or
+                TokenType.Export or
+                TokenType.Namespace or
+                TokenType.Import or
+                TokenType.Use => true,
+                _ => false
+            };
+        }
+    }
+}

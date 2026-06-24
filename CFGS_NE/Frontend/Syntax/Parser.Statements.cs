@@ -9,12 +9,14 @@ namespace CFGS_VM.Analytic.Core
     {
         private Stmt Statement()
         {
+            int startTokenIndex = MarkNodeStart();
             if (_context.IsInMultipleVarDeclaration)
-                return ParseVarDecl;
+                return StampNode(ParseVarDecl, startTokenIndex);
 
-            return IsInFunctionOrClass
+            Stmt stmt = IsInFunctionOrClass
                 ? ParseStatementInMemberScope()
                 : ParseStatementTopLevel();
+            return StampNode(stmt, startTokenIndex);
         }
 
         private bool TryParseCommonStatement(out Stmt stmt)

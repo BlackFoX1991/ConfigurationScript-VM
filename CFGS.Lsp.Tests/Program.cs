@@ -14,11 +14,18 @@ internal static class Program
             InitializeAdvertisesCoreCapabilities,
             DidOpenPublishesDiagnostics,
             DidChangePublishesLatestDiagnosticsAfterDebounce,
+            DidChangeAppliesIncrementalRangeEdits,
             CompletionReturnsLanguageItems,
             CompletionReflectsStandardLibraryNamespacePolicy,
             FormattingReturnsDocumentEdit,
+            SemanticTokensRangeReturnsSubset,
             HoverFindsFunctionSymbol,
-            HoverIncludesQualifiedContainerDetails
+            HoverIncludesQualifiedContainerDetails,
+            AnalyzerKeepsSymbolsAliveAcrossMidFunctionSyntaxErrors,
+            AnalyzerReportsMultipleSyntaxDiagnostics,
+            DocumentSymbolsUseLastGoodAnalysisAfterCatastrophicLexerFailure,
+            HoverUsesLastGoodAnalysisAfterCatastrophicLexerFailure,
+            ReferencesUseLastGoodAnalysisAfterCatastrophicLexerFailure
         ];
 
         List<string> failures = [];
@@ -49,8 +56,11 @@ internal static class Program
         AssertTrue(capabilities.GetProperty("hoverProvider").GetBoolean(), "hover provider is not advertised");
         AssertTrue(capabilities.GetProperty("definitionProvider").GetBoolean(), "definition provider is not advertised");
         AssertTrue(capabilities.GetProperty("documentFormattingProvider").GetBoolean(), "formatting provider is not advertised");
+        AssertEqual(2, capabilities.GetProperty("textDocumentSync").GetInt32(), "server must advertise incremental sync");
         AssertEqual(JsonValueKind.Object, capabilities.GetProperty("completionProvider").ValueKind, "completion provider is missing");
-        AssertEqual(JsonValueKind.Object, capabilities.GetProperty("semanticTokensProvider").ValueKind, "semantic tokens provider is missing");
+        JsonElement semanticTokens = capabilities.GetProperty("semanticTokensProvider");
+        AssertEqual(JsonValueKind.Object, semanticTokens.ValueKind, "semantic tokens provider is missing");
+        AssertTrue(semanticTokens.GetProperty("range").GetBoolean(), "semantic token range support is not advertised");
     }
 
     private static void DidOpenPublishesDiagnostics()
@@ -132,6 +142,20 @@ internal static class Program
         AssertEqual(0, nextDiagnostics.GetArrayLength(), "expected diagnostics to clear after valid debounced change");
     }
 
+    private static void DidChangeAppliesIncrementalRangeEdits()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string uri = CreateDocumentUri("change-range.cfs");
+        client.DidOpen(uri, "var value = ;\n");
+
+        JsonElement firstDiagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertTrue(firstDiagnostics.GetArrayLength() > 0, "expected initial diagnostics for broken source");
+
+        client.DidChangeRange(uri, 2, 0, 12, 0, 12, "1");
+        JsonElement nextDiagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertEqual(0, nextDiagnostics.GetArrayLength(), "expected diagnostics to clear after incremental range edit");
+    }
+
     private static void FormattingReturnsDocumentEdit()
     {
         using LspTestClient client = LspTestClient.StartInitialized();
@@ -148,6 +172,41 @@ internal static class Program
         AssertEqual(JsonValueKind.Array, edits.ValueKind, "formatting result must be an array");
         AssertTrue(edits.GetArrayLength() == 1, "formatting should return a single full-document edit");
         AssertTrue(edits[0].GetProperty("newText").GetString()?.Contains("var total = a + b;", StringComparison.Ordinal) == true, "format edit did not normalize spacing");
+    }
+
+    private static void SemanticTokensRangeReturnsSubset()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+func add(a, b) {
+    var total = a + b;
+    return total;
+}
+""";
+        string uri = CreateDocumentUri("semantic-range.cfs");
+        client.DidOpen(uri, source);
+        _ = client.WaitForDiagnostics(uri);
+
+        JsonElement full = client.SendRequest("textDocument/semanticTokens/full", new
+        {
+            textDocument = new { uri }
+        });
+
+        JsonElement range = client.SendRequest("textDocument/semanticTokens/range", new
+        {
+            textDocument = new { uri },
+            range = new
+            {
+                start = new { line = 1, character = 0 },
+                end = new { line = 1, character = 22 }
+            }
+        });
+
+        int fullCount = full.GetProperty("data").GetArrayLength();
+        int rangeCount = range.GetProperty("data").GetArrayLength();
+        AssertTrue(fullCount > 0, "full semantic tokens should not be empty");
+        AssertTrue(rangeCount > 0, "range semantic tokens should not be empty");
+        AssertTrue(rangeCount < fullCount, "range semantic tokens should be a subset of the full result");
     }
 
     private static void HoverFindsFunctionSymbol()
@@ -201,6 +260,135 @@ namespace Demo.App {
         AssertTrue(value.Contains("Namespace: `Demo.App`", StringComparison.Ordinal), "hover does not include the namespace path");
         AssertTrue(value.Contains("Type/Class: `Runner`", StringComparison.Ordinal), "hover does not include the owning type name");
         AssertTrue(value.Contains("Container: `Demo.App.Runner`", StringComparison.Ordinal), "hover does not include the containing namespace/class path");
+    }
+
+    private static void AnalyzerKeepsSymbolsAliveAcrossMidFunctionSyntaxErrors()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+func demo() {
+    var first = 1;
+    var broken = ;
+    var second = 2;
+    return second;
+}
+""";
+        string uri = CreateDocumentUri("tolerant-hover.cfs");
+        client.DidOpen(uri, source);
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertTrue(diagnostics.GetArrayLength() > 0, "expected diagnostics for broken source");
+
+        JsonElement hover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 4, character = 12 }
+        });
+
+        string value = hover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(value.Contains("second", StringComparison.Ordinal), "hover should still resolve symbols after a mid-function syntax error");
+    }
+
+    private static void AnalyzerReportsMultipleSyntaxDiagnostics()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+func demo() {
+    var a = ;
+    var b = ;
+    return 1;
+}
+""";
+        string uri = CreateDocumentUri("multi-diagnostics.cfs");
+        client.DidOpen(uri, source);
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertTrue(diagnostics.GetArrayLength() >= 2, "expected multiple syntax diagnostics, not only the first failure");
+    }
+
+    private static void DocumentSymbolsUseLastGoodAnalysisAfterCatastrophicLexerFailure()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+func add(a, b) {
+    return a + b;
+}
+
+var answer = add(1, 2);
+""";
+        string uri = CreateDocumentUri("last-good-symbols.cfs");
+        client.DidOpen(uri, source);
+        JsonElement initialDiagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertEqual(0, initialDiagnostics.GetArrayLength(), "expected the baseline source to analyze cleanly");
+
+        client.DidChange(uri, 2, "@\n" + source);
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertTrue(diagnostics.GetArrayLength() > 0, "expected diagnostics after catastrophic lexer failure");
+
+        JsonElement symbols = client.SendRequest("textDocument/documentSymbol", new
+        {
+            textDocument = new { uri }
+        });
+
+        AssertEqual(JsonValueKind.Array, symbols.ValueKind, "documentSymbol result must be an array");
+        AssertTrue(symbols.EnumerateArray().Any(item => item.GetProperty("name").GetString() == "add"), "document symbols should fall back to the last good analysis");
+    }
+
+    private static void HoverUsesLastGoodAnalysisAfterCatastrophicLexerFailure()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+func add(a, b) {
+    return a + b;
+}
+
+var answer = add(1, 2);
+""";
+        string uri = CreateDocumentUri("last-good-hover.cfs");
+        client.DidOpen(uri, source);
+        JsonElement initialDiagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertEqual(0, initialDiagnostics.GetArrayLength(), "expected the baseline source to analyze cleanly");
+
+        client.DidChange(uri, 2, "@\n" + source);
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertTrue(diagnostics.GetArrayLength() > 0, "expected diagnostics after catastrophic lexer failure");
+
+        JsonElement hover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 5, character = 13 }
+        });
+
+        string value = hover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(value.Contains("add", StringComparison.Ordinal), "hover should resolve against the last good analysis even after current symbols disappear");
+    }
+
+    private static void ReferencesUseLastGoodAnalysisAfterCatastrophicLexerFailure()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+func add(a, b) {
+    return a + b;
+}
+
+var answer = add(1, 2);
+""";
+        string uri = CreateDocumentUri("last-good-references.cfs");
+        client.DidOpen(uri, source);
+        JsonElement initialDiagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertEqual(0, initialDiagnostics.GetArrayLength(), "expected the baseline source to analyze cleanly");
+
+        client.DidChange(uri, 2, "@\n" + source);
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertTrue(diagnostics.GetArrayLength() > 0, "expected diagnostics after catastrophic lexer failure");
+
+        JsonElement references = client.SendRequest("textDocument/references", new
+        {
+            textDocument = new { uri },
+            position = new { line = 5, character = 13 },
+            context = new { includeDeclaration = true }
+        });
+
+        AssertEqual(JsonValueKind.Array, references.ValueKind, "references result must be an array");
+        AssertTrue(references.GetArrayLength() >= 2, "references should still include declaration and usage from the last good analysis");
     }
 
     private static string CreateDocumentUri(string fileName)
@@ -311,6 +499,30 @@ internal sealed class LspTestClient : IDisposable
             {
                 new
                 {
+                    text
+                }
+            }
+        });
+    }
+
+    public void DidChangeRange(string uri, int version, int startLine, int startCharacter, int endLine, int endCharacter, string text)
+    {
+        SendNotification("textDocument/didChange", new
+        {
+            textDocument = new
+            {
+                uri,
+                version
+            },
+            contentChanges = new[]
+            {
+                new
+                {
+                    range = new
+                    {
+                        start = new { line = startLine, character = startCharacter },
+                        end = new { line = endLine, character = endCharacter }
+                    },
                     text
                 }
             }

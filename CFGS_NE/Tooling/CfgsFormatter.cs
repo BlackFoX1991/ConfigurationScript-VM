@@ -2,7 +2,7 @@ using System.Text;
 
 namespace CFGS_VM.Tooling;
 
-public sealed record CfgsFormatOptions(int IndentSize = 4, bool UseTabs = false);
+public sealed record CfgsFormatOptions(int IndentSize = 4, bool UseTabs = false, int MaxLineWidth = int.MaxValue);
 
 public sealed record CfgsFormatResult(string Text, bool Changed);
 
@@ -11,6 +11,16 @@ public static class CfgsFormatter
     public static CfgsFormatResult Format(string sourceText, CfgsFormatOptions options)
     {
         string normalized = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        string? astFormatted = CfgsAstFormatter.TryFormat(normalized, options);
+        if (astFormatted is not null)
+            return new CfgsFormatResult(astFormatted, !string.Equals(sourceText, astFormatted, StringComparison.Ordinal));
+
+        string formatted = FormatLegacy(normalized, options);
+        return new CfgsFormatResult(formatted, !string.Equals(sourceText, formatted, StringComparison.Ordinal));
+    }
+
+    private static string FormatLegacy(string normalized, CfgsFormatOptions options)
+    {
         string[] lines = normalized.Split('\n');
         string indentUnit = options.UseTabs ? "\t" : new string(' ', Math.Max(1, options.IndentSize));
         StringBuilder output = new(normalized.Length + lines.Length * 2);
@@ -54,8 +64,7 @@ public static class CfgsFormatter
             }
         }
 
-        string formatted = output.ToString();
-        return new CfgsFormatResult(formatted, !string.Equals(sourceText, formatted, StringComparison.Ordinal));
+        return output.ToString();
     }
 
     private static string Repeat(string text, int count)
@@ -207,7 +216,9 @@ public static class CfgsFormatter
 
     private static string ReadOperator(string line, int index)
     {
-        foreach (string op in new[] { "==", "!=", "<=", ">=", "&&", "||", "??", "+=", "-=", "*=", "/=", "%=", "<<", ">>", "++", "--", "=>", "**" })
+        // Longest-match first: the three-character merge operators must precede the two-character
+        // shifts, otherwise "<<<" is read as "<<" plus a stray "<" and the file is corrupted.
+        foreach (string op in new[] { "<<<", ">>>", "==", "!=", "<=", ">=", "&&", "||", "??", "+=", "-=", "*=", "/=", "%=", "<<", ">>", "++", "--", "=>", "**" })
         {
             if (index + op.Length <= line.Length && string.Equals(line.Substring(index, op.Length), op, StringComparison.Ordinal))
                 return op;

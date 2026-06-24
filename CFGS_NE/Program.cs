@@ -61,7 +61,7 @@ public class Program
     /// </summary>
     public static bool IsInteractiveDebug { get; private set; } = false;
 
-    public const string Version = "v10.1.2";
+    public const string Version = "v10.2.0";
 
     public static bool AnsiMode = true;
 
@@ -432,6 +432,8 @@ public class Program
         public bool AllowTabs { get; set; }
         public int MaxLineLength { get; set; } = 140;
         public int IndentSize { get; set; } = 4;
+        public CfgsLintPreset Preset { get; set; } = CfgsLintPreset.Recommended;
+        public Dictionary<string, CfgsLintRuleOverride> RuleOverrides { get; } = new(StringComparer.OrdinalIgnoreCase);
         public bool WarningsAsErrorsSet { get; set; }
         public bool AllowTabsSet { get; set; }
         public bool MaxLineLengthSet { get; set; }
@@ -509,8 +511,10 @@ public class Program
         public bool Check { get; set; }
         public bool UseTabs { get; set; }
         public int IndentSize { get; set; } = 4;
+        public int MaxLineWidth { get; set; } = int.MaxValue;
         public bool UseTabsSet { get; set; }
         public bool IndentSizeSet { get; set; }
+        public bool MaxLineWidthSet { get; set; }
     }
 
     private static bool TryGetFormatArguments(string[] args, out FormatCliCommand command)
@@ -561,6 +565,14 @@ public class Program
                         throw new ArgumentException($"invalid value for {arg}: {indent}");
                     command.IndentSize = indentSize;
                     command.IndentSizeSet = true;
+                    break;
+
+                case "--max-line-width":
+                    string maxLineWidth = ReadOptionValue(args, ref i, arg);
+                    if (!int.TryParse(maxLineWidth, NumberStyles.Integer, CultureInfo.InvariantCulture, out int width) || width <= 0)
+                        throw new ArgumentException($"invalid value for {arg}: {maxLineWidth}");
+                    command.MaxLineWidth = width;
+                    command.MaxLineWidthSet = true;
                     break;
 
                 default:
@@ -1004,7 +1016,11 @@ public class Program
             return 1;
         }
 
-        CfgsLintOptions options = new(command.MaxLineLength, command.WarningsAsErrors, command.Fix, command.AllowTabs, command.IndentSize);
+        CfgsLintOptions options = new(command.MaxLineLength, command.WarningsAsErrors, command.Fix, command.AllowTabs, command.IndentSize)
+        {
+            Preset = command.Preset,
+            RuleOverrides = new Dictionary<string, CfgsLintRuleOverride>(command.RuleOverrides, StringComparer.OrdinalIgnoreCase)
+        };
         List<CfgsToolDiagnostic> diagnostics = [];
         foreach (string file in files)
         {
@@ -1065,7 +1081,7 @@ public class Program
             return 1;
         }
 
-        CfgsFormatOptions options = new(command.IndentSize, command.UseTabs);
+        CfgsFormatOptions options = new(command.IndentSize, command.UseTabs, command.MaxLineWidth);
         List<object> jsonResults = [];
         bool anyChanged = false;
 
@@ -1190,6 +1206,37 @@ public class Program
             return;
 
         JsonElement tooling = config.RootElement.GetProperty("tooling");
+        ApplyLintGeneralToolingConfig(tooling, command);
+
+        if (!TryGetToolingProperty(tooling, "lint", out JsonElement lint) || lint.ValueKind != JsonValueKind.Object)
+            return;
+
+        ApplyLintGeneralToolingConfig(lint, command);
+
+        if (TryGetToolingProperty(lint, "preset", out JsonElement preset) &&
+            preset.ValueKind == JsonValueKind.String &&
+            CfgsLintRuleRegistry.TryParsePreset(preset.GetString(), out CfgsLintPreset parsedPreset))
+        {
+            command.Preset = parsedPreset;
+        }
+
+        if (TryGetToolingProperty(lint, "rules", out JsonElement rules) && rules.ValueKind == JsonValueKind.Object)
+        {
+            foreach (JsonProperty rule in rules.EnumerateObject())
+            {
+                if (!CfgsLintRuleRegistry.ContainsRule(rule.Name) ||
+                    !TryParseLintRuleOverride(rule.Value, out CfgsLintRuleOverride parsedRule))
+                {
+                    continue;
+                }
+
+                command.RuleOverrides[rule.Name] = parsedRule;
+            }
+        }
+    }
+
+    private static void ApplyLintGeneralToolingConfig(JsonElement tooling, LintCliCommand command)
+    {
         if (!command.MaxLineLengthSet && TryGetToolingProperty(tooling, "maxLineLength", out JsonElement maxLineLength) && maxLineLength.TryGetInt32(out int max) && max > 0)
             command.MaxLineLength = max;
         if (!command.WarningsAsErrorsSet && TryGetToolingProperty(tooling, "warningsAsErrors", out JsonElement warningsAsErrors) && warningsAsErrors.ValueKind is JsonValueKind.True or JsonValueKind.False)
@@ -1198,6 +1245,66 @@ public class Program
             command.AllowTabs = allowTabs.GetBoolean();
         if (!command.IndentSizeSet && TryGetToolingProperty(tooling, "indentSize", out JsonElement indentSize) && indentSize.TryGetInt32(out int indent) && indent > 0)
             command.IndentSize = indent;
+    }
+
+    private static bool TryParseLintRuleOverride(JsonElement ruleValue, out CfgsLintRuleOverride ruleOverride)
+    {
+        switch (ruleValue.ValueKind)
+        {
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+                ruleOverride = new CfgsLintRuleOverride(ruleValue.GetBoolean());
+                return true;
+
+            case JsonValueKind.String:
+                string? stringValue = ruleValue.GetString();
+                if (string.Equals(stringValue, "off", StringComparison.OrdinalIgnoreCase))
+                {
+                    ruleOverride = new CfgsLintRuleOverride(false);
+                    return true;
+                }
+
+                if (CfgsLintRuleRegistry.TryParseSeverity(stringValue, out CfgsToolDiagnosticSeverity severity))
+                {
+                    ruleOverride = new CfgsLintRuleOverride(null, severity);
+                    return true;
+                }
+                break;
+
+            case JsonValueKind.Object:
+                bool? enabled = null;
+                CfgsToolDiagnosticSeverity? parsedSeverity = null;
+
+                if (TryGetToolingProperty(ruleValue, "enabled", out JsonElement enabledElement) &&
+                    enabledElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                {
+                    enabled = enabledElement.GetBoolean();
+                }
+
+                if (TryGetToolingProperty(ruleValue, "severity", out JsonElement severityElement) &&
+                    severityElement.ValueKind == JsonValueKind.String)
+                {
+                    string? severityValue = severityElement.GetString();
+                    if (string.Equals(severityValue, "off", StringComparison.OrdinalIgnoreCase))
+                    {
+                        enabled = false;
+                    }
+                    else if (CfgsLintRuleRegistry.TryParseSeverity(severityValue, out CfgsToolDiagnosticSeverity parsedSeverityValue))
+                    {
+                        parsedSeverity = parsedSeverityValue;
+                    }
+                }
+
+                if (enabled.HasValue || parsedSeverity.HasValue)
+                {
+                    ruleOverride = new CfgsLintRuleOverride(enabled, parsedSeverity);
+                    return true;
+                }
+                break;
+        }
+
+        ruleOverride = default;
+        return false;
     }
 
     private static void ApplyToolingConfig(string input, FormatCliCommand command)
@@ -1211,6 +1318,8 @@ public class Program
             command.IndentSize = indent;
         if (!command.UseTabsSet && TryGetToolingProperty(tooling, "useTabs", out JsonElement useTabs) && useTabs.ValueKind is JsonValueKind.True or JsonValueKind.False)
             command.UseTabs = useTabs.GetBoolean();
+        if (!command.MaxLineWidthSet && TryGetToolingProperty(tooling, "maxLineWidth", out JsonElement maxLineWidth) && maxLineWidth.TryGetInt32(out int width) && width > 0)
+            command.MaxLineWidth = width;
     }
 
     private static JsonDocument? TryReadToolingConfig(string input)

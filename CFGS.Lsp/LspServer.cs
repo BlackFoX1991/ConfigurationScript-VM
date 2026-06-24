@@ -70,7 +70,7 @@ internal sealed class LspServer
                         {
                             capabilities = new
                             {
-                                textDocumentSync = 1,
+                                textDocumentSync = 2,
                                 definitionProvider = true,
                                 typeDefinitionProvider = true,
                                 implementationProvider = true,
@@ -117,6 +117,7 @@ internal sealed class LspServer
                                         tokenTypes = CfgsAnalyzer.SemanticTokenTypes,
                                         tokenModifiers = CfgsAnalyzer.SemanticTokenModifiers
                                     },
+                                    range = true,
                                     full = true
                                 }
                             },
@@ -159,7 +160,8 @@ internal sealed class LspServer
                     {
                         string uri = parameters.GetProperty("textDocument").GetProperty("uri").GetString() ?? string.Empty;
                         DocumentState state = EnsureDocument(uri);
-                        await SendResponseAsync(idElement, state.Analysis.DocumentSymbols.Select(ToDocumentSymbolPayload).ToList(), cancellationToken);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        await SendResponseAsync(idElement, analysis.DocumentSymbols.Select(ToDocumentSymbolPayload).ToList(), cancellationToken);
                     }
                     return true;
 
@@ -168,8 +170,9 @@ internal sealed class LspServer
                     {
                         string uri = GetTextDocumentUri(parameters);
                         DocumentState state = EnsureDocument(uri);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
                         List<object> ranges = new();
-                        CollectFoldingRanges(state.Analysis.DocumentSymbols, ranges);
+                        CollectFoldingRanges(analysis.DocumentSymbols, ranges);
                         await SendResponseAsync(idElement, ranges, cancellationToken);
                     }
                     return true;
@@ -183,7 +186,8 @@ internal sealed class LspServer
                         int character = position.GetProperty("character").GetInt32();
 
                         DocumentState state = EnsureDocument(uri);
-                        IReadOnlyList<CfgsSymbol> definitions = _analyzer.FindDefinitions(state.Analysis, line, character);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        IReadOnlyList<CfgsSymbol> definitions = _analyzer.FindDefinitions(analysis, line, character);
                         object? payload = definitions.Count == 0
                             ? null
                             : definitions.Select(ToLocationPayload).ToList();
@@ -201,7 +205,8 @@ internal sealed class LspServer
                         int character = position.GetProperty("character").GetInt32();
 
                         DocumentState state = EnsureDocument(uri);
-                        CfgsSymbol? symbol = _analyzer.FindHoverSymbol(state.Analysis, line, character);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        CfgsSymbol? symbol = _analyzer.FindHoverSymbol(analysis, line, character);
                         object? payload = symbol is null
                             ? null
                             : new
@@ -227,7 +232,8 @@ internal sealed class LspServer
                         int character = position.GetProperty("character").GetInt32();
 
                         DocumentState state = EnsureDocument(uri);
-                        IReadOnlyList<CfgsSymbol> highlights = _analyzer.FindDocumentHighlights(state.Analysis, line, character);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        IReadOnlyList<CfgsSymbol> highlights = _analyzer.FindDocumentHighlights(analysis, line, character);
                         object? payload = highlights.Count == 0
                             ? null
                             : highlights.Select(static highlight => new
@@ -250,7 +256,8 @@ internal sealed class LspServer
                         int character = position.GetProperty("character").GetInt32();
 
                         DocumentState state = EnsureDocument(uri);
-                        CfgsSymbol? symbol = _analyzer.ResolveSymbol(state.Analysis, line, character);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        CfgsSymbol? symbol = _analyzer.ResolveSymbol(analysis, line, character);
                         IReadOnlyList<CfgsSymbol> references = symbol is null
                             ? []
                             : FindWorkspaceReferences(state, symbol, includeDeclaration);
@@ -283,7 +290,7 @@ internal sealed class LspServer
                         int character = position.GetProperty("character").GetInt32();
 
                         DocumentState state = EnsureDocument(uri);
-                        CfgsAnalysisResult analysis = state.Analysis;
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
                         CfgsSignatureHelpResult? signatureHelp = _analyzer.FindSignatureHelp(analysis, line, character);
                         object? payload = signatureHelp is null
                             ? null
@@ -357,8 +364,6 @@ internal sealed class LspServer
                         (int line, int character) = GetPosition(parameters);
                         DocumentState state = EnsureDocument(uri);
                         CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
-                        if (!ReferenceEquals(analysis, state.Analysis))
-                            analysis = analysis with { SourceText = state.Text };
                         List<object> items = _analyzer.GetCompletions(analysis, line, character)
                             .Select(ToCompletionPayload).ToList();
                         if (_analyzer.ShouldIncludeSnippetCompletions(analysis, line, character))
@@ -378,13 +383,26 @@ internal sealed class LspServer
                     }
                     return true;
 
+                case "textDocument/semanticTokens/range":
+                    if (hasId)
+                    {
+                        string uri = parameters.GetProperty("textDocument").GetProperty("uri").GetString() ?? string.Empty;
+                        RangeInfo requestRange = ToRangeInfo(parameters.GetProperty("range"));
+                        DocumentState state = EnsureDocument(uri);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        IReadOnlyList<int> data = _analyzer.GetSemanticTokens(analysis, requestRange);
+                        await SendResponseAsync(idElement, new { data }, cancellationToken);
+                    }
+                    return true;
+
                 case "textDocument/typeDefinition":
                     if (hasId)
                     {
                         string uri = GetTextDocumentUri(parameters);
                         (int line, int character) = GetPosition(parameters);
                         DocumentState state = EnsureDocument(uri);
-                        IReadOnlyList<CfgsSymbol> typeDefs = _analyzer.FindTypeDefinition(state.Analysis, line, character);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        IReadOnlyList<CfgsSymbol> typeDefs = _analyzer.FindTypeDefinition(analysis, line, character);
                         object? payload = typeDefs.Count == 0 ? null : typeDefs.Select(ToLocationPayload).ToList();
                         await SendResponseAsync(idElement, payload, cancellationToken);
                     }
@@ -435,7 +453,8 @@ internal sealed class LspServer
                     {
                         string uri = GetTextDocumentUri(parameters);
                         DocumentState state = EnsureDocument(uri);
-                        IReadOnlyList<CfgsDocumentLink> links = _analyzer.GetDocumentLinks(state.Analysis);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        IReadOnlyList<CfgsDocumentLink> links = _analyzer.GetDocumentLinks(analysis);
                         await SendResponseAsync(idElement, links.Count == 0 ? null : links.Select(ToDocumentLinkPayload).ToList(), cancellationToken);
                     }
                     return true;
@@ -445,6 +464,7 @@ internal sealed class LspServer
                     {
                         string uri = GetTextDocumentUri(parameters);
                         DocumentState state = EnsureDocument(uri);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
                         List<PositionInfo> positions = [];
                         if (parameters.TryGetProperty("positions", out JsonElement positionsEl))
                         {
@@ -455,7 +475,7 @@ internal sealed class LspServer
                                 positions.Add(new PositionInfo(pl, pc));
                             }
                         }
-                        IReadOnlyList<CfgsSelectionRange> selectionRanges = _analyzer.GetSelectionRanges(state.Analysis, positions);
+                        IReadOnlyList<CfgsSelectionRange> selectionRanges = _analyzer.GetSelectionRanges(analysis, positions);
                         await SendResponseAsync(idElement, selectionRanges.Select(ToSelectionRangePayload).ToList(), cancellationToken);
                     }
                     return true;
@@ -465,7 +485,8 @@ internal sealed class LspServer
                     {
                         string uri = GetTextDocumentUri(parameters);
                         DocumentState state = EnsureDocument(uri);
-                        IReadOnlyList<CfgsCodeLens> codeLenses = _analyzer.GetCodeLenses(state.Analysis);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        IReadOnlyList<CfgsCodeLens> codeLenses = _analyzer.GetCodeLenses(analysis);
                         await SendResponseAsync(idElement, codeLenses.Select(ToCodeLensPayload).ToList(), cancellationToken);
                     }
                     return true;
@@ -490,7 +511,8 @@ internal sealed class LspServer
                         string uri = GetTextDocumentUri(parameters);
                         (int line, int character) = GetPosition(parameters);
                         DocumentState state = EnsureDocument(uri);
-                        CfgsCallHierarchyItem? item = _analyzer.PrepareCallHierarchy(state.Analysis, line, character);
+                        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+                        CfgsCallHierarchyItem? item = _analyzer.PrepareCallHierarchy(analysis, line, character);
                         await SendResponseAsync(idElement, item is null ? null : new[] { ToCallHierarchyItemPayload(item) }, cancellationToken);
                     }
                     return true;
@@ -572,10 +594,7 @@ internal sealed class LspServer
             state.Version = versionElement.GetInt32();
 
         if (parameters.TryGetProperty("contentChanges", out JsonElement contentChanges) && contentChanges.GetArrayLength() > 0)
-        {
-            if (contentChanges[0].TryGetProperty("text", out JsonElement textEl))
-                state.Text = textEl.GetString() ?? string.Empty;
-        }
+            state.Text = ApplyContentChanges(state.Text, contentChanges);
 
         ScheduleAnalyzeAndPublish(state, cancellationToken);
     }
@@ -680,9 +699,12 @@ internal sealed class LspServer
     }
 
     private static CfgsAnalysisResult GetInteractiveAnalysis(DocumentState state)
-        => ShouldUseLastSuccessfulAnalysis(state.Analysis) && state.LastSuccessfulAnalysis is not null
-            ? state.LastSuccessfulAnalysis
-            : state.Analysis;
+    {
+        if (!ShouldUseLastSuccessfulAnalysis(state.Analysis) || state.LastSuccessfulAnalysis is null)
+            return state.Analysis;
+
+        return state.LastSuccessfulAnalysis with { SourceText = state.Text };
+    }
 
     private static bool ShouldUseLastSuccessfulAnalysis(CfgsAnalysisResult analysis)
         => !HasAnyDiagnostics(analysis)
@@ -714,11 +736,12 @@ internal sealed class LspServer
 
     private IReadOnlyList<CfgsSymbol> FindWorkspaceReferences(DocumentState anchorState, CfgsSymbol symbol, bool includeDeclaration)
     {
+        CfgsAnalysisResult anchorAnalysis = GetInteractiveAnalysis(anchorState);
         if (!_analyzer.SupportsWorkspaceSymbolMatching(symbol))
-            return _analyzer.FindReferences(anchorState.Analysis, symbol, includeDeclaration);
+            return _analyzer.FindReferences(anchorAnalysis, symbol, includeDeclaration);
 
         return EnumerateWorkspaceStates(anchorState.Uri)
-            .SelectMany(state => _analyzer.FindReferences(state.Analysis, symbol, includeDeclaration))
+            .SelectMany(state => _analyzer.FindReferences(GetInteractiveAnalysis(state), symbol, includeDeclaration))
             .GroupBy(reference => new ReferenceKey(reference.Uri, reference.SelectionRange), GetReferenceKeyComparer())
             .Select(group => group.First())
             .OrderBy(reference => reference.Uri, GetUriOrderComparer())
@@ -748,12 +771,13 @@ internal sealed class LspServer
 
     private IReadOnlyList<CfgsSymbol> FindWorkspaceImplementations(DocumentState anchorState, int line, int character)
     {
-        CfgsSymbol? symbol = _analyzer.ResolveSymbol(anchorState.Analysis, line, character);
+        CfgsAnalysisResult anchorAnalysis = GetInteractiveAnalysis(anchorState);
+        CfgsSymbol? symbol = _analyzer.ResolveSymbol(anchorAnalysis, line, character);
         if (symbol is null)
             return [];
 
         return EnumerateWorkspaceStates(anchorState.Uri)
-            .SelectMany(state => _analyzer.FindImplementations(state.Analysis, symbol))
+            .SelectMany(state => _analyzer.FindImplementations(GetInteractiveAnalysis(state), symbol))
             .GroupBy(s => (s.QualifiedName, s.Uri))
             .Select(static g => g.First())
             .ToList();
@@ -769,7 +793,7 @@ internal sealed class LspServer
 
         foreach (DocumentState state in _documents.Values)
         {
-            foreach (CfgsSymbol symbol in _analyzer.FindWorkspaceSymbols(state.Analysis, query))
+            foreach (CfgsSymbol symbol in _analyzer.FindWorkspaceSymbols(GetInteractiveAnalysis(state), query))
             {
                 string key = $"{symbol.QualifiedName}|{symbol.Uri}";
                 if (seen.Add(key))
@@ -783,7 +807,7 @@ internal sealed class LspServer
                 continue;
 
             DocumentState state = EnsureDocument(uri);
-            foreach (CfgsSymbol symbol in _analyzer.FindWorkspaceSymbols(state.Analysis, query))
+            foreach (CfgsSymbol symbol in _analyzer.FindWorkspaceSymbols(GetInteractiveAnalysis(state), query))
             {
                 string key = $"{symbol.QualifiedName}|{symbol.Uri}";
                 if (seen.Add(key))
@@ -800,7 +824,7 @@ internal sealed class LspServer
 
         foreach (DocumentState state in EnumerateWorkspaceStates(item.Uri))
         {
-            foreach (CfgsCallHierarchyIncomingCall call in _analyzer.FindIncomingCalls(state.Analysis, item))
+            foreach (CfgsCallHierarchyIncomingCall call in _analyzer.FindIncomingCalls(GetInteractiveAnalysis(state), item))
             {
                 string key = $"{call.From.Uri}|{call.From.SelectionRange.Start.Line}:{call.From.SelectionRange.Start.Character}|{call.From.Name}";
                 if (!merged.TryGetValue(key, out var entry))
@@ -823,7 +847,7 @@ internal sealed class LspServer
 
         foreach (DocumentState state in EnumerateWorkspaceStates(item.Uri))
         {
-            foreach (CfgsCallHierarchyOutgoingCall call in _analyzer.FindOutgoingCalls(state.Analysis, item))
+            foreach (CfgsCallHierarchyOutgoingCall call in _analyzer.FindOutgoingCalls(GetInteractiveAnalysis(state), item))
             {
                 string key = $"{call.To.Uri}|{call.To.SelectionRange.Start.Line}:{call.To.SelectionRange.Start.Character}|{call.To.Name}";
                 if (!merged.TryGetValue(key, out var entry))
@@ -1117,6 +1141,79 @@ internal sealed class LspServer
 
     private static bool EndsWithNewLine(string text)
         => text.EndsWith("\r\n", StringComparison.Ordinal) || text.EndsWith('\n');
+
+    private static string ApplyContentChanges(string currentText, JsonElement contentChanges)
+    {
+        string text = currentText;
+        foreach (JsonElement change in contentChanges.EnumerateArray())
+        {
+            string newText = change.TryGetProperty("text", out JsonElement textEl) ? textEl.GetString() ?? string.Empty : string.Empty;
+            if (!change.TryGetProperty("range", out JsonElement rangeElement))
+            {
+                text = newText;
+                continue;
+            }
+
+            RangeInfo range = ToRangeInfo(rangeElement);
+            text = ApplyRangeChange(text, range, newText);
+        }
+
+        return text;
+    }
+
+    private static string ApplyRangeChange(string sourceText, RangeInfo range, string newText)
+    {
+        int startOffset = GetOffset(sourceText, range.Start);
+        int endOffset = GetOffset(sourceText, range.End);
+        if (startOffset > endOffset)
+            (startOffset, endOffset) = (endOffset, startOffset);
+
+        return sourceText[..startOffset] + newText + sourceText[endOffset..];
+    }
+
+    private static int GetOffset(string text, PositionInfo position)
+    {
+        if (string.IsNullOrEmpty(text))
+            return 0;
+
+        int targetLine = Math.Max(0, position.Line);
+        int targetCharacter = Math.Max(0, position.Character);
+        int line = 0;
+        int character = 0;
+        int index = 0;
+
+        while (index < text.Length && line < targetLine)
+        {
+            if (text[index] == '\r')
+            {
+                index++;
+                if (index < text.Length && text[index] == '\n')
+                    index++;
+                line++;
+                character = 0;
+                continue;
+            }
+
+            if (text[index] == '\n')
+            {
+                index++;
+                line++;
+                character = 0;
+                continue;
+            }
+
+            index++;
+            character++;
+        }
+
+        while (index < text.Length && character < targetCharacter && text[index] is not '\r' and not '\n')
+        {
+            index++;
+            character++;
+        }
+
+        return index;
+    }
 
     private static RangeInfo CreateAppendRange(string text)
     {

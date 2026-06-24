@@ -4,6 +4,8 @@ using CFGS_VM.Analytic.Tree;
 
 namespace CFGS_VM.Analytic.Core
 {
+    public sealed record ParserParseResult(List<Stmt> Statements, IReadOnlyList<ParserException> Diagnostics);
+
     public partial class Parser
     {
         public enum TopLevelMode
@@ -14,15 +16,17 @@ namespace CFGS_VM.Analytic.Core
 
         private readonly Lexer _lexer;
         private readonly TopLevelMode _topLevelMode;
+        private readonly bool _tolerant;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Parser"/> class.
         /// </summary>
         /// <param name="lexer">The lexer<see cref="Lexer"/></param>
-        public Parser(Lexer lexer, TopLevelMode topLevelMode = TopLevelMode.Script)
+        public Parser(Lexer lexer, TopLevelMode topLevelMode = TopLevelMode.Script, bool tolerant = false)
         {
             _lexer = lexer;
             _topLevelMode = topLevelMode;
+            _tolerant = tolerant;
             _cursor = new TokenCursor(_lexer);
         }
 
@@ -146,6 +150,32 @@ namespace CFGS_VM.Analytic.Core
             IndexTopLevelSymbols(stmts);
 
             return stmts;
+        }
+
+        public ParserParseResult ParseTolerant()
+        {
+            List<Stmt> stmts = new();
+
+            ParseImportHeaderTolerant(stmts);
+            ParseUseHeaderTolerant(stmts);
+            ResetKnownTopLevelStateFromSeenSymbols();
+
+            if (_current.Type == TokenType.Namespace)
+            {
+                TryParseTopLevelStatement(stmts, allowFileScopedNamespace: true);
+
+                if (stmts.LastOrDefault() is NamespaceDeclStmt { IsFileScoped: true })
+                {
+                    FinalizeTopLevelStateTolerant(stmts);
+                    return new ParserParseResult(stmts, _diagnostics);
+                }
+            }
+
+            while (_current.Type != TokenType.EOF)
+                TryParseTopLevelStatement(stmts, allowFileScopedNamespace: false);
+
+            FinalizeTopLevelStateTolerant(stmts);
+            return new ParserParseResult(stmts, _diagnostics);
         }
     }
 }

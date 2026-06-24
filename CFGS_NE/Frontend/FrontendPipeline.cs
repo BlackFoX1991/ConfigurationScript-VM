@@ -1,4 +1,5 @@
 using CFGS_VM.Analytic.Core;
+using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Lowering;
 using CFGS_VM.Analytic.Modules;
 using CFGS_VM.Analytic.Tree;
@@ -7,6 +8,7 @@ using CFGS_VM.VMCore.Plugin;
 namespace CFGS_VM.Analytic
 {
     public sealed record FrontendBuildResult(List<Stmt> SyntaxAst, List<Stmt> LoweredAst);
+    public sealed record FrontendTolerantBuildResult(List<Stmt> SyntaxAst, List<Stmt> LoweredAst, IReadOnlyList<ParserException> Diagnostics);
 
     public sealed class FrontendPipeline
     {
@@ -63,6 +65,59 @@ namespace CFGS_VM.Analytic
             return BuildLoweredAstWithSyntax(origin, sourceText, topLevelMode).LoweredAst;
         }
 
+        public FrontendTolerantBuildResult BuildLoweredAstTolerant(
+            string origin,
+            string sourceText,
+            Parser.TopLevelMode topLevelMode = Parser.TopLevelMode.Script)
+        {
+            List<ParserException> diagnostics = [];
+            List<Stmt> syntaxAst = [];
+
+            try
+            {
+                Lexer lexer = new(origin, sourceText);
+                Parser parser = new(lexer, topLevelMode, tolerant: true);
+                ParserParseResult parseResult = parser.ParseTolerant();
+                syntaxAst = parseResult.Statements;
+                diagnostics.AddRange(parseResult.Diagnostics);
+            }
+            catch (Exception ex) when (ex is ParserException or LexerException)
+            {
+                diagnostics.Add(NormalizeDiagnostic(ex));
+            }
+
+            SourceResolver sourceResolver = new(_workingDirectory);
+            ImportResolver importResolver = new(
+                _loadPluginDll,
+                _loadImportSource,
+                _namespaces,
+                _sharedAstByHash,
+                _sharedImportStack,
+                sourceResolver);
+
+            List<Stmt> resolvedAst = syntaxAst;
+            try
+            {
+                resolvedAst = importResolver.ResolveImports(syntaxAst);
+            }
+            catch (Exception ex) when (ex is ParserException or LexerException)
+            {
+                diagnostics.Add(NormalizeDiagnostic(ex));
+            }
+
+            List<Stmt> loweredAst = resolvedAst;
+            try
+            {
+                loweredAst = new SyntaxLowerer().Lower(resolvedAst);
+            }
+            catch (Exception ex) when (ex is ParserException or LexerException)
+            {
+                diagnostics.Add(NormalizeDiagnostic(ex));
+            }
+
+            return new FrontendTolerantBuildResult(syntaxAst, loweredAst, diagnostics);
+        }
+
         public static string? TryGetWorkingDirectory(string? origin)
         {
             if (string.IsNullOrWhiteSpace(origin))
@@ -107,6 +162,22 @@ namespace CFGS_VM.Analytic
             {
                 return null;
             }
+        }
+
+        private static ParserException NormalizeDiagnostic(Exception ex)
+        {
+            return ex switch
+            {
+                ParserException parserException => parserException,
+                LexerException lexerException => new ParserException(
+                    lexerException.RawMessage,
+                    lexerException.Line,
+                    lexerException.Column,
+                    lexerException.Filename,
+                    lexerException.SpanLength,
+                    lexerException.DiagnosticCode),
+                _ => new ParserException(ex.Message, 1, 1, string.Empty, diagnosticCode: "CFGS9000")
+            };
         }
     }
 }

@@ -129,7 +129,7 @@ dotnet run --project CFGS_NE -- -lint .\src --json
 dotnet run --project CFGS_NE -- -lint .\src --fix
 ```
 
-The linter checks compiler diagnostics, trailing whitespace, tab indentation, excessive blank lines, missing final newlines, long lines, unused locals and parameters, unreachable statements, top-level functions that are never called in the same file, and async functions that do not await anything. Warnings produce a non-zero exit code so the command can be used in CI. `--warnings-as-errors` promotes style warnings to errors in the diagnostic payload.
+The linter checks compiler diagnostics, trailing whitespace, tab indentation, excessive blank lines, missing final newlines, long lines, unused locals and parameters, unreachable statements, top-level functions that are never called in the same file, async functions that do not await anything, shadowing, unused imports, empty blocks, suspicious equality comparisons, and broader guaranteed-termination unreachable cases. The `strict` preset additionally enables constant-condition and magic-number diagnostics. Warnings produce a non-zero exit code so the command can be used in CI. `--warnings-as-errors` promotes warning diagnostics to errors in the payload.
 
 `--fix` applies safe source-style fixes before reporting the final diagnostics: trailing whitespace is removed, excessive blank lines are collapsed, leading tabs are converted to spaces unless `--allow-tabs` is set, and the final newline is added when missing. Use `--max-line-length <n>` to change the line length hint and `--indent <n>` to control tab-to-space conversion.
 
@@ -152,10 +152,19 @@ Projects may configure tooling defaults in the nearest `cfgs.json` through a `to
     "warningsAsErrors": false,
     "allowTabs": false,
     "indentSize": 4,
-    "useTabs": false
+    "useTabs": false,
+    "lint": {
+      "preset": "recommended",
+      "rules": {
+        "CFGS8018": "error",
+        "CFGS8021": "off"
+      }
+    }
   }
 }
 ```
+
+Nested `tooling.lint` values override the flat lint defaults from the same manifest. Each rule entry may be `true`, `false`, a severity string (`info`, `warning`, `error`, `off`), or an object with `enabled` and `severity`. Inline suppressions use `# cfgs-disable`, `# cfgs-disable-next-line`, and `# cfgs-disable-line`; the older `# lint:disable*` comments still work.
 
 ## Working Directory During Execution
 

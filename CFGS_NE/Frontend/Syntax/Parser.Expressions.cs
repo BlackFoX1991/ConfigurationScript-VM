@@ -9,9 +9,10 @@ namespace CFGS_VM.Analytic.Core
     {
         private Expr Expr()
         {
+            int startTokenIndex = MarkNodeStart();
             if (EnterExpressionRecursion() > MaxRecursionDepth)
                 throw new ParserException($"Maximum nesting depth ({MaxRecursionDepth}) exceeded", _current.Line, _current.Column, _lexer.FileName);
-            try { return Conditional(); }
+            try { return StampNode(Conditional(), startTokenIndex); }
             finally { ExitExpressionRecursion(); }
         }
 
@@ -597,6 +598,7 @@ namespace CFGS_VM.Analytic.Core
 
         private FuncDeclStmt ParseFuncDecl()
         {
+            int startTokenIndex = MarkNodeStart();
             int line = _current.Line;
             int col = _current.Column;
             string file = _current.Filename;
@@ -646,7 +648,7 @@ namespace CFGS_VM.Analytic.Core
                 ExitFunctionContext(isAsync);
             }
 
-            return new FuncDeclStmt(name, parameters, body, minArgs, restParameter, line, col, file, isAsync, parameterSpecs, explicitInterfaceName);
+            return StampNode(new FuncDeclStmt(name, parameters, body, minArgs, restParameter, line, col, file, isAsync, parameterSpecs, explicitInterfaceName), startTokenIndex);
         }
 
         private ReturnStmt ParseReturnStmt()
