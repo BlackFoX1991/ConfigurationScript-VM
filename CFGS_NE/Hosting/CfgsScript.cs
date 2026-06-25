@@ -12,6 +12,7 @@ namespace CFGS_VM.Hosting
         private readonly CfgsScriptPermissions _permissions;
         private readonly SemaphoreSlim _operationGate = new(1, 1);
         private bool _topLevelRan;
+        private bool _autoMainRan;
 
         internal CfgsScript(VM vm, CompiledScript compiledScript, string originFile, CfgsScriptPermissions permissions)
         {
@@ -51,14 +52,17 @@ namespace CFGS_VM.Hosting
 
         private async Task RunCoreAsync(bool autoInvokeMain, CancellationToken effectiveToken)
         {
-            if (_topLevelRan)
+            if (!_topLevelRan)
+            {
+                await _vm.RunAsync(ct: effectiveToken).ConfigureAwait(false);
+                _topLevelRan = true;
+            }
+
+            if (!autoInvokeMain || _autoMainRan || !CompiledScript.ShouldAutoInvokeMain)
                 return;
 
-            await _vm.RunAsync(ct: effectiveToken).ConfigureAwait(false);
-            _topLevelRan = true;
-
-            if (autoInvokeMain && CompiledScript.ShouldAutoInvokeMain)
-                _ = await InvokeCoreAsync("main", args: null, effectiveToken).ConfigureAwait(false);
+            _ = await InvokeCoreAsync("main", args: null, effectiveToken).ConfigureAwait(false);
+            _autoMainRan = true;
         }
 
         public Task<object?> InvokeAsync(string functionName, params object[] args)

@@ -147,7 +147,8 @@ namespace CFGS_VM.VMCore
                 AllowPluginLoading = AllowPluginLoading,
                 EntryScriptPath = EntryScriptPath,
                 WorkingDirectory = WorkingDirectory,
-                NativeAssemblyBaseDirectory = NativeAssemblyBaseDirectory
+                NativeAssemblyBaseDirectory = NativeAssemblyBaseDirectory,
+                RestrictFileIoToWorkspace = RestrictFileIoToWorkspace
             };
             child.LoadInstructions(_program);
             child.LoadFunctions(Functions);

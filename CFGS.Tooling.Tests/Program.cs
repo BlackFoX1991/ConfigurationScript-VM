@@ -40,9 +40,12 @@ internal static class Program
             CliLintHonorsToolingLintConfig,
             HostingFileIoPermissionScopeAppliesToInvocations,
             HostingDefaultsDenyFileIo,
+            RunAsyncCanDeferAndThenAutoInvokeMainOnce,
             WorkspaceJailRejectsEscapingPaths,
             HostingSerializesConcurrentInvocations,
             AsyncHotStartInheritsVmPolicy,
+            AsyncHotStartInheritsWorkspaceJail,
+            HostCanConstructClassesAndAccessMembers,
             WorkspaceIsVmScoped,
             PluginLoadRejectsMismatchedPackageLockHash,
             HostingPreservesStructuredDiagnosticCode,
@@ -836,6 +839,32 @@ func is_file_allowed() {
         AssertFalse(allowed, "file I/O must be denied by default when no permissions are granted");
     }
 
+    private static void RunAsyncCanDeferAndThenAutoInvokeMainOnce()
+    {
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<host-auto-main>", """
+var counter = 0;
+
+func main() {
+    counter = counter + 1;
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        AssertEqual(0, script.GetGlobal<int>("counter"), "top-level load should not auto-run main when autoInvokeMain=false");
+
+        script.RunAsync().GetAwaiter().GetResult();
+        AssertEqual(1, script.GetGlobal<int>("counter"), "a later RunAsync() should still auto-run main once after a manual top-level load");
+
+        script.RunAsync().GetAwaiter().GetResult();
+        AssertEqual(1, script.GetGlobal<int>("counter"), "auto-main should not run more than once per script instance");
+    }
+
     private static void WorkspaceJailRejectsEscapingPaths()
     {
         string workspace = Path.Combine(Path.GetTempPath(), "cfgs-jail-test", Guid.NewGuid().ToString("N"));
@@ -970,6 +999,108 @@ async func checkPolicy() {
         bool allowed = script.InvokeAsync<bool>("checkPolicy").GetAwaiter().GetResult();
 
         AssertFalse(allowed, "async hot-start child VM did not inherit AllowNativeInterop=false");
+    }
+
+    private static void AsyncHotStartInheritsWorkspaceJail()
+    {
+        string workspace = Path.Combine(Path.GetTempPath(), "cfgs-hot-jail-test", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workspace);
+
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = workspace,
+            CompilerVersion = global::Program.Version
+        };
+        engine.Permissions.AllowFileIO = true;
+        engine.Permissions.RestrictFileIoToWorkspace = true;
+
+        CfgsScript script = engine.CompileSource("<host-hot-jail>", """
+async func resolveAsync(path) {
+    yield;
+    return resolveWorkspaceHost(path);
+}
+""");
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "resolveWorkspaceHost",
+            1,
+            1,
+            (args, instr) =>
+            {
+                VM vm = VM.CurrentVm ?? throw new InvalidOperationException("missing current VM");
+                return vm.ResolveWorkspacePath(args[0]?.ToString() ?? string.Empty);
+            }));
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        string inside = script.InvokeAsync<string>("resolveAsync", "sub/file.bin").GetAwaiter().GetResult() ?? "";
+        AssertTrue(
+            inside.StartsWith(Path.GetFullPath(workspace), StringComparison.OrdinalIgnoreCase),
+            "async hot-start child VM must keep contained paths inside the workspace");
+
+        bool rejected = false;
+        try
+        {
+            script.InvokeAsync<string>("resolveAsync", "../escape.bin").GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex.ToString().Contains("workspace", StringComparison.OrdinalIgnoreCase))
+        {
+            rejected = true;
+        }
+
+        AssertTrue(rejected, "async hot-start child VM did not inherit RestrictFileIoToWorkspace=true");
+    }
+
+    private static void HostCanConstructClassesAndAccessMembers()
+    {
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+        engine.SetService("currentUser", "Ada");
+
+        CfgsScript script = engine.CompileSource("<host-class-access>", """
+class Person {
+    public var name = "";
+
+    func init(name) {
+        this.name = name;
+    }
+
+    public func greet(prefix = "Hello") {
+        return prefix + ", " + this.name;
+    }
+}
+
+func currentUserName() {
+    return currentUser;
+}
+
+func readCurrentPerson() {
+    return currentPerson.name;
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        object person = script.NewAsync("Person", "Ada").GetAwaiter().GetResult()
+            ?? throw new InvalidOperationException("host NewAsync returned null");
+        string? initialName = script.GetMember<string>(person, "name");
+        AssertEqual("Ada", initialName, "host GetMember returned the wrong initial value");
+
+        script.SetMember(person, "name", "Grace");
+        string? updatedName = script.GetMember<string>(person, "name");
+        AssertEqual("Grace", updatedName, "host SetMember did not update the script instance");
+
+        string? greeting = script.InvokeMemberAsync<string>(person, "greet", "Hi").GetAwaiter().GetResult();
+        AssertEqual("Hi, Grace", greeting, "host InvokeMemberAsync returned the wrong method result");
+
+        script.SetGlobal("currentPerson", person);
+        string? currentPerson = script.InvokeAsync<string>("readCurrentPerson").GetAwaiter().GetResult();
+        AssertEqual("Grace", currentPerson, "host SetGlobal did not expose the script instance back to CFGS");
+
+        string? currentUser = script.InvokeAsync<string>("currentUserName").GetAwaiter().GetResult();
+        AssertEqual("Ada", currentUser, "engine.SetService did not inject a host global");
     }
 
     private static void WorkspaceIsVmScoped()
