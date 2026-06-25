@@ -5,14 +5,21 @@ const vscode = require('vscode');
 
 let activeClient = null;
 let lintDiagnostics = null;
+let extensionRoot = '';
 
 const selector = [{ language: 'cfgs', scheme: 'file' }, { language: 'cfgs', scheme: 'untitled' }];
 const semanticTokenLegend = new vscode.SemanticTokensLegend(
   ['namespace', 'class', 'interface', 'enum', 'enumMember', 'function', 'method', 'parameter', 'variable'],
   ['declaration', 'readonly', 'static', 'async', 'defaultLibrary']
 );
+const workspaceBuildDirectories = [
+  path.join('dist', 'Debug', 'net10.0'),
+  path.join('dist', 'Release', 'net10.0'),
+  path.join('dist', 'net10.0')
+];
 
 function activate(context) {
+  extensionRoot = context.extensionPath;
   const output = vscode.window.createOutputChannel('CFGS');
   const lspDiagnostics = vscode.languages.createDiagnosticCollection('cfgs');
   lintDiagnostics = vscode.languages.createDiagnosticCollection('cfgs-lint');
@@ -21,6 +28,16 @@ function activate(context) {
 
   context.subscriptions.push(output, lspDiagnostics, lintDiagnostics, client);
   context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration('cfgs.server')) {
+        return;
+      }
+
+      client.restart().catch((error) => {
+        output.appendLine(`Failed to restart CFGS language server: ${error.message}`);
+        vscode.window.showErrorMessage(`Failed to restart CFGS language server: ${error.message}`);
+      });
+    }),
     vscode.commands.registerCommand('cfgs.restartServer', async () => {
       await client.restart();
     }),
@@ -60,6 +77,7 @@ function activate(context) {
 function deactivate() {
   const client = activeClient;
   activeClient = null;
+  extensionRoot = '';
   return client ? client.dispose() : undefined;
 }
 
@@ -146,7 +164,7 @@ class CfgsLanguageClient {
       }),
       vscode.workspace.onDidChangeTextDocument((event) => {
         if (isCfgsDocument(event.document)) {
-          this.didChange(event.document);
+          this.didChange(event);
         }
       }),
       vscode.workspace.onDidCloseTextDocument((document) => {
@@ -340,7 +358,16 @@ class CfgsLanguageClient {
           const result = await this.sendRequest('textDocument/semanticTokens/full', {
             textDocument: { uri: document.uri.toString() }
           });
-          return new vscode.SemanticTokens(new Uint32Array(result && Array.isArray(result.data) ? result.data : []));
+          return toSemanticTokens(result);
+        }
+      }, semanticTokenLegend),
+      vscode.languages.registerDocumentRangeSemanticTokensProvider(selector, {
+        provideDocumentRangeSemanticTokens: async (document, range) => {
+          const result = await this.sendRequest('textDocument/semanticTokens/range', {
+            textDocument: { uri: document.uri.toString() },
+            range: toLspRange(range)
+          });
+          return toSemanticTokens(result);
         }
       }, semanticTokenLegend),
       vscode.languages.registerSignatureHelpProvider(selector, {
@@ -366,10 +393,20 @@ class CfgsLanguageClient {
     });
   }
 
-  didChange(document) {
+  didChange(event) {
+    const changes = Array.isArray(event.contentChanges) && event.contentChanges.length > 0
+      ? event.contentChanges.map((change) => change.range
+        ? {
+            range: toLspRange(change.range),
+            rangeLength: typeof change.rangeLength === 'number' ? change.rangeLength : undefined,
+            text: change.text
+          }
+        : { text: change.text })
+      : [{ text: event.document.getText() }];
+
     this.sendNotification('textDocument/didChange', {
-      textDocument: { uri: document.uri.toString(), version: document.version },
-      contentChanges: [{ text: document.getText() }]
+      textDocument: { uri: event.document.uri.toString(), version: event.document.version },
+      contentChanges: changes
     });
   }
 
@@ -471,14 +508,9 @@ class CfgsLanguageClient {
       return { command, args: Array.isArray(args) ? args : [], cwd: cwdOverride || workspaceFolder || this.context.extensionPath };
     }
 
-    const bundledServerDll = path.join(this.context.extensionPath, 'server', 'CFGS.Lsp.dll');
-    if (fs.existsSync(bundledServerDll)) {
-      return { command: 'dotnet', args: [bundledServerDll], cwd: cwdOverride || workspaceFolder || this.context.extensionPath };
-    }
-
     if (workspaceFolder) {
-      const serverDll = path.join(workspaceFolder, 'dist', 'Debug', 'net10.0', 'CFGS.Lsp.dll');
-      if (fs.existsSync(serverDll)) {
+      const serverDll = findWorkspaceBuildFile(workspaceFolder, 'CFGS.Lsp.dll');
+      if (serverDll) {
         return { command: 'dotnet', args: [serverDll], cwd: cwdOverride || workspaceFolder };
       }
 
@@ -486,6 +518,11 @@ class CfgsLanguageClient {
       if (fs.existsSync(serverProject)) {
         return { command: 'dotnet', args: ['run', '--project', serverProject], cwd: cwdOverride || workspaceFolder };
       }
+    }
+
+    const bundledServerDll = findBundledServerFile(this.context.extensionPath, 'CFGS.Lsp.dll');
+    if (bundledServerDll) {
+      return { command: 'dotnet', args: [bundledServerDll], cwd: cwdOverride || workspaceFolder || this.context.extensionPath };
     }
 
     throw new Error('Could not locate CFGS.Lsp.dll. Configure cfgs.server.command.');
@@ -578,12 +615,12 @@ function resolveCliLaunch(toolArgs) {
   const workspaceFolder = getWorkspaceFolder();
 
   if (command) {
-    return { command, args: [...(Array.isArray(baseArgs) ? baseArgs : []), ...toolArgs], cwd: workspaceFolder || undefined };
+    return { command, args: [...(Array.isArray(baseArgs) ? baseArgs : []), ...toolArgs], cwd: workspaceFolder || extensionRoot || undefined };
   }
 
   if (workspaceFolder) {
-    const vmDll = path.join(workspaceFolder, 'dist', 'Debug', 'net10.0', 'CFGS_VM.dll');
-    if (fs.existsSync(vmDll)) {
+    const vmDll = findWorkspaceBuildFile(workspaceFolder, 'CFGS_VM.dll');
+    if (vmDll) {
       return { command: 'dotnet', args: [vmDll, ...toolArgs], cwd: workspaceFolder };
     }
 
@@ -593,7 +630,36 @@ function resolveCliLaunch(toolArgs) {
     }
   }
 
-  return { command: 'dotnet', args: ['CFGS_VM.dll', ...toolArgs], cwd: workspaceFolder || undefined };
+  const bundledVmDll = findBundledServerFile(extensionRoot, 'CFGS_VM.dll');
+  if (bundledVmDll) {
+    return { command: 'dotnet', args: [bundledVmDll, ...toolArgs], cwd: workspaceFolder || extensionRoot || undefined };
+  }
+
+  return { command: 'dotnet', args: ['CFGS_VM.dll', ...toolArgs], cwd: workspaceFolder || extensionRoot || undefined };
+}
+
+function findBundledServerFile(rootPath, fileName) {
+  if (!rootPath) {
+    return '';
+  }
+
+  const candidate = path.join(rootPath, 'server', fileName);
+  return fs.existsSync(candidate) ? candidate : '';
+}
+
+function findWorkspaceBuildFile(workspaceFolder, fileName) {
+  if (!workspaceFolder) {
+    return '';
+  }
+
+  for (const relativePath of workspaceBuildDirectories) {
+    const candidate = path.join(workspaceFolder, relativePath, fileName);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return '';
 }
 
 function getWorkspaceFolder() {
@@ -638,6 +704,10 @@ function toDocumentHighlight(item) {
 
 function toTextEdit(edit) {
   return new vscode.TextEdit(toRange(edit.range), edit.newText || '');
+}
+
+function toSemanticTokens(result) {
+  return new vscode.SemanticTokens(new Uint32Array(result && Array.isArray(result.data) ? result.data : []));
 }
 
 function toDiagnostic(item) {

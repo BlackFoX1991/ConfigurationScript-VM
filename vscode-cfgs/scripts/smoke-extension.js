@@ -22,6 +22,7 @@ function assertFile(relativePath) {
 
 const manifest = readJson('package.json');
 assert(manifest.name === 'cfgs-vscode', 'unexpected extension name');
+assert(manifest.version === '0.6.0', 'unexpected extension version');
 assert(manifest.main === './extension.js', 'unexpected extension entry point');
 
 const extensionSource = fs.readFileSync(assertFile('extension.js'), 'utf8');
@@ -29,6 +30,13 @@ assert(extensionSource.includes('class CfgsLanguageClient'), 'extension client c
 assert(extensionSource.includes('textDocument/completion'), 'completion request wiring missing');
 assert(extensionSource.includes('textDocument/formatting'), 'formatting request wiring missing');
 assert(extensionSource.includes('textDocument/publishDiagnostics'), 'diagnostic notification wiring missing');
+assert(extensionSource.includes('registerDocumentRangeSemanticTokensProvider'), 'range semantic tokens provider missing');
+assert(extensionSource.includes('contentChanges: changes'), 'incremental text sync wiring missing');
+assert(extensionSource.includes("findBundledServerFile(extensionRoot, 'CFGS_VM.dll')"), 'bundled CLI fallback missing');
+
+const packageScriptSource = fs.readFileSync(assertFile('scripts/package-vsix.js'), 'utf8');
+assert(packageScriptSource.includes('CFGS_VM.deps.json'), 'bundled CFGS_VM deps packaging missing');
+assert(packageScriptSource.includes('CFGS_VM.runtimeconfig.json'), 'bundled CFGS_VM runtimeconfig packaging missing');
 
 const contributes = manifest.contributes || {};
 assert(Array.isArray(contributes.languages), 'languages contribution missing');

@@ -4,8 +4,14 @@ const zlib = require('zlib');
 
 const root = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(root, '..');
-const serverOutput = path.join(repoRoot, 'dist', 'Debug', 'net10.0');
-const outFile = path.join(root, 'cfgs-vscode-0.5.0.vsix');
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const serverOutputCandidates = [
+  path.join(repoRoot, 'dist', 'Debug', 'net10.0'),
+  path.join(repoRoot, 'dist', 'Release', 'net10.0'),
+  path.join(repoRoot, 'dist', 'net10.0')
+];
+const installTargetVersion = String(packageJson.engines && packageJson.engines.vscode ? packageJson.engines.vscode : '1.90.0').replace(/^[^0-9]+/, '');
+const outFile = path.join(root, `${packageJson.name}-${packageJson.version}.vsix`);
 const files = [
   'package.json',
   'README.md',
@@ -14,24 +20,48 @@ const files = [
   'syntaxes/cfgs.tmGrammar.json'
 ];
 
-function collectServerFiles() {
-  if (!fs.existsSync(serverOutput)) {
-    return [];
+function escapeXml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function findServerOutput() {
+  for (const candidate of serverOutputCandidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
   }
 
-  const serverFiles = new Set([
+  return '';
+}
+
+function collectServerFiles() {
+  const serverOutput = findServerOutput();
+  if (!serverOutput) {
+    throw new Error('Could not find built CFGS binaries under dist/Debug/net10.0, dist/Release/net10.0, or dist/net10.0.');
+  }
+
+  const serverFiles = [
     'CFGS.Lsp.dll',
     'CFGS.Lsp.deps.json',
     'CFGS.Lsp.runtimeconfig.json',
-    'CFGS_VM.dll'
-  ]);
+    'CFGS_VM.dll',
+    'CFGS_VM.deps.json',
+    'CFGS_VM.runtimeconfig.json'
+  ];
+  const missingFiles = serverFiles.filter((file) => !fs.existsSync(path.join(serverOutput, file)));
+  if (missingFiles.length > 0) {
+    throw new Error(`Missing packaged CFGS binaries: ${missingFiles.join(', ')}`);
+  }
 
-  return fs.readdirSync(serverOutput)
-    .filter((file) => serverFiles.has(file))
-    .map((file) => ({
-      name: `extension/server/${file}`,
-      content: fs.readFileSync(path.join(serverOutput, file))
-    }));
+  return serverFiles.map((file) => ({
+    name: `extension/server/${file}`,
+    content: fs.readFileSync(path.join(serverOutput, file))
+  }));
 }
 
 function crc32(buffer) {
@@ -96,14 +126,14 @@ function createEntry(name, content, offset) {
 const manifest = Buffer.from(`<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
   <Metadata>
-    <Identity Language="en-US" Id="cfgs-vscode" Version="0.5.0" Publisher="blackfox1991" />
-    <DisplayName>CFGS Language Tools</DisplayName>
-    <Description xml:space="preserve">Visual Studio Code support for ConfigurationScript.</Description>
+    <Identity Language="en-US" Id="${escapeXml(packageJson.name)}" Version="${escapeXml(packageJson.version)}" Publisher="${escapeXml(packageJson.publisher)}" />
+    <DisplayName>${escapeXml(packageJson.displayName)}</DisplayName>
+    <Description xml:space="preserve">${escapeXml(packageJson.description)}</Description>
     <Tags>CFGS,ConfigurationScript,LSP,linter,formatter</Tags>
     <Categories>Programming Languages</Categories>
   </Metadata>
   <Installation>
-    <InstallationTarget Id="Microsoft.VisualStudio.Code" Version="[1.90.0,)" />
+    <InstallationTarget Id="Microsoft.VisualStudio.Code" Version="[${escapeXml(installTargetVersion)},)" />
   </Installation>
   <Dependencies />
   <Assets>
