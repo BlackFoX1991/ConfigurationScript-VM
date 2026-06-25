@@ -25,9 +25,9 @@ echo.
 dotnet publish "%ROOT%CFGS_NE\CFGS_VM.csproj" ^
     -c Release ^
     -r win-x64 ^
-    -p:PublishSingleFile=true ^
-    -p:IncludeNativeLibrariesForSelfExtract=true ^
-    --self-contained true ^
+    -p:PublishSingleFile=false ^
+    -p:IncludeNativeLibrariesForSelfExtract=false ^
+    --self-contained false ^
     -o "%DIST%" ^
     --nologo
 

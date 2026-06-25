@@ -978,8 +978,13 @@ namespace CFGS.Web.Http
                 catch (Exception ex)
                 {
                     ActiveByPort.TryRemove(_port, out _);
+                    string detail = FlattenMessage(ex);
+                    if (ex is TypeLoadException tle && !string.IsNullOrWhiteSpace(tle.TypeName))
+                        detail += " [type=" + tle.TypeName + "]";
+                    string full = ex.ToString();
+                    if (full.Length > 1500) full = full.Substring(0, 1500);
                     throw new VMException(
-                        $"Cannot start HTTP server on {Url}: {FlattenMessage(ex)}",
+                        $"Cannot start HTTP server on {Url}: {detail}\n--- detail ---\n{full}",
                         0, 0, "", VM.IsDebugging, VM.DebugStream!
                     );
                 }
