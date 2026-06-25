@@ -18,6 +18,7 @@ namespace CFGS.Web.Http
     public sealed class CFGS_HTTP : IVmPlugin
     {
         private static readonly HttpClient _client = CreateClient();
+        private static readonly Lazy<HttpClient> _insecureClient = new(CreateInsecureClient);
         private const long DefaultMaxRequestBodySize = 10L * 1024L * 1024L;
 
         private static HttpClient CreateClient()
@@ -28,6 +29,32 @@ namespace CFGS.Web.Http
             });
             h.Timeout = TimeSpan.FromSeconds(100);
             return h;
+        }
+
+        // Used only when a request explicitly opts into insecure mode. Accepts any server
+        // certificate, so it is suitable for self-signed dev certs and local test servers.
+        private static HttpClient CreateInsecureClient()
+        {
+            HttpClient h = new(new HttpClientHandler
+            {
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+                ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+            });
+            h.Timeout = TimeSpan.FromSeconds(100);
+            return h;
+        }
+
+        private static HttpClient SelectClient(bool insecure) => insecure ? _insecureClient.Value : _client;
+
+        // Parses an optional trailing "insecure" flag for client request builtins.
+        private static bool ParseInsecure(object? value)
+        {
+            if (value is bool b) return b;
+            if (value == null) return false;
+            string text = value.ToString() ?? "";
+            return string.Equals(text, "true", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "1", StringComparison.Ordinal)
+                || string.Equals(text, "insecure", StringComparison.OrdinalIgnoreCase);
         }
 
         public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
@@ -71,58 +98,64 @@ namespace CFGS.Web.Http
                 return new ServerHandle(port, options);
             }));
 
-            builtins.Register(new BuiltinDescriptor("http_get", 1, 3, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("http_get", 1, 4, (args, instr) =>
             {
                 string url = args[0]?.ToString() ?? "";
                 Dictionary<string, object> headers = args.Count >= 2 && args[1] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
-                return HttpGetAsync(url, headers, timeout);
+                bool insecure = args.Count >= 4 && ParseInsecure(args[3]);
+                return HttpGetAsync(url, headers, timeout, insecure);
             }, NativeCallOptions.Awaitable));
 
-            builtins.Register(new BuiltinDescriptor("http_post", 2, 5, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("http_post", 2, 6, (args, instr) =>
             {
                 string url = args[0]?.ToString() ?? "";
                 object? body = args[1];
                 Dictionary<string, object> headers = args.Count >= 3 && args[2] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
                 string contentType = args.Count >= 5 ? args[4]?.ToString() ?? "text/plain" : "text/plain";
-                return HttpSendWithBodyAsync(HttpMethod.Post, url, body, headers, timeout, contentType);
+                bool insecure = args.Count >= 6 && ParseInsecure(args[5]);
+                return HttpSendWithBodyAsync(HttpMethod.Post, url, body, headers, timeout, contentType, insecure);
             }, NativeCallOptions.Awaitable));
 
-            builtins.Register(new BuiltinDescriptor("http_put", 2, 5, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("http_put", 2, 6, (args, instr) =>
             {
                 string url = args[0]?.ToString() ?? "";
                 object? body = args[1];
                 Dictionary<string, object> headers = args.Count >= 3 && args[2] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
                 string contentType = args.Count >= 5 ? args[4]?.ToString() ?? "text/plain" : "text/plain";
-                return HttpSendWithBodyAsync(HttpMethod.Put, url, body, headers, timeout, contentType);
+                bool insecure = args.Count >= 6 && ParseInsecure(args[5]);
+                return HttpSendWithBodyAsync(HttpMethod.Put, url, body, headers, timeout, contentType, insecure);
             }, NativeCallOptions.Awaitable));
 
-            builtins.Register(new BuiltinDescriptor("http_delete", 1, 3, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("http_delete", 1, 4, (args, instr) =>
             {
                 string url = args[0]?.ToString() ?? "";
                 Dictionary<string, object> headers = args.Count >= 2 && args[1] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
-                return HttpDeleteAsync(url, headers, timeout);
+                bool insecure = args.Count >= 4 && ParseInsecure(args[3]);
+                return HttpDeleteAsync(url, headers, timeout, insecure);
             }, NativeCallOptions.Awaitable));
 
-            builtins.Register(new BuiltinDescriptor("http_patch", 2, 5, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("http_patch", 2, 6, (args, instr) =>
             {
                 string url = args[0]?.ToString() ?? "";
                 object? body = args[1];
                 Dictionary<string, object> headers = args.Count >= 3 && args[2] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 4 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 100000;
                 string contentType = args.Count >= 5 ? args[4]?.ToString() ?? "text/plain" : "text/plain";
-                return HttpSendWithBodyAsync(HttpMethod.Patch, url, body, headers, timeout, contentType);
+                bool insecure = args.Count >= 6 && ParseInsecure(args[5]);
+                return HttpSendWithBodyAsync(HttpMethod.Patch, url, body, headers, timeout, contentType, insecure);
             }, NativeCallOptions.Awaitable));
 
-            builtins.Register(new BuiltinDescriptor("http_head", 1, 3, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("http_head", 1, 4, (args, instr) =>
             {
                 string url = args[0]?.ToString() ?? "";
                 Dictionary<string, object> headers = args.Count >= 2 && args[1] is Dictionary<string, object> d1 ? d1 : new Dictionary<string, object>();
                 int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
-                return HttpHeadAsync(url, headers, timeout);
+                bool insecure = args.Count >= 4 && ParseInsecure(args[3]);
+                return HttpHeadAsync(url, headers, timeout, insecure);
             }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("http_download", 2, 3, (args, instr) =>
@@ -146,7 +179,7 @@ namespace CFGS.Web.Http
             }));
         }
 
-        private static async Task<object?> HttpGetAsync(string url, Dictionary<string, object> headers, int timeout)
+        private static async Task<object?> HttpGetAsync(string url, Dictionary<string, object> headers, int timeout, bool insecure = false)
         {
             using CancellationTokenSource cts = new(timeout);
             using HttpRequestMessage req = new(HttpMethod.Get, url);
@@ -156,7 +189,7 @@ namespace CFGS.Web.Http
 
             ApplyHeaders(req, headers);
 
-            using HttpResponseMessage resp = await _client
+            using HttpResponseMessage resp = await SelectClient(insecure)
                 .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
                 .ConfigureAwait(false);
 
@@ -164,7 +197,7 @@ namespace CFGS.Web.Http
             return ToVmResponse(resp, body);
         }
 
-        private static async Task<object?> HttpSendWithBodyAsync(HttpMethod method, string url, object? body, Dictionary<string, object> headers, int timeout, string contentType)
+        private static async Task<object?> HttpSendWithBodyAsync(HttpMethod method, string url, object? body, Dictionary<string, object> headers, int timeout, string contentType, bool insecure = false)
         {
             using CancellationTokenSource cts = new(timeout);
             using HttpRequestMessage req = new(method, url);
@@ -172,7 +205,7 @@ namespace CFGS.Web.Http
 
             ApplyHeaders(req, headers);
 
-            using HttpResponseMessage resp = await _client
+            using HttpResponseMessage resp = await SelectClient(insecure)
                 .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
                 .ConfigureAwait(false);
 
@@ -180,7 +213,7 @@ namespace CFGS.Web.Http
             return ToVmResponse(resp, respBody);
         }
 
-        private static async Task<object?> HttpDeleteAsync(string url, Dictionary<string, object> headers, int timeout)
+        private static async Task<object?> HttpDeleteAsync(string url, Dictionary<string, object> headers, int timeout, bool insecure = false)
         {
             using CancellationTokenSource cts = new(timeout);
             using HttpRequestMessage req = new(HttpMethod.Delete, url);
@@ -190,7 +223,7 @@ namespace CFGS.Web.Http
 
             ApplyHeaders(req, headers);
 
-            using HttpResponseMessage resp = await _client
+            using HttpResponseMessage resp = await SelectClient(insecure)
                 .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
                 .ConfigureAwait(false);
 
@@ -198,14 +231,14 @@ namespace CFGS.Web.Http
             return ToVmResponse(resp, respBody);
         }
 
-        private static async Task<object?> HttpHeadAsync(string url, Dictionary<string, object> headers, int timeout)
+        private static async Task<object?> HttpHeadAsync(string url, Dictionary<string, object> headers, int timeout, bool insecure = false)
         {
             using CancellationTokenSource cts = new(timeout);
             using HttpRequestMessage req = new(HttpMethod.Head, url);
 
             ApplyHeaders(req, headers);
 
-            using HttpResponseMessage resp = await _client
+            using HttpResponseMessage resp = await SelectClient(insecure)
                 .SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token)
                 .ConfigureAwait(false);
 
@@ -1465,9 +1498,19 @@ namespace CFGS.Web.Http
 
             private static string FlattenMessage(Exception ex)
             {
+                string self = string.IsNullOrWhiteSpace(ex.Message)
+                    ? "(" + ex.GetType().Name + ": no message)"
+                    : ex.GetType().Name + ": " + ex.Message;
+
+                if (ex is AggregateException agg && agg.InnerExceptions.Count > 0)
+                {
+                    string inner = string.Join(" | ", agg.InnerExceptions.Select(FlattenMessage));
+                    return self + " :: " + inner;
+                }
+
                 if (ex.InnerException == null)
-                    return ex.Message;
-                return ex.Message + " :: " + FlattenMessage(ex.InnerException);
+                    return self;
+                return self + " :: " + FlattenMessage(ex.InnerException);
             }
         }
 
