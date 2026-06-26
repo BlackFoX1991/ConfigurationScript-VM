@@ -1,6 +1,6 @@
-using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.Analytic.Ex;
+using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.VMCore.Plugin;
 
 namespace CFGS_VM.Analytic.Modules
@@ -18,7 +18,12 @@ namespace CFGS_VM.Analytic.Modules
             Constant
         }
 
-        private sealed record NamespaceMemberInfo(string Name, string QualifiedPath, NamespaceMemberKind Kind);
+        private sealed record NamespaceMemberInfo(
+            string Name,
+            string QualifiedPath,
+            NamespaceMemberKind Kind,
+            MemberVisibility Visibility,
+            string DeclaringNamespacePath);
 
         private sealed class RewriteState
         {
@@ -61,18 +66,31 @@ namespace CFGS_VM.Analytic.Modules
                 .OfType<UseNamespaceStmt>()
                 .ToList();
 
-            if (useStatements.Count == 0)
+            bool hasNamespaceDeclarations = resolvedStatements.Any(static stmt => stmt is NamespaceDeclStmt);
+            if (useStatements.Count == 0 && !hasNamespaceDeclarations)
                 return resolvedStatements;
 
             BuildNamespaceModel(resolvedStatements);
             RegisterNamespaceRegistryModel();
             BuildGlobalTopLevelSurfaces(resolvedStatements);
 
-            Dictionary<string, RewriteState> statesByOrigin = useStatements
+            Dictionary<string, List<UseNamespaceStmt>> useStatementsByOrigin = useStatements
                 .GroupBy(static stmt => stmt.OriginFile, StringComparer.Ordinal)
                 .ToDictionary(
                     static group => group.Key,
-                    group => new RewriteState(group.Key, BuildUseLookup(group)),
+                    static group => group.ToList(),
+                    StringComparer.Ordinal);
+
+            Dictionary<string, RewriteState> statesByOrigin = resolvedStatements
+                .Select(static stmt => stmt.OriginFile)
+                .Distinct(StringComparer.Ordinal)
+                .ToDictionary(
+                    origin => origin,
+                    origin => new RewriteState(
+                        origin,
+                        useStatementsByOrigin.TryGetValue(origin, out List<UseNamespaceStmt>? originUseStatements)
+                            ? BuildUseLookup(originUseStatements)
+                            : new Dictionary<string, List<NamespaceMemberInfo>>(StringComparer.Ordinal)),
                     StringComparer.Ordinal);
 
             List<Stmt> rewritten = new(resolvedStatements.Count);
@@ -147,7 +165,7 @@ namespace CFGS_VM.Analytic.Modules
             {
                 string parentPath = string.Join(".", namespaceDecl.Parts.Take(i));
                 string childName = namespaceDecl.Parts[i];
-                AddNamespaceMember(parentPath, childName, $"{parentPath}.{childName}", NamespaceMemberKind.Namespace);
+                AddNamespaceMember(parentPath, childName, $"{parentPath}.{childName}", NamespaceMemberKind.Namespace, MemberVisibility.Public, parentPath);
             }
 
             string fullPath = string.Join(".", namespaceDecl.Parts);
@@ -155,13 +173,13 @@ namespace CFGS_VM.Analytic.Modules
 
             foreach (Stmt bodyStmt in namespaceDecl.BodyStatements)
             {
-                if (!TryGetNamespaceDeclaredMember(bodyStmt, out string? name, out NamespaceMemberKind kind))
+                if (!TryGetNamespaceDeclaredMember(bodyStmt, out string? name, out NamespaceMemberKind kind, out MemberVisibility visibility))
                     continue;
 
                 if (string.IsNullOrWhiteSpace(name))
                     continue;
 
-                AddNamespaceMember(fullPath, name, $"{fullPath}.{name}", kind);
+                AddNamespaceMember(fullPath, name, $"{fullPath}.{name}", kind, visibility, fullPath);
 
                 if (kind is NamespaceMemberKind.Class or NamespaceMemberKind.Interface)
                     _namespaceDeclaredTypeNamesByPath[fullPath].Add(name);
@@ -170,40 +188,47 @@ namespace CFGS_VM.Analytic.Modules
             }
         }
 
-        private static bool TryGetNamespaceDeclaredMember(Stmt stmt, out string? name, out NamespaceMemberKind kind)
+        private static bool TryGetNamespaceDeclaredMember(Stmt stmt, out string? name, out NamespaceMemberKind kind, out MemberVisibility visibility)
         {
             if (stmt is ExportStmt exportStmt)
-                return TryGetNamespaceDeclaredMember(exportStmt.Inner, out name, out kind);
+                return TryGetNamespaceDeclaredMember(exportStmt.Inner, out name, out kind, out visibility);
 
             switch (stmt)
             {
                 case FuncDeclStmt funcDecl:
                     name = funcDecl.Name;
                     kind = NamespaceMemberKind.Function;
+                    visibility = funcDecl.Visibility;
                     return true;
                 case ClassDeclStmt classDecl:
                     name = classDecl.Name;
                     kind = NamespaceMemberKind.Class;
+                    visibility = classDecl.Visibility;
                     return true;
                 case InterfaceDeclStmt interfaceDecl:
                     name = interfaceDecl.Name;
                     kind = NamespaceMemberKind.Interface;
+                    visibility = interfaceDecl.Visibility;
                     return true;
                 case EnumDeclStmt enumDecl:
                     name = enumDecl.Name;
                     kind = NamespaceMemberKind.Enum;
+                    visibility = enumDecl.Visibility;
                     return true;
                 case VarDecl varDecl:
                     name = varDecl.Name;
                     kind = NamespaceMemberKind.Variable;
+                    visibility = varDecl.Visibility;
                     return true;
                 case ConstDecl constDecl:
                     name = constDecl.Name;
                     kind = NamespaceMemberKind.Constant;
+                    visibility = constDecl.Visibility;
                     return true;
                 default:
                     name = null;
                     kind = default;
+                    visibility = MemberVisibility.Public;
                     return false;
             }
         }
@@ -220,10 +245,16 @@ namespace CFGS_VM.Analytic.Modules
                 _namespaceDeclaredTypeNamesByPath[path] = new HashSet<string>(StringComparer.Ordinal);
         }
 
-        private void AddNamespaceMember(string namespacePath, string name, string qualifiedPath, NamespaceMemberKind kind)
+        private void AddNamespaceMember(
+            string namespacePath,
+            string name,
+            string qualifiedPath,
+            NamespaceMemberKind kind,
+            MemberVisibility visibility,
+            string declaringNamespacePath)
         {
             EnsureNamespaceBuckets(namespacePath);
-            _namespaceMembersByPath[namespacePath].TryAdd(name, new NamespaceMemberInfo(name, qualifiedPath, kind));
+            _namespaceMembersByPath[namespacePath].TryAdd(name, new NamespaceMemberInfo(name, qualifiedPath, kind, visibility, declaringNamespacePath));
         }
 
         private void RegisterNamespaceRegistryModel()
@@ -245,12 +276,12 @@ namespace CFGS_VM.Analytic.Modules
             {
                 string parentPath = string.Join(".", parts.Take(i));
                 string childName = parts[i];
-                AddNamespaceMember(parentPath, childName, $"{parentPath}.{childName}", NamespaceMemberKind.Namespace);
+                AddNamespaceMember(parentPath, childName, $"{parentPath}.{childName}", NamespaceMemberKind.Namespace, MemberVisibility.Public, parentPath);
             }
 
             EnsureNamespaceBuckets(descriptor.Path);
             foreach (string member in descriptor.Members)
-                AddNamespaceMember(descriptor.Path, member, $"{descriptor.Path}.{member}", NamespaceMemberKind.Function);
+                AddNamespaceMember(descriptor.Path, member, $"{descriptor.Path}.{member}", NamespaceMemberKind.Function, MemberVisibility.Public, descriptor.Path);
         }
 
         private Dictionary<string, List<NamespaceMemberInfo>> BuildUseLookup(IEnumerable<UseNamespaceStmt> useStatements)
@@ -295,11 +326,11 @@ namespace CFGS_VM.Analytic.Modules
             {
                 ExportStmt exportStmt => new ExportStmt(exportStmt.Name, RewriteStatement(exportStmt.Inner, state), exportStmt.Line, exportStmt.Col, exportStmt.OriginFile),
                 EmptyStmt => stmt,
-                VarDecl varDecl => new VarDecl(varDecl.Name, RewriteNullableExpr(varDecl.Value, state), varDecl.Line, varDecl.Col, varDecl.OriginFile)
+                VarDecl varDecl => CopyNamespaceVisibility(new VarDecl(varDecl.Name, RewriteNullableExpr(varDecl.Value, state), varDecl.Line, varDecl.Col, varDecl.OriginFile)
                 {
                     IsSyntheticNamespaceRoot = varDecl.IsSyntheticNamespaceRoot
-                },
-                ConstDecl constDecl => new ConstDecl(constDecl.Name, RewriteExpr(constDecl.Value, state), constDecl.Line, constDecl.Col, constDecl.OriginFile),
+                }, varDecl),
+                ConstDecl constDecl => CopyNamespaceVisibility(new ConstDecl(constDecl.Name, RewriteExpr(constDecl.Value, state), constDecl.Line, constDecl.Col, constDecl.OriginFile), constDecl),
                 DestructureDeclStmt destructureDecl => new DestructureDeclStmt(
                     RewritePattern(destructureDecl.Pattern, state),
                     RewriteExpr(destructureDecl.Value, state),
@@ -460,7 +491,7 @@ namespace CFGS_VM.Analytic.Modules
             if (TryResolveUsedValueRoot(assignStmt.Name, assignStmt, state, out NamespaceMemberInfo? resolved))
             {
                 return new AssignExprStmt(
-                    BuildQualifiedAccessExpr(resolved!.QualifiedPath, assignStmt),
+                    BuildResolvedNamespaceMemberExpr(resolved!, assignStmt, state.CurrentNamespacePath),
                     value,
                     assignStmt.Line,
                     assignStmt.Col,
@@ -475,7 +506,7 @@ namespace CFGS_VM.Analytic.Modules
             if (TryResolveUsedValueRoot(deleteVar.Name, deleteVar, state, out NamespaceMemberInfo? resolved))
             {
                 return new DeleteExprStmt(
-                    BuildQualifiedAccessExpr(resolved!.QualifiedPath, deleteVar),
+                    BuildResolvedNamespaceMemberExpr(resolved!, deleteVar, state.CurrentNamespacePath),
                     deleteAll: true,
                     deleteVar.Line,
                     deleteVar.Col,
@@ -492,7 +523,7 @@ namespace CFGS_VM.Analytic.Modules
             {
                 return new DeleteExprStmt(
                     new IndexExpr(
-                        BuildQualifiedAccessExpr(resolved!.QualifiedPath, deleteIndex),
+                        BuildResolvedNamespaceMemberExpr(resolved!, deleteIndex, state.CurrentNamespacePath),
                         rewrittenIndex,
                         deleteIndex.Line,
                         deleteIndex.Col,
@@ -658,7 +689,7 @@ namespace CFGS_VM.Analytic.Modules
             try
             {
                 BlockStmt rewrittenBody = RewriteBlock(funcDecl.Body, state);
-                return new FuncDeclStmt(
+                return CopyNamespaceVisibility(new FuncDeclStmt(
                     funcDecl.Name,
                     funcDecl.Parameters,
                     rewrittenBody,
@@ -669,7 +700,7 @@ namespace CFGS_VM.Analytic.Modules
                     funcDecl.OriginFile,
                     funcDecl.IsAsync,
                     parameterSpecs,
-                    explicitInterfaceName);
+                    explicitInterfaceName), funcDecl);
             }
             finally
             {
@@ -715,7 +746,7 @@ namespace CFGS_VM.Analytic.Modules
                     NamespaceMemberKind.Namespace) ?? interfaceName)
                 .ToList();
 
-            return new ClassDeclStmt(
+            return CopyNamespaceVisibility(new ClassDeclStmt(
                 classDecl.Name,
                 methods,
                 properties,
@@ -740,7 +771,7 @@ namespace CFGS_VM.Analytic.Modules
                 new Dictionary<string, MemberVisibility>(classDecl.EnumVisibility, StringComparer.Ordinal),
                 new Dictionary<string, MemberVisibility>(classDecl.NestedClassVisibility, StringComparer.Ordinal),
                 new HashSet<string>(classDecl.ConstFields, StringComparer.Ordinal),
-                new HashSet<string>(classDecl.StaticConstFields, StringComparer.Ordinal));
+                new HashSet<string>(classDecl.StaticConstFields, StringComparer.Ordinal)), classDecl);
         }
 
         private InterfaceDeclStmt RewriteInterfaceDecl(InterfaceDeclStmt interfaceDecl, RewriteState state)
@@ -758,7 +789,7 @@ namespace CFGS_VM.Analytic.Modules
                     NamespaceMemberKind.Namespace) ?? baseName)
                 .ToList();
 
-            return new InterfaceDeclStmt(
+            return CopyNamespaceVisibility(new InterfaceDeclStmt(
                 interfaceDecl.Name,
                 methods,
                 interfaceDecl.Properties,
@@ -766,7 +797,7 @@ namespace CFGS_VM.Analytic.Modules
                 baseInterfaces,
                 interfaceDecl.Line,
                 interfaceDecl.Col,
-                interfaceDecl.OriginFile);
+                interfaceDecl.OriginFile), interfaceDecl);
         }
 
         private InterfaceMethodDecl RewriteInterfaceMethodDecl(InterfaceMethodDecl method, RewriteState state)
@@ -924,13 +955,7 @@ namespace CFGS_VM.Analytic.Modules
                     binaryExpr.OriginFile),
                 UnaryExpr unaryExpr => new UnaryExpr(unaryExpr.Op, RewriteExpr(unaryExpr.Right, state), unaryExpr.Line, unaryExpr.Col, unaryExpr.OriginFile),
                 ArrayExpr arrayExpr => new ArrayExpr(arrayExpr.Elements.Select(element => RewriteExpr(element, state)).ToList(), arrayExpr.Line, arrayExpr.Col, arrayExpr.OriginFile),
-                IndexExpr indexExpr => new IndexExpr(
-                    indexExpr.Target is null ? null : RewriteExpr(indexExpr.Target, state),
-                    indexExpr.Index is null ? null : RewriteExpr(indexExpr.Index, state),
-                    indexExpr.Line,
-                    indexExpr.Col,
-                    indexExpr.OriginFile,
-                    indexExpr.IsDotAccess),
+                IndexExpr indexExpr => RewriteIndexExpr(indexExpr, state),
                 SliceExpr sliceExpr => new SliceExpr(
                     sliceExpr.Target is null ? null : RewriteExpr(sliceExpr.Target, state),
                     RewriteNullableExpr(sliceExpr.Start, state),
@@ -984,6 +1009,32 @@ namespace CFGS_VM.Analytic.Modules
                     methodCallExpr.OriginFile),
                 _ => expr
             };
+        }
+
+        private Expr RewriteIndexExpr(IndexExpr indexExpr, RewriteState state)
+        {
+            Expr? rewrittenTarget = indexExpr.Target is null ? null : RewriteExpr(indexExpr.Target, state);
+            Expr? rewrittenIndex = indexExpr.Index is null ? null : RewriteExpr(indexExpr.Index, state);
+
+            if (rewrittenTarget is not null &&
+                rewrittenIndex is StringExpr memberExpr &&
+                TryResolveQualifiedNamespaceMember(rewrittenTarget, memberExpr.Value, state, out NamespaceMemberInfo? resolved) &&
+                CanUseSyntheticNamespaceBinding(resolved!, state.CurrentNamespacePath))
+            {
+                return new VarExpr(
+                    NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(resolved!.DeclaringNamespacePath, resolved.Name),
+                    indexExpr.Line,
+                    indexExpr.Col,
+                    indexExpr.OriginFile);
+            }
+
+            return new IndexExpr(
+                rewrittenTarget,
+                rewrittenIndex,
+                indexExpr.Line,
+                indexExpr.Col,
+                indexExpr.OriginFile,
+                indexExpr.IsDotAccess);
         }
 
         private FuncExpr RewriteFunctionExpr(FuncExpr funcExpr, RewriteState state)
@@ -1083,7 +1134,7 @@ namespace CFGS_VM.Analytic.Modules
             if (!TryResolveUsedValueRoot(varExpr.Name, varExpr, state, out NamespaceMemberInfo? resolved))
                 return new VarExpr(varExpr.Name, varExpr.Line, varExpr.Col, varExpr.OriginFile);
 
-            return BuildQualifiedAccessExpr(resolved!.QualifiedPath, varExpr);
+            return BuildResolvedNamespaceMemberExpr(resolved!, varExpr, state.CurrentNamespacePath);
         }
 
         private Expr? RewriteNullableExpr(Expr? expr, RewriteState state)
@@ -1094,6 +1145,7 @@ namespace CFGS_VM.Analytic.Modules
             if (string.IsNullOrWhiteSpace(typeName))
                 return typeName;
 
+            string candidateName = typeName;
             string[] parts = typeName.Split('.', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 0)
                 return typeName;
@@ -1102,21 +1154,23 @@ namespace CFGS_VM.Analytic.Modules
             if (IsShadowedTypeRoot(root, state))
                 return typeName;
 
-            if (!TryResolveUseMember(root, node, state, out List<NamespaceMemberInfo>? candidates))
-                return typeName;
+            if (TryResolveUseMember(root, node, state, out List<NamespaceMemberInfo>? candidates))
+            {
+                List<NamespaceMemberInfo> filtered = candidates!
+                    .Where(candidate => allowedRootKinds.Contains(candidate.Kind))
+                    .ToList();
 
-            List<NamespaceMemberInfo> filtered = candidates!
-                .Where(candidate => allowedRootKinds.Contains(candidate.Kind))
-                .ToList();
+                if (filtered.Count > 1)
+                    throw CreateAmbiguousUseException(root, filtered, node);
 
-            if (filtered.Count == 0)
-                return typeName;
+                if (filtered.Count == 1)
+                {
+                    string suffix = parts.Length > 1 ? "." + string.Join(".", parts.Skip(1)) : string.Empty;
+                    candidateName = filtered[0].QualifiedPath + suffix;
+                }
+            }
 
-            if (filtered.Count > 1)
-                throw CreateAmbiguousUseException(root, filtered, node);
-
-            string suffix = parts.Length > 1 ? "." + string.Join(".", parts.Skip(1)) : string.Empty;
-            return filtered[0].QualifiedPath + suffix;
+            return candidateName;
         }
 
         private bool TryResolveUsedValueRoot(string name, Node node, RewriteState state, out NamespaceMemberInfo? resolved)
@@ -1142,7 +1196,14 @@ namespace CFGS_VM.Analytic.Modules
             if (!state.UseLookup.TryGetValue(name, out List<NamespaceMemberInfo>? bucket) || bucket.Count == 0)
                 return false;
 
-            candidates = bucket;
+            List<NamespaceMemberInfo> visible = bucket
+                .Where(candidate => IsNamespaceMemberAccessible(candidate, state.CurrentNamespacePath))
+                .ToList();
+
+            if (visible.Count == 0)
+                throw CreateInaccessibleUseException(name, bucket, node);
+
+            candidates = visible;
             return true;
         }
 
@@ -1207,6 +1268,16 @@ namespace CFGS_VM.Analytic.Modules
                 node.OriginFile);
         }
 
+        private static ParserException CreateInaccessibleUseException(string name, IEnumerable<NamespaceMemberInfo> candidates, Node node)
+        {
+            string targets = string.Join(", ", candidates.Select(candidate => $"'{candidate.QualifiedPath}' ({VisibilityLabel(candidate.Visibility)})"));
+            return new ParserException(
+                $"inaccessible use reference '{name}': matches {targets}",
+                node.Line,
+                node.Col,
+                node.OriginFile);
+        }
+
         private static Expr BuildQualifiedAccessExpr(string qualifiedPath, Node node)
         {
             string[] parts = qualifiedPath.Split('.', StringSplitOptions.RemoveEmptyEntries);
@@ -1217,6 +1288,23 @@ namespace CFGS_VM.Analytic.Modules
             }
 
             return expr;
+        }
+
+        private static Expr BuildResolvedNamespaceMemberExpr(
+            NamespaceMemberInfo member,
+            Node node,
+            string? currentNamespacePath)
+        {
+            if (CanUseSyntheticNamespaceBinding(member, currentNamespacePath))
+            {
+                return new VarExpr(
+                    NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(member.DeclaringNamespacePath, member.Name),
+                    node.Line,
+                    node.Col,
+                    node.OriginFile);
+            }
+
+            return BuildQualifiedAccessExpr(member.QualifiedPath, node);
         }
 
         private static void PushFunctionScope(RewriteState state, IEnumerable<string> parameters)
@@ -1246,6 +1334,77 @@ namespace CFGS_VM.Analytic.Modules
         private static bool IsSpecialIdentifier(string name)
             => name is "this" or "type" or "super" or "outer" or "field";
 
+        private bool TryResolveQualifiedNamespaceMember(
+            Expr target,
+            string memberName,
+            RewriteState state,
+            out NamespaceMemberInfo? resolved)
+        {
+            resolved = null;
+            return TryResolveKnownNamespacePathFromExpr(target, state.CurrentLocals, out string namespacePath) &&
+                _namespaceMembersByPath.TryGetValue(namespacePath, out Dictionary<string, NamespaceMemberInfo>? members) &&
+                members.TryGetValue(memberName, out resolved);
+        }
+
+        private bool TryResolveKnownNamespacePathFromExpr(Expr expr, ISet<string> currentLocals, out string namespacePath)
+        {
+            switch (expr)
+            {
+                case VarExpr variableExpr:
+                    namespacePath = variableExpr.Name;
+                    return !currentLocals.Contains(variableExpr.Name) && _namespaceMembersByPath.ContainsKey(namespacePath);
+
+                case IndexExpr { Target: not null, Index: StringExpr segment } indexExpr:
+                    if (!TryResolveKnownNamespacePathFromExpr(indexExpr.Target, currentLocals, out string prefix))
+                    {
+                        namespacePath = string.Empty;
+                        return false;
+                    }
+
+                    namespacePath = $"{prefix}.{segment.Value}";
+                    return _namespaceMembersByPath.ContainsKey(namespacePath);
+
+                default:
+                    namespacePath = string.Empty;
+                    return false;
+            }
+        }
+
+        private static bool CanUseSyntheticNamespaceBinding(NamespaceMemberInfo member, string? currentNamespacePath)
+            => member.Kind != NamespaceMemberKind.Namespace &&
+                NamespaceRuntimeBindingNames.UsesSyntheticBinding(member.Visibility) &&
+                IsNamespaceMemberAccessible(member, currentNamespacePath);
+
+        private static bool IsNamespaceMemberAccessible(NamespaceMemberInfo candidate, string? currentNamespacePath)
+        {
+            return candidate.Visibility switch
+            {
+                MemberVisibility.Public => true,
+                MemberVisibility.Private => string.Equals(currentNamespacePath, candidate.DeclaringNamespacePath, StringComparison.Ordinal),
+                MemberVisibility.Protected => IsSameOrChildNamespace(currentNamespacePath, candidate.DeclaringNamespacePath),
+                _ => true
+            };
+        }
+
+        private static bool IsSameOrChildNamespace(string? currentNamespacePath, string declaringNamespacePath)
+        {
+            if (string.IsNullOrWhiteSpace(currentNamespacePath) || string.IsNullOrWhiteSpace(declaringNamespacePath))
+                return false;
+
+            return string.Equals(currentNamespacePath, declaringNamespacePath, StringComparison.Ordinal) ||
+                currentNamespacePath.StartsWith(declaringNamespacePath + ".", StringComparison.Ordinal);
+        }
+
+        private static string VisibilityLabel(MemberVisibility visibility)
+        {
+            return visibility switch
+            {
+                MemberVisibility.Private => "private",
+                MemberVisibility.Protected => "protected",
+                _ => "public"
+            };
+        }
+
         private static IEnumerable<string> CollectPatternBindingNames(MatchPattern pattern)
         {
             switch (pattern)
@@ -1270,6 +1429,15 @@ namespace CFGS_VM.Analytic.Modules
                     }
                     yield break;
             }
+        }
+
+        private static T CopyNamespaceVisibility<T>(T clone, Stmt source)
+            where T : Stmt
+        {
+            if (NamespaceMemberVisibilityFacts.TryGet(source, out MemberVisibility visibility, out bool hasExplicitVisibility))
+                NamespaceMemberVisibilityFacts.TryApply(clone, visibility, hasExplicitVisibility);
+
+            return clone;
         }
     }
 }

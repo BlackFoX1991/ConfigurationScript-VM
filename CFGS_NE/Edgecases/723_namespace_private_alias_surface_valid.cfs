@@ -1,0 +1,18 @@
+import "edge_assert.cfs";
+
+edge_begin("723_namespace_private_alias_surface_valid");
+
+namespace Access.HiddenAlias {
+    private const secret = 42;
+    public const visible = 7;
+}
+
+func main() {
+    var ns = Access.HiddenAlias;
+    edge_eq("public_member_available", ns["visible"], 7);
+    edge_true("private_member_hidden", ns["secret"] == null);
+}
+
+main();
+
+edge_finish("723_namespace_private_alias_surface_valid");

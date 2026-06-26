@@ -507,6 +507,14 @@ namespace CFGS_VM.VMCore
 
             if (!usedOuterBinding)
             {
+                if (TryEmitHiddenNamespaceRuntimeValueLoad(ne.ClassName, ne))
+                {
+                    usedOuterBinding = true;
+                }
+            }
+
+            if (!usedOuterBinding)
+            {
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, parts[0], ne.Line, ne.Col, ne.OriginFile));
                 for (int i = 1; i < parts.Length; i++)
                 {

@@ -1,3 +1,4 @@
+using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.Analytic.Tokens;
 
@@ -16,11 +17,11 @@ namespace CFGS_VM.Analytic.Lowering
             return stmt switch
             {
                 EmptyStmt => stmt,
-                VarDecl v => new VarDecl(v.Name, LowerNullableExpr(v.Value), v.Line, v.Col, v.OriginFile)
+                VarDecl v => CopyNamespaceVisibility(new VarDecl(v.Name, LowerNullableExpr(v.Value), v.Line, v.Col, v.OriginFile)
                 {
                     IsSyntheticNamespaceRoot = v.IsSyntheticNamespaceRoot
-                },
-                ConstDecl c => new ConstDecl(c.Name, LowerExpr(c.Value), c.Line, c.Col, c.OriginFile),
+                }, v),
+                ConstDecl c => CopyNamespaceVisibility(new ConstDecl(c.Name, LowerExpr(c.Value), c.Line, c.Col, c.OriginFile), c),
                 DestructureDeclStmt d => new DestructureDeclStmt(LowerPattern(d.Pattern), LowerExpr(d.Value), d.IsConst, d.Line, d.Col, d.OriginFile),
                 DestructureAssignStmt d => new DestructureAssignStmt(LowerPattern(d.Pattern), LowerExpr(d.Value), d.Line, d.Col, d.OriginFile),
                 ExportStmt e => new ExportStmt(e.Name, LowerStatement(e.Inner), e.Line, e.Col, e.OriginFile),
@@ -81,8 +82,8 @@ namespace CFGS_VM.Analytic.Lowering
                 ReturnStmt r => new ReturnStmt(LowerNullableExpr(r.Value), r.Line, r.Col, r.OriginFile),
                 FuncDeclStmt f => LowerFunctionDecl(f),
                 ClassDeclStmt c => LowerClassDecl(c),
-                InterfaceDeclStmt => stmt,
-                EnumDeclStmt => stmt,
+                InterfaceDeclStmt i => CopyNamespaceVisibility(i, i),
+                EnumDeclStmt e => CopyNamespaceVisibility(e, e),
                 NamespaceDeclStmt n => new NamespaceDeclStmt(n.Parts, LowerStatementList(n.BodyStatements), n.Line, n.Col, n.OriginFile, n.IsFileScoped),
                 UseNamespaceStmt => stmt,
                 NamespaceImportAliasStmt => stmt,
@@ -103,7 +104,7 @@ namespace CFGS_VM.Analytic.Lowering
                 loweredBody = CopyBlock(loweredBody, combined);
             }
 
-            return new FuncDeclStmt(
+            return CopyNamespaceVisibility(new FuncDeclStmt(
                 stmt.Name,
                 stmt.Parameters,
                 loweredBody,
@@ -113,7 +114,7 @@ namespace CFGS_VM.Analytic.Lowering
                 stmt.Col,
                 stmt.OriginFile,
                 stmt.IsAsync,
-                parameterSpecs: new List<FunctionParameterSpec>(stmt.ParameterSpecs));
+                parameterSpecs: new List<FunctionParameterSpec>(stmt.ParameterSpecs)), stmt);
         }
 
         private FuncExpr LowerFunctionExpr(FuncExpr expr)
@@ -152,7 +153,7 @@ namespace CFGS_VM.Analytic.Lowering
                 pair => LowerNullableExpr(pair.Value),
                 StringComparer.Ordinal);
 
-            return new ClassDeclStmt(
+            return CopyNamespaceVisibility(new ClassDeclStmt(
                 stmt.Name,
                 stmt.Methods.Select(LowerFunctionDecl).ToList(),
                 stmt.Properties.Select(LowerPropertyDecl).ToList(),
@@ -177,7 +178,7 @@ namespace CFGS_VM.Analytic.Lowering
                 new Dictionary<string, MemberVisibility>(stmt.EnumVisibility, StringComparer.Ordinal),
                 new Dictionary<string, MemberVisibility>(stmt.NestedClassVisibility, StringComparer.Ordinal),
                 new HashSet<string>(stmt.ConstFields, StringComparer.Ordinal),
-                new HashSet<string>(stmt.StaticConstFields, StringComparer.Ordinal));
+                new HashSet<string>(stmt.StaticConstFields, StringComparer.Ordinal)), stmt);
         }
 
         private PropertyDeclStmt LowerPropertyDecl(PropertyDeclStmt stmt)
@@ -225,6 +226,15 @@ namespace CFGS_VM.Analytic.Lowering
                 IsFunctionBody = block.IsFunctionBody,
                 IsNamespaceScope = block.IsNamespaceScope
             };
+        }
+
+        private static T CopyNamespaceVisibility<T>(T clone, Stmt source)
+            where T : Stmt
+        {
+            if (NamespaceMemberVisibilityFacts.TryGet(source, out MemberVisibility visibility, out bool hasExplicitVisibility))
+                NamespaceMemberVisibilityFacts.TryApply(clone, visibility, hasExplicitVisibility);
+
+            return clone;
         }
 
         private List<Stmt> BuildParamInitializers(IEnumerable<FunctionParameterSpec> parameterSpecs)

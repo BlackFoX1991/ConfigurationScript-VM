@@ -57,6 +57,36 @@ namespace CFGS_VM.Analytic.Core
         private Stmt ParseNamespaceBodyStatement()
         {
             int startTokenIndex = MarkNodeStart();
+            if (_current.Type == TokenType.Public || _current.Type == TokenType.Private || _current.Type == TokenType.Protected)
+            {
+                MemberVisibility visibility = ParseMemberVisibility(_current.Type);
+                int line = _current.Line;
+                int col = _current.Column;
+                string file = _current.Filename;
+                Advance();
+
+                if (_current.Type == TokenType.Public || _current.Type == TokenType.Private || _current.Type == TokenType.Protected)
+                {
+                    throw new ParserException(
+                        "duplicate access modifier in namespace member declaration",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+                }
+
+                if (!TryParseModuleScopeStatement(out Stmt visibleStmt) ||
+                    !NamespaceMemberVisibilityFacts.TryApply(visibleStmt, visibility, hasExplicitVisibility: true))
+                {
+                    throw new ParserException(
+                        "namespace visibility modifiers support only var/const/func(async func)/class/interface/enum declarations",
+                        line,
+                        col,
+                        file);
+                }
+
+                return StampNode(visibleStmt, startTokenIndex);
+            }
+
             if (_current.Type == TokenType.Export)
                 throw new ParserException(
                     "export is not allowed inside namespace body",

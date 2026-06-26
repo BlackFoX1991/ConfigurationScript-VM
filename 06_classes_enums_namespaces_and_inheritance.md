@@ -859,6 +859,23 @@ print(box is Box);
 `use App.Core.Tools;` brings the direct members of that namespace into unqualified lookup.
 `use App.Core;` also makes direct child namespaces of `App.Core` available, so `Math.plus(...)` works without writing `App.Core.Math.plus(...)`.
 
+Namespace members can also declare visibility.
+
+```cfs
+namespace App.Core {
+    private func secret() { return 1; }
+    protected func childOnly() { return 2; }
+    public func open() { return 3; }
+}
+```
+
+- `private` namespace members are visible only inside the same namespace path.
+- `protected` namespace members are visible inside the same namespace path and its child namespaces.
+- `public` namespace members are visible everywhere.
+- This applies to namespace functions, classes, interfaces, enums, variables, and constants.
+- `use` imports only members that are visible from the current namespace context.
+- Namespace value objects expose only the public surface. Non-public members stay available only through statically known namespace lookup inside allowed namespace contexts.
+
 File-scoped namespace syntax is also supported.
 
 ```cfs
@@ -891,6 +908,8 @@ Important practical notes.
 - Ambiguous names from multiple `use` directives fail on first actual reference.
 - `use` currently shortens expression-side lookup such as calls, `new`, `is`, and child-namespace access.
 - Namespace bodies may contain functions, classes, interfaces, enums, variables, and constants.
+- Known namespace members use dot access; bracket access is for indexable values, not for namespace lookup.
+- If you alias a namespace value, only its public members are present on that value.
 - In file-scoped namespaces, the same declaration-only rule applies to the rest of the file.
 - `import` is not allowed inside a namespace body.
 - `use` is not allowed inside a namespace body.

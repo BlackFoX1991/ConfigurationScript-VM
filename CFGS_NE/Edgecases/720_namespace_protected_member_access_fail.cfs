@@ -1,0 +1,7 @@
+namespace Access.Protected {
+    protected func childOnly() {
+        return 1;
+    }
+}
+
+var leak = Access.Protected.childOnly();

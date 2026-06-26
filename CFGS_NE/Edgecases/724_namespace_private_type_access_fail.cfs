@@ -1,0 +1,6 @@
+namespace Access.HiddenTypes {
+    private class SecretBox {
+    }
+}
+
+var box = new Access.HiddenTypes.SecretBox();

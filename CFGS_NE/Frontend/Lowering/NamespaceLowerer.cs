@@ -1,5 +1,6 @@
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.Analytic.Tokens;
+using CFGS_VM.Analytic.Semantics;
 
 namespace CFGS_VM.Analytic.Lowering
 {
@@ -40,8 +41,22 @@ namespace CFGS_VM.Analytic.Lowering
         private List<Stmt> LowerNamespaceDecl(NamespaceDeclStmt stmt, HashSet<string> knownTopLevelNames)
         {
             List<string> parts = stmt.Parts;
+            string namespacePath = string.Join(".", parts);
             bool declareRoot = !knownTopLevelNames.Contains(parts[0]);
             List<Stmt> namespaceStmts = BuildNamespaceEnsurePathStmts(parts, declareRoot, stmt.Line, stmt.Col, stmt.OriginFile);
+
+            foreach (Stmt bodyStmt in stmt.BodyStatements)
+            {
+                if (!TryGetSyntheticNamespaceBinding(bodyStmt, namespacePath, out string hiddenBindingName))
+                    continue;
+
+                namespaceStmts.Add(new VarDecl(
+                    hiddenBindingName,
+                    new NullExpr(bodyStmt.Line, bodyStmt.Col, bodyStmt.OriginFile),
+                    bodyStmt.Line,
+                    bodyStmt.Col,
+                    bodyStmt.OriginFile));
+            }
 
             Expr namespaceExpr = BuildQualifiedAccessExpr(parts, stmt.Line, stmt.Col, stmt.OriginFile);
             string namespaceTemp = $"__ns_scope_{_namespaceScopeCounter++}";
@@ -55,6 +70,17 @@ namespace CFGS_VM.Analytic.Lowering
             {
                 if (!TryGetNamedTopLevel(bodyStmt, out string? name) || string.IsNullOrWhiteSpace(name))
                     continue;
+
+                if (TryGetSyntheticNamespaceBinding(bodyStmt, namespacePath, out string hiddenBindingName))
+                {
+                    scopedBody.Add(new AssignStmt(
+                        hiddenBindingName,
+                        new VarExpr(name, bodyStmt.Line, bodyStmt.Col, bodyStmt.OriginFile),
+                        bodyStmt.Line,
+                        bodyStmt.Col,
+                        bodyStmt.OriginFile));
+                    continue;
+                }
 
                 IndexExpr target = new(
                     new VarExpr(namespaceTemp, bodyStmt.Line, bodyStmt.Col, bodyStmt.OriginFile),
@@ -118,6 +144,21 @@ namespace CFGS_VM.Analytic.Lowering
                     name = null;
                     return false;
             }
+        }
+
+        private static bool TryGetSyntheticNamespaceBinding(Stmt stmt, string namespacePath, out string bindingName)
+        {
+            bindingName = string.Empty;
+            if (!TryGetNamedTopLevel(stmt, out string? name) ||
+                string.IsNullOrWhiteSpace(name) ||
+                !NamespaceMemberVisibilityFacts.TryGet(stmt, out MemberVisibility visibility, out _) ||
+                !NamespaceRuntimeBindingNames.UsesSyntheticBinding(visibility))
+            {
+                return false;
+            }
+
+            bindingName = NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(namespacePath, name);
+            return true;
         }
 
         private static List<Stmt> BuildNamespaceAliasStmts(string alias, IEnumerable<string> names, int line, int col, string file)

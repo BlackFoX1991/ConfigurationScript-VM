@@ -1,0 +1,66 @@
+import "edge_assert.cfs";
+
+edge_begin("718_namespace_member_visibility_valid");
+
+namespace Access.Control{
+    private func secretValue(){
+        return 11;
+    }
+
+    protected func childValue(){
+        return 22;
+    }
+
+    public func publicValue(){
+        return 33;
+    }
+
+    private class HiddenBox(){
+        public static func make(){
+            return 101;
+        }
+    }
+
+    protected class ChildBox(){
+        public static func make(){
+            return 202;
+        }
+    }
+
+    protected interface IChildContract{
+        func run();
+    }
+}
+
+namespace Access.Control{
+    public func sameNamespaceChecks(){
+        edge_eq("same_ns_private_func", Access.Control.secretValue(), 11);
+        edge_eq("same_ns_protected_func", Access.Control.childValue(), 22);
+        edge_eq("same_ns_private_class", Access.Control.HiddenBox.make(), 101);
+        edge_eq("same_ns_protected_class", Access.Control.ChildBox.make(), 202);
+        return 1;
+    }
+}
+
+namespace Access.Control.Child{
+    public class Runner() : Access.Control.IChildContract{
+        func run(){
+            return Access.Control.childValue();
+        }
+    }
+
+    public func check(){
+        var runner = new Runner();
+        edge_eq("child_ns_protected_func", Access.Control.childValue(), 22);
+        edge_eq("child_ns_public_func", Access.Control.publicValue(), 33);
+        edge_eq("child_ns_protected_class", Access.Control.ChildBox.make(), 202);
+        edge_true("child_ns_protected_interface", runner is Access.Control.IChildContract);
+        edge_eq("child_ns_runner", runner.run(), 22);
+        return 1;
+    }
+}
+
+Access.Control.sameNamespaceChecks();
+Access.Control.Child.check();
+
+edge_finish("718_namespace_member_visibility_valid");

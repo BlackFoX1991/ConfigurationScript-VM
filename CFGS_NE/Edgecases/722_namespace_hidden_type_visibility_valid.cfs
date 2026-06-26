@@ -1,0 +1,32 @@
+import "edge_assert.cfs";
+
+edge_begin("722_namespace_hidden_type_visibility_valid");
+
+namespace Access.HiddenTypes {
+    protected class SecretBox {
+        func label() {
+            return "secret";
+        }
+    }
+
+    func create_local() {
+        var box = new Access.HiddenTypes.SecretBox();
+        return box.label();
+    }
+}
+
+namespace Access.HiddenTypes.Child {
+    func create_child() {
+        var box = new Access.HiddenTypes.SecretBox();
+        return box.label();
+    }
+}
+
+func main() {
+    edge_eq("same_namespace_hidden_type", Access.HiddenTypes.create_local(), "secret");
+    edge_eq("child_namespace_hidden_type", Access.HiddenTypes.Child.create_child(), "secret");
+}
+
+main();
+
+edge_finish("722_namespace_hidden_type_visibility_valid");

@@ -1,0 +1,7 @@
+namespace Access.Private {
+    private func secret() {
+        return 1;
+    }
+}
+
+var leak = Access.Private.secret();

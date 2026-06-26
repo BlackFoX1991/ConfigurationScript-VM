@@ -384,7 +384,19 @@ Namespaces group declarations under qualified names.
 
 Namespace declarations with the same qualified path may merge when allowed by the namespace rules.
 
+Namespace body declarations MAY use `public`, `private`, or `protected` visibility modifiers.
+
 Namespace members are resolved through qualified dot paths.
+
+Known namespace members MUST use dot access and MUST NOT rely on bracket access as namespace lookup.
+
+Namespace visibility is defined relative to the declaring namespace path:
+
+- `public` members are visible everywhere,
+- `private` members are visible only inside the same namespace path,
+- `protected` members are visible inside the same namespace path and descendant namespace paths.
+
+Namespace value objects MUST expose only public members. Accessible non-public members are resolved through statically known namespace references inside allowed namespace contexts.
 
 `use namespace` imports visible namespace members into resolution scope.
 

@@ -1,6 +1,7 @@
 using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
+using CFGS_VM.Analytic.Semantics;
 
 namespace CFGS_VM.Analytic.Core
 {
@@ -53,6 +54,7 @@ namespace CFGS_VM.Analytic.Core
 
         private void Advance()
         {
+            ValidateReservedUserIdentifierToken(_current);
             _cursor.Advance();
         }
 
@@ -113,7 +115,9 @@ namespace CFGS_VM.Analytic.Core
 
         private Token Expect(TokenType type, string? message = null)
         {
-            return _cursor.Expect(type, message);
+            Token token = _cursor.Expect(type, message);
+            ValidateReservedUserIdentifierToken(token);
+            return token;
         }
 
         private ParserException ErrorAtCurrent(string message)
@@ -124,6 +128,9 @@ namespace CFGS_VM.Analytic.Core
 
         private void Eat(TokenType type)
         {
+            if (_current.Type == type)
+                ValidateReservedUserIdentifierToken(_current);
+
             _cursor.Eat(type);
         }
 
@@ -151,6 +158,23 @@ namespace CFGS_VM.Analytic.Core
             target.SyntaxStartTokenIndex = source.SyntaxStartTokenIndex;
             target.SyntaxEndTokenIndex = source.SyntaxEndTokenIndex;
             return target;
+        }
+
+        private static void ValidateReservedUserIdentifierToken(Token token)
+        {
+            if (token.Type != TokenType.Ident)
+                return;
+
+            string name = token.Value?.ToString() ?? string.Empty;
+            if (!NamespaceRuntimeBindingNames.IsReservedUserIdentifier(name))
+                return;
+
+            throw new ParserException(
+                $"reserved name '{name}' cannot be used as identifier",
+                token.Line,
+                token.Column,
+                token.Filename,
+                token.Length);
         }
     }
 }

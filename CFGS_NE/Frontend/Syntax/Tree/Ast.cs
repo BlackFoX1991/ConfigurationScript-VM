@@ -416,6 +416,16 @@ namespace CFGS_VM.Analytic.Tree
         public Expr? Value;
 
         /// <summary>
+        /// Gets or sets the declared visibility when this variable appears as a namespace member.
+        /// </summary>
+        public MemberVisibility Visibility { get; set; } = MemberVisibility.Public;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether this variable used an explicit visibility modifier.
+        /// </summary>
+        public bool HasExplicitVisibility { get; set; }
+
+        /// <summary>
         /// Gets or sets a value indicating whether this declaration is a synthetic namespace root created during lowering.
         /// </summary>
         public bool IsSyntheticNamespaceRoot { get; set; }
@@ -439,6 +449,16 @@ namespace CFGS_VM.Analytic.Tree
         public string Name;
 
         public Expr Value;
+
+        /// <summary>
+        /// Gets or sets the declared visibility when this constant appears as a namespace member.
+        /// </summary>
+        public MemberVisibility Visibility { get; set; } = MemberVisibility.Public;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether this constant used an explicit visibility modifier.
+        /// </summary>
+        public bool HasExplicitVisibility { get; set; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ConstDecl"/> class.
@@ -1479,6 +1499,16 @@ namespace CFGS_VM.Analytic.Tree
         /// Gets or sets the original interface member declarations in source order for tooling scenarios such as formatting.
         /// </summary>
         public List<Node> SyntaxMembers { get; set; } = new();
+
+        /// <summary>
+        /// Gets or sets the declared visibility when this interface appears as a namespace member.
+        /// </summary>
+        public MemberVisibility Visibility { get; set; } = MemberVisibility.Public;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether this interface used an explicit visibility modifier.
+        /// </summary>
+        public bool HasExplicitVisibility { get; set; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="InterfaceDeclStmt"/> class.

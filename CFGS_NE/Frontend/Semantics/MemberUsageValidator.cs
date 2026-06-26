@@ -10,7 +10,9 @@ namespace CFGS_VM.Analytic.Semantics
         private static readonly HashSet<string> EmptyLocals = new(StringComparer.Ordinal);
         private readonly Compiler _compiler = compiler;
         private readonly MemberAccessRules _memberAccessRules = new();
+        private readonly NamespaceAccessRules _namespaceAccessRules = new();
         private readonly Stack<HashSet<string>> _localVarsStack = new();
+        private readonly Stack<string> _namespacePathStack = new();
         private ClassDeclStmt? _currentClassDecl;
         private bool _currentMethodIsStatic;
         private ReceiverContextKind _receiverContext;
@@ -18,9 +20,11 @@ namespace CFGS_VM.Analytic.Semantics
         private bool _currentPropertyHasBackingField;
 
         private ISet<string> CurrentLocals => _localVarsStack.Count > 0 ? _localVarsStack.Peek() : EmptyLocals;
+        private string? CurrentNamespacePath => _namespacePathStack.Count > 0 ? _namespacePathStack.Peek() : null;
 
         public void Validate(IEnumerable<Stmt> statements)
         {
+            _namespaceAccessRules.Build(statements);
             foreach (Stmt stmt in statements)
                 ValidateStatement(stmt);
         }
@@ -37,8 +41,11 @@ namespace CFGS_VM.Analytic.Semantics
                 case BreakStmt:
                 case ContinueStmt:
                 case DeleteVarStmt:
-                case InterfaceDeclStmt:
                 case EnumDeclStmt:
+                    return;
+
+                case InterfaceDeclStmt interfaceDecl:
+                    ValidateInterfaceDecl(interfaceDecl);
                     return;
 
                 case ExprStmt exprStmt:
@@ -211,6 +218,22 @@ namespace CFGS_VM.Analytic.Semantics
                     return;
 
                 case BlockStmt block:
+                    if (Compiler.TryGetNamespaceScopePath(block, out string namespacePath))
+                    {
+                        _namespacePathStack.Push(namespacePath);
+                        try
+                        {
+                            foreach (Stmt inner in block.Statements)
+                                ValidateStatement(inner);
+                        }
+                        finally
+                        {
+                            _namespacePathStack.Pop();
+                        }
+
+                        return;
+                    }
+
                     foreach (Stmt inner in block.Statements)
                         ValidateStatement(inner);
                     return;
@@ -229,6 +252,21 @@ namespace CFGS_VM.Analytic.Semantics
 
             try
             {
+                _namespaceAccessRules.ValidateQualifiedTypeAccess(
+                    classDecl.BaseName,
+                    CurrentNamespacePath,
+                    classDecl,
+                    NamespaceAccessRules.NamespaceSymbolKind.Class);
+
+                foreach (string interfaceName in classDecl.ImplementedInterfaces)
+                {
+                    _namespaceAccessRules.ValidateQualifiedTypeAccess(
+                        interfaceName,
+                        CurrentNamespacePath,
+                        classDecl,
+                        NamespaceAccessRules.NamespaceSymbolKind.Interface);
+                }
+
                 foreach (Expr baseCtorArg in classDecl.BaseCtorArgs)
                     ValidateExpr(baseCtorArg);
 
@@ -265,6 +303,21 @@ namespace CFGS_VM.Analytic.Semantics
                 _currentMethodIsStatic = previousMethodIsStatic;
                 _receiverContext = previousReceiverContext;
             }
+        }
+
+        private void ValidateInterfaceDecl(InterfaceDeclStmt interfaceDecl)
+        {
+            foreach (string baseInterface in interfaceDecl.BaseInterfaces)
+            {
+                _namespaceAccessRules.ValidateQualifiedTypeAccess(
+                    baseInterface,
+                    CurrentNamespacePath,
+                    interfaceDecl,
+                    NamespaceAccessRules.NamespaceSymbolKind.Interface);
+            }
+
+            foreach (InterfaceMethodDecl method in interfaceDecl.Methods)
+                ValidateInterfaceMethodDecl(method);
         }
 
         private void ValidateClassProperty(PropertyDeclStmt propertyDecl, ClassDeclStmt classDecl, bool isStaticProperty)
@@ -364,6 +417,12 @@ namespace CFGS_VM.Analytic.Semantics
             ReceiverContextKind previousReceiverContext = _receiverContext;
             _receiverContext = ReceiverContextKind.None;
 
+            _namespaceAccessRules.ValidateQualifiedTypeAccess(
+                funcDecl.ExplicitInterfaceName,
+                CurrentNamespacePath,
+                funcDecl,
+                NamespaceAccessRules.NamespaceSymbolKind.Interface);
+
             foreach (string parameterName in funcDecl.Parameters)
                 ValidatePropertyFieldBindingName(parameterName, funcDecl);
 
@@ -383,6 +442,40 @@ namespace CFGS_VM.Analytic.Semantics
             finally
             {
                 _localVarsStack.Pop();
+                _receiverContext = previousReceiverContext;
+            }
+        }
+
+        private void ValidateInterfaceMethodDecl(InterfaceMethodDecl method)
+        {
+            bool previousMethodIsStatic = _currentMethodIsStatic;
+            ReceiverContextKind previousReceiverContext = _receiverContext;
+            _currentMethodIsStatic = method.IsStatic;
+            _receiverContext = method.IsStatic ? ReceiverContextKind.StaticMethod : ReceiverContextKind.InstanceMethod;
+
+            HashSet<string> locals = new(method.Parameters, StringComparer.Ordinal)
+            {
+                method.IsStatic ? "type" : "this"
+            };
+
+            _localVarsStack.Push(locals);
+            try
+            {
+                foreach (FunctionParameterSpec parameter in method.ParameterSpecs)
+                {
+                    if (parameter.DestructurePattern is not null)
+                        ValidatePattern(parameter.DestructurePattern);
+                    if (parameter.DefaultValue is not null)
+                        ValidateExpr(parameter.DefaultValue);
+                }
+
+                if (method.Body is not null)
+                    ValidateStatement(method.Body);
+            }
+            finally
+            {
+                _localVarsStack.Pop();
+                _currentMethodIsStatic = previousMethodIsStatic;
                 _receiverContext = previousReceiverContext;
             }
         }
@@ -468,6 +561,12 @@ namespace CFGS_VM.Analytic.Semantics
                     return;
 
                 case NewExpr newExpr:
+                    _namespaceAccessRules.ValidateQualifiedTypeAccess(
+                        newExpr.ClassName,
+                        CurrentNamespacePath,
+                        newExpr,
+                        NamespaceAccessRules.NamespaceSymbolKind.Class);
+
                     foreach (Expr arg in newExpr.Args)
                         ValidateExpr(arg);
                     foreach ((string _, Expr Value) init in newExpr.Initializers)
@@ -640,6 +739,8 @@ namespace CFGS_VM.Analytic.Semantics
             string memberName = memberExpr.Value;
             if (string.IsNullOrWhiteSpace(memberName))
                 return;
+
+            _namespaceAccessRules.ValidateExplicitMemberAccess(indexExpr, CurrentLocals, CurrentNamespacePath);
 
             if (!indexExpr.IsDotAccess)
             {

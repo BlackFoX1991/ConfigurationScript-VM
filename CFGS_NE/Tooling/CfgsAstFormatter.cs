@@ -421,7 +421,7 @@ internal static class CfgsAstFormatter
             AppendLine();
         }
 
-        private void WriteClassDeclaration(ClassDeclStmt classDecl, bool exported)
+        private void WriteClassDeclaration(ClassDeclStmt classDecl, bool exported, bool includeNamespaceVisibility = false)
         {
             if (classDecl.SyntaxMembers.Count == 0 &&
                 (classDecl.Fields.Count > 0 ||
@@ -439,7 +439,7 @@ internal static class CfgsAstFormatter
             WriteIndent();
             if (exported)
                 _sb.Append("export ");
-            if (classDecl.IsNested)
+            if (classDecl.IsNested || includeNamespaceVisibility)
                 WriteVisibilityPrefix(classDecl.Visibility, classDecl.HasExplicitVisibility);
 
             _sb.Append("class ");
@@ -515,7 +515,7 @@ internal static class CfgsAstFormatter
             AppendLine();
         }
 
-        private void WriteInterfaceDeclaration(InterfaceDeclStmt interfaceDecl, bool exported)
+        private void WriteInterfaceDeclaration(InterfaceDeclStmt interfaceDecl, bool exported, bool includeNamespaceVisibility = false)
         {
             if (interfaceDecl.SyntaxMembers.Count == 0 &&
                 (interfaceDecl.Methods.Count > 0 || interfaceDecl.Properties.Count > 0 || interfaceDecl.Indexers.Count > 0))
@@ -526,6 +526,8 @@ internal static class CfgsAstFormatter
             WriteIndent();
             if (exported)
                 _sb.Append("export ");
+            if (includeNamespaceVisibility)
+                WriteVisibilityPrefix(interfaceDecl.Visibility, interfaceDecl.HasExplicitVisibility);
             _sb.Append("interface ");
             _sb.Append(interfaceDecl.Name);
             if (interfaceDecl.BaseInterfaces.Count > 0)
@@ -683,12 +685,14 @@ internal static class CfgsAstFormatter
             AppendLine();
         }
 
-        private void WriteEnumDeclaration(EnumDeclStmt enumDecl, bool exported)
+        private void WriteEnumDeclaration(EnumDeclStmt enumDecl, bool exported, bool includeVisibility = false)
         {
             WriteIndent();
             if (exported)
                 _sb.Append("export ");
-            if (!exported)
+            if (!exported && includeVisibility)
+                WriteVisibilityPrefix(enumDecl.Visibility, enumDecl.HasExplicitVisibility);
+            else if (!exported)
                 WriteVisibilityPrefix(enumDecl.Visibility, enumDecl.HasExplicitVisibility);
             _sb.Append("enum ");
             _sb.Append(enumDecl.Name);
@@ -955,18 +959,68 @@ internal static class CfgsAstFormatter
             {
                 _sb.Append(';');
                 AppendLine();
-                WriteNodeList(namespaceDecl.BodyStatements, GetNodeEndOffset(namespaceDecl), _sourceText.Length, WriteStatement, skipInitialRenderedLineBreak: true);
+                WriteNodeList(namespaceDecl.BodyStatements, GetNodeEndOffset(namespaceDecl), _sourceText.Length, WriteNamespaceMember, skipInitialRenderedLineBreak: true);
                 return;
             }
 
             _sb.Append('{');
             AppendLine();
             _indentLevel++;
-            WriteNodeList(namespaceDecl.BodyStatements, GetDelimitedBodyStartOffset(namespaceDecl), GetDelimitedBodyEndOffset(namespaceDecl), WriteStatement, skipInitialRenderedLineBreak: true);
+            WriteNodeList(namespaceDecl.BodyStatements, GetDelimitedBodyStartOffset(namespaceDecl), GetDelimitedBodyEndOffset(namespaceDecl), WriteNamespaceMember, skipInitialRenderedLineBreak: true);
             _indentLevel--;
             WriteIndent();
             _sb.Append('}');
             AppendLine();
+        }
+
+        private void WriteNamespaceMember(Stmt stmt)
+        {
+            switch (stmt)
+            {
+                case FuncDeclStmt funcDecl:
+                    WriteFunctionDeclaration(funcDecl, exported: false, includeMemberModifiers: funcDecl.HasExplicitVisibility);
+                    return;
+
+                case VarDecl varDecl:
+                    WriteIndent();
+                    WriteVisibilityPrefix(varDecl.Visibility, varDecl.HasExplicitVisibility);
+                    if (varDecl.Value is null)
+                    {
+                        _sb.Append("var ");
+                        _sb.Append(varDecl.Name);
+                        _sb.Append(';');
+                        AppendLine();
+                    }
+                    else
+                    {
+                        WriteInlineExpression($"var {varDecl.Name} = ", varDecl.Value, ";");
+                        AppendLine();
+                    }
+                    return;
+
+                case ConstDecl constDecl:
+                    WriteIndent();
+                    WriteVisibilityPrefix(constDecl.Visibility, constDecl.HasExplicitVisibility);
+                    WriteInlineExpression($"const {constDecl.Name} = ", constDecl.Value, ";");
+                    AppendLine();
+                    return;
+
+                case ClassDeclStmt classDecl:
+                    WriteClassDeclaration(classDecl, exported: false, includeNamespaceVisibility: true);
+                    return;
+
+                case InterfaceDeclStmt interfaceDecl:
+                    WriteInterfaceDeclaration(interfaceDecl, exported: false, includeNamespaceVisibility: true);
+                    return;
+
+                case EnumDeclStmt enumDecl:
+                    WriteEnumDeclaration(enumDecl, exported: false, includeVisibility: true);
+                    return;
+
+                default:
+                    WriteStatement(stmt);
+                    return;
+            }
         }
 
         private void WriteDelete(DeleteExprStmt deleteExpr)

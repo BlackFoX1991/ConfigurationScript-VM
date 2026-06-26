@@ -1,0 +1,9 @@
+use Access.Used;
+
+namespace Access.Used {
+    private func secret() {
+        return 1;
+    }
+}
+
+var leak = secret();

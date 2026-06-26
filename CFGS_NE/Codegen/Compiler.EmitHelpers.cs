@@ -1,5 +1,6 @@
 using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
+using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions;
 
@@ -15,6 +16,9 @@ namespace CFGS_VM.VMCore
             if (string.IsNullOrWhiteSpace(qualifiedPath))
                 throw new CompilerException("internal compiler error: empty qualified runtime path", node.Line, node.Col, node.OriginFile);
 
+            if (TryEmitHiddenNamespaceRuntimeValueLoad(qualifiedPath, node))
+                return;
+
             string[] parts = qualifiedPath.Split('.', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 0)
                 throw new CompilerException("internal compiler error: invalid qualified runtime path", node.Line, node.Col, node.OriginFile);
@@ -25,6 +29,41 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], node.Line, node.Col, node.OriginFile));
                 _insns.Add(new Instruction(OpCode.INDEX_GET, null, node.Line, node.Col, node.OriginFile));
             }
+        }
+
+        private bool TryEmitHiddenNamespaceRuntimeValueLoad(string qualifiedPath, Node node)
+        {
+            if (_qualifiedClassDecls.TryGetValue(qualifiedPath, out ClassDeclStmt? classDecl) &&
+                NamespaceRuntimeBindingNames.UsesSyntheticBinding(classDecl.Visibility))
+            {
+                _insns.Add(new Instruction(
+                    OpCode.LOAD_VAR,
+                    NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(GetNamespacePath(qualifiedPath), classDecl.Name),
+                    node.Line,
+                    node.Col,
+                    node.OriginFile));
+                return true;
+            }
+
+            if (_qualifiedInterfaceDecls.TryGetValue(qualifiedPath, out InterfaceDeclStmt? interfaceDecl) &&
+                NamespaceRuntimeBindingNames.UsesSyntheticBinding(interfaceDecl.Visibility))
+            {
+                _insns.Add(new Instruction(
+                    OpCode.LOAD_VAR,
+                    NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(GetNamespacePath(qualifiedPath), interfaceDecl.Name),
+                    node.Line,
+                    node.Col,
+                    node.OriginFile));
+                return true;
+            }
+
+            return false;
+        }
+
+        private static string GetNamespacePath(string qualifiedPath)
+        {
+            int lastDot = qualifiedPath.LastIndexOf('.');
+            return lastDot > 0 ? qualifiedPath[..lastDot] : string.Empty;
         }
 
         private static OpCode OpFromToken(TokenType t, Node tp, string outOfFile) => t switch
