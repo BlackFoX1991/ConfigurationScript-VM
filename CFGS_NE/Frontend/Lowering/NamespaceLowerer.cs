@@ -94,7 +94,10 @@ namespace CFGS_VM.Analytic.Lowering
                     new VarExpr(name, bodyStmt.Line, bodyStmt.Col, bodyStmt.OriginFile),
                     bodyStmt.Line,
                     bodyStmt.Col,
-                    bodyStmt.OriginFile));
+                    bodyStmt.OriginFile)
+                {
+                    IsSyntheticNamespacePath = true
+                });
             }
 
             BlockStmt scopeBlock = new(scopedBody, stmt.Line, stmt.Col, stmt.OriginFile)
@@ -177,7 +180,10 @@ namespace CFGS_VM.Analytic.Lowering
                     col,
                     file);
 
-                statements.Add(new AssignExprStmt(target, new VarExpr(name, line, col, file), line, col, file));
+                statements.Add(new AssignExprStmt(target, new VarExpr(name, line, col, file), line, col, file)
+                {
+                    IsSyntheticNamespacePath = true
+                });
             }
 
             return statements;
@@ -229,7 +235,10 @@ namespace CFGS_VM.Analytic.Lowering
                     col,
                     file);
 
-                statements.Add(new AssignExprStmt(next, ensureExpr, line, col, file));
+                statements.Add(new AssignExprStmt(next, ensureExpr, line, col, file)
+                {
+                    IsSyntheticNamespacePath = true
+                });
                 current = next;
             }
 

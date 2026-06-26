@@ -874,7 +874,7 @@ namespace App.Core {
 - `public` namespace members are visible everywhere.
 - This applies to namespace functions, classes, interfaces, enums, variables, and constants.
 - `use` imports only members that are visible from the current namespace context.
-- Namespace value objects expose only the public surface. Non-public members stay available only through statically known namespace lookup inside allowed namespace contexts.
+- A namespace is not a value. Like in C#, it can only prefix a member access through dot notation (`App.Core.open()`). Capturing a namespace in a variable, passing it as an argument, returning it, or indexing it (`App.Core["open"]`) is a compile error. Visibility is therefore always enforced at the statically known access site.
 
 File-scoped namespace syntax is also supported.
 
@@ -909,7 +909,7 @@ Important practical notes.
 - `use` currently shortens expression-side lookup such as calls, `new`, `is`, and child-namespace access.
 - Namespace bodies may contain functions, classes, interfaces, enums, variables, and constants.
 - Known namespace members use dot access; bracket access is for indexable values, not for namespace lookup.
-- If you alias a namespace value, only its public members are present on that value.
+- A namespace cannot be captured as a value (for example `var ns = App.Core;` is rejected); always use the qualified path `App.Core.Member`.
 - In file-scoped namespaces, the same declaration-only rule applies to the rest of the file.
 - `import` is not allowed inside a namespace body.
 - `use` is not allowed inside a namespace body.

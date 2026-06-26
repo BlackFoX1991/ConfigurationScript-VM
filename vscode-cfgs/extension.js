@@ -321,6 +321,17 @@ class CfgsLanguageClient {
             textDocument: { uri: document.uri.toString() }
           });
           return Array.isArray(result) ? result.map(toCodeLens) : [];
+        },
+        resolveCodeLens: async (lens) => {
+          try {
+            const resolved = await this.sendRequest('codeLens/resolve', {
+              data: lens.cfgsData || null
+            });
+            lens.command = toCodeLensCommand(resolved && resolved.command);
+          } catch (error) {
+            lens.command = { title: '', command: '' };
+          }
+          return lens;
         }
       }),
       vscode.languages.registerInlayHintsProvider(selector, {
@@ -833,13 +844,35 @@ function toSelectionRange(item) {
 
 function toCodeLens(item) {
   const lens = new vscode.CodeLens(toRange(item.range));
+  // Carry the resolve payload so resolveCodeLens can compute the reference count and the
+  // navigation command lazily (only for lenses VS Code actually displays).
+  lens.cfgsData = item.data || null;
   if (item.command && item.command.title) {
-    lens.command = {
-      title: item.command.title,
-      command: item.command.command || ''
-    };
+    lens.command = toCodeLensCommand(item.command);
   }
   return lens;
+}
+
+function toCodeLensCommand(command) {
+  if (!command) {
+    return { title: '', command: '' };
+  }
+
+  const result = { title: command.title || '', command: command.command || '' };
+  if (command.command === 'editor.action.showReferences' && Array.isArray(command.arguments)) {
+    const [uriString, position, locations] = command.arguments;
+    result.arguments = [
+      vscode.Uri.parse(uriString),
+      new vscode.Position(position.line, position.character),
+      (Array.isArray(locations) ? locations : []).map(
+        (location) => new vscode.Location(vscode.Uri.parse(location.uri), toRange(location.range))
+      )
+    ];
+  } else if (Array.isArray(command.arguments)) {
+    result.arguments = command.arguments;
+  }
+
+  return result;
 }
 
 function toInlayHint(item) {

@@ -21,9 +21,6 @@
       "include": "#receivers"
     },
     {
-      "include": "#types"
-    },
-    {
       "include": "#operators"
     }
   ],
@@ -125,14 +122,6 @@
         {
           "name": "variable.language.cfgs",
           "match": "\\b(?:this|type|super|outer|field)\\b"
-        }
-      ]
-    },
-    "types": {
-      "patterns": [
-        {
-          "name": "entity.name.type.class.cfgs",
-          "match": "\\b[A-Z][A-Za-z0-9_]*(?:\\.[A-Z][A-Za-z0-9_]*)*\\b"
         }
       ]
     },

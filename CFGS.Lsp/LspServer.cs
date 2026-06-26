@@ -96,7 +96,7 @@ internal sealed class LspServer
                                 },
                                 codeLensProvider = new
                                 {
-                                    resolveProvider = false
+                                    resolveProvider = true
                                 },
                                 inlayHintProvider = true,
                                 callHierarchyProvider = true,
@@ -487,7 +487,14 @@ internal sealed class LspServer
                         DocumentState state = EnsureDocument(uri);
                         CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
                         IReadOnlyList<CfgsCodeLens> codeLenses = _analyzer.GetCodeLenses(analysis);
-                        await SendResponseAsync(idElement, codeLenses.Select(ToCodeLensPayload).ToList(), cancellationToken);
+                        await SendResponseAsync(idElement, codeLenses.Select(lens => ToUnresolvedCodeLensPayload(uri, lens)).ToList(), cancellationToken);
+                    }
+                    return true;
+
+                case "codeLens/resolve":
+                    if (hasId)
+                    {
+                        await SendResponseAsync(idElement, ResolveCodeLens(parameters), cancellationToken);
                     }
                     return true;
 
@@ -1524,15 +1531,56 @@ internal sealed class LspServer
         target = link.Target
     };
 
-    private static object ToCodeLensPayload(CfgsCodeLens lens) => new
+    private static object ToUnresolvedCodeLensPayload(string uri, CfgsCodeLens lens) => new
     {
         range = ToRangePayload(lens.Range),
-        command = new
+        data = new
         {
-            title = lens.CommandTitle,
-            command = string.Empty
+            uri,
+            line = lens.Range.Start.Line,
+            character = lens.Range.Start.Character
         }
     };
+
+    // Lazily computes the workspace-wide reference count for a code lens and attaches a
+    // navigation command (peek references) so the user can jump to each reference.
+    private object ResolveCodeLens(JsonElement parameters)
+    {
+        if (!parameters.TryGetProperty("data", out JsonElement data) || data.ValueKind != JsonValueKind.Object)
+            return new { command = new { title = "0 references", command = string.Empty } };
+
+        string uri = data.GetProperty("uri").GetString() ?? string.Empty;
+        int line = data.GetProperty("line").GetInt32();
+        int character = data.GetProperty("character").GetInt32();
+
+        DocumentState state = EnsureDocument(uri);
+        CfgsAnalysisResult analysis = GetInteractiveAnalysis(state);
+        CfgsSymbol? symbol = _analyzer.ResolveSymbol(analysis, line, character);
+        IReadOnlyList<CfgsSymbol> references = symbol is null
+            ? []
+            : FindWorkspaceReferences(state, symbol, includeDeclaration: false);
+
+        int count = references.Count;
+        string title = $"{count} reference{(count == 1 ? "" : "s")}";
+
+        if (count == 0)
+            return new { command = new { title, command = string.Empty } };
+
+        return new
+        {
+            command = new
+            {
+                title,
+                command = "editor.action.showReferences",
+                arguments = new object[]
+                {
+                    uri,
+                    new { line, character },
+                    references.Select(ToLocationPayload).ToList()
+                }
+            }
+        };
+    }
 
     private static object ToInlayHintPayload(CfgsInlayHint hint) => new
     {

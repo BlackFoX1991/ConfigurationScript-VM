@@ -624,6 +624,14 @@ namespace CFGS_VM.Analytic.Tree
         public Expr Value { get; }
 
         /// <summary>
+        /// Gets or sets a value indicating whether this assignment is compiler-generated
+        /// namespace plumbing (e.g. ensuring a namespace dictionary path). Such statements may
+        /// legitimately reference a namespace path as a value and are exempt from the
+        /// "namespace is not a value" rule.
+        /// </summary>
+        public bool IsSyntheticNamespacePath { get; set; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="AssignExprStmt"/> class.
         /// </summary>
         /// <param name="target">The target<see cref="Expr"/></param>

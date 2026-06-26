@@ -1,0 +1,14 @@
+# A namespace is not a value (C#-like semantics): it can only prefix a member access
+# via dot notation. Capturing a namespace in a variable is a compile error, which also
+# removes the old "alias surface" bracket-access bypass.
+namespace Access.HiddenAlias {
+    private const secret = 42;
+    public const visible = 7;
+}
+
+func main() {
+    var ns = Access.HiddenAlias;
+    print(ns["visible"]);
+}
+
+main();

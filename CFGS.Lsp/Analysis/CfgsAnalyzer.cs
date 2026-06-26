@@ -1656,18 +1656,11 @@ internal sealed class CfgsAnalyzer
 
     private void CollectCodeLenses(CfgsAnalysisResult result, CfgsSymbol symbol, List<CfgsCodeLens> lenses)
     {
-        if (symbol.Kind is 5 or 6 or 10 or 12 && !symbol.IsSynthetic)
-        {
-            int refCount = 0;
-            CfgsSymbol? resolved = FindEquivalentSemanticSymbol(result, symbol);
-            if (resolved is not null && !string.IsNullOrWhiteSpace(resolved.Id))
-            {
-                refCount = result.SemanticModel.Occurrences
-                    .Count(o => string.Equals(o.SymbolId, resolved.Id, StringComparison.Ordinal) && !o.IsDeclaration);
-            }
-
-            lenses.Add(new CfgsCodeLens(symbol.SelectionRange, $"{refCount} reference{(refCount == 1 ? "" : "s")}"));
-        }
+        // Emit a reference lens for every real (non-synthetic) declared symbol. The actual
+        // reference count and the navigation command are computed lazily during codeLens/resolve,
+        // so this stays cheap and the count can be aggregated across the whole workspace.
+        if (!symbol.IsSynthetic && symbol.SelectionRange.End.Character > symbol.SelectionRange.Start.Character)
+            lenses.Add(new CfgsCodeLens(symbol.SelectionRange));
 
         foreach (CfgsSymbol child in symbol.Children)
             CollectCodeLenses(result, child, lenses);
@@ -3724,8 +3717,7 @@ internal enum CfgsInlayHintKind
 }
 
 internal sealed record CfgsCodeLens(
-    RangeInfo Range,
-    string CommandTitle);
+    RangeInfo Range);
 
 internal sealed record CfgsDocumentLink(
     RangeInfo Range,

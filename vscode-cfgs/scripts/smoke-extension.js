@@ -22,7 +22,7 @@ function assertFile(relativePath) {
 
 const manifest = readJson('package.json');
 assert(manifest.name === 'cfgs-vscode', 'unexpected extension name');
-assert(manifest.version === '0.6.0', 'unexpected extension version');
+assert(manifest.version === '0.7.0', 'unexpected extension version');
 assert(manifest.main === './extension.js', 'unexpected extension entry point');
 
 const extensionSource = fs.readFileSync(assertFile('extension.js'), 'utf8');
@@ -31,6 +31,8 @@ assert(extensionSource.includes('textDocument/completion'), 'completion request 
 assert(extensionSource.includes('textDocument/formatting'), 'formatting request wiring missing');
 assert(extensionSource.includes('textDocument/publishDiagnostics'), 'diagnostic notification wiring missing');
 assert(extensionSource.includes('registerDocumentRangeSemanticTokensProvider'), 'range semantic tokens provider missing');
+assert(extensionSource.includes('resolveCodeLens'), 'code lens resolve wiring missing');
+assert(extensionSource.includes('editor.action.showReferences'), 'reference navigation command wiring missing');
 assert(extensionSource.includes('contentChanges: changes'), 'incremental text sync wiring missing');
 assert(extensionSource.includes("findBundledServerFile(extensionRoot, 'CFGS_VM.dll')"), 'bundled CLI fallback missing');
 
@@ -61,5 +63,9 @@ assert(properties && properties['cfgs.lint.fixOnSave'], 'cfgs.lint.fixOnSave set
 assertFile('language-configuration.json');
 const grammar = readJson('syntaxes/cfgs.tmGrammar.json');
 assert(grammar.scopeName === 'source.cfgs', 'unexpected CFGS grammar scope');
+
+assert(Array.isArray(contributes.semanticTokenScopes), 'semanticTokenScopes contribution missing');
+const cfgsSemanticScopes = contributes.semanticTokenScopes.find((entry) => entry.language === 'cfgs');
+assert(cfgsSemanticScopes && cfgsSemanticScopes.scopes && cfgsSemanticScopes.scopes.class, 'class semantic token scope mapping missing');
 
 console.log('VS_CODE_EXTENSION_SMOKE:OK');

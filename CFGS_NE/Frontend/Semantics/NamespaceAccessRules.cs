@@ -237,6 +237,17 @@ namespace CFGS_VM.Analytic.Semantics
             }
         }
 
+        /// <summary>
+        /// Returns true when the expression resolves to a pure namespace path (no concrete
+        /// member leaf), i.e. the expression *is* a namespace rather than a value. Used to
+        /// enforce C#-like semantics where a namespace can only prefix a member access and is
+        /// never itself a value.
+        /// </summary>
+        public bool IsNamespacePathExpr(Expr expr, ISet<string> currentLocals)
+        {
+            return TryResolveKnownNamespacePathFromExpr(expr, currentLocals, out _);
+        }
+
         private bool TryResolveKnownNamespacePathFromExpr(Expr expr, ISet<string> currentLocals, out string namespacePath)
         {
             switch (expr)

@@ -18,6 +18,7 @@ namespace CFGS_VM.Analytic.Semantics
         private ReceiverContextKind _receiverContext;
         private bool _insidePropertyAccessor;
         private bool _currentPropertyHasBackingField;
+        private bool _suppressNamespaceValueCheck;
 
         private ISet<string> CurrentLocals => _localVarsStack.Count > 0 ? _localVarsStack.Peek() : EmptyLocals;
         private string? CurrentNamespacePath => _namespacePathStack.Count > 0 ? _namespacePathStack.Peek() : null;
@@ -54,7 +55,11 @@ namespace CFGS_VM.Analytic.Semantics
 
                 case VarDecl varDecl:
                     if (varDecl.Value is not null)
-                        ValidateExpr(varDecl.Value);
+                    {
+                        bool suppress = varDecl.IsSyntheticNamespaceRoot ||
+                            varDecl.Name.StartsWith("__ns_scope_", StringComparison.Ordinal);
+                        WithNamespaceValueCheckSuppressed(suppress, () => ValidateExpr(varDecl.Value));
+                    }
                     AddLocal(varDecl.Name, varDecl);
                     return;
 
@@ -93,8 +98,11 @@ namespace CFGS_VM.Analytic.Semantics
                     return;
 
                 case AssignExprStmt assignExpr:
-                    ValidateStoreTarget(assignExpr.Target);
-                    ValidateExpr(assignExpr.Value);
+                    WithNamespaceValueCheckSuppressed(assignExpr.IsSyntheticNamespacePath, () =>
+                    {
+                        ValidateStoreTarget(assignExpr.Target);
+                        ValidateExpr(assignExpr.Value);
+                    });
                     return;
 
                 case CompoundAssignStmt compoundAssign:
@@ -480,8 +488,17 @@ namespace CFGS_VM.Analytic.Semantics
             }
         }
 
-        private void ValidateExpr(Expr expr)
+        private void ValidateExpr(Expr expr, bool asValue = true)
         {
+            if (asValue && !_suppressNamespaceValueCheck && _namespaceAccessRules.IsNamespacePathExpr(expr, CurrentLocals))
+            {
+                throw new CompilerException(
+                    "a namespace is not a value; access a member with dot notation (for example App.Core.Member)",
+                    expr.Line,
+                    expr.Col,
+                    expr.OriginFile);
+            }
+
             switch (expr)
             {
                 case NullExpr:
@@ -534,7 +551,7 @@ namespace CFGS_VM.Analytic.Semantics
 
                 case IndexExpr indexExpr:
                     if (indexExpr.Target is not null)
-                        ValidateExpr(indexExpr.Target);
+                        ValidateExpr(indexExpr.Target, asValue: false);
                     if (indexExpr.Index is not null)
                         ValidateExpr(indexExpr.Index);
                     ValidateExplicitMemberAccess(indexExpr, isStore: false);
@@ -555,7 +572,7 @@ namespace CFGS_VM.Analytic.Semantics
                     return;
 
                 case MethodCallExpr methodCallExpr:
-                    ValidateExpr(methodCallExpr.Target);
+                    ValidateExpr(methodCallExpr.Target, asValue: false);
                     foreach (Expr arg in methodCallExpr.Args)
                         ValidateExpr(arg);
                     return;
@@ -705,7 +722,7 @@ namespace CFGS_VM.Analytic.Semantics
 
                 case IndexExpr indexExpr:
                     if (indexExpr.Target is not null)
-                        ValidateExpr(indexExpr.Target);
+                        ValidateExpr(indexExpr.Target, asValue: false);
 
                     if (indexExpr.Index is not null)
                     {
@@ -844,6 +861,26 @@ namespace CFGS_VM.Analytic.Semantics
                     _currentClassDecl,
                     indexExpr,
                     isStore ? MemberAccessRules.MemberAccessKind.Write : MemberAccessRules.MemberAccessKind.Read);
+            }
+        }
+
+        private void WithNamespaceValueCheckSuppressed(bool suppress, Action action)
+        {
+            if (!suppress)
+            {
+                action();
+                return;
+            }
+
+            bool previous = _suppressNamespaceValueCheck;
+            _suppressNamespaceValueCheck = true;
+            try
+            {
+                action();
+            }
+            finally
+            {
+                _suppressNamespaceValueCheck = previous;
             }
         }
 

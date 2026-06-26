@@ -27,7 +27,10 @@ namespace CFGS_VM.Analytic.Lowering
                 ExportStmt e => new ExportStmt(e.Name, LowerStatement(e.Inner), e.Line, e.Col, e.OriginFile),
                 AssignStmt a => new AssignStmt(a.Name, LowerExpr(a.Value), a.Line, a.Col, a.OriginFile),
                 AssignIndexExprStmt a => new AssignIndexExprStmt((IndexExpr)LowerExpr(a.Target), LowerExpr(a.Value), a.Line, a.Col, a.OriginFile),
-                AssignExprStmt a => new AssignExprStmt(LowerExpr(a.Target), LowerExpr(a.Value), a.Line, a.Col, a.OriginFile),
+                AssignExprStmt a => new AssignExprStmt(LowerExpr(a.Target), LowerExpr(a.Value), a.Line, a.Col, a.OriginFile)
+                {
+                    IsSyntheticNamespacePath = a.IsSyntheticNamespacePath
+                },
                 CompoundAssignStmt a => new CompoundAssignStmt(LowerExpr(a.Target), a.Op, LowerExpr(a.Value), a.Line, a.Col, a.OriginFile),
                 SliceSetStmt s => new SliceSetStmt((SliceExpr)LowerExpr(s.Slice), LowerExpr(s.Value), s.Line, s.Col, s.OriginFile),
                 ExprStmt e => new ExprStmt(LowerExpr(e.Expression), e.Line, e.Col, e.OriginFile),

@@ -2,7 +2,7 @@
   "name": "cfgs-vscode",
   "displayName": "CFGS Language Tools",
   "description": "Visual Studio Code support for ConfigurationScript with CFGS LSP, formatter, and linter integration.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "blackfox1991",
   "engines": {
     "vscode": "^1.90.0"
@@ -26,7 +26,8 @@
         "*.cfs": "cfgs"
       },
       "[cfgs]": {
-        "editor.defaultFormatter": "blackfox1991.cfgs-vscode"
+        "editor.defaultFormatter": "blackfox1991.cfgs-vscode",
+        "editor.semanticHighlighting.enabled": true
       }
     },
     "languages": [
@@ -47,6 +48,22 @@
         "language": "cfgs",
         "scopeName": "source.cfgs",
         "path": "./syntaxes/cfgs.tmGrammar.json"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "cfgs",
+        "scopes": {
+          "namespace": ["entity.name.namespace"],
+          "class": ["entity.name.type.class"],
+          "interface": ["entity.name.type.interface"],
+          "enum": ["entity.name.type.enum"],
+          "enumMember": ["variable.other.enummember"],
+          "function": ["entity.name.function"],
+          "method": ["entity.name.function.member"],
+          "parameter": ["variable.parameter"],
+          "variable": ["variable.other"]
+        }
       }
     ],
     "commands": [
