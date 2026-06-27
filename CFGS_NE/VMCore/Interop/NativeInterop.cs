@@ -4,7 +4,6 @@ using CFGS_VM.VMCore.Extensions.Instance;
 using System.Collections;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 
 namespace CFGS_VM.VMCore.Interop
@@ -604,7 +603,16 @@ namespace CFGS_VM.VMCore.Interop
             return (best[0].Property, best[0].Args);
         }
 
+        /// <summary>
+        /// Upper bound on conversion recursion depth, guarding against pathologically deep or
+        /// (for <see cref="ConvertFromClr(object?)"/>) cyclic value graphs.
+        /// </summary>
+        private const int MaxInteropConversionDepth = 128;
+
         private static bool TryConvertToClr(object? value, Type targetType, VM? vm, Instruction instr, out object? converted, out int score)
+            => TryConvertToClr(value, targetType, vm, instr, 0, out converted, out score);
+
+        private static bool TryConvertToClr(object? value, Type targetType, VM? vm, Instruction instr, int depth, out object? converted, out int score)
         {
             converted = null;
             score = 0;
@@ -675,6 +683,40 @@ namespace CFGS_VM.VMCore.Interop
                     return true;
                 }
 
+                // BigInteger target: accept BigInteger or any CFGS integral value (B4).
+                if (nonNullableTarget == typeof(System.Numerics.BigInteger))
+                {
+                    converted = value switch
+                    {
+                        System.Numerics.BigInteger b => b,
+                        sbyte or byte or short or ushort or int or uint or long =>
+                            new System.Numerics.BigInteger(Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture)),
+                        ulong ul => new System.Numerics.BigInteger(ul),
+                        _ => null
+                    };
+
+                    if (converted is not null)
+                    {
+                        score = value is System.Numerics.BigInteger ? 0 : 1;
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                // BigInteger value into a native numeric parameter: BigInteger is not IConvertible,
+                // so Convert.ChangeType cannot handle it. Use range-checked explicit casts (B4).
+                if (value is System.Numerics.BigInteger bigValue && IsNumericType(nonNullableTarget))
+                {
+                    if (TryConvertBigInteger(bigValue, nonNullableTarget, out converted))
+                    {
+                        score = 1;
+                        return true;
+                    }
+
+                    return false;
+                }
+
                 if (IsNumericType(nonNullableTarget) || nonNullableTarget == typeof(bool) || nonNullableTarget == typeof(char))
                 {
                     converted = Convert.ChangeType(value, nonNullableTarget, System.Globalization.CultureInfo.InvariantCulture);
@@ -682,19 +724,39 @@ namespace CFGS_VM.VMCore.Interop
                     return true;
                 }
 
-                if (nonNullableTarget.IsArray && value is List<object> list)
+                // CFGS array into a native array or generic collection (List<T>, IEnumerable<T>, … — B5).
+                if (value is List<object> list && TryGetClrCollectionElementType(nonNullableTarget, out Type elementType, out bool targetIsArray))
                 {
-                    Type elementType = nonNullableTarget.GetElementType() ?? typeof(object);
-                    Array array = Array.CreateInstance(elementType, list.Count);
+                    // Recursion here is bounded by the target type's nesting depth, but guard anyway.
+                    if (depth >= MaxInteropConversionDepth)
+                        return false;
+
+                    if (targetIsArray)
+                    {
+                        Array array = Array.CreateInstance(elementType, list.Count);
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (!TryConvertToClr(list[i], elementType, vm, instr, depth + 1, out object? element, out int elementScore))
+                                return false;
+                            array.SetValue(element, i);
+                            score += elementScore + 1;
+                        }
+
+                        converted = array;
+                        return true;
+                    }
+
+                    Type listType = typeof(List<>).MakeGenericType(elementType);
+                    System.Collections.IList typed = (System.Collections.IList)Activator.CreateInstance(listType)!;
                     for (int i = 0; i < list.Count; i++)
                     {
-                        if (!TryConvertToClr(list[i], elementType, vm, instr, out object? element, out int elementScore))
+                        if (!TryConvertToClr(list[i], elementType, vm, instr, depth + 1, out object? element, out int elementScore))
                             return false;
-                        array.SetValue(element, i);
+                        typed.Add(element);
                         score += elementScore + 1;
                     }
 
-                    converted = array;
+                    converted = typed;
                     return true;
                 }
             }
@@ -703,6 +765,66 @@ namespace CFGS_VM.VMCore.Interop
                 return false;
             }
 
+            return false;
+        }
+
+        private static bool TryConvertBigInteger(System.Numerics.BigInteger value, Type target, out object? converted)
+        {
+            converted = null;
+            try
+            {
+                if (target == typeof(long)) converted = (long)value;
+                else if (target == typeof(ulong)) converted = (ulong)value;
+                else if (target == typeof(int)) converted = (int)value;
+                else if (target == typeof(uint)) converted = (uint)value;
+                else if (target == typeof(short)) converted = (short)value;
+                else if (target == typeof(ushort)) converted = (ushort)value;
+                else if (target == typeof(byte)) converted = (byte)value;
+                else if (target == typeof(sbyte)) converted = (sbyte)value;
+                else if (target == typeof(double)) converted = (double)value;
+                else if (target == typeof(float)) converted = (float)value;
+                else if (target == typeof(decimal)) converted = (decimal)value;
+                else return false;
+
+                return true;
+            }
+            catch (OverflowException)
+            {
+                converted = null;
+                return false;
+            }
+        }
+
+        private static bool TryGetClrCollectionElementType(Type target, out Type elementType, out bool isArray)
+        {
+            if (target.IsArray)
+            {
+                elementType = target.GetElementType() ?? typeof(object);
+                isArray = true;
+                return true;
+            }
+
+            isArray = false;
+            if (target.IsGenericType)
+            {
+                Type definition = target.GetGenericTypeDefinition();
+                if (definition == typeof(List<>) ||
+                    definition == typeof(IList<>) ||
+                    definition == typeof(ICollection<>) ||
+                    definition == typeof(IEnumerable<>) ||
+                    definition == typeof(IReadOnlyList<>) ||
+                    definition == typeof(IReadOnlyCollection<>))
+                {
+                    Type arg = target.GetGenericArguments()[0];
+                    if (target.IsAssignableFrom(typeof(List<>).MakeGenericType(arg)))
+                    {
+                        elementType = arg;
+                        return true;
+                    }
+                }
+            }
+
+            elementType = typeof(object);
             return false;
         }
 
@@ -718,12 +840,15 @@ namespace CFGS_VM.VMCore.Interop
         }
 
         private static object? ConvertFromClr(object? value)
+            => ConvertFromClr(value, 0, new HashSet<object>(ReferenceEqualityComparer.Instance));
+
+        private static object? ConvertFromClr(object? value, int depth, HashSet<object> visited)
         {
             if (value is null)
                 return null;
 
             Type type = value.GetType();
-            if (type.IsPrimitive || value is string or decimal)
+            if (type.IsPrimitive || value is string or decimal or System.Numerics.BigInteger)
                 return value;
 
             if (value is Delegate del)
@@ -732,23 +857,51 @@ namespace CFGS_VM.VMCore.Interop
             if (value is Task task)
                 return ConvertTaskFromClr(task);
 
+            // The recursion below follows the runtime value graph with no type guidance, so a
+            // self-referencing CLR collection would otherwise recurse forever into an unrecoverable
+            // StackOverflowException. Guard against cycles and pathological depth (B3).
             if (value is IDictionary dictionary)
             {
-                Dictionary<string, object> result = new(StringComparer.Ordinal);
-                foreach (DictionaryEntry entry in dictionary)
-                    result[entry.Key?.ToString() ?? string.Empty] = ConvertFromClr(entry.Value)!;
-                return result;
+                EnterClrConversion(value, depth, visited);
+                try
+                {
+                    Dictionary<string, object> result = new(StringComparer.Ordinal);
+                    foreach (DictionaryEntry entry in dictionary)
+                        result[entry.Key?.ToString() ?? string.Empty] = ConvertFromClr(entry.Value, depth + 1, visited)!;
+                    return result;
+                }
+                finally
+                {
+                    visited.Remove(value);
+                }
             }
 
             if (value is IEnumerable enumerable && value is not string)
             {
-                List<object> result = [];
-                foreach (object? item in enumerable)
-                    result.Add(ConvertFromClr(item)!);
-                return result;
+                EnterClrConversion(value, depth, visited);
+                try
+                {
+                    List<object> result = [];
+                    foreach (object? item in enumerable)
+                        result.Add(ConvertFromClr(item, depth + 1, visited)!);
+                    return result;
+                }
+                finally
+                {
+                    visited.Remove(value);
+                }
             }
 
             return new ClrObjectHandle(value);
+        }
+
+        private static void EnterClrConversion(object value, int depth, HashSet<object> visited)
+        {
+            if (depth >= MaxInteropConversionDepth)
+                throw new InvalidOperationException($"native interop conversion exceeded the maximum depth of {MaxInteropConversionDepth}");
+
+            if (!visited.Add(value))
+                throw new InvalidOperationException("native interop conversion detected a cyclic value graph");
         }
 
         private static Task<object?> ConvertTaskFromClr(Task task)
@@ -782,49 +935,36 @@ namespace CFGS_VM.VMCore.Interop
             object? receiver,
             StaticInstance? accessType)
         {
-            string cacheKey = string.Join("|",
-                RuntimeHelpers.GetHashCode(vm).ToString(System.Globalization.CultureInfo.InvariantCulture),
-                RuntimeHelpers.GetHashCode(closure).ToString(System.Globalization.CultureInfo.InvariantCulture),
-                RuntimeHelpers.GetHashCode(receiver ?? closure).ToString(System.Globalization.CultureInfo.InvariantCulture),
-                delegateType.AssemblyQualifiedName ?? delegateType.FullName);
-
-            Dictionary<string, Delegate> cache = vm.NativeClosureDelegateCache;
-            lock (cache)
+            return vm.NativeClosureDelegateCache.GetOrAdd(closure, receiver, delegateType, () =>
             {
-                if (cache.TryGetValue(cacheKey, out Delegate? cached))
-                    return cached;
-            }
+                MethodInfo invoke = delegateType.GetMethod("Invoke")
+                    ?? throw new InvalidOperationException($"delegate type '{delegateType.FullName}' has no Invoke method");
+                ParameterInfo[] invokeParameters = invoke.GetParameters();
+                ParameterExpression[] lambdaParameters = invokeParameters
+                    .Select(p => Expression.Parameter(p.ParameterType, p.Name ?? "arg"))
+                    .ToArray();
+                Expression[] boxed = lambdaParameters
+                    .Select(p => Expression.Convert(p, typeof(object)))
+                    .ToArray();
 
-            MethodInfo invoke = delegateType.GetMethod("Invoke")
-                ?? throw new InvalidOperationException($"delegate type '{delegateType.FullName}' has no Invoke method");
-            ParameterInfo[] invokeParameters = invoke.GetParameters();
-            ParameterExpression[] lambdaParameters = invokeParameters
-                .Select(p => Expression.Parameter(p.ParameterType, p.Name ?? "arg"))
-                .ToArray();
-            Expression[] boxed = lambdaParameters
-                .Select(p => Expression.Convert(p, typeof(object)))
-                .ToArray();
+                MethodInfo helper = typeof(NativeInterop).GetMethod(nameof(InvokeClosureDelegate), BindingFlags.NonPublic | BindingFlags.Static)
+                    ?? throw new InvalidOperationException("missing native closure delegate helper");
+                Expression helperCall = Expression.Call(
+                    helper,
+                    Expression.Constant(vm),
+                    Expression.Constant(closure),
+                    Expression.Constant(instr),
+                    Expression.Constant(receiver, typeof(object)),
+                    Expression.Constant(accessType, typeof(StaticInstance)),
+                    Expression.NewArrayInit(typeof(object), boxed),
+                    Expression.Constant(invoke.ReturnType, typeof(Type)));
 
-            MethodInfo helper = typeof(NativeInterop).GetMethod(nameof(InvokeClosureDelegate), BindingFlags.NonPublic | BindingFlags.Static)
-                ?? throw new InvalidOperationException("missing native closure delegate helper");
-            Expression helperCall = Expression.Call(
-                helper,
-                Expression.Constant(vm),
-                Expression.Constant(closure),
-                Expression.Constant(instr),
-                Expression.Constant(receiver),
-                Expression.Constant(accessType, typeof(StaticInstance)),
-                Expression.NewArrayInit(typeof(object), boxed),
-                Expression.Constant(invoke.ReturnType, typeof(Type)));
+                Expression body = invoke.ReturnType == typeof(void)
+                    ? Expression.Block(helperCall, Expression.Empty())
+                    : Expression.Convert(helperCall, invoke.ReturnType);
 
-            Expression body = invoke.ReturnType == typeof(void)
-                ? Expression.Block(helperCall, Expression.Empty())
-                : Expression.Convert(helperCall, invoke.ReturnType);
-
-            Delegate compiled = Expression.Lambda(delegateType, body, lambdaParameters).Compile();
-            lock (cache)
-                cache[cacheKey] = compiled;
-            return compiled;
+                return Expression.Lambda(delegateType, body, lambdaParameters).Compile();
+            });
         }
 
         private static object? InvokeClosureDelegate(

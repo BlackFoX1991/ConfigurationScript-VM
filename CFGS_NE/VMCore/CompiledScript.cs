@@ -4,7 +4,10 @@ namespace CFGS_VM.VMCore
 {
     public sealed class CompiledScript
     {
-        public const int CurrentBytecodeVersion = 2;
+        // v3: char operands are serialized as raw UTF-16 code units (ushort) instead of via the
+        // UTF-8 char writer, so lone surrogate char literals round-trip and corrupt char bytes
+        // fail cleanly. Bumped to reject older artifacts that used the encoder-based char format.
+        public const int CurrentBytecodeVersion = 3;
 
         public string Name { get; }
 

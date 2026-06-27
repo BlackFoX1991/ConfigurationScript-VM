@@ -140,6 +140,10 @@ namespace CFGS_VM.VMCore
                     w.Write(Convert.ToString(v, CultureInfo.InvariantCulture));
                     return;
 
+                case System.Numerics.BigInteger bigInt:
+                    w.Write(bigInt.ToString(CultureInfo.InvariantCulture));
+                    return;
+
                 case string s:
                     w.Write('"');
                     w.Write(JsonEscapeString(s));

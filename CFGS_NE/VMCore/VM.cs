@@ -1016,7 +1016,7 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public string NativeAssemblyBaseDirectory { get; set; } = string.Empty;
 
-        internal Dictionary<string, Delegate> NativeClosureDelegateCache { get; } = new(StringComparer.Ordinal);
+        internal Interop.NativeClosureDelegateCache NativeClosureDelegateCache { get; } = new();
 
         private void RequireStack(int needed, Instruction instr, string? opName = null)
         {

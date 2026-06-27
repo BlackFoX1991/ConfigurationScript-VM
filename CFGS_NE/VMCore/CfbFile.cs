@@ -179,7 +179,9 @@ namespace CFGS_VM.VMCore
                     break;
                 case char value:
                     writer.Write((byte)OperandKind.Char);
-                    writer.Write(value);
+                    // Write the raw UTF-16 code unit, not via the BinaryWriter's UTF-8 char path,
+                    // which cannot encode lone surrogates (valid CFGS char literals).
+                    writer.Write((ushort)value);
                     break;
                 case bool value:
                     writer.Write((byte)OperandKind.Boolean);
@@ -231,21 +233,34 @@ namespace CFGS_VM.VMCore
                 OperandKind.Int64 => reader.ReadInt64(),
                 OperandKind.Single => reader.ReadSingle(),
                 OperandKind.Double => reader.ReadDouble(),
-                OperandKind.Decimal => new decimal([
-                    reader.ReadInt32(),
-                    reader.ReadInt32(),
-                    reader.ReadInt32(),
-                    reader.ReadInt32()
-                ]),
+                OperandKind.Decimal => ReadDecimal(reader),
                 OperandKind.BigInteger => new BigInteger(reader.ReadBytes(ReadCount(reader))),
                 OperandKind.String => reader.ReadString(),
-                OperandKind.Char => reader.ReadChar(),
+                OperandKind.Char => (char)reader.ReadUInt16(),
                 OperandKind.Boolean => reader.ReadBoolean(),
                 OperandKind.ObjectArray => ReadObjectArray(reader),
                 OperandKind.RuntimePropertyDescriptor => ReadRuntimePropertyDescriptor(reader),
                 OperandKind.NativeAssemblyReference => new NativeAssemblyReference(reader.ReadString(), reader.ReadString()),
                 _ => throw new InvalidDataException($"unsupported CFB operand kind '{kind}'")
             };
+        }
+
+        private static decimal ReadDecimal(BinaryReader reader)
+        {
+            int lo = reader.ReadInt32();
+            int mid = reader.ReadInt32();
+            int hi = reader.ReadInt32();
+            int flags = reader.ReadInt32();
+            try
+            {
+                return new decimal([lo, mid, hi, flags]);
+            }
+            catch (ArgumentException ex)
+            {
+                // A corrupt artifact can carry invalid scale/flag bits; surface the loader's
+                // documented clean failure instead of a raw ArgumentException.
+                throw new InvalidDataException("corrupt CFB file: invalid decimal operand", ex);
+            }
         }
 
         private static object?[] ReadObjectArray(BinaryReader reader)

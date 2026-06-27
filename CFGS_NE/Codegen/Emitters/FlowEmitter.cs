@@ -292,6 +292,21 @@ namespace CFGS_VM.VMCore
             _insns.Add(new Instruction(OpCode.PUSH_INT, 0, fe.Line, fe.Col, fe.OriginFile));
             _insns.Add(new Instruction(OpCode.VAR_DECL, idxNm, fe.Line, fe.Col, fe.OriginFile));
 
+            int loopStart = _insns.Count;
+            _breakLists.Push(new List<LoopLeavePatch>());
+            _continueLists.Push(new List<LoopLeavePatch>());
+
+            _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
+            _insns.Add(new Instruction(OpCode.LOAD_VAR, lenNm, fe.Line, fe.Col, fe.OriginFile));
+            _insns.Add(new Instruction(OpCode.LT, null, fe.Line, fe.Col, fe.OriginFile));
+            int jmpIfFalse = _insns.Count;
+            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, fe.Line, fe.Col, fe.OriginFile));
+
+            // Per-iteration scope: the loop variable (and any destructuring bindings) get a FRESH
+            // binding each iteration, so closures created in the body capture that iteration's value
+            // (C# foreach semantics). The sequence/index/length temps stay in the outer foreach scope
+            // because they must persist across iterations.
+            EmitPushScope(fe);
             _insns.Add(new Instruction(OpCode.PUSH_NULL, null, fe.Line, fe.Col, fe.OriginFile));
             _insns.Add(new Instruction(OpCode.VAR_DECL, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
             if (_localVarsStack.Count > 0)
@@ -307,16 +322,6 @@ namespace CFGS_VM.VMCore
                         CurrentLocals.Add(binding);
                 }
             }
-
-            int loopStart = _insns.Count;
-            _breakLists.Push(new List<LoopLeavePatch>());
-            _continueLists.Push(new List<LoopLeavePatch>());
-
-            _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
-            _insns.Add(new Instruction(OpCode.LOAD_VAR, lenNm, fe.Line, fe.Col, fe.OriginFile));
-            _insns.Add(new Instruction(OpCode.LT, null, fe.Line, fe.Col, fe.OriginFile));
-            int jmpIfFalse = _insns.Count;
-            _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, fe.Line, fe.Col, fe.OriginFile));
 
             _insns.Add(new Instruction(OpCode.LOAD_VAR, isDictNm, fe.Line, fe.Col, fe.OriginFile));
             int jmpToSeqPath = _insns.Count;
@@ -369,6 +374,11 @@ namespace CFGS_VM.VMCore
             _insns[jmpAfterSet] = new Instruction(OpCode.JMP, afterSet, fe.Line, fe.Col, fe.OriginFile);
 
             CompileStmt(fe.Body, insideFunction);
+
+            // Close the per-iteration scope on the normal path before advancing the index. A
+            // continue's LEAVE pops this scope at runtime and jumps to incStart (past this POP_SCOPE);
+            // a break's LEAVE likewise pops it on the way to the loop end.
+            EmitPopScope(fe);
 
             int incStart = _insns.Count;
             foreach (LoopLeavePatch patch in _continueLists.Peek())

@@ -49,7 +49,14 @@ internal static class Program
             WorkspaceIsVmScoped,
             PluginLoadRejectsMismatchedPackageLockHash,
             HostingPreservesStructuredDiagnosticCode,
-            CfbLoaderRejectsCorruptElementCounts
+            CfbLoaderRejectsCorruptElementCounts,
+            NativeInteropConvertsClosuresBigIntegersAndCollections,
+            NativeInteropGuardsCyclicConversion,
+            CfbRoundTripsSurrogateCharOperand,
+            CfbRejectsCorruptDecimalOperand,
+            JsonSerializesBigIntegerAsNumber,
+            LoopClosureCaptureMatchesCSharp,
+            ForeachDestructuringAndBreakContinueStillWork
         ];
 
         List<string> failures = [];
@@ -1283,6 +1290,261 @@ func writeInWorkspace(path) {
             if (File.Exists(path))
                 File.Delete(path);
         }
+    }
+
+    private static void NativeInteropConvertsClosuresBigIntegersAndCollections()
+    {
+        string fixtureAssembly = typeof(NativeFixture).Assembly.Location;
+
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            NativeAssemblyBaseDirectory = Path.GetDirectoryName(fixtureAssembly)!,
+            CompilerVersion = global::Program.Version
+        };
+        engine.Permissions.AllowNativeInterop = true;
+
+        CfgsScript script = engine.CompileSource("<native-interop>", $$"""
+import native "{{Path.GetFileName(fixtureAssembly)}}" as Fx;
+
+func applyClosures() {
+    var f1 = func(x) { return "one:" + x; };
+    var f2 = func(x) { return "two:" + x; };
+    var r1 = Fx.NativeFixture.Apply(f1, "a");
+    var r2 = Fx.NativeFixture.Apply(f2, "a");
+    var r1b = Fx.NativeFixture.Apply(f1, "b");
+    return r1 + "|" + r2 + "|" + r1b;
+}
+
+func bigToDouble() {
+    var big = 2 ** 100;
+    return Fx.NativeFixture.AsDouble(big);
+}
+
+func joinArray() {
+    return Fx.NativeFixture.JoinStrings(["a", "b", "c"]);
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        // B1: two distinct closures and a re-applied first closure must each dispatch to the
+        // correct function. The old hash-code cache could collide and return a foreign delegate.
+        string applied = script.InvokeAsync<string>("applyClosures").GetAwaiter().GetResult() ?? "";
+        AssertEqual("one:a|two:a|one:b", applied, "native delegate cache dispatched closures incorrectly (B1)");
+
+        // B4: a CFGS BigInteger (2**100) flowing into a native double parameter.
+        double big = Convert.ToDouble(script.InvokeAsync<object>("bigToDouble").GetAwaiter().GetResult());
+        AssertTrue(big > 1e30 && big < 1.3e30, "BigInteger did not convert to a native double parameter (B4)");
+
+        // B5: a CFGS array flowing into a native List<string> parameter.
+        string joined = script.InvokeAsync<string>("joinArray").GetAwaiter().GetResult() ?? "";
+        AssertEqual("a,b,c", joined, "CFGS array did not convert to a native List<T> parameter (B5)");
+    }
+
+    private static void NativeInteropGuardsCyclicConversion()
+    {
+        string fixtureAssembly = typeof(NativeFixture).Assembly.Location;
+
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            NativeAssemblyBaseDirectory = Path.GetDirectoryName(fixtureAssembly)!,
+            CompilerVersion = global::Program.Version
+        };
+        engine.Permissions.AllowNativeInterop = true;
+
+        CfgsScript script = engine.CompileSource("<native-interop-cycle>", $$"""
+import native "{{Path.GetFileName(fixtureAssembly)}}" as Fx;
+
+func triggerCycle() {
+    return Fx.NativeFixture.SelfReferencingList();
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        // B3: converting a self-referencing CLR collection back to CFGS must surface a clean,
+        // catchable error rather than recursing into an unrecoverable StackOverflowException.
+        // Reaching the assertion at all proves the process survived the conversion.
+        bool guarded = false;
+        try
+        {
+            script.InvokeAsync<object>("triggerCycle").GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex.ToString().Contains("cyclic", StringComparison.OrdinalIgnoreCase))
+        {
+            guarded = true;
+        }
+
+        AssertTrue(guarded, "cyclic native value graph must surface a clean error instead of crashing (B3)");
+    }
+
+    private static void CfbRoundTripsSurrogateCharOperand()
+    {
+        // R3/R2: a lone surrogate char literal is accepted by the lexer and runs in the interpreter,
+        // so it must also survive a .cfb save/load round-trip. The old UTF-8 char writer crashed on it.
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<cfb-char>", "var c = '\\uD800';");
+        string path = Path.Combine(Path.GetTempPath(), $"cfgs_char_{Guid.NewGuid():N}.cfb");
+        try
+        {
+            CfbFile.Save(script.CompiledScript, path);
+            CompiledScript loaded = CfbFile.Load(path);
+            bool found = loaded.Instructions.Any(i => i.Operand is char ch && ch == '\uD800');
+            AssertTrue(found, "surrogate char operand did not round-trip through .cfb (R3/R2)");
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    private static void CfbRejectsCorruptDecimalOperand()
+    {
+        // R1: a decimal operand with invalid scale/flag bits must fail with the loader's documented
+        // InvalidDataException, not a raw ArgumentException from the decimal constructor.
+        string path = Path.Combine(Path.GetTempPath(), $"cfgs_decimal_{Guid.NewGuid():N}.cfb");
+        try
+        {
+            using (FileStream fs = File.Create(path))
+            using (BinaryWriter writer = new(fs, System.Text.Encoding.UTF8, leaveOpen: false))
+            {
+                writer.Write(System.Text.Encoding.ASCII.GetBytes("CFB1"));
+                writer.Write(CompiledScript.CurrentBytecodeVersion);
+                writer.Write("test");        // name
+                writer.Write(string.Empty);  // sourceHash
+                writer.Write("1.0");         // compilerVersion
+                writer.Write(false);         // shouldAutoInvokeMain
+                writer.Write(0);             // plugin count
+                writer.Write(0);             // function count
+                writer.Write(1);             // instruction count
+                writer.Write((int)CFGS_VM.VMCore.Command.OpCode.PUSH_NULL); // any valid opcode
+                writer.Write((byte)5);       // OperandKind.Decimal
+                writer.Write(0);             // lo
+                writer.Write(0);             // mid
+                writer.Write(0);             // hi
+                writer.Write(29 << 16);      // flags: scale 29 is out of the valid 0..28 range
+            }
+
+            bool threw = false;
+            try
+            {
+                _ = CfbFile.Load(path);
+            }
+            catch (InvalidDataException)
+            {
+                threw = true;
+            }
+
+            AssertTrue(threw, "CfbFile.Load must reject an invalid decimal operand with InvalidDataException (R1)");
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    private static void JsonSerializesBigIntegerAsNumber()
+    {
+        // J1: BigInteger must serialize as a bare JSON number, consistent with int/long.
+        System.Numerics.BigInteger big = System.Numerics.BigInteger.Pow(2, 100);
+        string json = VM.JsonStringify(Value.FromObject(big));
+        AssertEqual("1267650600228229401496703205376", json, "BigInteger must serialize as a bare JSON number (J1)");
+    }
+
+    private static void LoopClosureCaptureMatchesCSharp()
+    {
+        // S1: foreach gives a fresh per-iteration binding (closures see the iteration value), while a
+        // C-style for keeps one shared, mutating counter (closures see the final value) — exactly C#.
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<loop-capture>", """
+func foreachCapture() {
+    var fns = [];
+    foreach (x in [1, 2, 3]) {
+        fns[] = func() { return x; };
+    }
+    return ("" + fns[0]()) + "," + ("" + fns[1]()) + "," + ("" + fns[2]());
+}
+
+func forCapture() {
+    var fns = [];
+    for (var i = 0; i < 3; i = i + 1) {
+        fns[] = func() { return i; };
+    }
+    return ("" + fns[0]()) + "," + ("" + fns[1]()) + "," + ("" + fns[2]());
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        string foreachResult = script.InvokeAsync<string>("foreachCapture").GetAwaiter().GetResult() ?? "";
+        AssertEqual("1,2,3", foreachResult, "foreach must give each iteration a fresh binding (C# semantics, S1)");
+
+        string forResult = script.InvokeAsync<string>("forCapture").GetAwaiter().GetResult() ?? "";
+        AssertEqual("3,3,3", forResult, "C-style for must keep one shared mutating counter (C# semantics)");
+    }
+
+    private static void ForeachDestructuringAndBreakContinueStillWork()
+    {
+        // The per-iteration foreach scope (S1) moved the loop-variable / destructuring-binding
+        // declarations inside the loop, so re-verify the touched paths: destructuring, break/continue,
+        // and that destructuring bindings also get fresh per-iteration bindings for captured closures.
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<foreach-destructure>", """
+func destructure() {
+    var pairs = [[1, 2], [3, 4], [5, 6]];
+    var sum = 0;
+    foreach (var [x, y] in pairs) {
+        sum = sum + x + y;
+    }
+    return sum;
+}
+
+func breakContinue() {
+    var total = 0;
+    foreach (n in [1, 2, 3, 4, 5]) {
+        if (n == 2) { continue; }
+        if (n == 5) { break; }
+        total = total + n;
+    }
+    return total;
+}
+
+func destructureCapture() {
+    var fns = [];
+    foreach (var [x, y] in [[1, 10], [2, 20]]) {
+        fns[] = func() { return x + y; };
+    }
+    return ("" + fns[0]()) + "," + ("" + fns[1]());
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        AssertEqual(21, Convert.ToInt32(script.InvokeAsync<object>("destructure").GetAwaiter().GetResult()),
+            "foreach array destructuring broke after the per-iteration scope change");
+        AssertEqual(8, Convert.ToInt32(script.InvokeAsync<object>("breakContinue").GetAwaiter().GetResult()),
+            "foreach break/continue broke after the per-iteration scope change");
+        AssertEqual("11,22", script.InvokeAsync<string>("destructureCapture").GetAwaiter().GetResult() ?? "",
+            "foreach destructuring bindings must also be fresh per iteration (S1)");
     }
 
     private static string NormalizeNewlines(string text)
