@@ -23,11 +23,12 @@ func run_collection_tests() {
     edge_eq("slice_mid_0", mid[0], 2);
     edge_eq("slice_mid_1", mid[1], 3);
 
-    a[1~3] = [9, 8, 7];
+    a[1~3] = [9, 8];
     edge_eq("slice_set_len", len(a), 4);
     edge_eq("slice_set_1", a[1], 9);
     edge_eq("slice_set_2", a[2], 8);
     edge_eq("slice_set_3", a[3], 4);
+    edge_throws("slice_set_length_mismatch", func() { var sm = [0, 1, 2, 3]; sm[1~3] = [9, 8, 7]; });
 
     delete a[1];
     edge_eq("delete_index_len", len(a), 3);

@@ -56,7 +56,11 @@ internal static class Program
             CfbRejectsCorruptDecimalOperand,
             JsonSerializesBigIntegerAsNumber,
             LoopClosureCaptureMatchesCSharp,
-            ForeachDestructuringAndBreakContinueStillWork
+            ForeachDestructuringAndBreakContinueStillWork,
+            CompoundAndIncrementEvaluateLValueOnce,
+            NullConcatenatesAsNull,
+            ShiftsPromoteInsteadOfMasking,
+            SliceAssignmentRequiresMatchingLength
         ];
 
         List<string> failures = [];
@@ -1545,6 +1549,171 @@ func destructureCapture() {
             "foreach break/continue broke after the per-iteration scope change");
         AssertEqual("11,22", script.InvokeAsync<string>("destructureCapture").GetAwaiter().GetResult() ?? "",
             "foreach destructuring bindings must also be fresh per iteration (S1)");
+    }
+
+    private static void CompoundAndIncrementEvaluateLValueOnce()
+    {
+        // C1: compound/increment assignment must evaluate the lvalue's target/index sub-expressions
+        // exactly once. A side-effecting index previously ran twice (prefix: three times) and wrote
+        // to a different slot than it read.
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<lvalue-once>", """
+func compoundOnce() {
+    var arr = [0, 0, 0, 0]; var seq = 0;
+    func nx() { var r = seq; seq = seq + 1; return r; }
+    arr[nx()] += 100;
+    return ("" + arr[0]) + "," + ("" + arr[1]) + ",seq=" + ("" + seq);
+}
+
+func postfixOnce() {
+    var arr = [10, 10, 10]; var c = 0;
+    func ix() { var r = c; c = c + 1; return r; }
+    arr[ix()]++;
+    return ("" + arr[0]) + "," + ("" + arr[1]) + ",c=" + ("" + c);
+}
+
+func prefixOnce() {
+    var arr = [5, 5, 5]; var c = 0;
+    func ix() { c = c + 1; return 0; }
+    var res = ++arr[ix()];
+    return ("" + arr[0]) + ",res=" + ("" + res) + ",c=" + ("" + c);
+}
+
+func nestedOnce() {
+    var grid = [[1, 1], [1, 1]]; var ic = 0; var jc = 0;
+    func ri() { ic = ic + 1; return 0; }
+    func rj() { jc = jc + 1; return 1; }
+    grid[ri()][rj()] += 100;
+    return ("" + grid[0][1]) + ",ic=" + ("" + ic) + ",jc=" + ("" + jc);
+}
+
+func memberOnce() {
+    var box = {"v": 1}; var calls = 0;
+    func getBox() { calls = calls + 1; return box; }
+    getBox().v += 10;
+    return ("" + box["v"]) + ",calls=" + ("" + calls);
+}
+
+func simpleRegression() {
+    var a = [1, 2, 3]; var k = 1;
+    a[k] += 10;
+    a[0] += 100;
+    return ("" + a[0]) + "," + ("" + a[1]) + "," + ("" + a[2]);
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        AssertEqual("100,0,seq=1", script.InvokeAsync<string>("compoundOnce").GetAwaiter().GetResult() ?? "",
+            "compound assignment evaluated the index more than once / wrote the wrong slot (C1)");
+        AssertEqual("11,10,c=1", script.InvokeAsync<string>("postfixOnce").GetAwaiter().GetResult() ?? "",
+            "postfix ++ evaluated the index more than once (C1)");
+        AssertEqual("6,res=6,c=1", script.InvokeAsync<string>("prefixOnce").GetAwaiter().GetResult() ?? "",
+            "prefix ++ evaluated the index more than once (C1)");
+        AssertEqual("101,ic=1,jc=1", script.InvokeAsync<string>("nestedOnce").GetAwaiter().GetResult() ?? "",
+            "nested index compound evaluated sub-indices more than once (C1)");
+        AssertEqual("11,calls=1", script.InvokeAsync<string>("memberOnce").GetAwaiter().GetResult() ?? "",
+            "member compound evaluated the receiver more than once (C1)");
+        AssertEqual("101,12,3", script.InvokeAsync<string>("simpleRegression").GetAwaiter().GetResult() ?? "",
+            "compound assignment with a simple index regressed (C1)");
+    }
+
+    private static void NullConcatenatesAsNull()
+    {
+        // C2: null in '+' string concatenation renders as "null", consistent with str(null)/print(null).
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<null-concat>", """
+func concatNulls() {
+    return ("x" + null) + "|" + (null + "y") + "|" + ("a" + null + "b") + "|" + ("" + null);
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        AssertEqual("xnull|nully|anullb|null", script.InvokeAsync<string>("concatNulls").GetAwaiter().GetResult() ?? "",
+            "null must concatenate as \"null\" (C2)");
+    }
+
+    private static void ShiftsPromoteInsteadOfMasking()
+    {
+        // C3: '<<' and '>>' must auto-promote like +,-,*,** instead of masking the shift count
+        // (& 0x1F / & 0x3F) and letting native int/long overflow wrap.
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<shifts>", """
+func shl() {
+    return ("" + (1 << 31)) + "," + ("" + (1 << 32)) + "," + ("" + (1 << 40))
+        + "," + ("" + (1 << 63)) + "," + ("" + (1 << 64)) + "," + ("" + (3 << 33));
+}
+func shr() {
+    return ("" + (256 >> 40)) + "," + ("" + (5 >> 64)) + "," + ("" + (-8 >> 1));
+}
+func big() { return "" + ((2 ** 70) << 2); }
+func small() {
+    return ("" + (1 << 10)) + "," + ("" + (1024 >> 3)) + "," + ("" + (7 << 2)) + "," + ("" + (1 << 30));
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        AssertEqual("2147483648,4294967296,1099511627776,9223372036854775808,18446744073709551616,25769803776",
+            script.InvokeAsync<string>("shl").GetAwaiter().GetResult() ?? "",
+            "left shift masked the count / wrapped instead of promoting (C3)");
+        AssertEqual("0,0,-4", script.InvokeAsync<string>("shr").GetAwaiter().GetResult() ?? "",
+            "right shift masked the count instead of collapsing to 0 / arithmetic shift (C3)");
+        AssertEqual("4722366482869645213696", script.InvokeAsync<string>("big").GetAwaiter().GetResult() ?? "",
+            "BigInteger shift regressed (C3)");
+        AssertEqual("1024,128,28,1073741824", script.InvokeAsync<string>("small").GetAwaiter().GetResult() ?? "",
+            "small in-range shifts must be unchanged (C3 regression)");
+    }
+
+    private static void SliceAssignmentRequiresMatchingLength()
+    {
+        // C4: slice assignment must require the slice width to equal the number of supplied values,
+        // instead of silently overwriting min(width, count) and dropping the rest.
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<slice-set>", """
+func exact() {
+    var a = [0, 1, 2, 3, 4];
+    a[1~3] = [7, 7];
+    return ("" + a[0]) + ("" + a[1]) + ("" + a[2]) + ("" + a[3]) + ("" + a[4]);
+}
+func tooLong() {
+    var a = [0, 1, 2, 3, 4];
+    try { a[1~3] = [7, 7, 7]; return "no-error"; } catch (e) { return "threw"; }
+}
+func tooShort() {
+    var a = [0, 1, 2, 3, 4];
+    try { a[1~4] = [5]; return "no-error"; } catch (e) { return "threw"; }
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        AssertEqual("07734", script.InvokeAsync<string>("exact").GetAwaiter().GetResult() ?? "",
+            "slice assignment with matching length regressed (C4)");
+        AssertEqual("threw", script.InvokeAsync<string>("tooLong").GetAwaiter().GetResult() ?? "",
+            "slice assignment with too many values must throw (C4)");
+        AssertEqual("threw", script.InvokeAsync<string>("tooShort").GetAwaiter().GetResult() ?? "",
+            "slice assignment with too few values must throw (C4)");
     }
 
     private static string NormalizeNewlines(string text)

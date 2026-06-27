@@ -494,8 +494,16 @@ namespace CFGS_VM.VMCore
                         }
 
                         List<object> source = SnapshotList(lst);
-                        int count = Math.Min(end - start, source.Count);
-                        for (int i = 0; i < count; i++)
+                        if (end - start != source.Count)
+                            throw new VMException(
+                                $"Runtime error: slice assignment length mismatch: slice covers {end - start} element(s) but {source.Count} value(s) were given",
+                                instr.Line,
+                                instr.Col,
+                                instr.OriginFile,
+                                IsDebugging,
+                                DebugStream!);
+
+                        for (int i = 0; i < source.Count; i++)
                             SetListValue(arr, start + i, source[i]);
 
                         return;
@@ -518,6 +526,15 @@ namespace CFGS_VM.VMCore
                         }
 
                         List<KeyValuePair<string, object>> source = SnapshotDictionaryEntries(valDict);
+                        if (end - start != source.Count)
+                            throw new VMException(
+                                $"Runtime error: slice assignment length mismatch: slice covers {end - start} entry(ies) but {source.Count} value(s) were given",
+                                instr.Line,
+                                instr.Col,
+                                instr.OriginFile,
+                                IsDebugging,
+                                DebugStream!);
+
                         int i = 0;
                         for (int k = start; k < end && i < source.Count; k++, i++)
                             SetDictionaryValue(dict, keys[k], source[i].Value);

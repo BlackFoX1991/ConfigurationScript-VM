@@ -214,19 +214,25 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case PostfixExpr pf:
-                    CompileLValue(pf.Target, load: true);
-                    _insns.Add(new Instruction(OpCode.DUP, null, e.Line, e.Col, e.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_INT, 1, e.Line, e.Col, e.OriginFile));
-                    _insns.Add(new Instruction(pf.Op == TokenType.PlusPlus ? OpCode.ADD : OpCode.SUB, null, e.Line, e.Col, e.OriginFile));
-                    CompileLValueStore(pf.Target);
+                    WithStableLValue(pf.Target, t =>
+                    {
+                        CompileLValue(t, load: true);
+                        _insns.Add(new Instruction(OpCode.DUP, null, e.Line, e.Col, e.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_INT, 1, e.Line, e.Col, e.OriginFile));
+                        _insns.Add(new Instruction(pf.Op == TokenType.PlusPlus ? OpCode.ADD : OpCode.SUB, null, e.Line, e.Col, e.OriginFile));
+                        CompileLValueStore(t);
+                    });
                     break;
 
                 case PrefixExpr pre:
-                    CompileLValue(pre.Target, load: true);
-                    _insns.Add(new Instruction(OpCode.PUSH_INT, 1, e.Line, e.Col, e.OriginFile));
-                    _insns.Add(new Instruction(pre.Op == TokenType.PlusPlus ? OpCode.ADD : OpCode.SUB, null, e.Line, e.Col, e.OriginFile));
-                    CompileLValueStore(pre.Target);
-                    CompileLValue(pre.Target, load: true);
+                    WithStableLValue(pre.Target, t =>
+                    {
+                        CompileLValue(t, load: true);
+                        _insns.Add(new Instruction(OpCode.PUSH_INT, 1, e.Line, e.Col, e.OriginFile));
+                        _insns.Add(new Instruction(pre.Op == TokenType.PlusPlus ? OpCode.ADD : OpCode.SUB, null, e.Line, e.Col, e.OriginFile));
+                        CompileLValueStore(t);
+                        CompileLValue(t, load: true);
+                    });
                     break;
 
                 case AwaitExpr aw:

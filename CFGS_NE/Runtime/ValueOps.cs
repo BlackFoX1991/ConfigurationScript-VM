@@ -840,7 +840,7 @@ namespace CFGS_VM.VMCore
             // separator (e.g. "1,5" instead of "1.5").
             return value.Kind switch
             {
-                ValueKind.Null => string.Empty,
+                ValueKind.Null => "null",
                 ValueKind.Bool => value.AsBool ? "true" : "false",
                 ValueKind.Int => value.AsInt.ToString(CultureInfo.InvariantCulture),
                 ValueKind.Long => value.AsLong.ToString(CultureInfo.InvariantCulture),
@@ -1285,14 +1285,14 @@ namespace CFGS_VM.VMCore
             Value rightValue = _valueStack.Pop();
             Value leftValue = _valueStack.Pop();
 
+            // Fast path: an int/char left operand with a small non-negative count shifts inside a
+            // long without overflow; NarrowInt64Value promotes to long only if needed.
             if (TryGetHotShiftCount(rightValue, out int hotShift) &&
-                hotShift >= 0 &&
-                (leftValue.Kind == ValueKind.Int || leftValue.Kind == ValueKind.Long || leftValue.Kind == ValueKind.Char))
+                hotShift is >= 0 and <= 31 &&
+                (leftValue.Kind == ValueKind.Int || leftValue.Kind == ValueKind.Char))
             {
-                if (leftValue.Kind == ValueKind.Long)
-                    _valueStack.Push(Value.FromLong(leftValue.AsLong << (hotShift & 0x3F)));
-                else
-                    _valueStack.Push(Value.FromInt((leftValue.Kind == ValueKind.Int ? leftValue.AsInt : CharToNumeric(leftValue.AsChar)) << (hotShift & 0x1F)));
+                int leftInt = leftValue.Kind == ValueKind.Int ? leftValue.AsInt : CharToNumeric(leftValue.AsChar);
+                _valueStack.Push(NarrowInt64Value((long)leftInt << hotShift));
                 return StepResult.Next;
             }
 
@@ -1302,9 +1302,10 @@ namespace CFGS_VM.VMCore
             int sh = ToInt32Invariant(r);
             if (sh < 0)
                 throw new VMException("SHL requires a non-negative shift count", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            if (l.Kind == ValueKind.Ref && l.Reference is BigInteger lb) _valueStack.Push(Value.FromRef(lb << sh));
-            else if (l.Kind == ValueKind.Long || (l.Kind == ValueKind.Ref && l.Reference is ulong)) _valueStack.Push(Value.FromLong(ToInt64Invariant(l) << (sh & 0x3F)));
-            else _valueStack.Push(Value.FromInt(ToInt32Invariant(l) << (sh & 0x1F)));
+            // Shift through BigInteger so the count is never masked (& 0x1F/0x3F) and the value never
+            // wraps; NarrowIntegerValue stores the narrowest of int/long/BigInteger. Consistent with
+            // +, -, *, ** which all auto-promote on overflow.
+            _valueStack.Push(NarrowIntegerValue(ToBigIntegerInvariant(l.ToObject()!) << sh));
             return StepResult.Next;
         }
 
@@ -1314,15 +1315,23 @@ namespace CFGS_VM.VMCore
             Value rightValue = _valueStack.Pop();
             Value leftValue = _valueStack.Pop();
 
-            if (TryGetHotShiftCount(rightValue, out int hotShift) &&
-                hotShift >= 0 &&
-                (leftValue.Kind == ValueKind.Int || leftValue.Kind == ValueKind.Long || leftValue.Kind == ValueKind.Char))
+            // Fast path: right shift never grows the value. Native shifts are exact while the count
+            // stays within the type's bit width; beyond that the BigInteger path yields the correct
+            // 0 (non-negative) or -1 (negative arithmetic shift).
+            if (TryGetHotShiftCount(rightValue, out int hotShift) && hotShift >= 0)
             {
-                if (leftValue.Kind == ValueKind.Long)
-                    _valueStack.Push(Value.FromLong(leftValue.AsLong >> (hotShift & 0x3F)));
-                else
-                    _valueStack.Push(Value.FromInt((leftValue.Kind == ValueKind.Int ? leftValue.AsInt : CharToNumeric(leftValue.AsChar)) >> (hotShift & 0x1F)));
-                return StepResult.Next;
+                if ((leftValue.Kind == ValueKind.Int || leftValue.Kind == ValueKind.Char) && hotShift <= 31)
+                {
+                    int leftInt = leftValue.Kind == ValueKind.Int ? leftValue.AsInt : CharToNumeric(leftValue.AsChar);
+                    _valueStack.Push(Value.FromInt(leftInt >> hotShift));
+                    return StepResult.Next;
+                }
+
+                if (leftValue.Kind == ValueKind.Long && hotShift <= 63)
+                {
+                    _valueStack.Push(NarrowInt64Value(leftValue.AsLong >> hotShift));
+                    return StepResult.Next;
+                }
             }
 
             if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "SHR");
@@ -1331,9 +1340,9 @@ namespace CFGS_VM.VMCore
             int sh = ToInt32Invariant(r);
             if (sh < 0)
                 throw new VMException("SHR requires a non-negative shift count", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            if (l.Kind == ValueKind.Ref && l.Reference is BigInteger lb) _valueStack.Push(Value.FromRef(lb >> sh));
-            else if (l.Kind == ValueKind.Long || (l.Kind == ValueKind.Ref && l.Reference is ulong)) _valueStack.Push(Value.FromLong(ToInt64Invariant(l) >> (sh & 0x3F)));
-            else _valueStack.Push(Value.FromInt(ToInt32Invariant(l) >> (sh & 0x1F)));
+            // Shift through BigInteger so the count is never masked; large counts collapse to the
+            // correct 0/-1 instead of `>> (sh & 0x1F)`. NarrowIntegerValue stores the narrowest kind.
+            _valueStack.Push(NarrowIntegerValue(ToBigIntegerInvariant(l.ToObject()!) >> sh));
             return StepResult.Next;
         }
 

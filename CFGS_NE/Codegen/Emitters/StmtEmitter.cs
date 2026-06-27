@@ -379,11 +379,14 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case CompoundAssignStmt ca:
-                    CompileLValue(ca.Target, load: true);
-                    CompileExpr(ca.Value);
+                    WithStableLValue(ca.Target, t =>
+                    {
+                        CompileLValue(t, load: true);
+                        CompileExpr(ca.Value);
 
-                    _insns.Add(new Instruction(OpFromToken(ca.Op, ca, FileName), null, s.Line, s.Col, s.OriginFile));
-                    CompileLValueStore(ca.Target);
+                        _insns.Add(new Instruction(OpFromToken(ca.Op, ca, FileName), null, s.Line, s.Col, s.OriginFile));
+                        CompileLValueStore(t);
+                    });
                     break;
 
                 case FuncDeclStmt fd:

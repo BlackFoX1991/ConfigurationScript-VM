@@ -32,6 +32,49 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        private static bool IsSimpleLValuePart(Expr? e)
+            => e is VarExpr or NumberExpr or StringExpr or CharExpr or BoolExpr or NullExpr;
+
+        /// <summary>
+        /// Runs a read-modify-write <paramref name="body"/> against a target whose sub-expressions are
+        /// evaluated at most once. Compound/increment assignment reads via <see cref="CompileLValue"/>
+        /// and writes via <see cref="CompileLValueStore"/>, each of which independently re-emits the
+        /// target and index expressions. That is harmless for side-effect-free parts (a plain variable
+        /// or literal), but for an index/receiver with side effects it would run them twice (prefix:
+        /// three times) and — worse — read and write different locations. For such cases we hoist the
+        /// target and index into fresh temp locals once, then let <paramref name="body"/> operate on a
+        /// synthetic index expression that only reads those temps (idempotent LOAD_VARs).
+        /// </summary>
+        private void WithStableLValue(Expr? target, Action<Expr?> body)
+        {
+            if (target is IndexExpr ie
+                && ie.Index != null
+                && (!IsSimpleLValuePart(ie.Target) || !IsSimpleLValuePart(ie.Index)))
+            {
+                EmitPushScope(ie);
+
+                string tTmp = $"__lv_t_{_anonCounter++}";
+                CompileExpr(ie.Target);
+                _insns.Add(new Instruction(OpCode.VAR_DECL, tTmp, ie.Line, ie.Col, ie.OriginFile));
+
+                string iTmp = $"__lv_i_{_anonCounter++}";
+                CompileExpr(ie.Index);
+                _insns.Add(new Instruction(OpCode.VAR_DECL, iTmp, ie.Line, ie.Col, ie.OriginFile));
+
+                IndexExpr stable = new(
+                    new VarExpr(tTmp, ie.Line, ie.Col, ie.OriginFile),
+                    new VarExpr(iTmp, ie.Line, ie.Col, ie.OriginFile),
+                    ie.Line, ie.Col, ie.OriginFile, ie.IsDotAccess);
+
+                body(stable);
+                EmitPopScope(ie);
+            }
+            else
+            {
+                body(target);
+            }
+        }
+
         private void CompileLValueStore(Expr? target)
         {
             if (target is VarExpr v)
