@@ -60,7 +60,9 @@ internal static class Program
             CompoundAndIncrementEvaluateLValueOnce,
             NullConcatenatesAsNull,
             ShiftsPromoteInsteadOfMasking,
-            SliceAssignmentRequiresMatchingLength
+            SliceAssignmentRequiresMatchingLength,
+            SortAndIndexOfUseNumericComparison,
+            MinMaxHandleMixedNumericKinds
         ];
 
         List<string> failures = [];
@@ -1714,6 +1716,73 @@ func tooShort() {
             "slice assignment with too many values must throw (C4)");
         AssertEqual("threw", script.InvokeAsync<string>("tooShort").GetAwaiter().GetResult() ?? "",
             "slice assignment with too few values must throw (C4)");
+    }
+
+    private static void SortAndIndexOfUseNumericComparison()
+    {
+        // C5/C6: sort() and indexOf()/includes() must compare by numeric value across CLR kinds.
+        // CFGS auto-promotes (int->long->BigInteger), so naturally-mixed arrays previously threw
+        // from int.CompareTo(long) (sort) or missed cross-kind values (indexOf via CLR Equals).
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<numeric-collections>", """
+func sortMixedIntLong() { return "" + [5, 2 ** 40, 3].sort(); }
+func sortMixedBig() { return "" + [2 ** 70, 5, 100].sort(); }
+func sortMixedDouble() { return "" + [3, 1.5, 2].sort(); }
+func sortPureInt() { return "" + [3, 1, 2].sort(); }
+func sortStrings() { return "" + ["banana", "apple", "cherry"].sort(); }
+func indexOfCrossKind() {
+    var f = [2 ** 40 / (2 ** 40), 99];
+    return ("" + f.indexOf(1)) + "," + ("" + f.includes(1));
+}
+func indexOfPlain() {
+    return ("" + [10, 20, 30].indexOf(20)) + "," + ("" + [10, 20].indexOf(99));
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        AssertEqual("[3, 5, 1099511627776]", script.InvokeAsync<string>("sortMixedIntLong").GetAwaiter().GetResult() ?? "",
+            "sort must order mixed int/long numerically instead of throwing (C5)");
+        AssertEqual("[5, 100, 1180591620717411303424]", script.InvokeAsync<string>("sortMixedBig").GetAwaiter().GetResult() ?? "",
+            "sort must order mixed int/BigInteger numerically (C5)");
+        AssertEqual("[1.5, 2, 3]", script.InvokeAsync<string>("sortMixedDouble").GetAwaiter().GetResult() ?? "",
+            "sort must order mixed int/double numerically (C5)");
+        AssertEqual("[1, 2, 3]", script.InvokeAsync<string>("sortPureInt").GetAwaiter().GetResult() ?? "",
+            "pure-int sort regressed (C5)");
+        AssertEqual("[apple, banana, cherry]", script.InvokeAsync<string>("sortStrings").GetAwaiter().GetResult() ?? "",
+            "string sort regressed (C5)");
+        AssertEqual("0,true", script.InvokeAsync<string>("indexOfCrossKind").GetAwaiter().GetResult() ?? "",
+            "indexOf/includes must use numeric equality across CLR kinds (C6)");
+        AssertEqual("1,-1", script.InvokeAsync<string>("indexOfPlain").GetAwaiter().GetResult() ?? "",
+            "plain indexOf regressed (C6)");
+    }
+
+    private static void MinMaxHandleMixedNumericKinds()
+    {
+        // min/max compared via `dynamic a < b`, which threw on e.g. double vs BigInteger. They now
+        // use the same numeric-aware comparison.
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<min-max>", """
+func r() {
+    return ("" + math.min(5, 2 ** 40)) + "," + ("" + math.max(5, 2 ** 40))
+        + "," + ("" + math.min(3, 1.5)) + "," + ("" + math.max(2 ** 70, 3.0));
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        AssertEqual("5,1099511627776,1.5,1180591620717411303424",
+            script.InvokeAsync<string>("r").GetAwaiter().GetResult() ?? "",
+            "min/max must compare mixed numeric kinds without throwing");
     }
 
     private static string NormalizeNewlines(string text)

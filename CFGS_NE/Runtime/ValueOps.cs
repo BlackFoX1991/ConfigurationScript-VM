@@ -1418,6 +1418,85 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
+        private static bool IsNumericObject(object? x)
+            => x is not null && (IsIntegralLike(x) || x is float or double or decimal);
+
+        private static int CategoryRank(object? x) => x switch
+        {
+            null => 0,
+            _ when IsNumericObject(x) => 1,
+            bool => 2,
+            string => 3,
+            _ => 4
+        };
+
+        /// <summary>
+        /// Numeric-aware ordering of two coerced values, reusing the exact same coercion the
+        /// &lt; / &gt; operators use. Returns false when the pair is not numeric.
+        /// </summary>
+        private static bool TryCompareNumericValues(Value left, Value right, out int cmp)
+        {
+            if (TryCoerceHotNumericPair(left, right, out HotNumericPair hotPair))
+            {
+                cmp = hotPair.Kind switch
+                {
+                    NumKind.Int64 => hotPair.Int64Left.CompareTo(hotPair.Int64Right),
+                    NumKind.Double => hotPair.DoubleLeft.CompareTo(hotPair.DoubleRight),
+                    _ => hotPair.Int32Left.CompareTo(hotPair.Int32Right),
+                };
+                return true;
+            }
+
+            if (TryCoerceFallbackNumericPair(left, right, out Value A, out Value B, out NumKind K))
+            {
+                cmp = K switch
+                {
+                    NumKind.Decimal => ((decimal)A.Reference!).CompareTo((decimal)B.Reference!),
+                    NumKind.Double => A.AsDouble.CompareTo(B.AsDouble),
+                    NumKind.UInt64 => ((ulong)A.Reference!).CompareTo((ulong)B.Reference!),
+                    NumKind.Int64 => A.AsLong.CompareTo(B.AsLong),
+                    NumKind.Maximal => ((BigInteger)A.Reference!).CompareTo((BigInteger)B.Reference!),
+                    _ => A.AsInt.CompareTo(B.AsInt),
+                };
+                return true;
+            }
+
+            cmp = 0;
+            return false;
+        }
+
+        /// <summary>
+        /// Total order over runtime values for collection intrinsics (sort, min, max). Numeric values
+        /// compare by value across kinds (int/long/BigInteger/double/decimal), consistent with
+        /// &lt;/&gt;/==; mixed categories use a stable rank so List.Sort never sees an inconsistent
+        /// comparer or a CompareTo that throws on differing CLR types. Never throws.
+        /// </summary>
+        public static int CompareRuntimeValues(object? x, object? y)
+        {
+            if (x is null && y is null) return 0;
+            if (x is null) return -1;
+            if (y is null) return 1;
+
+            if (IsNumericObject(x) && IsNumericObject(y)
+                && TryCompareNumericValues(Value.FromObject(x), Value.FromObject(y), out int ncmp))
+                return ncmp;
+
+            int rx = CategoryRank(x), ry = CategoryRank(y);
+            if (rx != ry) return rx.CompareTo(ry);
+
+            if (x is string sx && y is string sy) return string.CompareOrdinal(sx, sy);
+            if (x is bool bx && y is bool by) return bx.CompareTo(by);
+            return string.CompareOrdinal(x.ToString() ?? string.Empty, y.ToString() ?? string.Empty);
+        }
+
+        /// <summary>
+        /// Numeric-aware equality for collection intrinsics (indexOf, includes), matching the ==
+        /// operator so values that are numerically equal across CLR kinds (e.g. long 1 and int 1)
+        /// compare equal.
+        /// </summary>
+        public static bool RuntimeValuesEqual(object? x, object? y)
+            => NumericOrValueEquals(Value.FromObject(x), Value.FromObject(y));
+
         private StepResult HandleEqualInstruction(Instruction instr)
         {
             RequireStack(2, instr, "EQ");

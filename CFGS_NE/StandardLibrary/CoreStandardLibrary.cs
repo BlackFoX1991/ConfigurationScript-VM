@@ -281,16 +281,10 @@ namespace CFGS_VM.StandardLibrary
             : Math.Round(Convert.ToDouble(args[0], CultureInfo.InvariantCulture), Convert.ToInt32(args[1], CultureInfo.InvariantCulture));
 
         private static object MathMinVm(List<object> args)
-        {
-            dynamic a = args[0], b = args[1];
-            return a < b ? a : b;
-        }
+            => VM.CompareRuntimeValues(args[0], args[1]) <= 0 ? args[0] : args[1];
 
         private static object MathMaxVm(List<object> args)
-        {
-            dynamic a = args[0], b = args[1];
-            return a > b ? a : b;
-        }
+            => VM.CompareRuntimeValues(args[0], args[1]) >= 0 ? args[0] : args[1];
 
         private static object MathSqrtVm(List<object> args) => Math.Sqrt(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
         private static object MathPowVm(List<object> args) => Math.Pow(Convert.ToDouble(args[0], CultureInfo.InvariantCulture), Convert.ToDouble(args[1], CultureInfo.InvariantCulture));
@@ -1335,14 +1329,10 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("sort", 0, 0, (recv, a, i) =>
             {
                 List<object> arr = (List<object>)recv;
-                LockMutableRuntime(arr, () => arr.Sort((x, y) =>
-                {
-                    if (x is null && y is null) return 0;
-                    if (x is null) return -1;
-                    if (y is null) return 1;
-                    if (x is IComparable cx) return cx.CompareTo(y);
-                    return string.Compare(x.ToString(), y.ToString(), StringComparison.Ordinal);
-                }));
+                // Numeric-aware total order: compares by numeric value across int/long/BigInteger/
+                // double, so a naturally-mixed array (CFGS auto-promotes) sorts instead of throwing
+                // from int.CompareTo(long).
+                LockMutableRuntime(arr, () => arr.Sort((x, y) => VM.CompareRuntimeValues(x, y)));
                 return arr;
             }));
 
@@ -1359,7 +1349,7 @@ namespace CFGS_VM.StandardLibrary
                 object target = a[0];
                 for (int idx = 0; idx < arr.Count; idx++)
                 {
-                    if (Equals(arr[idx], target)) return idx;
+                    if (VM.RuntimeValuesEqual(arr[idx], target)) return idx;
                 }
                 return -1;
             }));
@@ -1370,7 +1360,7 @@ namespace CFGS_VM.StandardLibrary
                 object target = a[0];
                 foreach (object item in arr)
                 {
-                    if (Equals(item, target)) return true;
+                    if (VM.RuntimeValuesEqual(item, target)) return true;
                 }
                 return false;
             }));
