@@ -1049,6 +1049,17 @@ namespace CFGS_VM.VMCore
         {
             switch (target)
             {
+                case SuperReference sr:
+                {
+                    // Resolve the member on the base layer (skips a derived override, uses base
+                    // visibility), then rebind the bound method's receiver to the derived instance so
+                    // the base method runs with the real 'this' (C7).
+                    object superRes = GetIndexedValue(sr.BaseLayer, idxObj, instr);
+                    return superRes is BoundMethod superBound && ReferenceEquals(superBound.Receiver, sr.BaseLayer)
+                        ? new BoundMethod(superBound.Function, sr.Derived, superBound.DeclaringType)
+                        : superRes;
+                }
+
                 case System.Threading.Tasks.Task<object> _:
                     {
                         string key = idxObj?.ToString() ?? "";

@@ -555,7 +555,10 @@ namespace CFGS_VM.VMCore
                             {
                                 if (TryGetInstanceFieldValue(inst, "__base", out Value baseValue) && baseValue.ToObject() is ClassInstance baseInst)
                                 {
-                                    PushRuntimeObject(baseInst);
+                                    // 'super' keeps the derived instance as 'this'; only method
+                                    // resolution starts at the base layer. The member-access path
+                                    // resolves on BaseLayer and rebinds the receiver to Derived.
+                                    PushRuntimeObject(new SuperReference(inst, baseInst));
                                     break;
                                 }
                                 throw new VMException("Runtime error: missing '__base' on instance for 'super'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);

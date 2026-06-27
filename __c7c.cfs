@@ -1,0 +1,11 @@
+class A() { func init() {} func tag() { return "A"; } }
+class B() : A() {
+    func init() { super.init(); }
+    func tagViaSuper() { return super.tag(); }
+}
+func main() {
+    var b = new B();
+    print("constructed ok");
+    print("super.tag = " + b.tagViaSuper());
+    print("DONE");
+}

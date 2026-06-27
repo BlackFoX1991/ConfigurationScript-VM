@@ -1,0 +1,33 @@
+import "edge_assert.cfs";
+
+edge_begin("223_super_instance_this_binding");
+
+class A() {
+    var x = "A-default";
+
+    func init() {}
+    func getX() { return this.x; }
+    func setX(v) {
+        this.x = v;
+        return this.x;
+    }
+}
+
+class B() : A() {
+    func init() {
+        super.init();
+        this.x = "B-set";
+    }
+
+    func viaSuper() { return super.getX(); }
+    func viaSuperSet(v) { return super.setX(v); }
+}
+
+var b = new B();
+
+edge_eq("normal_dispatch", b.getX(), "B-set");
+edge_eq("super_read_rebinds_this", b.viaSuper(), "B-set");
+edge_eq("super_write_return", b.viaSuperSet("B-updated"), "B-updated");
+edge_eq("super_write_updates_instance", b.getX(), "B-updated");
+
+edge_finish("223_super_instance_this_binding");
