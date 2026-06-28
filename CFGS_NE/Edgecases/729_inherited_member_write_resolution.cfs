@@ -1,0 +1,82 @@
+import "edge_assert.cfs";
+
+edge_begin("729_inherited_member_write_resolution");
+
+class Root() {
+    var root = 1;
+    var items = [];
+
+    func init() {}
+
+    func setRoot(value) {
+        this.root = value;
+        return this.root;
+    }
+
+    func firstItem() {
+        return this.items[0];
+    }
+}
+
+class Mid() : Root() {
+    var mid = 2;
+
+    func init() {
+        super.init();
+    }
+
+    func setMid(value) {
+        this.mid = value;
+        return this.mid;
+    }
+}
+
+class Leaf() : Mid() {
+    var leaf = 3;
+
+    func init() {
+        super.init();
+    }
+
+    func writeAll(a, b, c) {
+        this.root = a;
+        this.mid = b;
+        this.leaf = c;
+        return this.root + this.mid + this.leaf;
+    }
+
+    func writeViaExtractedSuper(a, b) {
+        var setRoot = super.setRoot;
+        var setMid = super.setMid;
+        return setRoot(a) + setMid(b);
+    }
+
+    func replaceItems(value) {
+        this.items = [value];
+        return len(this.items);
+    }
+
+    func snapshot() {
+        return [this.root, this.mid, this.leaf];
+    }
+}
+
+var leaf = new Leaf();
+edge_eq("direct_multi_layer_writes", leaf.writeAll(10, 20, 30), 60);
+
+var snap1 = leaf.snapshot();
+edge_eq("root_owner_write", snap1[0], 10);
+edge_eq("mid_owner_write", snap1[1], 20);
+edge_eq("leaf_owner_write", snap1[2], 30);
+
+edge_eq("extracted_super_owner_writes", leaf.writeViaExtractedSuper(7, 8), 15);
+
+var snap2 = leaf.snapshot();
+edge_eq("root_after_extracted_super", snap2[0], 7);
+edge_eq("mid_after_extracted_super", snap2[1], 8);
+edge_eq("leaf_after_extracted_super", snap2[2], 30);
+
+edge_eq("replace_inherited_array_slot", leaf.replaceItems(42), 1);
+edge_eq("read_replaced_inherited_array", leaf.firstItem(), 42);
+
+edge_finish("729_inherited_member_write_resolution");

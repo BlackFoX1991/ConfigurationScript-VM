@@ -1,0 +1,45 @@
+import "edge_assert.cfs";
+
+edge_begin("727_inherited_property_receiver_binding");
+
+class Base() {
+    var prefix = "base";
+    var kind = "base-kind";
+
+    func init() {}
+
+    property label {
+        get { return this.prefix + ":" + this.kind; }
+        set(value) { this.kind = value + "!"; }
+    }
+}
+
+class Child() : Base() {
+    var kind = "child-kind";
+
+    func init() {
+        super.init();
+        this.kind = "child";
+    }
+
+    func readLabel() {
+        return this.label;
+    }
+
+    func writeLabel(value) {
+        this.label = value;
+        return this.kind;
+    }
+
+    func readBaseKind() {
+        return super.kind;
+    }
+}
+
+var c = new Child();
+edge_eq("inherited_property_get_uses_derived_receiver", c.readLabel(), "base:child");
+edge_eq("inherited_property_set_uses_derived_receiver", c.writeLabel("updated"), "updated!");
+edge_eq("inherited_property_read_after_set", c.readLabel(), "base:updated!");
+edge_eq("base_layer_field_unchanged", c.readBaseKind(), "base-kind");
+
+edge_finish("727_inherited_property_receiver_binding");

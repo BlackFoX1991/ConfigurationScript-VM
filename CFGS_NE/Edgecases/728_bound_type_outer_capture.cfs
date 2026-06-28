@@ -1,0 +1,53 @@
+import "edge_assert.cfs";
+
+edge_begin("728_bound_type_outer_capture");
+
+func getCtor(obj) {
+    return obj.Inner;
+}
+
+class Outer(seed) {
+    var seed = 0;
+
+    func init(seed) {
+        this.seed = seed;
+    }
+
+    class Inner() {
+        var total = 0;
+
+        func init(offset, step = 1) {
+            this.total = outer.seed + offset + step;
+        }
+
+        func value() {
+            return this.total;
+        }
+    }
+}
+
+var o = new Outer(40);
+
+var ctor = o.Inner;
+var i1 = ctor(1, 2);
+edge_eq("direct_bound_type_call", i1.value(), 43);
+
+var ctorFromMethod = getCtor(o);
+var i2 = ctorFromMethod(2);
+edge_eq("returned_bound_type_call", i2.value(), 43);
+
+var dict = {"ctor": o.Inner};
+var i3 = dict["ctor"](5, 5);
+edge_eq("dict_bound_type_call", i3.value(), 50);
+
+var arr = [getCtor(o)];
+var i4 = arr[0](3, 4);
+edge_eq("array_bound_type_call", i4.value(), 47);
+
+var raw = Outer.Inner;
+edge_throws("raw_nested_type_without_outer_fails_on_use", func() {
+    var broken = raw(null, 1, 2);
+    return broken.value();
+});
+
+edge_finish("728_bound_type_outer_capture");

@@ -1,0 +1,25 @@
+import "edge_assert.cfs";
+
+edge_begin("731_interface_call_inherited_explicit_dispatch");
+
+interface IBaseRunner {
+    func run(value);
+}
+
+interface IDeepRunner : IBaseRunner {
+}
+
+class Runner() : IDeepRunner {
+    func IBaseRunner.run(value) {
+        return "base:" + str(value);
+    }
+}
+
+var runner = new Runner();
+
+edge_true("nominal_base", runner is IBaseRunner);
+edge_true("nominal_derived", runner is IDeepRunner);
+edge_eq("explicit_base_call", interface_call(runner, IBaseRunner, "run", [3]), "base:3");
+edge_eq("explicit_via_derived_interface", interface_call(runner, IDeepRunner, "run", [4]), "base:4");
+
+edge_finish("731_interface_call_inherited_explicit_dispatch");

@@ -1,0 +1,64 @@
+import "edge_assert.cfs";
+
+edge_begin("726_bound_method_extraction");
+
+class Counter(seed) {
+    var n = 0;
+    static var basis = 100;
+
+    func init(seed) {
+        this.n = seed;
+    }
+
+    func add(delta = 1) {
+        this.n = this.n + delta;
+        return this.n;
+    }
+
+    func getAdder() {
+        return this.add;
+    }
+
+    static func stat(x = 1) {
+        return type.basis + x;
+    }
+}
+
+class Child(seed) : Counter(seed) {
+    static var basis = 200;
+
+    func init(seed) {
+        super.init(seed);
+    }
+
+    func getSuperAdder() {
+        return super.add;
+    }
+
+    static func getBaseStat() {
+        return super.stat;
+    }
+}
+
+var c = new Child(5);
+var add = c.add;
+edge_eq("bound_instance_first", add(), 6);
+edge_eq("bound_instance_second", add(4), 10);
+
+var addFromMethod = c.getAdder();
+edge_eq("bound_returned_method", addFromMethod(1), 11);
+
+var superAdd = c.getSuperAdder();
+edge_eq("bound_super_method", superAdd(2), 13);
+edge_eq("bound_super_updates_same_receiver", c.add(0), 13);
+
+var bag = [c.add, c.getSuperAdder(), Child.getBaseStat()];
+edge_eq("bound_array_instance", bag[0](1), 14);
+edge_eq("bound_array_super", bag[1](1), 15);
+edge_eq("bound_array_static_super", bag[2](5), 105);
+
+edge_throws("bound_method_receiver_twice", func() {
+    return add(c);
+});
+
+edge_finish("726_bound_method_extraction");

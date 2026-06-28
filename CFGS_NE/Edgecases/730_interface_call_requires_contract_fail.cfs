@@ -1,0 +1,13 @@
+interface IRunner {
+    property token { get; }
+    func run(value);
+}
+
+class Plain() {
+    func run(value) {
+        return "plain:" + str(value);
+    }
+}
+
+var p = new Plain();
+var x = interface_call(p, IRunner, "run", [7]);

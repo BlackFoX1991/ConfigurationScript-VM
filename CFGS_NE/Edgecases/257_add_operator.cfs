@@ -16,6 +16,7 @@ edge_eq("str_num", "n=" + 5, "n=5");
 edge_eq("str_bool", "x" + true, "xtrue");
 edge_eq("str_null", "x" + null, "x");
 edge_eq("num_str", 5 + "!", "5!");
+edge_eq("null_str", null + "x", "x");
 edge_eq("str_array", "a" + [1, 2], "a[1, 2]");
 
 # Array + Array concatenates into a fresh array and does not mutate the operands.

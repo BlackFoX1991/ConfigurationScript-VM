@@ -1,0 +1,34 @@
+import "edge_assert.cfs";
+
+# Cross-kind numeric comparison/equality must stay total and non-throwing even
+# when a BigInteger is far outside the decimal range. This hits the same logic
+# through operators, sort/indexOf/includes, and math.min/max.
+
+edge_begin("738_bigint_decimal_comparison_extremes");
+
+var huge = bigint("10000000000000000000000000000000000000000");
+var one = decimal("1");
+var half = decimal("0.5");
+var oneBig = bigint("1");
+
+edge_true("gt_huge_decimal", huge > one);
+edge_true("lt_decimal_huge", one < huge);
+edge_eq("eq_out_of_range_false", huge == one, false);
+edge_eq("neq_out_of_range_true", huge != one, true);
+
+var arr = [one, huge, half];
+arr.sort();
+edge_eq("sort_decimal_first", arr[0], half);
+edge_eq("sort_decimal_second", arr[1], one);
+edge_eq("sort_bigint_last", arr[2], huge);
+
+var eqArr = [oneBig];
+edge_eq("indexof_cross_kind_equal", eqArr.indexOf(decimal("1.0")), 0);
+edge_true("includes_cross_kind_equal", eqArr.includes(decimal("1.0")));
+edge_eq("indexof_cross_kind_not_equal", [huge].indexOf(one), -1);
+edge_eq("includes_cross_kind_not_equal", [huge].includes(one), false);
+
+edge_eq("math_min_huge_decimal", math.min(huge, one), one);
+edge_eq("math_max_huge_decimal", math.max(huge, one), huge);
+
+edge_finish("738_bigint_decimal_comparison_extremes");

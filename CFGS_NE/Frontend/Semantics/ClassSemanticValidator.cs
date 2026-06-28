@@ -170,8 +170,8 @@ namespace CFGS_VM.Analytic.Semantics
                         if (!found)
                         {
                             found = kv.Value.IsStatic
-                                ? TryFindExplicitStaticInterfaceMethodInHierarchy(compiler, cls, kv.Key, out ownerDecl, out methodDecl, out visibility)
-                                : TryFindExplicitInstanceInterfaceMethodInHierarchy(compiler, cls, kv.Key, out ownerDecl, out methodDecl, out visibility);
+                                ? TryFindExplicitStaticInterfaceMethodInHierarchy(compiler, cls, iface, kv.Key, out ownerDecl, out methodDecl, out visibility)
+                                : TryFindExplicitInstanceInterfaceMethodInHierarchy(compiler, cls, iface, kv.Key, out ownerDecl, out methodDecl, out visibility);
                         }
 
                         if (!found)
@@ -898,6 +898,7 @@ namespace CFGS_VM.Analytic.Semantics
         private static bool TryFindExplicitInstanceInterfaceMethodInHierarchy(
             Compiler compiler,
             ClassDeclStmt decl,
+            InterfaceDeclStmt iface,
             string methodName,
             out ClassDeclStmt ownerDecl,
             out FuncDeclStmt methodDecl,
@@ -908,6 +909,7 @@ namespace CFGS_VM.Analytic.Semantics
             {
                 FuncDeclStmt? method = current.Methods.FirstOrDefault(m =>
                     !string.IsNullOrWhiteSpace(m.ExplicitInterfaceName) &&
+                    ExplicitInterfaceMatchesContract(compiler, iface, m.ExplicitInterfaceName!) &&
                     string.Equals(m.Name, methodName, StringComparison.Ordinal));
                 if (method != null)
                 {
@@ -932,6 +934,7 @@ namespace CFGS_VM.Analytic.Semantics
         private static bool TryFindExplicitStaticInterfaceMethodInHierarchy(
             Compiler compiler,
             ClassDeclStmt decl,
+            InterfaceDeclStmt iface,
             string methodName,
             out ClassDeclStmt ownerDecl,
             out FuncDeclStmt methodDecl,
@@ -942,6 +945,7 @@ namespace CFGS_VM.Analytic.Semantics
             {
                 FuncDeclStmt? method = current.StaticMethods.FirstOrDefault(m =>
                     !string.IsNullOrWhiteSpace(m.ExplicitInterfaceName) &&
+                    ExplicitInterfaceMatchesContract(compiler, iface, m.ExplicitInterfaceName!) &&
                     string.Equals(m.Name, methodName, StringComparison.Ordinal));
                 if (method != null)
                 {
@@ -960,6 +964,39 @@ namespace CFGS_VM.Analytic.Semantics
             ownerDecl = null!;
             methodDecl = null!;
             visibility = MemberVisibility.Public;
+            return false;
+        }
+
+        private static bool ExplicitInterfaceMatchesContract(Compiler compiler, InterfaceDeclStmt iface, string explicitInterfaceName)
+            => ExplicitInterfaceMatchesContractCore(compiler, iface, explicitInterfaceName, new HashSet<InterfaceDeclStmt>());
+
+        private static bool ExplicitInterfaceMatchesContractCore(
+            Compiler compiler,
+            InterfaceDeclStmt iface,
+            string explicitInterfaceName,
+            HashSet<InterfaceDeclStmt> visited)
+        {
+            if (!visited.Add(iface))
+                return false;
+
+            if (string.Equals(iface.Name, explicitInterfaceName, StringComparison.Ordinal))
+                return true;
+
+            if (compiler.Context.InterfaceQualifiedPaths.TryGetValue(iface, out string? qualifiedName) &&
+                string.Equals(qualifiedName, explicitInterfaceName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            foreach (string baseName in iface.BaseInterfaces)
+            {
+                if (compiler.TryResolveBaseInterfaceDecl(iface, baseName, out InterfaceDeclStmt baseIface) &&
+                    ExplicitInterfaceMatchesContractCore(compiler, baseIface, explicitInterfaceName, visited))
+                {
+                    return true;
+                }
+            }
+
             return false;
         }
 

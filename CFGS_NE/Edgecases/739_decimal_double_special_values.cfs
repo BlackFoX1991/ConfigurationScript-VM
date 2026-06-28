@@ -1,0 +1,35 @@
+import "edge_assert.cfs";
+
+# Decimal-vs-double comparison/equality must not throw on NaN/Infinity or on a
+# double magnitude that cannot be represented as decimal.
+
+edge_begin("739_decimal_double_special_values");
+
+var one = decimal("1");
+var inf = double("Infinity");
+var negInf = double("-Infinity");
+var nan = double("NaN");
+
+edge_true("inf_gt_decimal", inf > one);
+edge_true("neginf_lt_decimal", negInf < one);
+edge_eq("inf_eq_decimal_false", inf == one, false);
+edge_eq("nan_eq_decimal_false", nan == one, false);
+edge_eq("nan_eq_itself_false", nan == nan, false);
+edge_eq("nan_lt_decimal_false", nan < one, false);
+edge_eq("nan_gt_decimal_false", nan > one, false);
+
+var arr = [one, inf, negInf];
+arr.sort();
+edge_eq("sort_neginf_first", arr[0], negInf);
+edge_eq("sort_decimal_middle", arr[1], one);
+edge_eq("sort_inf_last", arr[2], inf);
+
+edge_eq("indexof_inf", [inf].indexOf(double("Infinity")), 0);
+edge_true("includes_inf", [inf].includes(double("Infinity")));
+edge_eq("indexof_nan", [nan].indexOf(double("NaN")), -1);
+edge_eq("includes_nan", [nan].includes(double("NaN")), false);
+
+edge_eq("math_min_inf_decimal", math.min(inf, one), one);
+edge_eq("math_max_neginf_decimal", math.max(negInf, one), one);
+
+edge_finish("739_decimal_double_special_values");

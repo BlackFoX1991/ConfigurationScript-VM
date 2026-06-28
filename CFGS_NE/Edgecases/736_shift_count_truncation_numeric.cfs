@@ -1,0 +1,21 @@
+import "edge_assert.cfs";
+
+# Numeric shift counts should truncate toward zero consistently. The documented
+# double path already does this; float/decimal must not silently round instead.
+
+edge_begin("736_shift_count_truncation_numeric");
+
+edge_eq("double_left_shift_trunc", 1 << 1.9, 2);
+edge_eq("float_left_shift_trunc", 1 << float("1.9"), 2);
+edge_eq("decimal_left_shift_trunc", 1 << decimal("1.9"), 2);
+edge_eq("bigint_left_shift_count", 1 << bigint("1"), 2);
+
+edge_eq("double_right_shift_trunc", 16 >> 1.9, 8);
+edge_eq("float_right_shift_trunc", 16 >> float("1.9"), 8);
+edge_eq("decimal_right_shift_trunc", 16 >> decimal("1.9"), 8);
+edge_eq("bigint_right_shift_count", 16 >> bigint("1"), 8);
+
+edge_throws("bigint_left_shift_count_overflow", func() { return 1 << bigint("2147483648"); });
+edge_throws("bigint_right_shift_negative", func() { return 16 >> bigint("-1"); });
+
+edge_finish("736_shift_count_truncation_numeric");

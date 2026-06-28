@@ -117,7 +117,8 @@ namespace CFGS_VM.Analytic.Lowering
                 stmt.Col,
                 stmt.OriginFile,
                 stmt.IsAsync,
-                parameterSpecs: new List<FunctionParameterSpec>(stmt.ParameterSpecs)), stmt);
+                parameterSpecs: new List<FunctionParameterSpec>(stmt.ParameterSpecs),
+                explicitInterfaceName: stmt.ExplicitInterfaceName), stmt);
         }
 
         private FuncExpr LowerFunctionExpr(FuncExpr expr)

@@ -553,10 +553,19 @@ namespace CFGS_VM.VMCore
 
                             if (recv is ClassInstance inst)
                             {
-                                if (TryGetInstanceFieldValue(inst, "__base", out Value baseValue) && baseValue.ToObject() is ClassInstance baseInst)
+                                ClassInstance resolutionLayer = inst;
+                                if (_callStack.Count > 0 &&
+                                    _callStack.Peek().AccessType is StaticInstance accessType &&
+                                    TryFindInstanceLayerForType(inst, accessType, out ClassInstance accessLayer))
+                                {
+                                    resolutionLayer = accessLayer;
+                                }
+
+                                if (TryGetInstanceFieldValue(resolutionLayer, "__base", out Value baseValue) && baseValue.ToObject() is ClassInstance baseInst)
                                 {
                                     // 'super' keeps the derived instance as 'this'; only method
-                                    // resolution starts at the base layer. The member-access path
+                                    // resolution starts one layer above the currently executing
+                                    // declaring type. The member-access path
                                     // resolves on BaseLayer and rebinds the receiver to Derived.
                                     PushRuntimeObject(new SuperReference(inst, baseInst));
                                     break;
@@ -1141,6 +1150,17 @@ namespace CFGS_VM.VMCore
             if (args[1] is not StaticInstance iface || !IsInterfaceType(iface))
                 throw new VMException("Runtime error: interface_call second argument must be an interface type.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+            if (!ImplementsRuntimeType(instance, iface))
+            {
+                throw new VMException(
+                    $"Runtime error: interface_call target does not implement interface '{iface.ClassName}'.",
+                    instr.Line,
+                    instr.Col,
+                    instr.OriginFile,
+                    IsDebugging,
+                    DebugStream!);
+            }
+
             string methodName = args[2]?.ToString() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(methodName))
                 throw new VMException("Runtime error: interface_call method name cannot be empty.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1154,12 +1174,10 @@ namespace CFGS_VM.VMCore
                 callArgs.AddRange(providedArgs);
             }
 
-            string explicitName = $"{iface.ClassName}.{methodName}";
             Closure closure;
-            if (!TryResolveInstanceMemberValueInHierarchy(instance, explicitName, out _, out StaticInstance? ownerType, out Value memberValue) ||
-                memberValue.Reference is not Closure resolvedClosure)
+            if (!TryResolveExplicitInterfaceMethod(instance, iface, methodName, out StaticInstance? ownerType, out closure))
             {
-                if (!TryResolveInstanceMemberValueInHierarchy(instance, methodName, out _, out ownerType, out memberValue) ||
+                if (!TryResolveInstanceMemberValueInHierarchy(instance, methodName, out _, out ownerType, out Value memberValue) ||
                     memberValue.Reference is not Closure fallbackClosure)
                 {
                     throw new VMException($"Runtime error: interface_call could not find method '{methodName}' for interface '{iface.ClassName}'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1167,12 +1185,34 @@ namespace CFGS_VM.VMCore
 
                 closure = fallbackClosure;
             }
-            else
-            {
-                closure = resolvedClosure;
-            }
 
             return InvokeClosureSync(closure, callArgs, instr, instance, ownerType);
+        }
+
+        private bool TryResolveExplicitInterfaceMethod(
+            ClassInstance instance,
+            StaticInstance iface,
+            string methodName,
+            out StaticInstance? ownerType,
+            out Closure closure)
+        {
+            foreach (StaticInstance contractIface in EnumerateInterfaceSelfAndBases(iface))
+            {
+                foreach (string interfaceName in EnumerateRuntimeTypeNames(contractIface))
+                {
+                    string explicitName = $"{interfaceName}.{methodName}";
+                    if (TryResolveInstanceMemberValueInHierarchy(instance, explicitName, out _, out ownerType, out Value memberValue) &&
+                        memberValue.Reference is Closure resolvedClosure)
+                    {
+                        closure = resolvedClosure;
+                        return true;
+                    }
+                }
+            }
+
+            ownerType = null;
+            closure = null!;
+            return false;
         }
     }
 }

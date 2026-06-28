@@ -272,6 +272,27 @@ namespace CFGS_VM.VMCore
             return false;
         }
 
+        private static bool TryFindInstanceLayerForType(ClassInstance start, StaticInstance targetType, out ClassInstance layer)
+        {
+            ClassInstance current = start;
+            while (true)
+            {
+                if (TryGetStaticType(current, out StaticInstance currentType) && ReferenceEquals(currentType, targetType))
+                {
+                    layer = current;
+                    return true;
+                }
+
+                if (!TryGetInstanceFieldValue(current, "__base", out Value baseValue) || baseValue.Reference is not ClassInstance baseInst)
+                    break;
+
+                current = baseInst;
+            }
+
+            layer = null!;
+            return false;
+        }
+
         private static bool IsInterfaceType(StaticInstance type)
         {
             if (!TryGetStaticFieldValue(type, "__is_interface", out Value raw))
@@ -308,6 +329,43 @@ namespace CFGS_VM.VMCore
             {
                 if (entry is StaticInstance iface)
                     yield return iface;
+            }
+        }
+
+        private static IEnumerable<StaticInstance> EnumerateInterfaceSelfAndBases(StaticInstance iface)
+        {
+            HashSet<StaticInstance> visited = new();
+            foreach (StaticInstance current in EnumerateInterfaceSelfAndBasesCore(iface, visited))
+                yield return current;
+        }
+
+        private static IEnumerable<StaticInstance> EnumerateInterfaceSelfAndBasesCore(StaticInstance iface, HashSet<StaticInstance> visited)
+        {
+            if (!visited.Add(iface))
+                yield break;
+
+            yield return iface;
+
+            foreach (StaticInstance baseIface in EnumerateDirectInterfaces(iface))
+            {
+                foreach (StaticInstance current in EnumerateInterfaceSelfAndBasesCore(baseIface, visited))
+                    yield return current;
+            }
+        }
+
+        private static IEnumerable<string> EnumerateRuntimeTypeNames(StaticInstance type)
+        {
+            HashSet<string> yielded = new(StringComparer.Ordinal);
+
+            if (!string.IsNullOrWhiteSpace(type.ClassName) && yielded.Add(type.ClassName))
+                yield return type.ClassName;
+
+            if (TryGetStaticFieldValue(type, "__qualified_name", out Value qualifiedNameValue) &&
+                qualifiedNameValue.ToObject() is string qualifiedName &&
+                !string.IsNullOrWhiteSpace(qualifiedName) &&
+                yielded.Add(qualifiedName))
+            {
+                yield return qualifiedName;
             }
         }
 
@@ -890,7 +948,12 @@ namespace CFGS_VM.VMCore
             return true;
         }
 
-        private object? ReadInstanceProperty(ClassInstance ownerInst, StaticInstance ownerType, RuntimePropertyDescriptor descriptor, Instruction instr)
+        private object? ReadInstanceProperty(
+            ClassInstance receiverInst,
+            ClassInstance ownerInst,
+            StaticInstance ownerType,
+            RuntimePropertyDescriptor descriptor,
+            Instruction instr)
         {
             if (!descriptor.HasGetter)
             {
@@ -904,7 +967,10 @@ namespace CFGS_VM.VMCore
             if (descriptor.GetterSlotName != null)
             {
                 Closure closure = GetPropertyAccessorClosure(ownerInst, descriptor.GetterSlotName, descriptor.Name, "getter", instr);
-                return InvokeClosureSyncValue(closure, [], instr, ownerInst, ownerType).ToObject();
+                // Property access follows normal instance dispatch semantics: resolution happens on
+                // the declaring layer, but accessor bodies execute with the original receiver as
+                // 'this' so inherited properties see the derived instance state.
+                return InvokeClosureSyncValue(closure, [], instr, receiverInst, ownerType).ToObject();
             }
 
             if (descriptor.HasAutoStorage && descriptor.BackingFieldName != null)
@@ -949,6 +1015,7 @@ namespace CFGS_VM.VMCore
         }
 
         private void WriteInstanceProperty(
+            ClassInstance receiverInst,
             ClassInstance ownerInst,
             StaticInstance ownerType,
             RuntimePropertyDescriptor descriptor,
@@ -971,7 +1038,7 @@ namespace CFGS_VM.VMCore
                 if (descriptor.InitSlotName != null)
                 {
                     Closure closure = GetPropertyAccessorClosure(ownerInst, descriptor.InitSlotName, descriptor.Name, "init accessor", instr);
-                    InvokeClosureSyncValue(closure, [Value.FromObject(value)], instr, ownerInst, ownerType);
+                    InvokeClosureSyncValue(closure, [Value.FromObject(value)], instr, receiverInst, ownerType);
                     return;
                 }
             }
@@ -981,7 +1048,7 @@ namespace CFGS_VM.VMCore
                 if (descriptor.SetterSlotName != null)
                 {
                     Closure closure = GetPropertyAccessorClosure(ownerInst, descriptor.SetterSlotName, descriptor.Name, "setter", instr);
-                    InvokeClosureSyncValue(closure, [Value.FromObject(value)], instr, ownerInst, ownerType);
+                    InvokeClosureSyncValue(closure, [Value.FromObject(value)], instr, receiverInst, ownerType);
                     return;
                 }
             }
@@ -1177,7 +1244,7 @@ namespace CFGS_VM.VMCore
                         }
 
                         if (TryResolveInstancePropertyInHierarchy(obj, key, out ClassInstance ownerPropertyInst, out StaticInstance ownerPropertyType, out RuntimePropertyDescriptor propertyDescriptor))
-                            return ReadInstanceProperty(ownerPropertyInst, ownerPropertyType, propertyDescriptor, instr)!;
+                            return ReadInstanceProperty(obj, ownerPropertyInst, ownerPropertyType, propertyDescriptor, instr)!;
 
                         if (TryResolveInstanceMemberValueInHierarchy(obj, key, out _, out StaticInstance? ownerInstanceType, out Value instanceValue))
                         {
@@ -1401,17 +1468,22 @@ namespace CFGS_VM.VMCore
                         if (!allowReservedRuntimeSlotWrites &&
                             TryResolveInstancePropertyInHierarchy(obj, key, out ClassInstance ownerPropertyInst, out StaticInstance ownerPropertyType, out RuntimePropertyDescriptor propertyDescriptor))
                         {
-                            WriteInstanceProperty(ownerPropertyInst, ownerPropertyType, propertyDescriptor, value, instr, writeMode);
+                            WriteInstanceProperty(obj, ownerPropertyInst, ownerPropertyType, propertyDescriptor, value, instr, writeMode);
                             break;
                         }
 
-                        if (!allowReservedRuntimeSlotWrites &&
-                            !TryResolveInstanceMemberValueInHierarchy(obj, key, out _, out _, out _))
+                        ClassInstance? ownerFieldInst = null;
+                        if (!allowReservedRuntimeSlotWrites)
                         {
-                            throw new VMException(
-                                $"Runtime error: invalid instance member '{key}' in class '{obj.ClassName}'",
-                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
-                            );
+                            if (!TryResolveInstanceMemberValueInHierarchy(obj, key, out ClassInstance resolvedOwnerInst, out _, out _))
+                            {
+                                throw new VMException(
+                                    $"Runtime error: invalid instance member '{key}' in class '{obj.ClassName}'",
+                                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+                                );
+                            }
+
+                            ownerFieldInst = resolvedOwnerInst;
                         }
 
                         if (!allowReservedRuntimeSlotWrites &&
@@ -1430,7 +1502,10 @@ namespace CFGS_VM.VMCore
                                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 
-                        SetInstanceFieldValue(obj, key, Value.FromObject(value));
+                        // Preserve per-layer field storage: writes to inherited fields must update the
+                        // layer that actually declares the field instead of creating a shadowing copy
+                        // on the current receiver object.
+                        SetInstanceFieldValue(ownerFieldInst ?? obj, key, Value.FromObject(value));
                         break;
                     }
 

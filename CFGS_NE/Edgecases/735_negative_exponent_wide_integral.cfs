@@ -1,0 +1,20 @@
+import "edge_assert.cfs";
+
+# Negative exponents should behave consistently across all integral widths:
+# they produce a fractional double result instead of failing just because the
+# base promoted to ulong/BigInteger internally.
+
+edge_begin("735_negative_exponent_wide_integral");
+
+var big = 10 ** 20;
+var ulongNeg = 0xFFFFFFFFFFFFFFFF ** -1;
+var bigNeg = big ** -1;
+
+edge_eq("int_neg_exp", 2 ** -1, 0.5);
+edge_eq("long_neg_exp", 10000000000 ** -1, 1.0e-10);
+edge_eq("ulong_neg_exp_type", typeof(ulongNeg), "Double");
+edge_true("ulong_neg_exp_fractional", ulongNeg > 0 && ulongNeg < 1);
+edge_eq("big_neg_exp", bigNeg, 1.0e-20);
+edge_eq("big_neg_exp_type", typeof(bigNeg), "Double");
+
+edge_finish("735_negative_exponent_wide_integral");

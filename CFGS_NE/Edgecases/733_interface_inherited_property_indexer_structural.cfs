@@ -1,0 +1,82 @@
+import "edge_assert.cfs";
+
+edge_begin("733_interface_inherited_property_indexer_structural");
+
+interface INamed {
+    property name { get; }
+
+    func label() {
+        return "n:" + this.name;
+    }
+}
+
+interface IReadable : INamed {
+    index get(key);
+}
+
+interface IReadWrite : IReadable {
+    property value { get; set; }
+    index set(key, value);
+}
+
+class Box() : IReadWrite {
+    property name { get; } = "box";
+    property value { get; set; } = 10;
+    var data = {};
+
+    func get_index(key) {
+        return this.data[key];
+    }
+
+    func set_index(key, value) {
+        this.data[key] = value;
+    }
+}
+
+class Shape() {
+    property name { get; } = "shape";
+    property value { get; set; } = 20;
+    var data = {};
+
+    func label() {
+        return "n:" + this.name;
+    }
+
+    func get_index(key) {
+        return this.data[key];
+    }
+
+    func set_index(key, value) {
+        this.data[key] = value;
+    }
+}
+
+var box = new Box();
+box["a"] = 1;
+box.value = 11;
+
+edge_true("nominal_named", box is INamed);
+edge_true("nominal_readable", box is IReadable);
+edge_true("nominal_readwrite", box is IReadWrite);
+edge_eq("nominal_default_method", box.label(), "n:box");
+edge_eq("nominal_indexer_get", box["a"], 1);
+edge_eq("nominal_property_set", box.value, 11);
+
+var shape = new Shape();
+shape["b"] = 2;
+shape.value = 21;
+
+edge_true("structural_readable", shape is IReadable);
+edge_true("structural_readwrite", shape is IReadWrite);
+edge_true("structural_implements_named", implements(shape, INamed));
+edge_eq("structural_default_method_local", shape.label(), "n:shape");
+edge_eq("structural_indexer_get", shape["b"], 2);
+edge_eq("structural_property_set", shape.value, 21);
+
+var meta = interfaceof(IReadWrite);
+edge_eq("meta_name", meta["name"], "IReadWrite");
+edge_eq("meta_bases_count", len(meta["bases"]), 1);
+edge_eq("meta_properties_count", len(meta["properties"]), 1);
+edge_eq("meta_indexers_count", len(meta["indexers"]), 1);
+
+edge_finish("733_interface_inherited_property_indexer_structural");

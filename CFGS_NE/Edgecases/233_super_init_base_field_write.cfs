@@ -1,0 +1,27 @@
+import "edge_assert.cfs";
+
+edge_begin("233_super_init_base_field_write");
+
+class A(seed) {
+    var x = "A-default";
+
+    func init(seed) { this.x = seed; }
+    func getX() { return this.x; }
+}
+
+class B() : A("base-ctor") {
+    func init(seed) {
+        super.init("from-init");
+    }
+
+    func throughThis() { return this.x; }
+    func throughSuperField() { return super.x; }
+    func throughSuperMethod() { return super.getX(); }
+}
+
+var b = new B("ignored");
+edge_eq("this_reads_initialized_value", b.throughThis(), "from-init");
+edge_eq("super_method_reads_initialized_value", b.throughSuperMethod(), "from-init");
+edge_eq("super_field_reads_base_layer_value", b.throughSuperField(), "from-init");
+
+edge_finish("233_super_init_base_field_write");

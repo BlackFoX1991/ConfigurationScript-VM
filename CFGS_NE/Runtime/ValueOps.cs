@@ -17,6 +17,10 @@ namespace CFGS_VM.VMCore
         private static int ToInt32Invariant(object x) => x switch
         {
             string s => int.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture),
+            double d => DoubleToInt32(d),
+            float f => DoubleToInt32(f),
+            decimal m => checked((int)decimal.Truncate(m)),
+            BigInteger bi => checked((int)bi),
             IConvertible _ => Convert.ToInt32(x, CultureInfo.InvariantCulture),
             _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
         };
@@ -24,6 +28,10 @@ namespace CFGS_VM.VMCore
         private static long ToInt64Invariant(object x) => x switch
         {
             string s => long.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture),
+            double d => DoubleToInt64(d),
+            float f => DoubleToInt64(f),
+            decimal m => checked((long)decimal.Truncate(m)),
+            BigInteger bi => checked((long)bi),
             IConvertible _ => Convert.ToInt64(x, CultureInfo.InvariantCulture),
             _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
         };
@@ -31,6 +39,10 @@ namespace CFGS_VM.VMCore
         private static ulong ToUInt64Invariant(object x) => x switch
         {
             string s => ulong.Parse(s, NumberStyles.Integer, CultureInfo.InvariantCulture),
+            double d => DoubleToUInt64(d),
+            float f => DoubleToUInt64(f),
+            decimal m => DecimalToUInt64(m),
+            BigInteger bi => checked((ulong)bi),
             IConvertible _ => Convert.ToUInt64(x, CultureInfo.InvariantCulture),
             _ => throw new InvalidOperationException($"Not numeric: {x?.GetType().Name ?? "null"}")
         };
@@ -96,6 +108,156 @@ namespace CFGS_VM.VMCore
         private static bool IsIntegralLike(object x) =>
             x is sbyte or byte or short or ushort or int or uint or long or ulong or char or BigInteger;
 
+        private static bool TryGetDecimalBigIntegerPair(
+            Value left,
+            Value right,
+            out decimal decimalValue,
+            out BigInteger bigIntegerValue,
+            out bool decimalIsLeft)
+        {
+            if (left.Kind == ValueKind.Ref && left.Reference is decimal leftDecimal &&
+                right.Kind == ValueKind.Ref && right.Reference is BigInteger rightBigInteger)
+            {
+                decimalValue = leftDecimal;
+                bigIntegerValue = rightBigInteger;
+                decimalIsLeft = true;
+                return true;
+            }
+
+            if (right.Kind == ValueKind.Ref && right.Reference is decimal rightDecimal &&
+                left.Kind == ValueKind.Ref && left.Reference is BigInteger leftBigInteger)
+            {
+                decimalValue = rightDecimal;
+                bigIntegerValue = leftBigInteger;
+                decimalIsLeft = false;
+                return true;
+            }
+
+            decimalValue = default;
+            bigIntegerValue = default;
+            decimalIsLeft = false;
+            return false;
+        }
+
+        private static BigInteger DecimalIntegralToBigInteger(decimal value)
+            => BigInteger.Parse(decimal.Truncate(value).ToString(CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture);
+
+        private static int CompareDecimalAndBigInteger(decimal decimalValue, BigInteger bigIntegerValue)
+        {
+            BigInteger decimalIntegral = DecimalIntegralToBigInteger(decimalValue);
+            int integralComparison = decimalIntegral.CompareTo(bigIntegerValue);
+            if (integralComparison != 0)
+                return integralComparison;
+
+            decimal fractional = decimalValue - decimal.Truncate(decimalValue);
+            if (fractional > 0m)
+                return 1;
+            if (fractional < 0m)
+                return -1;
+            return 0;
+        }
+
+        private static bool TryCompareDecimalBigIntegerPair(Value left, Value right, out int comparison)
+        {
+            if (TryGetDecimalBigIntegerPair(left, right, out decimal decimalValue, out BigInteger bigIntegerValue, out bool decimalIsLeft))
+            {
+                comparison = CompareDecimalAndBigInteger(decimalValue, bigIntegerValue);
+                if (!decimalIsLeft)
+                    comparison = -comparison;
+                return true;
+            }
+
+            comparison = 0;
+            return false;
+        }
+
+        private static bool TryEqualDecimalBigIntegerPair(Value left, Value right, out bool equals)
+        {
+            if (TryCompareDecimalBigIntegerPair(left, right, out int comparison))
+            {
+                equals = comparison == 0;
+                return true;
+            }
+
+            equals = false;
+            return false;
+        }
+
+        private static bool TryGetFloatingDouble(Value value, out double floatingValue)
+        {
+            switch (value.Kind)
+            {
+                case ValueKind.Double:
+                    floatingValue = value.AsDouble;
+                    return true;
+                case ValueKind.Ref when value.Reference is float f:
+                    floatingValue = f;
+                    return true;
+                default:
+                    floatingValue = default;
+                    return false;
+            }
+        }
+
+        private static bool RequiresSpecialDecimalFloatingComparison(double floatingValue)
+            => double.IsNaN(floatingValue) ||
+               double.IsInfinity(floatingValue) ||
+               floatingValue > (double)decimal.MaxValue ||
+               floatingValue < (double)decimal.MinValue;
+
+        private static bool TryGetDecimalFloatingSpecialPair(
+            Value left,
+            Value right,
+            out double leftAsDouble,
+            out double rightAsDouble)
+        {
+            if (left.Kind == ValueKind.Ref && left.Reference is decimal leftDecimal &&
+                TryGetFloatingDouble(right, out double rightFloating) &&
+                RequiresSpecialDecimalFloatingComparison(rightFloating))
+            {
+                leftAsDouble = (double)leftDecimal;
+                rightAsDouble = rightFloating;
+                return true;
+            }
+
+            if (right.Kind == ValueKind.Ref && right.Reference is decimal rightDecimal &&
+                TryGetFloatingDouble(left, out double leftFloating) &&
+                RequiresSpecialDecimalFloatingComparison(leftFloating))
+            {
+                leftAsDouble = leftFloating;
+                rightAsDouble = (double)rightDecimal;
+                return true;
+            }
+
+            leftAsDouble = default;
+            rightAsDouble = default;
+            return false;
+        }
+
+        private static bool TryCompareDecimalFloatingSpecialPair(Value left, Value right, out int comparison)
+        {
+            if (TryGetDecimalFloatingSpecialPair(left, right, out double leftAsDouble, out double rightAsDouble))
+            {
+                comparison = leftAsDouble.CompareTo(rightAsDouble);
+                return true;
+            }
+
+            comparison = 0;
+            return false;
+        }
+
+        private static bool TryEqualDecimalFloatingSpecialPair(Value left, Value right, out bool equals)
+        {
+            if (TryGetDecimalFloatingSpecialPair(left, right, out double leftAsDouble, out double rightAsDouble))
+            {
+                equals = leftAsDouble == rightAsDouble;
+                return true;
+            }
+
+            equals = false;
+            return false;
+        }
+
         private static BigInteger ToBigInt(object x) => x switch
         {
             BigInteger bi => bi,
@@ -111,10 +273,10 @@ namespace CFGS_VM.VMCore
             _ => throw new InvalidOperationException($"Not integral: {x?.GetType().Name ?? "null"}")
         };
 
-        private Value PowBigIntegerOrThrow(BigInteger a, BigInteger b, Instruction instr)
+        private Value PowBigInteger(BigInteger a, BigInteger b, Instruction instr)
         {
             if (b.Sign < 0)
-                throw new VMException("EXPO with BigInteger requires non-negative exponent", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                return Value.FromDouble(Math.Pow((double)a, (double)b));
             if (b > int.MaxValue)
                 throw new VMException("EXPO exponent too large for BigInteger.Pow", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             return Value.FromRef(BigInteger.Pow(a, (int)b));
@@ -582,6 +744,14 @@ namespace CFGS_VM.VMCore
             return (ulong)t;
         }
 
+        private static ulong DecimalToUInt64(decimal value)
+        {
+            decimal truncated = decimal.Truncate(value);
+            if (truncated < 0m || truncated > ulong.MaxValue)
+                throw new OverflowException("Value was either too large or too small for a UInt64.");
+            return (ulong)truncated;
+        }
+
         private static int ToInt32Invariant(Value x) => x.Kind switch
         {
             ValueKind.Int => x.AsInt,
@@ -834,13 +1004,14 @@ namespace CFGS_VM.VMCore
 
         private string FormatDefaultConcatOperand(Value value)
         {
-            // Must match the canonical rendering used by Value.ToString()/PrintValue: lowercase
-            // boolean literals and culture-invariant numerics, so that string concatenation does
-            // not leak the .NET "True"/"False" capitalization or a locale-dependent decimal
-            // separator (e.g. "1,5" instead of "1.5").
+            // Must match the canonical rendering used by Value.ToString()/PrintValue for non-null
+            // scalars: lowercase boolean literals and culture-invariant numerics, so that string
+            // concatenation does not leak the .NET "True"/"False" capitalization or a
+            // locale-dependent decimal separator (e.g. "1,5" instead of "1.5"). Null is treated
+            // like C# string concatenation and contributes an empty string.
             return value.Kind switch
             {
-                ValueKind.Null => "null",
+                ValueKind.Null => string.Empty,
                 ValueKind.Bool => value.AsBool ? "true" : "false",
                 ValueKind.Int => value.AsInt.ToString(CultureInfo.InvariantCulture),
                 ValueKind.Long => value.AsLong.ToString(CultureInfo.InvariantCulture),
@@ -900,9 +1071,10 @@ namespace CFGS_VM.VMCore
             }
 
             // Beyond numerics, '+' is only a string-concatenation operator: it requires at least one
-            // string operand. The other operand is stringified (collections via their printed form).
-            // This keeps '+' consistent with '-', '*', '%' which reject non-numeric/non-string operands,
-            // instead of silently turning e.g. true + false into "truefalse" or null + 5 into null.
+            // string operand. The other operand is stringified (collections via their printed form),
+            // except null which contributes an empty string. This keeps '+' consistent with '-', '*',
+            // '%' which reject non-numeric/non-string operands, instead of silently turning e.g.
+            // true + false into "truefalse" or null + 5 into null.
             bool leftIsString = TryGetStringReference(leftValue, out _);
             bool rightIsString = TryGetStringReference(rightValue, out _);
 
@@ -1185,7 +1357,7 @@ namespace CFGS_VM.VMCore
                 NumKind.Double => Value.FromDouble(Math.Pow(A.AsDouble, B.AsDouble)),
                 NumKind.UInt64 => IntegerExpo((ulong)A.Reference!, (ulong)B.Reference!, instr),
                 NumKind.Int64 => IntegerExpo(A.AsLong, B.AsLong, instr),
-                NumKind.Maximal => PowBigIntegerOrThrow((BigInteger)A.Reference!, (BigInteger)B.Reference!, instr),
+                NumKind.Maximal => PowBigInteger((BigInteger)A.Reference!, (BigInteger)B.Reference!, instr),
                 _ => IntegerExpo(A.AsInt, B.AsInt, instr),
             };
             _valueStack.Push(res);
@@ -1390,6 +1562,12 @@ namespace CFGS_VM.VMCore
                 };
             }
 
+            if (TryEqualDecimalBigIntegerPair(left, right, out bool decimalBigIntegerEquals))
+                return decimalBigIntegerEquals;
+
+            if (TryEqualDecimalFloatingSpecialPair(left, right, out bool decimalFloatingEquals))
+                return decimalFloatingEquals;
+
             if (left.Kind != ValueKind.Ref && right.Kind != ValueKind.Ref)
                 return left.Equals(right);
 
@@ -1446,6 +1624,12 @@ namespace CFGS_VM.VMCore
                 };
                 return true;
             }
+
+            if (TryCompareDecimalBigIntegerPair(left, right, out cmp))
+                return true;
+
+            if (TryCompareDecimalFloatingSpecialPair(left, right, out cmp))
+                return true;
 
             if (TryCoerceFallbackNumericPair(left, right, out Value A, out Value B, out NumKind K))
             {
@@ -1555,6 +1739,16 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (TryCompareDecimalBigIntegerPair(leftValue, rightValue, out int decimalBigIntegerComparison))
+            {
+                _valueStack.Push(Value.FromBool(decimalBigIntegerComparison < 0));
+                return StepResult.Next;
+            }
+            if (TryGetDecimalFloatingSpecialPair(leftValue, rightValue, out double leftSpecialDouble, out double rightSpecialDouble))
+            {
+                _valueStack.Push(Value.FromBool(leftSpecialDouble < rightSpecialDouble));
+                return StepResult.Next;
+            }
             if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
             {
                 _valueStack.Push(Value.FromBool(K switch
@@ -1590,6 +1784,16 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (TryCompareDecimalBigIntegerPair(leftValue, rightValue, out int decimalBigIntegerComparison))
+            {
+                _valueStack.Push(Value.FromBool(decimalBigIntegerComparison > 0));
+                return StepResult.Next;
+            }
+            if (TryGetDecimalFloatingSpecialPair(leftValue, rightValue, out double leftSpecialDouble, out double rightSpecialDouble))
+            {
+                _valueStack.Push(Value.FromBool(leftSpecialDouble > rightSpecialDouble));
+                return StepResult.Next;
+            }
             if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
             {
                 _valueStack.Push(Value.FromBool(K switch
@@ -1625,6 +1829,16 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (TryCompareDecimalBigIntegerPair(leftValue, rightValue, out int decimalBigIntegerComparison))
+            {
+                _valueStack.Push(Value.FromBool(decimalBigIntegerComparison <= 0));
+                return StepResult.Next;
+            }
+            if (TryGetDecimalFloatingSpecialPair(leftValue, rightValue, out double leftSpecialDouble, out double rightSpecialDouble))
+            {
+                _valueStack.Push(Value.FromBool(leftSpecialDouble <= rightSpecialDouble));
+                return StepResult.Next;
+            }
             if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
             {
                 _valueStack.Push(Value.FromBool(K switch
@@ -1660,6 +1874,16 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull) { _valueStack.Push(Value.Null); return StepResult.Next; }
+            if (TryCompareDecimalBigIntegerPair(leftValue, rightValue, out int decimalBigIntegerComparison))
+            {
+                _valueStack.Push(Value.FromBool(decimalBigIntegerComparison >= 0));
+                return StepResult.Next;
+            }
+            if (TryGetDecimalFloatingSpecialPair(leftValue, rightValue, out double leftSpecialDouble, out double rightSpecialDouble))
+            {
+                _valueStack.Push(Value.FromBool(leftSpecialDouble >= rightSpecialDouble));
+                return StepResult.Next;
+            }
             if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
             {
                 _valueStack.Push(Value.FromBool(K switch
@@ -1692,8 +1916,7 @@ namespace CFGS_VM.VMCore
             switch (value.Kind)
             {
                 case ValueKind.Null:
-                    _valueStack.Push(Value.Null);
-                    return StepResult.Next;
+                    throw NullOperand(instr, "NEG");
                 case ValueKind.Int:
                     if (value.AsInt == int.MinValue)
                         _valueStack.Push(Value.FromLong(-(long)value.AsInt));

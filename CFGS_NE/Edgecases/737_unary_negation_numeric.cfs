@@ -1,0 +1,17 @@
+import "edge_assert.cfs";
+
+# Unary minus should be numeric-only and follow the same null/error contract as
+# the binary arithmetic operators.
+
+edge_begin("737_unary_negation_numeric");
+
+var big = bigint("100000000000000000000");
+
+edge_throws("neg_null", func() { return -null; });
+edge_eq("neg_int", -5, -5);
+edge_eq("neg_long", -10000000000, -10000000000);
+edge_eq("neg_char", -'A', -65);
+edge_eq("neg_ulong_promotes", -0xFFFFFFFFFFFFFFFF, -18446744073709551615);
+edge_eq("neg_bigint", -big, -100000000000000000000);
+
+edge_finish("737_unary_negation_numeric");

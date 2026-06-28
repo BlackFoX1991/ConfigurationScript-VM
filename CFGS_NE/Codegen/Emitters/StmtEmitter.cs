@@ -287,6 +287,16 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(OpCode.PUSH_INT, 1, ids.Line, ids.Col, ids.OriginFile));
                         _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
 
+                        _insns.Add(new Instruction(OpCode.DUP, null, ids.Line, ids.Col, ids.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__qualified_name", ids.Line, ids.Col, ids.OriginFile));
+                        _insns.Add(new Instruction(
+                            OpCode.PUSH_STR,
+                            _interfaceQualifiedPaths.TryGetValue(ids, out string? qualifiedName) ? qualifiedName : ids.Name,
+                            ids.Line,
+                            ids.Col,
+                            ids.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
+
                         if (ids.BaseInterfaces.Count > 0)
                         {
                             _insns.Add(new Instruction(OpCode.DUP, null, ids.Line, ids.Col, ids.OriginFile));

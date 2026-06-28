@@ -15,6 +15,7 @@ namespace CFGS_VM.VMCore
             "__base",
             "__interfaces",
             "__is_interface",
+            "__qualified_name",
             "__props_inst",
             "__props_static",
             "__outer",

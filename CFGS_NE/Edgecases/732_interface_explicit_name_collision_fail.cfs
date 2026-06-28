@@ -1,0 +1,15 @@
+interface IA {
+    func run(value);
+}
+
+interface IB {
+    func run(value);
+}
+
+class Bad() : IA, IB {
+    func IA.run(value) {
+        return "a:" + str(value);
+    }
+}
+
+var bad = new Bad();

@@ -1,0 +1,8 @@
+interface IOnly {
+    func work(value);
+}
+
+class Missing() : IOnly {
+}
+
+var x = new Missing();
