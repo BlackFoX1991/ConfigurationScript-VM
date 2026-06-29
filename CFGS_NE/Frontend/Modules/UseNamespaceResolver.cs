@@ -44,6 +44,12 @@ namespace CFGS_VM.Analytic.Modules
 
             public List<HashSet<string>> ContainingClassNestedTypeNames { get; init; } = [];
 
+            // Member names (fields/methods/properties/statics/enums/nested/promoted ctor params)
+            // of the class currently being rewritten. A bare reference to one of these is an
+            // implicit member access (resolved to this.X / type.X by codegen) and must NOT be
+            // hijacked into a same-named `use`d namespace member.
+            public HashSet<string> ContainingClassMemberNames { get; init; } = EmptyLocals;
+
             public HashSet<string> CurrentLocals
                 => LocalScopes.Count > 0 ? LocalScopes.Peek() : EmptyLocals;
         }
@@ -717,7 +723,8 @@ namespace CFGS_VM.Analytic.Modules
                 ContainingClassNestedTypeNames = new List<HashSet<string>>(state.ContainingClassNestedTypeNames)
                 {
                     new HashSet<string>(classDecl.NestedClasses.Select(static c => c.Name), StringComparer.Ordinal)
-                }
+                },
+                ContainingClassMemberNames = CollectClassMemberNames(classDecl)
             };
 
             foreach (HashSet<string> locals in state.LocalScopes.Reverse())
@@ -1371,9 +1378,46 @@ namespace CFGS_VM.Analytic.Modules
             return true;
         }
 
+        private static HashSet<string> CollectClassMemberNames(ClassDeclStmt classDecl)
+        {
+            HashSet<string> names = new(StringComparer.Ordinal);
+
+            foreach (string field in classDecl.Fields.Keys)
+                names.Add(field);
+            foreach (string field in classDecl.StaticFields.Keys)
+                names.Add(field);
+            foreach (FuncDeclStmt method in classDecl.Methods)
+            {
+                names.Add(method.Name);
+                names.Add(method.RuntimeMemberName);
+            }
+            foreach (FuncDeclStmt method in classDecl.StaticMethods)
+            {
+                names.Add(method.Name);
+                names.Add(method.RuntimeMemberName);
+            }
+            foreach (PropertyDeclStmt property in classDecl.Properties)
+                names.Add(property.Name);
+            foreach (PropertyDeclStmt property in classDecl.StaticProperties)
+                names.Add(property.Name);
+            foreach (EnumDeclStmt enumDecl in classDecl.Enums)
+                names.Add(enumDecl.Name);
+            foreach (ClassDeclStmt nested in classDecl.NestedClasses)
+                names.Add(nested.Name);
+            foreach (string promoted in classDecl.GetAutoPromotedConstructorMemberNames())
+                names.Add(promoted);
+
+            return names;
+        }
+
         private bool IsShadowedValueRoot(string name, RewriteState state)
         {
             if (state.CurrentLocals.Contains(name))
+                return true;
+
+            // A bare reference to a member of the enclosing class is implicit member access,
+            // not a `use`d namespace member.
+            if (state.ContainingClassMemberNames.Contains(name))
                 return true;
 
             if (!string.IsNullOrWhiteSpace(state.CurrentNamespacePath) &&

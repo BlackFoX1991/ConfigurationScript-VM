@@ -22,6 +22,7 @@ internal static class Program
             SemanticTokensRangeReturnsSubset,
             HoverFindsFunctionSymbol,
             HoverIncludesQualifiedContainerDetails,
+            HoverResolvesThisMemberInsideLambda,
             HoverPrefersTypeSymbolsInTypeContextExpressions,
             AnalyzerKeepsSymbolsAliveAcrossMidFunctionSyntaxErrors,
             AnalyzerReportsMultipleSyntaxDiagnostics,
@@ -306,6 +307,36 @@ namespace Demo.App {
         AssertTrue(value.Contains("Namespace: `Demo.App`", StringComparison.Ordinal), "hover does not include the namespace path");
         AssertTrue(value.Contains("Type/Class: `Runner`", StringComparison.Ordinal), "hover does not include the owning type name");
         AssertTrue(value.Contains("Container: `Demo.App.Runner`", StringComparison.Ordinal), "hover does not include the containing namespace/class path");
+    }
+
+    private static void HoverResolvesThisMemberInsideLambda()
+    {
+        // A lambda inside an instance method captures the enclosing receiver (C#-style), so the
+        // semantic model must resolve `this.member` inside it for hover/navigation — mirroring the
+        // language change that made lexical `this` capture valid.
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+class Counter() {
+    var total = 0;
+    func run() {
+        var f = func() { return this.total; };
+        return f();
+    }
+}
+""";
+        string uri = CreateDocumentUri("hover-lambda-this.cfs");
+        client.DidOpen(uri, source);
+        _ = client.WaitForDiagnostics(uri);
+
+        JsonElement hover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 3, character = 39 }
+        });
+
+        string value = hover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(value.Contains("Counter.total", StringComparison.Ordinal),
+            $"hover did not resolve this.total inside a lambda (lexical receiver capture); got: {value}");
     }
 
     private static void HoverPrefersTypeSymbolsInTypeContextExpressions()

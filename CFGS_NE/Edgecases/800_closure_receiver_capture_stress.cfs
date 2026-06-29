@@ -1,0 +1,145 @@
+import "edge_assert.cfs";
+
+edge_begin("800_closure_receiver_capture_stress");
+
+# --- returned lambda keeps its instance receiver, per-instance ---
+class Maker(b) {
+    var base_ = 0;
+    func init(b) { this.base_ = b; }
+    func makeAdder() { return func(x) { return this.base_ + x; }; }
+}
+var m1 = new Maker(100);
+var m2 = new Maker(200);
+var a1 = m1.makeAdder();
+var a2 = m2.makeAdder();
+edge_eq("returned_lambda_inst1", a1(1), 101);
+edge_eq("returned_lambda_inst2", a2(1), 201);
+edge_eq("returned_lambda_inst1_again", a1(2), 102);
+
+# --- closure over receiver mutates and observes instance state ---
+class Counter() {
+    var n = 0;
+    func incrementer() { return func() { this.n = this.n + 1; return this.n; }; }
+}
+var c = new Counter();
+var inc = c.incrementer();
+edge_eq("closure_mutate_1", inc(), 1);
+edge_eq("closure_mutate_2", inc(), 2);
+edge_eq("closure_mutate_observed", c.n, 2);
+
+# --- field-stored lambda invoked after the defining method returned (live receiver) ---
+class Store() {
+    var v = 5;
+    var f = null;
+    func setup() { this.f = func() { return this.v; }; }
+}
+var st = new Store();
+st.setup();
+var sf = st.f;
+edge_eq("field_lambda_initial", sf(), 5);
+st.v = 99;
+edge_eq("field_lambda_live", sf(), 99);
+
+# --- lambda nested inside a lambda chains the receiver ---
+class Nest() {
+    var k = 3;
+    func outerFn() {
+        var f = func() {
+            var g = func() { return this.k; };
+            return g();
+        };
+        return f();
+    }
+}
+edge_eq("lambda_in_lambda_this", (new Nest()).outerFn(), 3);
+
+# --- super + this together inside a lambda in an overridden method ---
+class Base2() { func greet() { return "base"; } }
+class Derived2() : Base2() {
+    func greet() { return "derived"; }
+    func viaLambda() {
+        var f = func() { return super.greet() + "/" + this.greet(); };
+        return f();
+    }
+}
+edge_eq("super_and_this_in_lambda", (new Derived2()).viaLambda(), "base/derived");
+
+# --- type captured by a lambda in a static method ---
+class St() {
+    static var tag = "ST";
+    static func make() {
+        var f = func() { return type.tag; };
+        return f();
+    }
+}
+edge_eq("static_lambda_type", St.make(), "ST");
+
+# --- outer + this captured by a lambda in a nested-class instance method ---
+class Outer2(s) {
+    var seed = 0;
+    func init(s) { this.seed = s; }
+    class Inner() {
+        var a = 7;
+        func combined() {
+            var f = func() { return outer.seed + this.a; };
+            return f();
+        }
+    }
+}
+var o = new Outer2(40);
+var i = o.Inner();
+edge_eq("outer_and_this_in_lambda", i.combined(), 47);
+
+# --- intrinsic callback (map) captures this ---
+class Scaler(fac) {
+    var factor = 0;
+    func init(fac) { this.factor = fac; }
+    func scale(arr) { return arr.map(func(x) { return x * this.factor; }); }
+}
+var sc = new Scaler(10);
+var scaled = sc.scale([1, 2, 3]);
+edge_eq("map_callback_this_0", scaled[0], 10);
+edge_eq("map_callback_this_2", scaled[2], 30);
+
+# --- lambda captures both the receiver and an enclosing local ---
+class Mix() {
+    var base_ = 1000;
+    func compute(localAdd) {
+        var f = func(x) { return this.base_ + localAdd + x; };
+        return f(5);
+    }
+}
+edge_eq("this_and_local_capture", (new Mix()).compute(20), 1025);
+
+# --- closure invoked across an unrelated top-level frame ---
+func apply2(fn, v) { return fn(v); }
+class Cross() {
+    var b = 50;
+    func run() { return apply2(func(x) { return this.b + x; }, 5); }
+}
+edge_eq("cross_frame_capture", (new Cross()).run(), 55);
+
+# --- named nested function: recursion + captured this (C# local-function parity) ---
+class Rec() {
+    var mul = 2;
+    func compute(nn) {
+        func go(k) {
+            if (k <= 1) { return this.mul; }
+            return k * go(k - 1);
+        }
+        return go(nn);
+    }
+}
+edge_eq("named_nested_recursion_this", (new Rec()).compute(4), 48);
+
+# --- implicit member access inside a lambda (bare name -> this.member) ---
+class Implicit() {
+    var amount = 42;
+    func read() {
+        var f = func() { return amount; };
+        return f();
+    }
+}
+edge_eq("implicit_member_in_lambda", (new Implicit()).read(), 42);
+
+edge_finish("800_closure_receiver_capture_stress");

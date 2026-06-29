@@ -341,7 +341,11 @@ internal sealed class CfgsSemanticModelBuilder
     {
         CfgsSymbol? functionSymbol = _symbolsByNode.GetValueOrDefault(func);
         FunctionFlowContext? functionContext = BeginFunctionFlow(functionSymbol);
-        SemanticScope functionScope = new(scope, inheritReceiverContext: false);
+        // A named function declared inside a method inherits the enclosing receiver context
+        // (C#-style lexical capture), so this/type/super/outer resolve for hover/completion.
+        // At top level the parent scope has no receiver, so inheritance yields the same result
+        // as before (this/type/etc. unavailable).
+        SemanticScope functionScope = new(scope, inheritReceiverContext: true);
         DeclareParameters(func.Parameters, func.RestParameter, functionScope, func.OriginFile, func.Line, func.Col);
         CompletionResult functionCompletion = VisitBlockStatements(func.Body.Statements, functionScope, null);
         RecordReturnCompletions(functionCompletion);
@@ -1858,7 +1862,10 @@ internal sealed class CfgsSemanticModelBuilder
 
     private void VisitFunctionExpr(FuncExpr funcExpr, SemanticScope scope)
     {
-        SemanticScope functionScope = new(scope, inheritReceiverContext: false);
+        // A lambda inherits the enclosing receiver context (C#-style lexical capture), so
+        // this/type/super/outer resolve for hover/completion inside it. At top level the parent
+        // has no receiver, so inheritance is a no-op.
+        SemanticScope functionScope = new(scope, inheritReceiverContext: true);
         DeclareParameters(funcExpr.Parameters, funcExpr.RestParameter, functionScope, funcExpr.OriginFile, funcExpr.Line, funcExpr.Col);
         VisitBlockStatements(funcExpr.Body.Statements, functionScope, null);
     }

@@ -1,0 +1,107 @@
+import "edge_assert.cfs";
+
+edge_begin("807_async_await_yield_stress");
+
+# --- async calling async (await chaining) ---
+async func twice(x) { return x * 2; }
+async func chain(x) {
+    var a = await twice(x);
+    var b = await twice(a);
+    return b + 1;
+}
+edge_eq("async_chain", await chain(3), 13);   # 3->6->12 (+1)
+
+# --- parallel await of a task list (concurrency) ---
+async func parallel() {
+    var t = task();
+    var slow = t.delay(20, 100);
+    var fast = t.delay(5, 1);
+    var res = await [slow, fast];
+    return res[0] + res[1];
+}
+edge_eq("async_parallel_list", await parallel(), 101);
+
+# --- yield-driven cooperative loop ---
+async func counter(n) {
+    var s = 0;
+    var i = 0;
+    while (i < n) { s = s + i; i = i + 1; yield; }
+    return s;
+}
+edge_eq("async_yield_loop", await counter(4), 6);
+
+# --- error propagation through await: a faulted task surfaces as AwaitError (documented) ---
+async func boom() { throw "kaboom"; }
+async func guarded() {
+    try {
+        var _ = await boom();
+        return "no-throw";
+    } catch (e) {
+        return e.type() + "/" + str(e.message().contains("kaboom"));
+    }
+}
+edge_eq("async_error_propagation_awaiterror", await guarded(), "AwaitError/true");
+
+# --- async method capturing this, serialized mutation ---
+class Accumulator(start) {
+    var total = 0;
+    func init(start) { this.total = start; }
+    async func addAsync(x) {
+        yield;
+        this.total = this.total + x;
+        return this.total;
+    }
+}
+var acc = new Accumulator(10);
+edge_eq("async_method_this_1", await acc.addAsync(5), 15);
+edge_eq("async_method_this_2", await acc.addAsync(5), 20);
+edge_eq("async_method_this_observed", acc.total, 20);
+
+# --- async lambda capturing this (lexical capture + async) ---
+class Worker(seed) {
+    var seed = 0;
+    func init(seed) { this.seed = seed; }
+    func makeAsync() { return async func(x) { yield; return this.seed + x; }; }
+}
+var af = (new Worker(100)).makeAsync();
+edge_eq("async_lambda_this", await af(7), 107);
+
+# --- async with defer cleanup ---
+var alog = [];
+async func withDefer() {
+    defer alog.push("cleanup");
+    alog.push("body");
+    yield;
+    return 1;
+}
+var _r = await withDefer();
+edge_eq("async_defer_body", alog[0], "body");
+edge_eq("async_defer_cleanup", alog[1], "cleanup");
+
+# --- async recursion ---
+async func asyncFib(n) {
+    if (n < 2) { return n; }
+    var a = await asyncFib(n - 1);
+    var b = await asyncFib(n - 2);
+    return a + b;
+}
+edge_eq("async_recursion_fib", await asyncFib(7), 13);
+
+# --- await nested collection of tasks ---
+async func nested() {
+    var t = task();
+    var r = await {"list": [t.delay(2, 1), t.delay(2, 2)], "val": t.delay(2, 3)};
+    return r["list"][0] + r["list"][1] + r["val"];
+}
+edge_eq("async_await_nested", await nested(), 6);
+
+# --- yield inside try/finally still runs finally ---
+async func yieldFinally() {
+    var v = 0;
+    try { v = 1; yield; v = v + 1; }
+    finally { v = v + 10; }
+    return v;
+}
+edge_eq("async_yield_try_finally", await yieldFinally(), 12);
+
+edge_finish("807_async_await_yield_stress");

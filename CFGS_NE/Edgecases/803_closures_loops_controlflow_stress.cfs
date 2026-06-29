@@ -1,0 +1,135 @@
+import "edge_assert.cfs";
+
+edge_begin("803_closures_loops_controlflow_stress");
+
+# --- foreach: fresh per-iteration binding + captured this ---
+class Registry() {
+    var prefix = "item";
+    func build(items) {
+        var fns = [];
+        foreach (it in items) {
+            fns[] = func() { return this.prefix + "-" + str(it); };
+        }
+        return fns;
+    }
+}
+var built = (new Registry()).build([1, 2, 3]);
+var b0 = built[0];
+var b1 = built[1];
+var b2 = built[2];
+edge_eq("foreach_capture_this_0", b0(), "item-1");
+edge_eq("foreach_capture_this_1", b1(), "item-2");
+edge_eq("foreach_capture_this_2", b2(), "item-3");
+
+# --- C-style for: shared mutating counter (3,3,3) even with this-capture ---
+class Builder() {
+    var tag = "T";
+    func makeAll() {
+        var fns = [];
+        for (var i = 0; i < 3; i = i + 1) {
+            fns[] = func() { return this.tag + str(i); };
+        }
+        return fns;
+    }
+}
+var bz = (new Builder()).makeAll();
+var z0 = bz[0];
+var z2 = bz[2];
+edge_eq("for_shared_counter_0", z0(), "T3");
+edge_eq("for_shared_counter_2", z2(), "T3");
+
+# --- but a body-local declared inside the for IS fresh per iteration ---
+func forBodyLocalCapture() {
+    var fns = [];
+    for (var i = 0; i < 3; i = i + 1) {
+        var snap = i;
+        fns[] = func() { return snap; };
+    }
+    return [fns[0](), fns[1](), fns[2]()];
+}
+var fb = forBodyLocalCapture();
+edge_eq("for_body_local_0", fb[0], 0);
+edge_eq("for_body_local_2", fb[2], 2);
+
+# --- while body-local is fresh per iteration too ---
+func whileClosures() {
+    var fns = [];
+    var i = 0;
+    while (i < 3) {
+        var snapshot = i;
+        fns[] = func() { return snapshot; };
+        i = i + 1;
+    }
+    return [fns[0](), fns[1](), fns[2]()];
+}
+var wc = whileClosures();
+edge_eq("while_closure_0", wc[0], 0);
+edge_eq("while_closure_2", wc[2], 2);
+
+# --- nested loops with break + continue ---
+func grid() {
+    var total = 0;
+    for (var r = 0; r < 3; r = r + 1) {
+        for (var c = 0; c < 3; c = c + 1) {
+            if (c == r) { continue; }
+            if (r == 2 && c == 1) { break; }
+            total = total + (r * 10 + c);
+        }
+    }
+    return total;
+}
+edge_eq("nested_loops_break_continue", grid(), 45);
+
+# --- do-while runs at least once ---
+func doWhileOnce() {
+    var count = 0;
+    do { count = count + 1; } while (false);
+    return count;
+}
+edge_eq("do_while_once", doWhileOnce(), 1);
+
+# --- foreach with index/value pair ---
+func dictPairSum() {
+    var d = {"a": 1, "b": 2, "c": 3};
+    var sum = 0;
+    foreach (var k, v in d) { sum = sum + v; }
+    return sum;
+}
+edge_eq("foreach_dict_pair_sum", dictPairSum(), 6);
+
+# --- closures stored across iterations keep independent receivers per element ---
+func makeCounters(n) {
+    var counters = [];
+    for (var i = 0; i < n; i = i + 1) {
+        var local = 0;
+        counters[] = func() { local = local + 1; return local; };
+    }
+    return counters;
+}
+var cs = makeCounters(2);
+var ca = cs[0];
+var cb = cs[1];
+edge_eq("indep_counter_a1", ca(), 1);
+edge_eq("indep_counter_a2", ca(), 2);
+edge_eq("indep_counter_b1", cb(), 1);
+edge_eq("indep_counter_a3", ca(), 3);
+
+# --- conditional (ternary) and short-circuit ---
+func ternaryChain(x) {
+    return x > 10 ? "big" : x > 0 ? "small" : "nonpos";
+}
+edge_eq("ternary_big", ternaryChain(50), "big");
+edge_eq("ternary_small", ternaryChain(5), "small");
+edge_eq("ternary_nonpos", ternaryChain(-1), "nonpos");
+
+func shortCircuit() {
+    var hits = [];
+    func sideTrue() { hits.push("t"); return true; }
+    func sideFalse() { hits.push("f"); return false; }
+    var r1 = sideFalse() && sideTrue();   # second not evaluated
+    var r2 = sideTrue() || sideFalse();   # second not evaluated
+    return str(r1) + "/" + str(r2) + "/" + str(len(hits));
+}
+edge_eq("short_circuit", shortCircuit(), "false/true/2");
+
+edge_finish("803_closures_loops_controlflow_stress");

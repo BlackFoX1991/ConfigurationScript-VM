@@ -1454,7 +1454,7 @@ internal static class CfgsAstFormatter
                 SliceExpr slice => FormatSlice(slice, precedence),
                 CallExpr call => $"{FormatExpr(call.Target ?? throw new CfgsAstFormatUnsupportedException(), precedence)}({string.Join(", ", call.Args.Select(arg => FormatExpr(arg)))})",
                 MethodCallExpr methodCall => $"{FormatExpr(methodCall.Target, precedence)}.{methodCall.Method}({string.Join(", ", methodCall.Args.Select(arg => FormatExpr(arg)))})",
-                ConditionalExpr conditional => $"{FormatExpr(conditional.Condition, precedence)} ? {FormatExpr(conditional.ThenExpr, precedence)}: {FormatExpr(conditional.ElseExpr, precedence, isRightChild: true)}",
+                ConditionalExpr conditional => $"{FormatExpr(conditional.Condition, precedence + 1)} ? {FormatExpr(conditional.ThenExpr, precedence)}: {FormatExpr(conditional.ElseExpr, precedence, isRightChild: true)}",
                 AwaitExpr awaitExpr => $"await {FormatExpr(awaitExpr.Inner, precedence)}",
                 MatchExpr matchExpr => FormatMatchExpr(matchExpr, precedence),
                 FuncExpr funcExpr => FormatFunctionExpr(funcExpr),

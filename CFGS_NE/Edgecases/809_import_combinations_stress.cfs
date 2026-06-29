@@ -1,0 +1,28 @@
+import "edge_assert.cfs";
+import { add as plus, Vector, VERSION, Status } from "_imports/stress_module.cfs";
+import * as Mod from "_imports/stress_module.cfs";
+
+edge_begin("809_import_combinations_stress");
+
+# --- named import with alias ---
+edge_eq("named_func_alias", plus(3, 4), 7);
+edge_eq("named_const", VERSION, 5);
+
+# --- imported class is fully usable ---
+var v = new Vector(3, 4);
+edge_eq("imported_class_method", v.magSq(), 25);
+
+# --- imported enum ---
+edge_eq("imported_enum", Status["Err"], 1);
+
+# --- namespace import exposes the same exported surface ---
+edge_eq("ns_import_func", Mod["add"](10, 5), 15);
+edge_eq("ns_import_const", Mod["VERSION"], 5);
+
+# --- module-private state is only reachable through an exported function ---
+edge_eq("module_private_via_export", Mod["mulInternal"](2), 200);
+
+# --- named and namespace import of the same module coexist (idempotent) ---
+edge_eq("alias_and_ns_agree", plus(1, 1), Mod["add"](1, 1));
+
+edge_finish("809_import_combinations_stress");

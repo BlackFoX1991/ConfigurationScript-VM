@@ -22,4 +22,23 @@ public static class NativeFixture
         list.Add(list);
         return list;
     }
+
+    // --- additional round-trip surface exercised by the native-interop stress test ---
+
+    public static int RoundTripInt(int x) => x;
+
+    public static long AddLongs(long a, long b) => a + b;
+
+    public static bool Negate(bool b) => !b;
+
+    // CFGS closure -> Func<int,int>, invoked twice (identity-cached delegate, int conversions)
+    public static int ApplyTwice(Func<int, int> f, int x) => f(f(x));
+
+    // CLR collections flowing back into CFGS (ConvertFromClr list/dict handling)
+    public static List<object> MakeList() => [1, 2, 3];
+
+    public static Dictionary<string, object> MakeMap() => new() { ["a"] = 1, ["b"] = 2 };
+
+    // Native exception must surface as a catchable CFGS exception
+    public static string Boom() => throw new InvalidOperationException("native failure");
 }

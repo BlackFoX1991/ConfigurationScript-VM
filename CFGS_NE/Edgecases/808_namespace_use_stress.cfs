@@ -1,0 +1,80 @@
+import "edge_assert.cfs";
+use Geometry;
+
+namespace Geometry {
+    public class Point(x, y) {
+        var x = 0;
+        var y = 0;
+        func init(x, y) { this.x = x; this.y = y; }
+        func sum() { return this.x + this.y; }
+    }
+    public func origin() { return new Point(0, 0); }
+    public const PI = 3;
+}
+
+# repeated/merging namespace block
+namespace Geometry {
+    public func square(n) { return n * n; }
+}
+
+# nested namespaces
+namespace App.Models {
+    public class User(name) {
+        var name = "";
+        func init(name) { this.name = name; }
+        func label() { return "U:" + this.name; }
+    }
+}
+namespace App.Services {
+    public func greet(u) { return "hi " + u.label(); }
+}
+
+# same class name in distinct namespaces
+namespace Red { public class Token() { func color() { return "red"; } } }
+namespace Blue { public class Token() { func color() { return "blue"; } } }
+
+# cross-namespace inheritance
+namespace Zoo.Base { public class Animal() { func sound() { return "..."; } } }
+namespace Zoo.Pets { public class Dog() : Zoo.Base.Animal() { func sound() { return "woof"; } } }
+
+# visibility: private (same ns only), protected (same + child ns), public
+namespace Vis {
+    private func secret() { return 1; }
+    protected func family() { return 2; }
+    public func open() { return 10 + Vis.secret() + Vis.family(); }
+}
+namespace Vis.Sub {
+    public func useProtected() { return Vis.family() + 100; }
+}
+
+edge_begin("808_namespace_use_stress");
+
+# --- qualified access ---
+var p = new Geometry.Point(3, 4);
+edge_eq("ns_qualified_method", p.sum(), 7);
+edge_eq("ns_qualified_func", Geometry.square(5), 25);
+edge_eq("ns_qualified_const", Geometry.PI, 3);
+edge_eq("ns_qualified_factory", Geometry.origin().sum(), 0);
+
+# --- use brings Geometry into scope (unqualified) ---
+var p2 = new Point(10, 20);
+edge_eq("use_unqualified_class", p2.sum(), 30);
+edge_eq("use_unqualified_func", square(6), 36);
+
+# --- nested namespaces ---
+var u = new App.Models.User("ada");
+edge_eq("nested_ns_method", u.label(), "U:ada");
+edge_eq("nested_ns_cross_call", App.Services.greet(u), "hi U:ada");
+
+# --- same name in distinct namespaces stays distinct ---
+edge_eq("same_name_red", (new Red.Token()).color(), "red");
+edge_eq("same_name_blue", (new Blue.Token()).color(), "blue");
+
+# --- cross-namespace inheritance ---
+edge_eq("cross_ns_inherit", (new Zoo.Pets.Dog()).sound(), "woof");
+
+# --- visibility ---
+edge_eq("vis_public_uses_own_private_protected", Vis.open(), 13);
+edge_eq("vis_child_uses_parent_protected", Vis.Sub.useProtected(), 102);
+
+edge_finish("808_namespace_use_stress");

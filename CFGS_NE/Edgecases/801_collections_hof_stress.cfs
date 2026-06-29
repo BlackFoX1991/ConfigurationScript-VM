@@ -1,0 +1,69 @@
+import "edge_assert.cfs";
+
+edge_begin("801_collections_hof_stress");
+
+# --- HOF chains: filter -> map -> reduce ---
+var src = [1, 2, 3, 4, 5, 6];
+var pipeline = src
+    .filter(func(x) { return x % 2 == 0; })
+    .map(func(x) { return x * x; })
+    .reduce(func(acc, x) { return acc + x; }, 0);
+edge_eq("filter_map_reduce", pipeline, 56);   # 4 + 16 + 36
+
+# --- reduce building a dict ---
+var words = ["a", "bb", "ccc"];
+var lengths = words.reduce(func(acc, w) { acc[w] = w.len(); return acc; }, {});
+edge_eq("reduce_to_dict_a", lengths["a"], 1);
+edge_eq("reduce_to_dict_ccc", lengths["ccc"], 3);
+
+# --- numeric-aware sort with mixed int/long/bigint ---
+var nums = [3, 2 ** 40, 1, 2 ** 63, 2];
+nums.sort();
+edge_eq("sort_min", nums[0], 1);
+edge_eq("sort_max_bigint", nums[4], 2 ** 63);
+edge_true("sort_ordering", nums[1] == 2 && nums[2] == 3);
+
+# --- numeric-aware indexOf / includes across kinds ---
+var promoted = [(2 ** 40) / (2 ** 40), 7, 9];   # [1, 7, 9]
+edge_eq("indexOf_cross_kind", promoted.indexOf(1), 0);
+edge_true("includes_cross_kind", promoted.includes(9));
+edge_eq("indexOf_absent", promoted.indexOf(100), -1);
+
+# --- deep nested structure access + mutation ---
+var tree = {"root": {"kids": [{"v": 1}, {"v": 2}]}};
+tree["root"]["kids"][1]["v"] = 20;
+edge_eq("deep_nested_set", tree["root"]["kids"][1]["v"], 20);
+edge_eq("deep_nested_get", tree["root"]["kids"][0]["v"], 1);
+
+# --- reference aliasing semantics ---
+var base = [1, 2, 3];
+var alias = base;
+alias.push(4);
+edge_eq("alias_visible_in_original", len(base), 4);
+var copyish = base.slice(0, 2);   # slice returns a new array
+copyish.push(99);
+edge_eq("slice_is_independent", len(base), 4);
+
+# --- dict keys/values feeding HOFs ---
+var scores = {"x": 10, "y": 20, "z": 30};
+var keyCount = len(scores.keys());
+var valueSum = scores.values().reduce(func(a, v) { return a + v; }, 0);
+edge_eq("dict_key_count", keyCount, 3);
+edge_eq("dict_value_sum", valueSum, 60);
+
+# --- map producing arrays, then join ---
+var labeled = [1, 2, 3].map(func(n) { return "n" + str(n); }).join(",");
+edge_eq("map_join", labeled, "n1,n2,n3");
+
+# --- nested closure inside reduce captures an outer local ---
+func weightedSum(items, weight) {
+    return items.reduce(func(acc, x) { return acc + x * weight; }, 0);
+}
+edge_eq("reduce_captures_local", weightedSum([1, 2, 3], 10), 60);
+
+# --- empty-collection edge behavior ---
+edge_eq("empty_reduce_initial", [].reduce(func(a, x) { return a + x; }, 42), 42);
+edge_eq("empty_filter_len", len([].filter(func(x) { return true; })), 0);
+edge_eq("empty_map_len", len([].map(func(x) { return x; })), 0);
+
+edge_finish("801_collections_hof_stress");

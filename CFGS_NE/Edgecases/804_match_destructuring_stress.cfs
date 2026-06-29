@@ -1,0 +1,90 @@
+import "edge_assert.cfs";
+
+edge_begin("804_match_destructuring_stress");
+
+# --- deeply nested array/dict patterns with guards (expression form) ---
+func classify(v) {
+    return v match {
+        {"type": "point", "at": [var x, var y]} if (x == y): "diagonal:" + str(x),
+        {"type": "point", "at": [var x, var y]}: "point:" + str(x + y),
+        {"type": "list", "items": [var head, _]}: "head:" + str(head),
+        [var only]: "single:" + str(only),
+        _ if (v == null): "nil",
+        _: "unknown"
+    };
+}
+edge_eq("match_diagonal", classify({"type": "point", "at": [4, 4]}), "diagonal:4");
+edge_eq("match_point", classify({"type": "point", "at": [1, 2]}), "point:3");
+edge_eq("match_list_head", classify({"type": "list", "items": [9, 8]}), "head:9");
+edge_eq("match_single", classify([42]), "single:42");
+edge_eq("match_nil", classify(null), "nil");
+edge_eq("match_unknown", classify("x"), "unknown");
+
+# --- statement-form match with binding reused in body ---
+func describe(v) {
+    var res = "";
+    match (v) {
+        case [var a, var b, var c]: { res = str(a + b + c); }
+        case {"n": var n} if (n > 100): { res = "huge:" + str(n); }
+        case {"n": var n}: { res = "n:" + str(n); }
+        default: { res = "none"; }
+    }
+    return res;
+}
+edge_eq("match_triple", describe([1, 2, 3]), "6");
+edge_eq("match_huge", describe({"n": 500}), "huge:500");
+edge_eq("match_n", describe({"n": 5}), "n:5");
+edge_eq("match_default", describe(true), "none");
+
+# --- match returning a closure that captures the bound value ---
+func makeHandler(cmd) {
+    return cmd match {
+        ["add", var amount]: func(acc) { return acc + amount; },
+        ["mul", var factor]: func(acc) { return acc * factor; },
+        _: func(acc) { return acc; }
+    };
+}
+var addH = makeHandler(["add", 5]);
+var mulH = makeHandler(["mul", 3]);
+edge_eq("match_closure_add", addH(10), 15);
+edge_eq("match_closure_mul", mulH(10), 30);
+
+# --- nested destructuring declaration ---
+var data = {"user": {"name": "ada", "roles": ["admin", "dev"]}, "active": true};
+const {user: {name: uname, roles: [primaryRole, secondaryRole]}, active} = data;
+edge_eq("destructure_uname", uname, "ada");
+edge_eq("destructure_primary", primaryRole, "admin");
+edge_eq("destructure_secondary", secondaryRole, "dev");
+edge_true("destructure_active", active);
+
+# --- destructuring swap ---
+var p = 1;
+var q = 2;
+[p, q] = [q, p];
+edge_eq("swap_p", p, 2);
+edge_eq("swap_q", q, 1);
+
+# --- foreach over array of pairs with destructuring ---
+func sumPairs(pairs) {
+    var total = 0;
+    foreach (var [x, y] in pairs) { total = total + x * y; }
+    return total;
+}
+edge_eq("foreach_destructure_products", sumPairs([[1, 2], [3, 4], [5, 6]]), 44);  # 2+12+30
+
+# --- destructuring with wildcard skips ---
+var [first, _, third] = [100, 200, 300];
+edge_eq("destructure_first", first, 100);
+edge_eq("destructure_third", third, 300);
+
+# --- match guard referencing an outer variable ---
+func thresholdMatch(v, threshold) {
+    return v match {
+        var n if (n >= threshold): "over",
+        _: "under"
+    };
+}
+edge_eq("match_guard_outer_over", thresholdMatch(10, 5), "over");
+edge_eq("match_guard_outer_under", thresholdMatch(3, 5), "under");
+
+edge_finish("804_match_destructuring_stress");

@@ -1,0 +1,112 @@
+import "edge_assert.cfs";
+
+edge_begin("806_oop_deep_stress");
+
+# --- 3-level inheritance + super chain ---
+class A() {
+    func kind() { return "A"; }
+    func chain() { return "A"; }
+}
+class B() : A() {
+    func kind() { return "B"; }
+    func chain() { return super.chain() + ">B"; }
+}
+class C() : B() {
+    func kind() { return "C"; }
+    func chain() { return super.chain() + ">C"; }
+}
+var cc = new C();
+edge_eq("override_leaf", cc.kind(), "C");
+edge_eq("super_chain", cc.chain(), "A>B>C");
+
+# --- polymorphism through a mixed collection ---
+var zoo = [new A(), new B(), new C()];
+edge_eq("polymorphic_dispatch", zoo.map(func(z) { return z.kind(); }).join(","), "A,B,C");
+
+# --- static inheritance + static super ---
+class SBase() {
+    static var label = "base";
+    static func describe() { return "S:" + type.label; }
+}
+class SDerived() : SBase() {
+    static var label = "derived";
+    static func describe() { return super.describe() + "/" + type.label; }
+}
+edge_eq("static_base_describe", SBase.describe(), "S:base");
+edge_eq("static_derived_super", SDerived.describe(), "S:base/derived");
+
+# --- properties + inheritance + override via setter ---
+class Shape() {
+    var _name = "shape";
+    property name { get { return this._name; } set(value) { this._name = value; } }
+    func render() { return "<" + this.name + ">"; }
+}
+class Circle() : Shape() {
+    func init() { this.name = "circle"; }
+}
+var circ = new Circle();
+edge_eq("inherited_property_get", circ.name, "circle");
+circ.name = "round";
+edge_eq("inherited_property_render", circ.render(), "<round>");
+
+# --- instance indexer get/set ---
+class Vec() {
+    var data = {};
+    func get_index(i) { return this.data[i]; }
+    func set_index(i, v) { this.data[i] = v; }
+}
+var vec = new Vec();
+vec[0] = 10;
+vec[1] = 20;
+edge_eq("indexer_get_0", vec[0], 10);
+edge_eq("indexer_get_1", vec[1], 20);
+
+# --- object initializer (members) ---
+class Point() {
+    var x = 0;
+    var y = 0;
+}
+var pt = new Point() { x: 3, y: 4 };
+edge_eq("obj_init_x", pt.x, 3);
+edge_eq("obj_init_y", pt.y, 4);
+
+# --- object initializer with indexer entries ---
+var vec2 = new Vec() { [5]: 50, [6] = 60 };
+edge_eq("obj_init_indexer_5", vec2[5], 50);
+edge_eq("obj_init_indexer_6", vec2[6], 60);
+
+# --- nested class capturing outer ---
+class Outer3(seed) {
+    var seed = 0;
+    func init(seed) { this.seed = seed; }
+    class Inner() {
+        var delta = 5;
+        func total() { return outer.seed + this.delta; }
+    }
+}
+var in3 = (new Outer3(100)).Inner();
+edge_eq("nested_outer_capture", in3.total(), 105);
+
+# --- enum value + reverse name lookup ---
+enum Color { Red = 1, Green = 2, Blue = 3 }
+edge_eq("enum_value", Color["Green"], 2);
+edge_eq("enum_name", Color.name(3), "Blue");
+
+# --- interface + is-check ---
+interface IGreet { func hello(); }
+class Greeter() : IGreet {
+    func hello() { return "hi"; }
+}
+var g = new Greeter();
+edge_true("is_interface", g is IGreet);
+edge_eq("interface_method", g.hello(), "hi");
+
+# --- fluent chaining returning this ---
+class Bldr() {
+    var parts = [];
+    func add(p) { this.parts.push(p); return this; }
+    func result() { return this.parts.join("-"); }
+}
+edge_eq("fluent_chain", (new Bldr()).add("a").add("b").add("c").result(), "a-b-c");
+
+edge_finish("806_oop_deep_stress");

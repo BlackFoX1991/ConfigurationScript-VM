@@ -12,11 +12,26 @@ public static class CfgsFormatter
     {
         string normalized = sourceText.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         string? astFormatted = CfgsAstFormatter.TryFormat(normalized, options);
-        if (astFormatted is not null)
+        if (astFormatted is not null && IsStableAstFormat(astFormatted, options))
             return new CfgsFormatResult(astFormatted, !string.Equals(sourceText, astFormatted, StringComparison.Ordinal));
 
         string formatted = FormatLegacy(normalized, options);
         return new CfgsFormatResult(formatted, !string.Equals(sourceText, formatted, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Safety net for the AST-based formatter, which re-emits source from the parsed tree. The
+    /// output is only trusted when re-formatting it is a no-op (a stable fixed point). A faulty
+    /// re-emit — for example one that drops semantically-required parentheses — would parse to a
+    /// different tree and therefore not be a fixed point, so we reject it and fall back to the
+    /// conservative line-based formatter, which never rewrites expressions. If the formatted text
+    /// fails to re-parse at all, <see cref="CfgsAstFormatter.TryFormat"/> returns null and we also
+    /// fall back. This keeps a formatter regression from silently changing a script's meaning.
+    /// </summary>
+    private static bool IsStableAstFormat(string astFormatted, CfgsFormatOptions options)
+    {
+        string? reFormatted = CfgsAstFormatter.TryFormat(astFormatted, options);
+        return reFormatted is not null && string.Equals(reFormatted, astFormatted, StringComparison.Ordinal);
     }
 
     private static string FormatLegacy(string normalized, CfgsFormatOptions options)

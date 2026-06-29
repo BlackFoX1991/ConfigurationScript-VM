@@ -15,6 +15,8 @@ internal static class Program
         TestCase[] tests =
         [
             FormatterIsIdempotent,
+            FormatterPreservesTernaryConditionParens,
+            FormatterPreservesPrecedenceParens,
             FormatterNormalizesIndentationAndSpacing,
             FormatterKeepsUnaryOperatorsTight,
             FormatterPreservesMergeOperators,
@@ -55,6 +57,7 @@ internal static class Program
             CfbLoaderRejectsCorruptElementCounts,
             NativeInteropConvertsClosuresBigIntegersAndCollections,
             NativeInteropGuardsCyclicConversion,
+            NativeInteropStressRoundTrips,
             CfbRoundTripsSurrogateCharOperand,
             CfbRejectsCorruptDecimalOperand,
             JsonSerializesBigIntegerAsNumber,
@@ -105,6 +108,48 @@ return 0;
         string twice = CfgsFormatter.Format(once, options).Text;
 
         AssertEqual(once, twice, "formatter must be idempotent");
+    }
+
+    private static void FormatterPreservesTernaryConditionParens()
+    {
+        // A ternary used as the condition of another ternary must keep its parentheses: the
+        // AST formatter re-emits from the tree, and `?:` is right-associative, so dropping them
+        // would turn (a ? b : c) ? d : e into a ? b : (c ? d : e) — a silent semantic change.
+        CfgsFormatOptions options = new(4, UseTabs: false);
+        string formatted = CfgsFormatter.Format("var r = (a ? b : c) ? d : e;", options).Text;
+
+        string collapsed = new string(formatted.Where(static c => !char.IsWhiteSpace(c)).ToArray());
+        AssertEqual("varr=(a?b:c)?d:e;", collapsed,
+            "ternary used as a ternary condition must stay parenthesized");
+
+        // And the result must remain stable under re-formatting.
+        AssertEqual(formatted, CfgsFormatter.Format(formatted, options).Text, "ternary-condition formatting must be idempotent");
+    }
+
+    private static void FormatterPreservesPrecedenceParens()
+    {
+        // Precedence-sensitive groupings must survive a format round-trip: the AST formatter
+        // re-emits from the tree, so it must re-insert exactly the parentheses needed to keep the
+        // original meaning. Each case asserts the whitespace-collapsed shape and idempotency.
+        CfgsFormatOptions options = new(4, UseTabs: false);
+        (string Source, string Collapsed)[] cases =
+        [
+            ("var r = (a + b) * c;", "varr=(a+b)*c;"),
+            ("var r = a - (b - c);", "varr=a-(b-c);"),
+            ("var r = (a || b) && c;", "varr=(a||b)&&c;"),
+            ("var r = -(a + b);", "varr=-(a+b);"),
+            ("var r = !(a && b);", "varr=!(a&&b);"),
+            ("var r = (a ** b) ** c;", "varr=(a**b)**c;"),
+            ("var r = a + b * c;", "varr=a+b*c;"),
+        ];
+
+        foreach ((string source, string expectedCollapsed) in cases)
+        {
+            string formatted = CfgsFormatter.Format(source, options).Text;
+            string collapsed = new string(formatted.Where(static c => !char.IsWhiteSpace(c)).ToArray());
+            AssertEqual(expectedCollapsed, collapsed, $"precedence parenthesization changed meaning for: {source}");
+            AssertEqual(formatted, CfgsFormatter.Format(formatted, options).Text, $"formatting must be idempotent for: {source}");
+        }
     }
 
     private static void FormatterNormalizesIndentationAndSpacing()
@@ -1518,6 +1563,48 @@ func triggerCycle() {
         }
 
         AssertTrue(guarded, "cyclic native value graph must surface a clean error instead of crashing (B3)");
+    }
+
+    private static void NativeInteropStressRoundTrips()
+    {
+        // Stress the bidirectional native conversion paths: primitive round-trips, a BigInteger
+        // narrowing into a native long, a CFGS closure bound as Func<int,int> and invoked twice,
+        // CLR List/Dictionary flowing back into CFGS as indexable values, and a native exception
+        // surfacing as a catchable CFGS exception.
+        string fixtureAssembly = typeof(NativeFixture).Assembly.Location;
+
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            NativeAssemblyBaseDirectory = Path.GetDirectoryName(fixtureAssembly)!,
+            CompilerVersion = global::Program.Version
+        };
+        engine.Permissions.AllowNativeInterop = true;
+
+        CfgsScript script = engine.CompileSource("<native-interop-stress>", $$"""
+import native "{{Path.GetFileName(fixtureAssembly)}}" as Fx;
+
+func probe() {
+    var ints = Fx.NativeFixture.RoundTripInt(42);
+    var longs = Fx.NativeFixture.AddLongs(2 ** 40, 2 ** 40);
+    var bools = Fx.NativeFixture.Negate(false);
+    var twice = Fx.NativeFixture.ApplyTwice(func(x) { return x + 1; }, 10);
+    var list = Fx.NativeFixture.MakeList();
+    var listSum = list[0] + list[1] + list[2];
+    var map = Fx.NativeFixture.MakeMap();
+    var mapSum = map["a"] + map["b"];
+    var boom = "";
+    try { var _ = Fx.NativeFixture.Boom(); boom = "no-throw"; } catch (e) { boom = "caught"; }
+    return ("" + ints) + "," + ("" + longs) + "," + str(bools) + "," + ("" + twice)
+        + "," + ("" + listSum) + "," + ("" + mapSum) + "," + boom;
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        string result = script.InvokeAsync<string>("probe").GetAwaiter().GetResult() ?? "";
+        AssertEqual("42,2199023255552,true,12,6,3,caught", result,
+            "native interop round-trips (primitives, BigInteger->long, closure delegate, CLR collections, native throw) must convert cleanly");
     }
 
     private static void CfbRoundTripsSurrogateCharOperand()

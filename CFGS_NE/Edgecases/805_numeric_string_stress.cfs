@@ -1,0 +1,73 @@
+import "edge_assert.cfs";
+
+edge_begin("805_numeric_string_stress");
+
+# --- auto-promotion (no overflow wrap) ---
+edge_eq("promote_add", 2 ** 62 + 2 ** 62, 2 ** 63);
+edge_eq("promote_mul", (2 ** 40) * (2 ** 40), 2 ** 80);
+edge_true("no_overflow_wrap", (2 ** 31) > 0);
+edge_true("huge_positive", (2 ** 200) > 0);
+
+# --- shifts promote instead of masking ---
+edge_eq("shift_left_40", 1 << 40, 2 ** 40);
+edge_eq("shift_left_63", 1 << 63, 2 ** 63);
+edge_eq("shift_right_big", (2 ** 40) >> 40, 1);
+edge_eq("shift_right_zero", 256 >> 40, 0);
+edge_eq("arith_shift_negative", -8 >> 1, -4);
+
+# --- division: integer when both integral, float otherwise ---
+edge_eq("int_div", 17 / 5, 3);
+edge_eq("int_div_floor", 10 / 4, 2);
+edge_eq("float_div", 10.0 / 4, 2.5);
+edge_eq("big_div", (2 ** 80) / (2 ** 40), 2 ** 40);
+
+# --- modulo follows dividend sign (C# style) ---
+edge_eq("mod_pos", 17 % 5, 2);
+edge_eq("mod_neg_dividend", -7 % 3, -1);
+edge_eq("mod_neg_divisor", 7 % -3, 1);
+
+# --- exponent including fractional (root) ---
+edge_eq("pow_int", 2 ** 10, 1024);
+edge_eq("pow_zero", 99 ** 0, 1);
+edge_eq("pow_frac_root", 9 ** 0.5, 3);
+
+# --- char codepoint arithmetic ---
+edge_eq("char_plus_int", 'A' + 1, 66);
+edge_eq("char_minus_char", 'b' - 'a', 1);
+
+# --- cross-kind comparisons and equality ---
+edge_true("cmp_int_big", 5 < 2 ** 40);
+edge_true("eq_promoted", (2 ** 40) / (2 ** 40) == 1);
+edge_true("cmp_float_int", 2.5 > 2);
+edge_true("neq_distinct", 3 != 4);
+
+# --- null concatenates as an empty string (C#-style), but str(null) is "null" ---
+edge_eq("null_concat_empty", "x" + null, "x");
+edge_eq("null_concat_both_sides", "a" + null + "b", "ab");
+edge_eq("null_str_is_null", str(null), "null");
+
+# --- division by zero throws ---
+edge_throws("div_zero", func() { var z = 1 / 0; });
+edge_throws("mod_zero", func() { var z = 1 % 0; });
+
+# --- string methods ---
+edge_eq("str_trim", "  hi  ".trim(), "hi");
+edge_true("str_contains", "hello".contains("ell"));
+edge_eq("str_slice", "hello".slice(1, 3), "el");
+edge_eq("str_replace_all", "hello".replace("l", "L"), "heLLo");
+edge_eq("str_indexOf", "hello".indexOf("l"), 2);
+edge_eq("str_len", "hello".len(), 5);
+edge_eq("str_split_len", len("a,b,c".split(",")), 3);
+edge_eq("str_negative_slice", "abcdef"[-3~], "def");
+
+# --- interpolation with embedded expressions ---
+var n = 7;
+edge_eq("interp_expr", $"val={n * 2}", "val=14");
+edge_eq("interp_ternary", $"p={(n > 0 ? "pos" : "neg")}", "p=pos");
+var who = "world";
+edge_eq("interp_nested", $"hi {who}!", "hi world!");
+
+# --- verbatim strings keep backslashes ---
+edge_eq("verbatim", @"a\b\c", "a\\b\\c");
+
+edge_finish("805_numeric_string_stress");

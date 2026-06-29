@@ -1,0 +1,49 @@
+import "edge_assert.cfs";
+use Lib;
+
+# A `use`d namespace whose member names deliberately collide with class member names.
+namespace Lib {
+    public func value() { return 999; }
+    public func tag() { return "ns-tag"; }
+    public const LIMIT = 7;
+}
+
+# Bare references to a class's own members are implicit member access and must NOT be
+# rewritten into the same-named `use`d namespace members.
+class Box() {
+    var value = 5;
+    var LIMIT = 50;
+    func tag() { return "box-tag"; }
+
+    func readField() { return value; }          # -> this.value
+    func readConstField() { return LIMIT; }     # -> this.LIMIT
+    func callOwnMethod() { return tag(); }      # -> this.tag()
+    func explicitField() { return this.value; }
+}
+
+class StaticBox() {
+    static var value = 11;
+    static func make() { return value; }        # static ctx -> type.value
+}
+
+class Promoted(value) {
+    func read() { return value; }               # promoted ctor param/field
+}
+
+edge_begin("810_use_namespace_member_shadowing");
+
+var b = new Box();
+edge_eq("instance_field_not_hijacked", b.readField(), 5);
+edge_eq("const_field_not_hijacked", b.readConstField(), 50);
+edge_eq("own_method_not_hijacked", b.callOwnMethod(), "box-tag");
+edge_eq("explicit_field_still_works", b.explicitField(), 5);
+
+edge_eq("static_field_not_hijacked", StaticBox.make(), 11);
+
+edge_eq("promoted_ctor_param_not_hijacked", (new Promoted(77)).read(), 77);
+
+# Where NOT shadowed (top level, no colliding member), the use-member is still reachable.
+edge_eq("use_func_reachable_top_level", value(), 999);
+edge_eq("use_const_reachable_top_level", LIMIT, 7);
+
+edge_finish("810_use_namespace_member_shadowing");

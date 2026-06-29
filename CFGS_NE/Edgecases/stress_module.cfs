@@ -1,0 +1,19 @@
+# Helper module for 809_import_combinations_stress.
+# The edgecase runner copies lowercase .cfs helpers into a generated _imports/ dir.
+
+var internalState = 100;   # module-private, not exported
+
+export const VERSION = 5;
+
+export func add(a, b) { return a + b; }
+
+export func mulInternal(x) { return x * internalState; }   # reads module-private state
+
+export class Vector(x, y) {
+    var x = 0;
+    var y = 0;
+    func init(x, y) { this.x = x; this.y = y; }
+    func magSq() { return this.x * this.x + this.y * this.y; }
+}
+
+export enum Status { Ok = 0, Err = 1 }
