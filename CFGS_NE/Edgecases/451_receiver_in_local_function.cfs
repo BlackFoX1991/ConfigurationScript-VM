@@ -1,0 +1,44 @@
+import "edge_assert.cfs";
+
+edge_begin("451_receiver_in_local_function");
+
+# A named function declared inside a method captures the enclosing receiver,
+# exactly like a local function in C#: this/type/super and implicit member
+# access resolve through the captured method environment.
+
+class Base {
+    func name() { return "base"; }
+}
+
+class C : Base {
+    var n = 10;
+    static var tag = "C";
+
+    func viaThis() {
+        func inner() { return this.n; }
+        return inner();
+    }
+
+    func viaImplicitMember() {
+        func inner() { return n; }
+        return inner();
+    }
+
+    func viaSuper() {
+        func inner() { return super.name(); }
+        return inner();
+    }
+
+    static func viaType() {
+        func inner() { return type.tag; }
+        return inner();
+    }
+}
+
+var c = new C();
+edge_eq("nested_this", c.viaThis(), 10);
+edge_eq("nested_implicit_member", c.viaImplicitMember(), 10);
+edge_eq("nested_super", c.viaSuper(), "base");
+edge_eq("nested_type_static", C.viaType(), "C");
+
+edge_finish("451_receiver_in_local_function");

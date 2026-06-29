@@ -117,15 +117,25 @@ namespace CFGS_VM.VMCore
 
         private ReceiverContextKind DetermineReceiverContext(FuncExpr fe)
         {
-            if (_currentClass == null || fe.Parameters.Count == 0)
+            if (_currentClass == null)
                 return ReceiverContextKind.None;
 
-            return fe.Parameters[0] switch
+            if (fe.Parameters.Count > 0)
             {
-                "this" => ReceiverContextKind.InstanceMethod,
-                "type" => ReceiverContextKind.StaticMethod,
-                _ => ReceiverContextKind.None
-            };
+                switch (fe.Parameters[0])
+                {
+                    case "this":
+                        return ReceiverContextKind.InstanceMethod;
+                    case "type":
+                        return ReceiverContextKind.StaticMethod;
+                }
+            }
+
+            // C#-style lexical capture: a lambda that does not declare its own explicit
+            // receiver inherits the enclosing receiver context, so this/type/super/outer
+            // resolve to the captured receiver (the closure captures the method env by
+            // reference, where 'this' lives as an ordinary binding).
+            return _receiverContext;
         }
 
         private void ValidateReceiverUsage(string name, Node node)

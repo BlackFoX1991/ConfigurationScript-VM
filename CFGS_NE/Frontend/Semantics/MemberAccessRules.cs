@@ -372,9 +372,6 @@ namespace CFGS_VM.Analytic.Semantics
             }
         }
 
-        private static ClassConstructorSignature GetConstructorSignature(ClassDeclStmt cls)
-            => cls.GetEffectiveConstructorSignature(includeImplicitOuter: cls.IsNested);
-
         private void ValidateObjectInitializerEntriesAgainstKnownClass(
             Compiler compiler,
             ClassDeclStmt decl,

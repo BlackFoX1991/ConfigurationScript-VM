@@ -292,7 +292,7 @@ namespace CFGS_VM.Analytic.Modules
             if (defaultImport.Path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
                 throw new ParserException(
-                    "named import from dll is not supported. Use: import \"path.dll\";",
+                    "default import from dll is not supported. Use: import \"path.dll\";",
                     defaultImport.Line,
                     defaultImport.Col,
                     defaultImport.OriginFile);

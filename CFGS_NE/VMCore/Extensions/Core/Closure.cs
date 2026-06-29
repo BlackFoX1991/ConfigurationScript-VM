@@ -1,5 +1,6 @@
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions.Core;
+using CFGS_VM.VMCore.Extensions.Instance;
 
 namespace CFGS_VM.VMCore.Extensions.Core;
 
@@ -41,6 +42,18 @@ public class Closure
     public bool IsAsync { get; }
 
     /// <summary>
+    /// Gets the receiver captured lexically at definition time (C#-style), or null when the
+    /// closure was not defined inside a method. Used so this/type/super/outer resolve to the
+    /// enclosing receiver when the closure is later invoked without its own receiver.
+    /// </summary>
+    public object? CapturedThis { get; }
+
+    /// <summary>
+    /// Gets the access type (static type) captured alongside <see cref="CapturedThis"/>.
+    /// </summary>
+    public StaticInstance? CapturedAccessType { get; }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="Closure"/> class.
     /// </summary>
     /// <param name="address">The address<see cref="int"/></param>
@@ -49,7 +62,9 @@ public class Closure
     /// <param name="name">The name<see cref="string"/></param>
     /// <param name="restParameter">The restParameter<see cref="string?"/></param>
     /// <param name="isAsync">The isAsync<see cref="bool"/></param>
-    public Closure(int address, List<string> parameters, int minArgs, Env env, string name, string? restParameter = null, bool isAsync = false)
+    /// <param name="capturedThis">The lexically captured receiver<see cref="object?"/></param>
+    /// <param name="capturedAccessType">The lexically captured access type<see cref="StaticInstance?"/></param>
+    public Closure(int address, List<string> parameters, int minArgs, Env env, string name, string? restParameter = null, bool isAsync = false, object? capturedThis = null, StaticInstance? capturedAccessType = null)
     {
         Address = address;
         Parameters = parameters;
@@ -58,6 +73,8 @@ public class Closure
         Name = name ?? "<anon>";
         RestParameter = restParameter;
         IsAsync = isAsync;
+        CapturedThis = capturedThis;
+        CapturedAccessType = capturedAccessType;
     }
 
     public override string ToString()

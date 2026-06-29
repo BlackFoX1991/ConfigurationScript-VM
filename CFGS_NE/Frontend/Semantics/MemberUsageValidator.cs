@@ -450,8 +450,10 @@ namespace CFGS_VM.Analytic.Semantics
 
         private void ValidateFunctionDecl(FuncDeclStmt funcDecl)
         {
+            // C#-style lexical capture: a named function declared inside a method inherits the
+            // enclosing receiver context (like a local function in C#), so this/type/super/outer
+            // stay valid. At genuine top level the inherited context is already None.
             ReceiverContextKind previousReceiverContext = _receiverContext;
-            _receiverContext = ReceiverContextKind.None;
 
             _namespaceAccessRules.ValidateQualifiedTypeAccess(
                 funcDecl.ExplicitInterfaceName,
@@ -1090,15 +1092,25 @@ namespace CFGS_VM.Analytic.Semantics
 
         private ReceiverContextKind DetermineReceiverContext(FuncExpr funcExpr)
         {
-            if (_currentClassDecl == null || funcExpr.Parameters.Count == 0)
+            if (_currentClassDecl == null)
                 return ReceiverContextKind.None;
 
-            return funcExpr.Parameters[0] switch
+            if (funcExpr.Parameters.Count > 0)
             {
-                "this" => ReceiverContextKind.InstanceMethod,
-                "type" => ReceiverContextKind.StaticMethod,
-                _ => ReceiverContextKind.None
-            };
+                switch (funcExpr.Parameters[0])
+                {
+                    case "this":
+                        return ReceiverContextKind.InstanceMethod;
+                    case "type":
+                        return ReceiverContextKind.StaticMethod;
+                }
+            }
+
+            // C#-style lexical capture: a lambda that does not declare its own explicit
+            // receiver inherits the enclosing receiver context so this/type/super/outer
+            // remain valid inside lambdas defined in methods (the runtime resolves them
+            // through the captured method environment).
+            return _receiverContext;
         }
 
         private void WithPatternBindings(MatchPattern pattern, Action action)

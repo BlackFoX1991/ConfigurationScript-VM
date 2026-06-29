@@ -206,15 +206,6 @@ namespace CFGS_VM.Analytic.Semantics
                                 methodDecl.Col,
                                 methodDecl.OriginFile);
                         }
-
-                        if (!ReferenceEquals(ownerDecl, cls) && visibility != MemberVisibility.Public)
-                        {
-                            throw new CompilerException(
-                                $"class '{cls.Name}' inherits {(kv.Value.IsStatic ? "static " : string.Empty)}interface method '{kv.Key}' from class '{ownerDecl.Name}' with non-public visibility",
-                                methodDecl.Line,
-                                methodDecl.Col,
-                                methodDecl.OriginFile);
-                        }
                     }
 
                     Dictionary<string, InterfacePropertyDecl> propertyContract = compiler.GetOrBuildInterfacePropertyContract(iface);
@@ -612,15 +603,6 @@ namespace CFGS_VM.Analytic.Semantics
             {
                 throw new CompilerException(
                     $"class '{cls.Name}' cannot implement interface property '{contractProperty.Name}' accessor '{kind.ToString().ToLowerInvariant()}' from interface '{iface.Name}' with non-public visibility",
-                    accessor.Line,
-                    accessor.Col,
-                    accessor.OriginFile);
-            }
-
-            if (!ReferenceEquals(ownerDecl, cls) && visibility != MemberVisibility.Public)
-            {
-                throw new CompilerException(
-                    $"class '{cls.Name}' inherits interface property '{contractProperty.Name}' accessor '{kind.ToString().ToLowerInvariant()}' from class '{ownerDecl.Name}' with non-public visibility",
                     accessor.Line,
                     accessor.Col,
                     accessor.OriginFile);

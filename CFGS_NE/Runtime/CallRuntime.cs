@@ -114,6 +114,15 @@ namespace CFGS_VM.VMCore
             if (_program is null || _program.Count == 0)
                 throw new VMException("Cannot invoke closure: no program loaded.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+            // C#-style lexical capture: when no explicit receiver is supplied (e.g. a lambda
+            // passed as a map/filter/sort callback), fall back to the receiver captured at the
+            // closure's definition site so this/type/super/outer still resolve.
+            if (receiver == null && closure.CapturedThis != null)
+            {
+                receiver = closure.CapturedThis;
+                accessType ??= closure.CapturedAccessType;
+            }
+
             EnsureCallDepthWithinLimit(instr);
             Env callEnv = BuildCallEnv(closure, args, instr);
             int callerDepth = _scopes.Count;
@@ -650,6 +659,14 @@ namespace CFGS_VM.VMCore
                             accessType = rst;
                         else if (receiver is ClassInstance rinst && TryGetStaticType(rinst, out StaticInstance rst2))
                             accessType = rst2;
+                    }
+                    else if (clos.CapturedThis != null)
+                    {
+                        // C#-style lexical capture: a lambda defined inside a method keeps the
+                        // enclosing receiver so this/type/super/outer resolve when it is later
+                        // invoked without an explicit receiver of its own.
+                        receiver = clos.CapturedThis;
+                        accessType = clos.CapturedAccessType;
                     }
                 }
                 else if (callee is StaticInstance st)

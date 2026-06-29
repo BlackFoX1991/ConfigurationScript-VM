@@ -65,7 +65,8 @@ internal static class Program
             ShiftsPromoteInsteadOfMasking,
             SliceAssignmentRequiresMatchingLength,
             SortAndIndexOfUseNumericComparison,
-            MinMaxHandleMixedNumericKinds
+            MinMaxHandleMixedNumericKinds,
+            LambdaCapturesEnclosingReceiverLikeCSharp
         ];
 
         List<string> failures = [];
@@ -1634,6 +1635,79 @@ func forCapture() {
 
         string forResult = script.InvokeAsync<string>("forCapture").GetAwaiter().GetResult() ?? "";
         AssertEqual("3,3,3", forResult, "C-style for must keep one shared mutating counter (C# semantics)");
+    }
+
+    private static void LambdaCapturesEnclosingReceiverLikeCSharp()
+    {
+        // C#-style lexical capture: a lambda defined inside a method captures the enclosing
+        // receiver, so this/type/super and implicit member access resolve without the lambda
+        // declaring an explicit receiver parameter — including when the lambda is invoked from
+        // a different frame (a top-level helper) or as an intrinsic callback (array.map).
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<lambda-receiver>", """
+class Counter {
+    var n = 0;
+    func addThroughLambda(x) {
+        var add = func(v) { this.n = this.n + v; return this.n; };
+        return add(x);
+    }
+    func implicitMember() {
+        var f = func() { return n; };
+        return f();
+    }
+}
+
+class Box {
+    static var s = 7;
+    func viaType() {
+        var g = func() { return type.s; };
+        return g();
+    }
+}
+
+class Animal { func speak() { return "animal"; } }
+class Dog : Animal {
+    func speakViaLambda() {
+        var h = func() { return super.speak(); };
+        return h();
+    }
+}
+
+func applyTo(fn, v) { return fn(v); }
+class Adder {
+    var base_ = 100;
+    func make() { return applyTo(func(x) { return base_ + x; }, 5); }
+}
+
+class Scaler {
+    var factor = 10;
+    func scaleAll(arr) {
+        return arr.map(func(x) { return x * factor; });
+    }
+}
+
+func probe() {
+    var c = new Counter();
+    var a = c.addThroughLambda(5);
+    var b = c.implicitMember();
+    var t = (new Box()).viaType();
+    var sp = (new Dog()).speakViaLambda();
+    var adr = (new Adder()).make();
+    var scaled = (new Scaler()).scaleAll([1, 2, 3]);
+    return ("" + a) + "," + ("" + b) + "," + ("" + t) + "," + sp + "," + ("" + adr)
+        + "," + ("" + scaled[0]) + ("" + scaled[1]) + ("" + scaled[2]);
+}
+""");
+
+        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+
+        string result = script.InvokeAsync<string>("probe").GetAwaiter().GetResult() ?? "";
+        AssertEqual("5,5,7,animal,105,102030", result, "lambdas must lexically capture the enclosing this/type/super like C#");
     }
 
     private static void ForeachDestructuringAndBreakContinueStillWork()

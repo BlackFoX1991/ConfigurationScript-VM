@@ -1017,8 +1017,18 @@ internal static class CfgsLinter
                 return;
 
             int dotIndex = path.IndexOf('.');
-            string root = dotIndex >= 0 ? path[..dotIndex] : path;
+            if (dotIndex < 0)
+            {
+                // A bare name in type context is a pure type/interface reference; it must not
+                // count as a value read of a same-named local that merely shadows the type.
+                if (_functions.ContainsKey(path))
+                    _referencedNames.Add(path);
+                return;
+            }
 
+            // A qualified path (e.g. App.Model.Thing) genuinely navigates through its root,
+            // so the root keeps counting as a real use (imports, namespace aliases, ...).
+            string root = path[..dotIndex];
             if (!Use(root) && _functions.ContainsKey(root))
                 _referencedNames.Add(root);
         }

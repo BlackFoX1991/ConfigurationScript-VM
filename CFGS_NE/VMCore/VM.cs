@@ -858,6 +858,7 @@ namespace CFGS_VM.VMCore
                             throw new VMException($"Runtime error: PUSH_CLOSURE unknown function address {funcAddr}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         Env capturedEnv = _scopes[^1];
+                        StaticInstance? capturedAccessType = _callStack.Count > 0 ? _callStack.Peek().AccessType : null;
                         PushRuntimeObject(new Closure(
                             funcAddr,
                             funcInfo.Parameters,
@@ -865,7 +866,9 @@ namespace CFGS_VM.VMCore
                             capturedEnv,
                             funcName ?? throw new VMException("Invalid function-name", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!),
                             funcInfo.RestParameter,
-                            funcInfo.isAsync));
+                            funcInfo.isAsync,
+                            CurrentThis,
+                            capturedAccessType));
                         break;
                     }
 

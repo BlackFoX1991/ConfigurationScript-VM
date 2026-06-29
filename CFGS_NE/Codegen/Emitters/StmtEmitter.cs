@@ -410,8 +410,11 @@ namespace CFGS_VM.VMCore
 
                         if (fd.Body is BlockStmt fb) fb.IsFunctionBody = true;
 
+                        // C#-style lexical capture: a named function declared inside a method
+                        // inherits the enclosing receiver context (like a local function in C#),
+                        // so this/type/super/outer resolve through the captured method env.
+                        // At genuine top level the inherited context is already None.
                         ReceiverContextKind prevReceiverContext = _receiverContext;
-                        _receiverContext = ReceiverContextKind.None;
                         EnterFunctionLocals(fd.Parameters);
                         if (fd.IsAsync) _asyncFunctionDepth++;
                         try
