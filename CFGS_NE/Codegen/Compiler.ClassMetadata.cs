@@ -29,12 +29,7 @@ namespace CFGS_VM.VMCore
             => name.StartsWith("__", StringComparison.Ordinal);
 
         private static MemberVisibility GetConstructorVisibility(ClassDeclStmt cls)
-        {
-            if (cls.Methods.Any(m => string.Equals(m.Name, "init", StringComparison.Ordinal)))
-                return GetOrDefaultVisibility(cls.MethodVisibility, "init");
-
-            return MemberVisibility.Public;
-        }
+            => cls.GetConstructorVisibility();
 
         private static MemberVisibility GetOrDefaultVisibility(Dictionary<string, MemberVisibility> map, string name)
             => map.TryGetValue(name, out MemberVisibility visibility) ? visibility : MemberVisibility.Public;

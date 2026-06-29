@@ -300,7 +300,7 @@ namespace CFGS_VM.Analytic.Core
                     Eat(TokenType.RParen);
                 }
 
-                List<(string, Expr)> inits = new();
+                List<ObjectInitializerEntry> inits = new();
                 if (_current.Type == TokenType.LBrace)
                     inits = ParseInitializerItems();
 
@@ -308,9 +308,9 @@ namespace CFGS_VM.Analytic.Core
             }
         }
 
-        private List<(string, Expr)> ParseInitializerItems()
+        private List<ObjectInitializerEntry> ParseInitializerItems()
         {
-            List<(string, Expr)> items = new();
+            List<ObjectInitializerEntry> items = new();
 
             Eat(TokenType.LBrace);
 
@@ -318,21 +318,7 @@ namespace CFGS_VM.Analytic.Core
             {
                 while (true)
                 {
-                    if (_current.Type != TokenType.Ident)
-                        throw new ParserException("expected identifier as initializer key",
-                                                  _current.Line, _current.Column, _current.Filename);
-
-                    string name = _current.Value.ToString()!;
-                    Eat(TokenType.Ident);
-
-                    if (_current.Type == TokenType.Colon || _current.Type == TokenType.Assign)
-                        Advance();
-                    else
-                        throw new ParserException("expected ':' or '=' in object initializer",
-                                                  _current.Line, _current.Column, _current.Filename);
-
-                    Expr val = Expr();
-                    items.Add((name!, val!));
+                    items.Add(ParseInitializerItem());
 
                     if (_current.Type == TokenType.Comma)
                     {
@@ -348,13 +334,59 @@ namespace CFGS_VM.Analytic.Core
             return items;
         }
 
+        private ObjectInitializerEntry ParseInitializerItem()
+        {
+            int line = _current.Line;
+            int col = _current.Column;
+            string file = _current.Filename;
+
+            if (_current.Type == TokenType.LBracket)
+            {
+                Eat(TokenType.LBracket);
+                Expr index = Expr();
+                Eat(TokenType.RBracket);
+
+                if (_current.Type == TokenType.Colon || _current.Type == TokenType.Assign)
+                    Advance();
+                else
+                    throw new ParserException("expected ':' or '=' after index initializer", _current.Line, _current.Column, _current.Filename);
+
+                Expr value = Expr();
+                return new ObjectIndexerInitializerEntry(index, value, line, col, file);
+            }
+
+            if (_current.Type != TokenType.Ident)
+                throw new ParserException("expected identifier as initializer key", _current.Line, _current.Column, _current.Filename);
+
+            string name = _current.Value.ToString()!;
+            Eat(TokenType.Ident);
+
+            if (_current.Type == TokenType.Assign)
+            {
+                Eat(TokenType.Assign);
+
+                if (_current.Type == TokenType.LBrace)
+                    return new ObjectMemberInitializerEntry(name, null, ParseInitializerItems(), line, col, file);
+
+                return new ObjectMemberInitializerEntry(name, Expr(), null, line, col, file);
+            }
+
+            if (_current.Type == TokenType.Colon)
+            {
+                Eat(TokenType.Colon);
+                return new ObjectMemberInitializerEntry(name, Expr(), null, line, col, file);
+            }
+
+            throw new ParserException("expected ':' or '=' in object initializer", _current.Line, _current.Column, _current.Filename);
+        }
+
         private Expr MaybeParseObjectInitializer(Expr target)
         {
             if (target is NewExpr) return target;
 
             if (_current.Type == TokenType.LBrace)
             {
-                List<(string, Expr)> inits = ParseInitializerItems();
+                List<ObjectInitializerEntry> inits = ParseInitializerItems();
                 return new ObjectInitExpr(target, inits, target.Line, target.Col, target.OriginFile);
             }
             return target;

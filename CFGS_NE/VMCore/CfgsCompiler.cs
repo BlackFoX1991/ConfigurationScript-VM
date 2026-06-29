@@ -190,10 +190,10 @@ namespace CFGS_VM.VMCore
                            ContainsDirectMainCall(sliceExpr.End);
                 case ObjectInitExpr objectInitExpr:
                     return ContainsDirectMainCall(objectInitExpr.Target) ||
-                           objectInitExpr.Inits.Any(init => ContainsDirectMainCall(init.Value));
+                           objectInitExpr.Inits.Any(ContainsDirectMainCall);
                 case NewExpr newExpr:
                     return newExpr.Args.Any(ContainsDirectMainCall) ||
-                           newExpr.Initializers.Any(init => ContainsDirectMainCall(init.Value));
+                           newExpr.Initializers.Any(ContainsDirectMainCall);
                 case MatchExpr matchExpr:
                     return ContainsDirectMainCall(matchExpr.Scrutinee) ||
                            ContainsDirectMainCall(matchExpr.DefaultArm) ||
@@ -212,6 +212,21 @@ namespace CFGS_VM.VMCore
                 default:
                     return false;
             }
+        }
+
+        private static bool ContainsDirectMainCall(ObjectInitializerEntry? entry)
+        {
+            return entry switch
+            {
+                null => false,
+                ObjectMemberInitializerEntry memberInitializer =>
+                    ContainsDirectMainCall(memberInitializer.Value) ||
+                    memberInitializer.NestedInitializers.Any(ContainsDirectMainCall),
+                ObjectIndexerInitializerEntry indexerInitializer =>
+                    ContainsDirectMainCall(indexerInitializer.Index) ||
+                    ContainsDirectMainCall(indexerInitializer.Value),
+                _ => false
+            };
         }
     }
 }

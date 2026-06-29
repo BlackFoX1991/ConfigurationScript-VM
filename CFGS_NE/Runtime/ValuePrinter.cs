@@ -387,6 +387,18 @@ namespace CFGS_VM.VMCore
                 return;
             }
 
+            if (v is StaticInstance staticInstance)
+            {
+                w.Write(staticInstance.ClassName);
+                return;
+            }
+
+            if (v is BoundType boundType)
+            {
+                w.Write(boundType.Type.ClassName);
+                return;
+            }
+
             if (v is Closure clos)
             {
                 if (mode == 2)

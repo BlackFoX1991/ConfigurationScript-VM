@@ -571,6 +571,17 @@ internal static class CfgsLinter
                     break;
 
                 case ClassDeclStmt c:
+                    MarkQualifiedPathUsage(c.BaseName);
+                    foreach (string interfaceName in c.ImplementedInterfaces)
+                        MarkQualifiedPathUsage(interfaceName);
+                    foreach (FunctionParameterSpec parameter in c.ConstructorParameterSpecs)
+                    {
+                        if (parameter.DefaultValue is not null)
+                            VisitExpr(parameter.DefaultValue);
+                    }
+                    foreach (Expr baseCtorArg in c.BaseCtorArgs)
+                        VisitExpr(baseCtorArg);
+
                     foreach ((string fieldName, Expr? value) in c.Fields)
                     {
                         if (c.ConstFields.Contains(fieldName))
@@ -594,6 +605,9 @@ internal static class CfgsLinter
 
                     foreach (PropertyDeclStmt property in c.Properties.Concat(c.StaticProperties))
                     {
+                        if (property.Initializer is not null)
+                            VisitExpr(property.Initializer);
+
                         foreach (PropertyAccessorDecl accessor in property.Accessors)
                         {
                             if (accessor.Body is not null)
@@ -608,6 +622,9 @@ internal static class CfgsLinter
                     break;
 
                 case InterfaceDeclStmt i:
+                    foreach (string baseInterface in i.BaseInterfaces)
+                        MarkQualifiedPathUsage(baseInterface);
+
                     foreach (InterfaceMethodDecl method in i.Methods)
                     {
                         if (method.Body is not null)
@@ -829,10 +846,10 @@ internal static class CfgsLinter
                     break;
 
                 case NewExpr n:
+                    MarkQualifiedPathUsage(n.ClassName);
                     foreach (Expr arg in n.Args)
                         VisitExpr(arg);
-                    foreach ((_, Expr value) in n.Initializers)
-                        VisitExpr(value);
+                    VisitObjectInitializerEntries(n.Initializers);
                     break;
 
                 case GetFieldExpr g:
@@ -841,8 +858,7 @@ internal static class CfgsLinter
 
                 case ObjectInitExpr o:
                     VisitExpr(o.Target);
-                    foreach ((_, Expr value) in o.Inits)
-                        VisitExpr(value);
+                    VisitObjectInitializerEntries(o.Inits);
                     break;
 
                 case MatchExpr m:
@@ -855,6 +871,26 @@ internal static class CfgsLinter
                 case TryUnwrapExpr t:
                     VisitExpr(t.Inner);
                     break;
+            }
+        }
+
+        private void VisitObjectInitializerEntries(IEnumerable<ObjectInitializerEntry> entries)
+        {
+            foreach (ObjectInitializerEntry entry in entries)
+            {
+                switch (entry)
+                {
+                    case ObjectMemberInitializerEntry member:
+                        if (member.Value is not null)
+                            VisitExpr(member.Value);
+                        VisitObjectInitializerEntries(member.NestedInitializers);
+                        break;
+
+                    case ObjectIndexerInitializerEntry indexer:
+                        VisitExpr(indexer.Index);
+                        VisitExpr(indexer.Value);
+                        break;
+                }
             }
         }
 
@@ -966,10 +1002,25 @@ internal static class CfgsLinter
             if (expr is null)
                 return;
 
-            if (TryExtractQualifiedPath(expr, out _))
+            if (TryExtractQualifiedPath(expr, out string? path))
+            {
+                MarkQualifiedPathUsage(path);
                 return;
+            }
 
             VisitExpr(expr);
+        }
+
+        private void MarkQualifiedPathUsage(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            int dotIndex = path.IndexOf('.');
+            string root = dotIndex >= 0 ? path[..dotIndex] : path;
+
+            if (!Use(root) && _functions.ContainsKey(root))
+                _referencedNames.Add(root);
         }
 
         private static int? TryGetBuiltinTypeContextArgumentIndex(CallExpr callExpr)

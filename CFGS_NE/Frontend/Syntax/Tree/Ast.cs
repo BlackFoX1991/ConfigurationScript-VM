@@ -51,12 +51,51 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     // +++ AST +++
+    public abstract class ObjectInitializerEntry(int line, int col, string file) : Node(line, col, file)
+    {
+    }
+
+    public sealed class ObjectMemberInitializerEntry : ObjectInitializerEntry
+    {
+        public string Name { get; }
+        public Expr? Value { get; }
+        public List<ObjectInitializerEntry> NestedInitializers { get; }
+        public bool IsNested => NestedInitializers.Count > 0;
+
+        public ObjectMemberInitializerEntry(
+            string name,
+            Expr? value,
+            List<ObjectInitializerEntry>? nestedInitializers,
+            int line,
+            int col,
+            string file)
+            : base(line, col, file)
+        {
+            Name = name;
+            Value = value;
+            NestedInitializers = nestedInitializers ?? new List<ObjectInitializerEntry>();
+        }
+    }
+
+    public sealed class ObjectIndexerInitializerEntry : ObjectInitializerEntry
+    {
+        public Expr Index { get; }
+        public Expr Value { get; }
+
+        public ObjectIndexerInitializerEntry(Expr index, Expr value, int line, int col, string file)
+            : base(line, col, file)
+        {
+            Index = index;
+            Value = value;
+        }
+    }
+
     public sealed class ObjectInitExpr : Expr
     {
         public Expr Target { get; }
-        public List<(string Name, Expr Value)> Inits { get; }
+        public List<ObjectInitializerEntry> Inits { get; }
 
-        public ObjectInitExpr(Expr target, List<(string, Expr)> inits, int line, int col, string file)
+        public ObjectInitExpr(Expr target, List<ObjectInitializerEntry> inits, int line, int col, string file)
             : base(line, col, file)
         {
             Target = target;
@@ -862,6 +901,12 @@ namespace CFGS_VM.Analytic.Tree
 
         public List<string> Parameters;
 
+        public int ConstructorMinArgs;
+
+        public string? ConstructorRestParameter;
+
+        public List<FunctionParameterSpec> ConstructorParameterSpecs;
+
         /// <summary>
         /// Gets the NestedClasses
         /// </summary>
@@ -899,6 +944,9 @@ namespace CFGS_VM.Analytic.Tree
         /// <param name="staticMethods">The staticMethods<see cref="List{FuncDeclStmt}"/></param>
         /// <param name="staticProperties">The staticProperties<see cref="List{PropertyDeclStmt}"/></param>
         /// <param name="parameters">The parameters<see cref="List{string}"/></param>
+        /// <param name="constructorMinArgs">The constructorMinArgs<see cref="int"/></param>
+        /// <param name="constructorRestParameter">The constructorRestParameter<see cref="string?"/></param>
+        /// <param name="constructorParameterSpecs">The constructorParameterSpecs<see cref="List{FunctionParameterSpec}?"/></param>
         /// <param name="line">The line<see cref="int"/></param>
         /// <param name="col">The col<see cref="int"/></param>
         /// <param name="fname">The fname<see cref="string"/></param>
@@ -917,6 +965,9 @@ namespace CFGS_VM.Analytic.Tree
             List<FuncDeclStmt> staticMethods,
             List<PropertyDeclStmt> staticProperties,
             List<string> parameters,
+            int constructorMinArgs,
+            string? constructorRestParameter,
+            List<FunctionParameterSpec>? constructorParameterSpecs,
             int line,
             int col,
             string fname,
@@ -941,6 +992,9 @@ namespace CFGS_VM.Analytic.Tree
             Enums = enums;
             Fields = fields;
             Parameters = parameters;
+            ConstructorMinArgs = constructorMinArgs;
+            ConstructorRestParameter = constructorRestParameter;
+            ConstructorParameterSpecs = constructorParameterSpecs ?? new List<FunctionParameterSpec>();
             StaticFields = staticFields;
             StaticMethods = staticMethods;
             StaticProperties = staticProperties;
@@ -957,6 +1011,132 @@ namespace CFGS_VM.Analytic.Tree
             NestedClassVisibility = nestedClassVisibility ?? new Dictionary<string, MemberVisibility>(StringComparer.Ordinal);
             ConstFields = constFields ?? new HashSet<string>(StringComparer.Ordinal);
             StaticConstFields = staticConstFields ?? new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        public bool HasPrimaryConstructorHeader =>
+            Parameters.Count > 0 ||
+            ConstructorParameterSpecs.Count > 0 ||
+            !string.IsNullOrWhiteSpace(ConstructorRestParameter);
+
+        public FuncDeclStmt? GetInitMethod()
+        {
+            foreach (FuncDeclStmt method in Methods)
+            {
+                if (string.Equals(method.Name, "init", StringComparison.Ordinal))
+                    return method;
+            }
+
+            return null;
+        }
+
+        public ClassConstructorSignature GetPrimaryConstructorSignature()
+            => new(
+                new List<string>(Parameters),
+                ConstructorMinArgs,
+                ConstructorRestParameter,
+                new List<FunctionParameterSpec>(ConstructorParameterSpecs));
+
+        public ClassConstructorSignature GetEffectiveConstructorSignature(bool includeImplicitOuter = false)
+        {
+            ClassConstructorSignature signature;
+            FuncDeclStmt? initMethod = GetInitMethod();
+
+            if (HasPrimaryConstructorHeader)
+            {
+                signature = GetPrimaryConstructorSignature();
+            }
+            else if (initMethod != null)
+            {
+                signature = new ClassConstructorSignature(
+                    new List<string>(initMethod.Parameters),
+                    initMethod.MinArgs,
+                    initMethod.RestParameter,
+                    new List<FunctionParameterSpec>(initMethod.ParameterSpecs));
+            }
+            else
+            {
+                signature = GetPrimaryConstructorSignature();
+            }
+
+            if (!includeImplicitOuter || !IsNested)
+                return signature;
+
+            if (signature.Parameters.Count > 0 &&
+                string.Equals(signature.Parameters[0], "__outer", StringComparison.Ordinal))
+            {
+                return signature;
+            }
+
+            List<string> parameters = new(signature.Parameters.Count + 1) { "__outer" };
+            parameters.AddRange(signature.Parameters);
+            return new ClassConstructorSignature(
+                parameters,
+                signature.MinArgs + 1,
+                signature.RestParameter,
+                new List<FunctionParameterSpec>(signature.ParameterSpecs));
+        }
+
+        public MemberVisibility GetConstructorVisibility()
+        {
+            FuncDeclStmt? initMethod = GetInitMethod();
+            if (initMethod != null &&
+                MethodVisibility.TryGetValue(initMethod.RuntimeMemberName, out MemberVisibility visibility))
+            {
+                return visibility;
+            }
+
+            return MemberVisibility.Public;
+        }
+
+        public List<string> GetAutoPromotedConstructorMemberNames()
+            => GetEffectiveConstructorSignature().GetAutoPromotedFieldNames();
+    }
+
+    public sealed class ClassConstructorSignature
+    {
+        public List<string> Parameters { get; }
+
+        public int MinArgs { get; }
+
+        public string? RestParameter { get; }
+
+        public List<FunctionParameterSpec> ParameterSpecs { get; }
+
+        public ClassConstructorSignature(
+            List<string> parameters,
+            int minArgs,
+            string? restParameter,
+            List<FunctionParameterSpec> parameterSpecs)
+        {
+            Parameters = parameters ?? new List<string>();
+            MinArgs = minArgs;
+            RestParameter = restParameter;
+            ParameterSpecs = parameterSpecs ?? new List<FunctionParameterSpec>();
+        }
+
+        public List<string> GetAutoPromotedFieldNames()
+        {
+            HashSet<string> destructured = new(StringComparer.Ordinal);
+            foreach (FunctionParameterSpec parameter in ParameterSpecs)
+            {
+                if (parameter.DestructurePattern is not null)
+                    destructured.Add(parameter.Name);
+            }
+
+            List<string> names = new();
+            foreach (string parameter in Parameters)
+            {
+                if (string.Equals(parameter, "__outer", StringComparison.Ordinal) ||
+                    parameter.StartsWith("__", StringComparison.Ordinal) ||
+                    destructured.Contains(parameter))
+                {
+                    continue;
+                }
+
+                names.Add(parameter);
+            }
+
+            return names;
         }
     }
 
@@ -1675,9 +1855,9 @@ namespace CFGS_VM.Analytic.Tree
     {
         public string ClassName { get; }
         public List<Expr> Args { get; }
-        public List<(string Name, Expr Value)> Initializers { get; }   // NEU
+        public List<ObjectInitializerEntry> Initializers { get; }
 
-        public NewExpr(string className, List<Expr> args, List<(string, Expr)> inits,
+        public NewExpr(string className, List<Expr> args, List<ObjectInitializerEntry> inits,
                        int line, int col, string origin)
             : base(line, col, origin)
         {

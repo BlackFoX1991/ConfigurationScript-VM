@@ -1,0 +1,25 @@
+import "edge_assert.cfs";
+
+edge_begin("764_empty_header_init_constructor_compat");
+
+class Legacy() {
+    var sum = left + right;
+    property label { get; } = prefix + ":" + str(left + right);
+    var product = -1;
+
+    func init(left = 2, right = 3, prefix = "L", *extras) {
+        this.product = (left * right) + len(extras);
+    }
+}
+
+var first = new Legacy();
+edge_eq("legacy_field_initializer_defaults", first.sum, 5);
+edge_eq("legacy_property_initializer_defaults", first.label, "L:5");
+edge_eq("legacy_init_defaults", first.product, 6);
+
+var second = new Legacy(4, 5, "X", 8, 9);
+edge_eq("legacy_field_initializer_args", second.sum, 9);
+edge_eq("legacy_property_initializer_args", second.label, "X:9");
+edge_eq("legacy_init_args_and_rest", second.product, 22);
+
+edge_finish("764_empty_header_init_constructor_compat");

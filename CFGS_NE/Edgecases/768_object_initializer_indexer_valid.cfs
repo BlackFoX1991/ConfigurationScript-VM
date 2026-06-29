@@ -1,0 +1,22 @@
+import "edge_assert.cfs";
+
+edge_begin("768_object_initializer_indexer_valid");
+
+class SlotMap() {
+    var store = {};
+
+    func get_index(key) {
+        return this.store[key];
+    }
+
+    func set_index(key, value) {
+        this.store[key] = value;
+    }
+}
+
+var slots = new SlotMap() { ["one"]: 1, ["two"] = 2 };
+
+edge_eq("indexer_colon_init", slots["one"], 1);
+edge_eq("indexer_assign_init", slots["two"], 2);
+
+edge_finish("768_object_initializer_indexer_valid");

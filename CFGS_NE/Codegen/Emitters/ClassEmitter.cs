@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore.Codegen;
 using CFGS_VM.VMCore.Command;
@@ -143,102 +144,102 @@ namespace CFGS_VM.VMCore
                 int jmpOverCtorIdx = _insns.Count;
                 _insns.Add(new Instruction(OpCode.JMP, null, cds.Line, cds.Col, cds.OriginFile));
 
-                FuncDeclStmt? initMethod = cds.Methods.FirstOrDefault(m => m.Name == "init");
-                List<string> ctorParams = initMethod != null
-                    ? new List<string>(initMethod.Parameters)
-                    : new List<string>(cds.Parameters);
-
-                bool insertedOuterParam = false;
-                if (cds.IsNested && (ctorParams.Count == 0 || ctorParams[0] != "__outer"))
-                {
-                    ctorParams.Insert(0, "__outer");
-                    insertedOuterParam = true;
-                }
-
-                int ctorMinArgs = initMethod != null ? initMethod.MinArgs : ctorParams.Count;
-                string? ctorRestParameter = initMethod?.RestParameter;
-                if (initMethod != null && insertedOuterParam)
-                    ctorMinArgs++;
+                FuncDeclStmt? initMethod = cds.GetInitMethod();
+                ClassConstructorSignature ctorSignature = cds.GetEffectiveConstructorSignature(includeImplicitOuter: cds.IsNested);
+                List<string> ctorParams = ctorSignature.Parameters;
+                List<FunctionParameterSpec> ctorParameterSpecs = ctorSignature.ParameterSpecs;
+                List<string> autoPromotedCtorMembers = ctorSignature.GetAutoPromotedFieldNames();
+                int ctorMinArgs = ctorSignature.MinArgs;
+                string? ctorRestParameter = ctorSignature.RestParameter;
+                List<Stmt> ctorParamInitializers = BuildConstructorParamInitializers(ctorParameterSpecs);
 
                 int ctorStart = _insns.Count;
                 string ctorFuncName = $"__ctor_{cds.Name}_{_anonCounter++}";
                 Functions[ctorFuncName] = new FunctionInfo(ctorParams, ctorStart, ctorMinArgs, ctorRestParameter);
 
                 const string SELF = "__obj";
-                _insns.Add(new Instruction(OpCode.NEW_OBJECT, cds.Name, cds.Line, cds.Col, cds.OriginFile));
-                _insns.Add(new Instruction(OpCode.VAR_DECL, SELF, cds.Line, cds.Col, cds.OriginFile));
-
-                _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
-                _insns.Add(new Instruction(OpCode.PUSH_STR, "__type", cds.Line, cds.Col, cds.OriginFile));
-                _insns.Add(new Instruction(OpCode.LOAD_VAR, cds.Name, cds.Line, cds.Col, cds.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
-
-                if (!string.IsNullOrEmpty(cds.BaseName))
+                EnterFunctionLocals(ctorParams);
+                try
                 {
+                    foreach (Stmt ctorInitializer in ctorParamInitializers)
+                        CompileStmt(ctorInitializer, insideFunction: true);
+
+                    _insns.Add(new Instruction(OpCode.NEW_OBJECT, cds.Name, cds.Line, cds.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.VAR_DECL, SELF, cds.Line, cds.Col, cds.OriginFile));
+
                     _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_STR, "__type", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, true, cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, true, cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, "new", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, true, cds.Line, cds.Col, cds.OriginFile));
-
-                    for (int i = cds.BaseCtorArgs.Count - 1; i >= 0; i--)
-                        CompileExpr(cds.BaseCtorArgs[i]);
-
-                    _insns.Add(new Instruction(OpCode.CALL_INDIRECT, cds.BaseCtorArgs.Count, cds.Line, cds.Col, cds.OriginFile));
-
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.ROT, null, cds.Line, cds.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.LOAD_VAR, cds.Name, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
+
+                    if (!string.IsNullOrEmpty(cds.BaseName))
+                    {
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__type", cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, true, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, true, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "new", cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, true, cds.Line, cds.Col, cds.OriginFile));
+
+                        for (int i = cds.BaseCtorArgs.Count - 1; i >= 0; i--)
+                            CompileExpr(cds.BaseCtorArgs[i]);
+
+                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, cds.BaseCtorArgs.Count, cds.Line, cds.Col, cds.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.ROT, null, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
+                    }
+
+                    if (cds.IsNested)
+                    {
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, "__outer", cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, "__outer", cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
+                    }
+
+                    foreach (KeyValuePair<string, Expr?> kv in cds.Fields)
+                    {
+                        string fieldName = kv.Key;
+                        Expr? initExpr = kv.Value;
+
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, cds.Line, cds.Col, cds.OriginFile));
+
+                        if (initExpr != null)
+                            CompileExpr(initExpr);
+                        else
+                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, cds.Line, cds.Col, cds.OriginFile));
+
+                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
+                    }
+
+                    foreach (PropertyDeclStmt property in cds.Properties.Where(p => p.HasAutoStorage))
+                    {
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, property.Line, property.Col, property.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, GetPropertyBackingSlotName(property), property.Line, property.Col, property.OriginFile));
+                        if (property.Initializer != null)
+                            CompileExpr(property.Initializer);
+                        else
+                            _insns.Add(new Instruction(OpCode.PUSH_NULL, null, property.Line, property.Col, property.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, property.Line, property.Col, property.OriginFile));
+                    }
+
+                    foreach (string p in autoPromotedCtorMembers)
+                    {
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, p, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.ROT, null, cds.Line, cds.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
+                    }
                 }
-
-                if (cds.IsNested)
+                finally
                 {
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, "__outer", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, "__outer", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
-                }
-
-                foreach (KeyValuePair<string, Expr?> kv in cds.Fields)
-                {
-                    string fieldName = kv.Key;
-                    Expr? initExpr = kv.Value;
-
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, cds.Line, cds.Col, cds.OriginFile));
-
-                    if (initExpr != null)
-                        CompileExpr(initExpr);
-                    else
-                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, cds.Line, cds.Col, cds.OriginFile));
-
-                    _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
-                }
-
-                foreach (PropertyDeclStmt property in cds.Properties.Where(p => p.HasAutoStorage))
-                {
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, property.Line, property.Col, property.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, GetPropertyBackingSlotName(property), property.Line, property.Col, property.OriginFile));
-                    if (property.Initializer != null)
-                        CompileExpr(property.Initializer);
-                    else
-                        _insns.Add(new Instruction(OpCode.PUSH_NULL, null, property.Line, property.Col, property.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, property.Line, property.Col, property.OriginFile));
-                }
-
-                foreach (string p in ctorParams)
-                {
-                    if (p == "__outer" || IsReservedInternalMemberName(p))
-                        continue;
-
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, p, cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.ROT, null, cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
+                    LeaveFunctionLocals();
                 }
 
                 foreach (FuncDeclStmt func in cds.Methods)
@@ -290,7 +291,7 @@ namespace CFGS_VM.VMCore
                             continue;
 
                         _insns.Add(new Instruction(OpCode.LOAD_VAR, p, cds.Line, cds.Col, cds.OriginFile));
-                        if (string.Equals(initMethod.RestParameter, p, StringComparison.Ordinal))
+                        if (string.Equals(ctorRestParameter, p, StringComparison.Ordinal))
                             _insns.Add(new Instruction(OpCode.MAKE_SPREAD_ARG, null, cds.Line, cds.Col, cds.OriginFile));
                     }
 
@@ -483,6 +484,51 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        private static List<Stmt> BuildConstructorParamInitializers(IEnumerable<FunctionParameterSpec> parameterSpecs)
+        {
+            List<Stmt> statements = new();
+            foreach (FunctionParameterSpec parameter in parameterSpecs)
+            {
+                if (parameter.IsRest)
+                    continue;
+
+                if (parameter.DefaultValue is not null)
+                {
+                    Expr condition = new BinaryExpr(
+                        new VarExpr(parameter.Name, parameter.Line, parameter.Col, parameter.File),
+                        TokenType.Eq,
+                        new NullExpr(parameter.Line, parameter.Col, parameter.File),
+                        parameter.Line,
+                        parameter.Col,
+                        parameter.File);
+
+                    BlockStmt thenBlock = new(
+                        new List<Stmt>
+                        {
+                            new AssignStmt(parameter.Name, parameter.DefaultValue, parameter.Line, parameter.Col, parameter.File)
+                        },
+                        parameter.Line,
+                        parameter.Col,
+                        parameter.File);
+
+                    statements.Add(new IfStmt(condition, thenBlock, null, parameter.Line, parameter.Col, parameter.File));
+                }
+
+                if (parameter.DestructurePattern is not null)
+                {
+                    statements.Add(new DestructureDeclStmt(
+                        parameter.DestructurePattern,
+                        new VarExpr(parameter.Name, parameter.Line, parameter.Col, parameter.File),
+                        isConst: false,
+                        parameter.Line,
+                        parameter.Col,
+                        parameter.File));
+                }
+            }
+
+            return statements;
+        }
+
         private void CompileNewExpression(NewExpr ne)
         {
             string[] parts = ne.ClassName.Split('.');
@@ -536,15 +582,7 @@ namespace CFGS_VM.VMCore
             _insns.Add(new Instruction(OpCode.CALL_INDIRECT, ne.Args.Count, ne.Line, ne.Col, ne.OriginFile));
 
             if (ne.Initializers != null && ne.Initializers.Count > 0)
-            {
-                foreach ((string name, Expr valueExpr) in ne.Initializers)
-                {
-                    _insns.Add(new Instruction(OpCode.DUP, null, ne.Line, ne.Col, ne.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, name, ne.Line, ne.Col, ne.OriginFile));
-                    CompileExpr(valueExpr);
-                    _insns.Add(new Instruction(OpCode.INDEX_INIT, null, ne.Line, ne.Col, ne.OriginFile));
-                }
-            }
+                CompileObjectInitializerEntries(ne.Initializers, ne);
         }
 
         private void CompileObjectInitializerExpression(ObjectInitExpr oi)
@@ -578,26 +616,45 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, tmpOuter, oi.Line, oi.Col, oi.OriginFile));
                 _insns.Add(new Instruction(OpCode.PUSH_STR, keyStr.Value, oi.Line, oi.Col, oi.OriginFile));
                 _insns.Add(new Instruction(OpCode.ROT, null, oi.Line, oi.Col, oi.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_INIT, null, oi.Line, oi.Col, oi.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_INIT, ie.IsDotAccess ? true : null, oi.Line, oi.Col, oi.OriginFile));
 
-                foreach ((string fieldName, Expr fieldExpr) in oi.Inits)
-                {
-                    _insns.Add(new Instruction(OpCode.DUP, null, oi.Line, oi.Col, oi.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, oi.Line, oi.Col, oi.OriginFile));
-                    CompileExpr(fieldExpr);
-                    _insns.Add(new Instruction(OpCode.INDEX_INIT, null, oi.Line, oi.Col, oi.OriginFile));
-                }
+                CompileObjectInitializerEntries(oi.Inits, oi);
 
                 return;
             }
 
             CompileExpr(oi.Target);
-            foreach ((string fieldName, Expr fieldExpr) in oi.Inits)
+            CompileObjectInitializerEntries(oi.Inits, oi);
+        }
+
+        private void CompileObjectInitializerEntries(IReadOnlyList<ObjectInitializerEntry> entries, Node origin)
+        {
+            foreach (ObjectInitializerEntry entry in entries)
             {
-                _insns.Add(new Instruction(OpCode.DUP, null, oi.Line, oi.Col, oi.OriginFile));
-                _insns.Add(new Instruction(OpCode.PUSH_STR, fieldName, oi.Line, oi.Col, oi.OriginFile));
-                CompileExpr(fieldExpr);
-                _insns.Add(new Instruction(OpCode.INDEX_INIT, null, oi.Line, oi.Col, oi.OriginFile));
+                switch (entry)
+                {
+                    case ObjectMemberInitializerEntry member when member.IsNested:
+                        _insns.Add(new Instruction(OpCode.DUP, null, member.Line, member.Col, member.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, member.Line, member.Col, member.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_GET, true, member.Line, member.Col, member.OriginFile));
+                        CompileObjectInitializerEntries(member.NestedInitializers, member);
+                        _insns.Add(new Instruction(OpCode.POP, null, member.Line, member.Col, member.OriginFile));
+                        break;
+
+                    case ObjectMemberInitializerEntry member:
+                        _insns.Add(new Instruction(OpCode.DUP, null, member.Line, member.Col, member.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, member.Name, member.Line, member.Col, member.OriginFile));
+                        CompileExpr(member.Value ?? throw new InvalidOperationException("Object initializer member value is missing."));
+                        _insns.Add(new Instruction(OpCode.INDEX_INIT, true, member.Line, member.Col, member.OriginFile));
+                        break;
+
+                    case ObjectIndexerInitializerEntry indexer:
+                        _insns.Add(new Instruction(OpCode.DUP, null, indexer.Line, indexer.Col, indexer.OriginFile));
+                        CompileExpr(indexer.Index);
+                        CompileExpr(indexer.Value);
+                        _insns.Add(new Instruction(OpCode.INDEX_INIT, null, indexer.Line, indexer.Col, indexer.OriginFile));
+                        break;
+                }
             }
         }
     }

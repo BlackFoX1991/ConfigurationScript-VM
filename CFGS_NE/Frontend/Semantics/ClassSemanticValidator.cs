@@ -20,8 +20,6 @@ namespace CFGS_VM.Analytic.Semantics
 
         private readonly record struct InheritedMemberInfo(InheritedMemberKind Kind, ClassDeclStmt OwnerDecl, FuncDeclStmt? MethodDecl = null);
 
-        private readonly record struct ConstructorSignature(List<string> Parameters, int MinArgs, string? RestParameter);
-
         public void ValidateAll(Compiler compiler, List<ClassDeclStmt> sortedClasses)
         {
             ValidateInheritanceOverrides(compiler, sortedClasses);
@@ -118,13 +116,15 @@ namespace CFGS_VM.Analytic.Semantics
         {
             foreach (ClassDeclStmt cls in sortedClasses)
             {
+                ValidateConstructorSurfaceCompatibility(cls);
+
                 if (string.IsNullOrWhiteSpace(cls.BaseName))
                     continue;
 
                 if (!compiler.TryResolveBaseClassDecl(cls, out ClassDeclStmt baseClass))
                     continue;
 
-                ConstructorSignature baseCtor = GetConstructorSignature(baseClass);
+                ClassConstructorSignature baseCtor = GetConstructorSignature(baseClass);
                 int implicitOuterArgs = 0;
                 if (baseClass.IsNested)
                 {
@@ -627,28 +627,36 @@ namespace CFGS_VM.Analytic.Semantics
             }
         }
 
-        private static ConstructorSignature GetConstructorSignature(ClassDeclStmt cls)
+        private static ClassConstructorSignature GetConstructorSignature(ClassDeclStmt cls)
+            => cls.GetEffectiveConstructorSignature(includeImplicitOuter: cls.IsNested);
+
+        private static void ValidateConstructorSurfaceCompatibility(ClassDeclStmt cls)
         {
-            FuncDeclStmt? initMethod = cls.Methods.FirstOrDefault(m => string.Equals(m.Name, "init", StringComparison.Ordinal));
-            List<string> parameters = initMethod != null
-                ? new List<string>(initMethod.Parameters)
-                : new List<string>(cls.Parameters);
+            if (!cls.HasPrimaryConstructorHeader)
+                return;
 
-            int minArgs = initMethod != null ? initMethod.MinArgs : parameters.Count;
-            string? restParameter = initMethod?.RestParameter;
+            FuncDeclStmt? initMethod = cls.GetInitMethod();
+            if (initMethod == null)
+                return;
 
-            if (cls.IsNested && (parameters.Count == 0 || !string.Equals(parameters[0], "__outer", StringComparison.Ordinal)))
+            ClassConstructorSignature header = cls.GetPrimaryConstructorSignature();
+            if (header.MinArgs == initMethod.MinArgs &&
+                header.Parameters.Count == initMethod.Parameters.Count &&
+                !string.IsNullOrWhiteSpace(header.RestParameter) == !string.IsNullOrWhiteSpace(initMethod.RestParameter))
             {
-                parameters.Insert(0, "__outer");
-                minArgs++;
+                return;
             }
 
-            return new ConstructorSignature(parameters, minArgs, restParameter);
+            throw new CompilerException(
+                $"class '{cls.Name}' declares a non-empty constructor header with arity {MethodShapeRules.DescribeArity(header.Parameters.Count, header.MinArgs, !string.IsNullOrWhiteSpace(header.RestParameter))}, but init has arity {MethodShapeRules.DescribeArity(initMethod)}",
+                initMethod.Line,
+                initMethod.Col,
+                initMethod.OriginFile);
         }
 
         private static void ValidateCallArgumentsAgainstSignature(
             IReadOnlyList<Expr> args,
-            ConstructorSignature signature,
+            ClassConstructorSignature signature,
             int implicitLeadingArgs,
             string contextPrefix,
             int line,

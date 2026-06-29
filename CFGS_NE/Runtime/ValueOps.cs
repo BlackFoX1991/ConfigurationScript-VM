@@ -1,4 +1,5 @@
 using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Extensions.Instance;
 using System.Collections;
 using System.Globalization;
@@ -1020,6 +1021,8 @@ namespace CFGS_VM.VMCore
                 _ => value.Reference switch
                 {
                     null => string.Empty,
+                    StaticInstance staticInstance => staticInstance.ClassName,
+                    BoundType boundType => boundType.Type.ClassName,
                     IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
                     object reference => reference.ToString() ?? string.Empty
                 }

@@ -1,0 +1,5 @@
+class Box() {
+    const value = 1;
+}
+
+var box = new Box() { value: 2 };

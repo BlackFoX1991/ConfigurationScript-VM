@@ -1,0 +1,7 @@
+class Worker() {
+    func run() {
+        return 1;
+    }
+}
+
+var worker = new Worker() { run: 2 };

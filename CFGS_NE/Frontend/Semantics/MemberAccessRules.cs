@@ -7,7 +7,6 @@ namespace CFGS_VM.Analytic.Semantics
 {
     internal sealed class MemberAccessRules
     {
-        private readonly record struct ConstructorSignature(List<string> Parameters, int MinArgs, string? RestParameter);
         internal enum MemberAccessKind
         {
             Read,
@@ -102,12 +101,8 @@ namespace CFGS_VM.Analytic.Semantics
                 foreach (PropertyDeclStmt property in current.Properties)
                     instanceMembers.Add(property.Name);
 
-                ConstructorSignature constructor = GetConstructorSignature(current);
-                foreach (string parameter in constructor.Parameters)
-                {
-                    if (!string.Equals(parameter, "__outer", StringComparison.Ordinal))
-                        instanceMembers.Add(parameter);
-                }
+                foreach (string parameter in current.GetAutoPromotedConstructorMemberNames())
+                    instanceMembers.Add(parameter);
 
                 foreach (string name in current.StaticFields.Keys)
                     staticMembers.Add(name);
@@ -315,40 +310,36 @@ namespace CFGS_VM.Analytic.Semantics
             if (newExpr.Initializers == null || newExpr.Initializers.Count == 0)
                 return;
 
-            foreach ((string name, Expr valueExpr) in newExpr.Initializers)
-            {
-                if (Compiler.IsReservedRuntimeMemberName(name))
-                {
-                    throw new CompilerException(
-                        $"invalid initializer member '{name}': reserved member name",
-                        valueExpr.Line,
-                        valueExpr.Col,
-                        valueExpr.OriginFile,
-                        name.Length);
-                }
-            }
-
             if (!hasKnownDecl)
                 return;
 
-            (HashSet<string> instanceMembers, HashSet<string> _) = GetOrBuildClassMemberSets(compiler, decl);
-            foreach ((string name, Expr valueExpr) in newExpr.Initializers)
-            {
-                if (!instanceMembers.Contains(name))
-                {
-                    throw new CompilerException(
-                        WithDidYouMean(
-                            $"unknown initializer member '{name}' for class '{decl.Name}'",
-                            name,
-                            instanceMembers),
-                        valueExpr.Line,
-                        valueExpr.Col,
-                        valueExpr.OriginFile,
-                        name.Length);
-                }
+            ValidateObjectInitializerEntriesAgainstKnownClass(
+                compiler,
+                decl,
+                newExpr.Initializers,
+                currentClassDecl,
+                expectInstance: true);
+        }
 
-                ValidateMemberVisibilityAgainstKnownClass(compiler, decl, name, expectInstance: true, currentClassDecl, valueExpr, MemberAccessKind.Init);
-            }
+        public void ValidateObjectInitializers(
+            Compiler compiler,
+            Expr targetExpr,
+            IReadOnlyList<ObjectInitializerEntry> initializers,
+            ClassDeclStmt? currentClassDecl,
+            ISet<string> currentLocals)
+        {
+            if (initializers == null || initializers.Count == 0)
+                return;
+
+            if (!TryResolveKnownClassDeclFromExpr(compiler, targetExpr, currentLocals, out ClassDeclStmt decl))
+                return;
+
+            ValidateObjectInitializerEntriesAgainstKnownClass(
+                compiler,
+                decl,
+                initializers,
+                currentClassDecl,
+                expectInstance: false);
         }
 
         private static bool TryExtractQualifiedPath(Expr expr, out string path)
@@ -381,32 +372,230 @@ namespace CFGS_VM.Analytic.Semantics
             }
         }
 
-        private static ConstructorSignature GetConstructorSignature(ClassDeclStmt cls)
+        private static ClassConstructorSignature GetConstructorSignature(ClassDeclStmt cls)
+            => cls.GetEffectiveConstructorSignature(includeImplicitOuter: cls.IsNested);
+
+        private void ValidateObjectInitializerEntriesAgainstKnownClass(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            IReadOnlyList<ObjectInitializerEntry> initializers,
+            ClassDeclStmt? currentClassDecl,
+            bool expectInstance)
         {
-            FuncDeclStmt? initMethod = cls.Methods.FirstOrDefault(m => string.Equals(m.Name, "init", StringComparison.Ordinal));
-            List<string> parameters = initMethod != null
-                ? new List<string>(initMethod.Parameters)
-                : new List<string>(cls.Parameters);
+            HashSet<string> assignableMembers = GetAssignableMembersInHierarchy(compiler, decl, expectInstance);
+            HashSet<string> seenMembers = new(StringComparer.Ordinal);
 
-            int minArgs = initMethod != null ? initMethod.MinArgs : parameters.Count;
-            string? restParameter = initMethod?.RestParameter;
-
-            if (cls.IsNested && (parameters.Count == 0 || !string.Equals(parameters[0], "__outer", StringComparison.Ordinal)))
+            foreach (ObjectInitializerEntry entry in initializers)
             {
-                parameters.Insert(0, "__outer");
-                minArgs++;
+                switch (entry)
+                {
+                    case ObjectMemberInitializerEntry member:
+                        ValidateObjectInitializerMemberAgainstKnownClass(
+                            compiler,
+                            decl,
+                            member,
+                            currentClassDecl,
+                            expectInstance,
+                            assignableMembers,
+                            seenMembers);
+                        break;
+
+                    case ObjectIndexerInitializerEntry indexer:
+                        ValidateObjectInitializerIndexerAgainstKnownClass(
+                            compiler,
+                            decl,
+                            indexer,
+                            currentClassDecl,
+                            expectInstance);
+                        break;
+                }
+            }
+        }
+
+        private void ValidateObjectInitializerMemberAgainstKnownClass(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            ObjectMemberInitializerEntry member,
+            ClassDeclStmt? currentClassDecl,
+            bool expectInstance,
+            ISet<string> assignableMembers,
+            ISet<string> seenMembers)
+        {
+            if (Compiler.IsReservedRuntimeMemberName(member.Name))
+            {
+                throw new CompilerException(
+                    $"invalid initializer member '{member.Name}': reserved member name",
+                    member.Line,
+                    member.Col,
+                    member.OriginFile,
+                    member.Name.Length);
             }
 
-            return new ConstructorSignature(parameters, minArgs, restParameter);
+            if (!seenMembers.Add(member.Name))
+            {
+                throw new CompilerException(
+                    $"duplicate initializer member '{member.Name}'",
+                    member.Line,
+                    member.Col,
+                    member.OriginFile,
+                    member.Name.Length);
+            }
+
+            if (!assignableMembers.Contains(member.Name))
+            {
+                throw new CompilerException(
+                    DescribeInvalidInitializerMember(compiler, decl, member.Name, expectInstance, assignableMembers),
+                    member.Line,
+                    member.Col,
+                    member.OriginFile,
+                    member.Name.Length);
+            }
+
+            ValidateMemberVisibilityAgainstKnownClass(
+                compiler,
+                decl,
+                member.Name,
+                expectInstance,
+                currentClassDecl,
+                member,
+                member.IsNested ? MemberAccessKind.Read : MemberAccessKind.Init);
+        }
+
+        private void ValidateObjectInitializerIndexerAgainstKnownClass(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            ObjectIndexerInitializerEntry indexer,
+            ClassDeclStmt? currentClassDecl,
+            bool expectInstance)
+        {
+            if (!expectInstance)
+            {
+                throw new CompilerException(
+                    $"class '{decl.Name}' static members are not index-initializable",
+                    indexer.Line,
+                    indexer.Col,
+                    indexer.OriginFile);
+            }
+
+            if (!TryFindIndexerSetterInHierarchy(compiler, decl, out ClassDeclStmt ownerDecl, out MemberVisibility visibility))
+            {
+                throw new CompilerException(
+                    $"class '{decl.Name}' has no instance indexer setter",
+                    indexer.Line,
+                    indexer.Col,
+                    indexer.OriginFile);
+            }
+
+            if (IsMemberAccessAllowed(compiler, currentClassDecl, ownerDecl, visibility))
+                return;
+
+            throw new CompilerException(
+                $"inaccessible indexer setter in class '{ownerDecl.Name}': '{VisibilityLabel(visibility)}' access",
+                indexer.Line,
+                indexer.Col,
+                indexer.OriginFile);
+        }
+
+        private string DescribeInvalidInitializerMember(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            string memberName,
+            bool expectInstance,
+            IEnumerable<string> assignableMembers)
+        {
+            (HashSet<string> instanceMembers, HashSet<string> staticMembers) = GetOrBuildClassMemberSets(compiler, decl);
+            HashSet<string> currentMembers = expectInstance ? instanceMembers : staticMembers;
+            HashSet<string> oppositeMembers = expectInstance ? staticMembers : instanceMembers;
+
+            if (oppositeMembers.Contains(memberName))
+            {
+                string accessKind = expectInstance ? "instance" : "static";
+                string oppositeKind = expectInstance ? "static" : "instance";
+                return $"invalid {accessKind} initializer member '{memberName}' in class '{decl.Name}': member is {oppositeKind}";
+            }
+
+            if (currentMembers.Contains(memberName))
+                return $"invalid initializer member '{memberName}' for class '{decl.Name}': member is not assignable";
+
+            return WithDidYouMean(
+                $"unknown initializer member '{memberName}' for class '{decl.Name}'",
+                memberName,
+                assignableMembers);
+        }
+
+        private static HashSet<string> GetAssignableMembersInHierarchy(Compiler compiler, ClassDeclStmt decl, bool expectInstance)
+        {
+            HashSet<string> members = new(StringComparer.Ordinal);
+            HashSet<ClassDeclStmt> visited = new();
+
+            void Collect(ClassDeclStmt current)
+            {
+                if (!visited.Add(current))
+                    return;
+
+                if (expectInstance)
+                {
+                    foreach (string name in current.Fields.Keys)
+                    {
+                        if (!current.ConstFields.Contains(name))
+                            members.Add(name);
+                    }
+                    foreach (PropertyDeclStmt property in current.Properties)
+                        members.Add(property.Name);
+                    foreach (string parameter in current.GetAutoPromotedConstructorMemberNames())
+                        members.Add(parameter);
+                }
+                else
+                {
+                    foreach (string name in current.StaticFields.Keys)
+                    {
+                        if (!current.StaticConstFields.Contains(name))
+                            members.Add(name);
+                    }
+                    foreach (PropertyDeclStmt property in current.StaticProperties)
+                        members.Add(property.Name);
+                }
+
+                if (!string.IsNullOrWhiteSpace(current.BaseName) &&
+                    compiler.TryResolveBaseClassDecl(current, out ClassDeclStmt baseDecl))
+                {
+                    Collect(baseDecl);
+                }
+            }
+
+            Collect(decl);
+            return members;
+        }
+
+        private static bool TryFindIndexerSetterInHierarchy(
+            Compiler compiler,
+            ClassDeclStmt decl,
+            out ClassDeclStmt ownerDecl,
+            out MemberVisibility visibility)
+        {
+            ClassDeclStmt current = decl;
+            while (true)
+            {
+                if (current.Methods.Any(m => string.Equals(m.RuntimeMemberName, "set_index", StringComparison.Ordinal)))
+                {
+                    ownerDecl = current;
+                    visibility = GetOrDefaultVisibility(current.MethodVisibility, "set_index");
+                    return true;
+                }
+
+                if (!compiler.TryResolveBaseClassDecl(current, out ClassDeclStmt baseDecl))
+                    break;
+
+                current = baseDecl;
+            }
+
+            ownerDecl = null!;
+            visibility = MemberVisibility.Public;
+            return false;
         }
 
         private static MemberVisibility GetConstructorVisibility(ClassDeclStmt cls)
-        {
-            if (cls.Methods.Any(m => string.Equals(m.Name, "init", StringComparison.Ordinal)))
-                return GetOrDefaultVisibility(cls.MethodVisibility, "init");
-
-            return MemberVisibility.Public;
-        }
+            => cls.GetConstructorVisibility();
 
         private static MemberVisibility GetOrDefaultVisibility(Dictionary<string, MemberVisibility> map, string name)
             => map.TryGetValue(name, out MemberVisibility visibility) ? visibility : MemberVisibility.Public;
@@ -589,8 +778,7 @@ namespace CFGS_VM.Analytic.Semantics
                     return true;
                 }
 
-                ConstructorSignature ctor = GetConstructorSignature(decl);
-                if (ctor.Parameters.Any(p => string.Equals(p, memberName, StringComparison.Ordinal) && !string.Equals(p, "__outer", StringComparison.Ordinal)))
+                if (decl.GetAutoPromotedConstructorMemberNames().Any(p => string.Equals(p, memberName, StringComparison.Ordinal)))
                 {
                     visibility = MemberVisibility.Public;
                     return true;

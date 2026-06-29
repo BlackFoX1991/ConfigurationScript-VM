@@ -1,0 +1,15 @@
+export interface IThing {
+    func run();
+}
+
+export class BaseThing(name) {
+    func label() {
+        return this.name;
+    }
+}
+
+export class DerivedThing(name) : BaseThing(name), IThing {
+    func run() {
+        return this.label();
+    }
+}

@@ -1165,8 +1165,7 @@ internal sealed class CfgsSemanticModelBuilder
                 RecordTypeReference(newExpr.ClassName, newExpr.Line, newExpr.Col, newExpr.OriginFile, scope);
                 foreach (Expr arg in newExpr.Args)
                     VisitExpr(arg, scope);
-                foreach ((string _, Expr Value) init in newExpr.Initializers)
-                    VisitExpr(init.Value, scope);
+                VisitObjectInitializerEntries(newExpr.Initializers, scope);
                 return;
 
             case GetFieldExpr getFieldExpr:
@@ -1235,9 +1234,28 @@ internal sealed class CfgsSemanticModelBuilder
 
             case ObjectInitExpr objectInitExpr:
                 VisitExpr(objectInitExpr.Target, scope);
-                foreach ((string _, Expr Value) init in objectInitExpr.Inits)
-                    VisitExpr(init.Value, scope);
+                VisitObjectInitializerEntries(objectInitExpr.Inits, scope);
                 return;
+        }
+    }
+
+    private void VisitObjectInitializerEntries(IEnumerable<ObjectInitializerEntry> entries, SemanticScope scope)
+    {
+        foreach (ObjectInitializerEntry entry in entries)
+        {
+            switch (entry)
+            {
+                case ObjectMemberInitializerEntry member:
+                    if (member.Value is not null)
+                        VisitExpr(member.Value, scope);
+                    VisitObjectInitializerEntries(member.NestedInitializers, scope);
+                    break;
+
+                case ObjectIndexerInitializerEntry indexer:
+                    VisitExpr(indexer.Index, scope);
+                    VisitExpr(indexer.Value, scope);
+                    break;
+            }
         }
     }
 

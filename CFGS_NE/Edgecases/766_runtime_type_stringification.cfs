@@ -1,0 +1,39 @@
+import "edge_assert.cfs";
+
+edge_begin("766_runtime_type_stringification");
+
+class Box() {
+}
+
+class Outer(seed) {
+    class Inner(offset) {
+        func read() {
+            return outer.seed + offset;
+        }
+    }
+}
+
+var owner = new Outer(40);
+var rawType = Box;
+var rawNestedType = Outer.Inner;
+var boundType = owner.Inner;
+
+edge_eq("str_static_type", str(rawType), "Box");
+edge_eq("format_static_type", format("{0}", rawType), "Box");
+edge_eq("concat_static_type", "type=" + rawType, "type=Box");
+edge_eq("interpolated_static_type", $"type={rawType}", "type=Box");
+
+edge_eq("str_raw_nested_type", str(rawNestedType), "Inner");
+edge_eq("format_raw_nested_type", format("{0}", rawNestedType), "Inner");
+edge_eq("concat_raw_nested_type", "type=" + rawNestedType, "type=Inner");
+edge_eq("interpolated_raw_nested_type", $"type={rawNestedType}", "type=Inner");
+
+edge_eq("str_bound_type", str(boundType), "Inner");
+edge_eq("format_bound_type", format("{0}", boundType), "Inner");
+edge_eq("concat_bound_type", "type=" + boundType, "type=Inner");
+edge_eq("interpolated_bound_type", $"type={boundType}", "type=Inner");
+
+var inner = boundType(2);
+edge_eq("bound_type_still_constructs", inner.read(), 42);
+
+edge_finish("766_runtime_type_stringification");

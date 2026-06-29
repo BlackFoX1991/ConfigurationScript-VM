@@ -1441,7 +1441,6 @@ namespace CFGS_VM.VMCore
                 case ClassInstance obj:
                     {
                         if (!allowReservedRuntimeSlotWrites &&
-                            writeMode != PropertyWriteMode.Init &&
                             !IsMemberAccessInstruction(instr))
                         {
                             if (TryInvokeInstanceIndexerSetter(obj, ToRuntimeValue(idxObj), Value.FromObject(value), instr))
@@ -1529,7 +1528,6 @@ namespace CFGS_VM.VMCore
                 case StaticInstance st:
                     {
                         if (!allowReservedRuntimeSlotWrites &&
-                            writeMode != PropertyWriteMode.Init &&
                             !IsMemberAccessInstruction(instr))
                         {
                             throw new VMException("Runtime error: class static members are not indexable; use dot access for static members.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);

@@ -1,0 +1,546 @@
+import "01_same_namespace_contracts.cfs";
+import "02_same_namespace_impl.cfs";
+import { showcaseVersion as exportedVersion, makeCode, ExportBox, FeatureMode } from "03_exports.cfs";
+import * as StarTools from "04_star_tools.cfs";
+import singleBoost from "05_single_symbol.cfs";
+
+use Feature.Showcase.Model;
+use std.regex;
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "showcase failed: " + label;
+    }
+}
+
+func section(name) {
+    print("");
+    print("== " + name + " ==");
+}
+
+func add(a, b) {
+    return a + b;
+}
+
+func factorial(n) {
+    if (n <= 1) {
+        return 1;
+    }
+
+    return n * factorial(n - 1);
+}
+
+func priceLine(quantity, unit = 10, tax = quantity) {
+    return quantity * unit + tax;
+}
+
+func makeAdder(base) {
+    return func(value) {
+        return base + value;
+    };
+}
+
+func describePair([left, right]) {
+    return str(left) + ":" + str(right);
+}
+
+func describeOrder({sku, qty: count}) {
+    return sku + ":" + str(count);
+}
+
+func collect(seed, * items) {
+    var total = seed;
+    foreach (var value in items) {
+        total = total + value;
+    }
+
+    return total;
+}
+
+enum LocalLevel {
+    Low = 1,
+    Mid = 2,
+    High = 3
+}
+
+class Animal(name) {
+    var name = "";
+
+    func init(name) {
+        this.name = name;
+    }
+
+    static var version = "1.0";
+
+    static func who() {
+        return "Animal(" + type.version + ")";
+    }
+
+    func speak() {
+        return "???";
+    }
+
+    func tag() {
+        return "[A:" + this.name + "]";
+    }
+}
+
+class Cat(name) : Animal(name) {
+    func speak() {
+        return "meow";
+    }
+
+    func viaSuperSpeak() {
+        return super.speak();
+    }
+
+    static var version = "2.0";
+
+    static func who() {
+        return "Cat(" + type.version + ")";
+    }
+
+    static func whoBase() {
+        return super.who();
+    }
+}
+
+class BaseState() {
+    var x = "A-default";
+
+    func init() {
+    }
+
+    func getX() {
+        return this.x;
+    }
+
+    func setX(value) {
+        this.x = value;
+        return this.x;
+    }
+}
+
+class DerivedState() : BaseState() {
+    func init() {
+        super.init();
+        this.x = "B-set";
+    }
+
+    func viaSuper() {
+        return super.getX();
+    }
+
+    func viaBoundSuper() {
+        var getBase = super.getX;
+        return getBase();
+    }
+
+    func viaSuperSet(value) {
+        return super.setX(value);
+    }
+}
+
+class Ledger(seed) {
+    var seed = 0;
+
+    func init(seed) {
+        this.seed = seed;
+    }
+
+    class Snapshot(add) {
+        var add = 0;
+
+        func init(add) {
+            this.add = add;
+        }
+
+        func total() {
+            return outer.seed + this.add;
+        }
+    }
+}
+
+interface INamed {
+    property name { get; }
+
+    func label() {
+        return "name:" + this.name;
+    }
+}
+
+interface IBag {
+    index get(key);
+    index set(key, value);
+}
+
+interface IExplicitRunner {
+    func run(value);
+}
+
+class NamedThing() : INamed {
+    property name { get; } = "cfgs";
+}
+
+class Bag() : IBag {
+    var data = {};
+
+    func get_index(key) {
+        return this.data[key];
+    }
+
+    func set_index(key, value) {
+        this.data[key] = value;
+    }
+}
+
+class ExplicitRunner() : IExplicitRunner {
+    func IExplicitRunner.run(value) {
+        return "explicit:" + str(value);
+    }
+}
+
+class Settings() {
+    property host { get; set; } = "localhost";
+    property port { get; init; } = 80;
+    static property schemaVersion { get; set; } = 1;
+    property title {
+        get;
+        set(value) { field = value.trim(); }
+    } = "demo";
+}
+
+class ManagedResource(name) {
+    static var log = [];
+    var name = "";
+
+    func init(name) {
+        this.name = name;
+    }
+
+    private func destroy() {
+        type.log.push("destroy:" + this.name);
+    }
+}
+
+func describeEvent(event) {
+    if (event == null) {
+        return "none";
+    }
+
+    return event match {
+        {"type": "stock", "sku": var sku, "count": var count} if (count > 0): "stock:" + sku + ":" + str(count),
+        [var left, var right] if (left < right): "range:" + str(left) + "-" + str(right),
+        _: "other"
+    };
+}
+
+async func addLater(a, b) {
+    yield;
+    return await (a + b);
+}
+
+async func main() {
+    section("Basics");
+
+    var arithmetic = 5 + 2 * 3;
+    var modValue = 17 % 5;
+    var bitAnd = 6 & 3;
+    var bitOr = 4 | 1;
+    var bitXor = 7 ^ 3;
+    var shiftLeft = 3 << 2;
+    var shiftRight = 16 >> 2;
+    var maybeName = null;
+    var selected = maybeName ?? "fallback";
+    var ternary = arithmetic > 10 ? "big" : "small";
+    var counter = 1;
+    counter += 4;
+
+    ensure("arithmetic", arithmetic == 11);
+    ensure("modulo", modValue == 2);
+    ensure("bitwise and", bitAnd == 2);
+    ensure("bitwise or", bitOr == 5);
+    ensure("bitwise xor", bitXor == 4);
+    ensure("shift left", shiftLeft == 12);
+    ensure("shift right", shiftRight == 4);
+    ensure("coalesce", selected == "fallback");
+    ensure("ternary", ternary == "big");
+    ensure("compound assignment", counter == 5);
+    print("math=" + str(arithmetic) + ", ternary=" + ternary + ", typeof=" + typeof(counter));
+
+    section("Strings");
+
+    var name = "CFGS";
+    var verbatimPath = @"C:\demo\logs";
+    var interpolated = $"hello {name}";
+    var formatted = $"pi={1.5:F2}";
+    var aligned = $"|{42,5}|";
+    var nestedInterpolation = $"outer={$"inner={2 + 3}"}";
+    var verbatimInterpolated = $@"C:\{name}\logs";
+
+    ensure("verbatim string", verbatimPath == "C:\\demo\\logs");
+    ensure("interpolated string", interpolated == "hello CFGS");
+    ensure("formatted string", formatted == "pi=1.50");
+    ensure("aligned string", aligned == "|   42|");
+    ensure("nested interpolation", nestedInterpolation == "outer=inner=5");
+    ensure("verbatim interpolated string", verbatimInterpolated == "C:\\CFGS\\logs");
+    print(interpolated + ", " + formatted + ", " + $"{12345.6:#,##0.0}");
+
+    section("Collections");
+
+    var numbers = [10, 20, 30];
+    numbers[] = 40;
+    var head = numbers[~2];
+    var tail = numbers[2~];
+    var middle = numbers[1~3];
+    numbers[1~3] = [21, 22];
+    delete numbers[2];
+    delete numbers[1~2];
+
+    var config = {"host": "localhost", "port": 8080};
+    config["scheme"] = "https";
+    config.timeout = 30;
+    config[] = {"region": "EU"};
+    delete config.port;
+
+    var payload = {"id": 17, "tags": ["new", "paid"], "owner": {"name": "Ada"}};
+    const {id, tags: [firstTag, secondTag], owner: {name: ownerName}} = payload;
+    var left = 0;
+    var right = 0;
+    [left, right] = [2, 5];
+    var summary = out {
+        var local = id + len(secondTag);
+        "item:" + str(local);
+    };
+
+    ensure("array push", len(head) == 2 && tail[1] == 40);
+    ensure("slice middle", middle[0] == 20 && middle[1] == 30);
+    ensure("delete array", len(numbers) == 2 && numbers[1] == 40);
+    ensure("dict access", config.scheme == "https" && config.region == "EU");
+    ensure("dict delete", config["port"] == null);
+    ensure("destructuring", ownerName == "Ada" && firstTag == "new");
+    ensure("destructuring assignment", left == 2 && right == 5);
+    ensure("out block", summary == "item:21");
+    print("payload=" + json.stringify(payload) + ", last-tag=" + payload["tags"][-1]);
+
+    section("Control Flow");
+
+    var sumOddUntilFive = 0;
+    var n = 0;
+    while (n < 10) {
+        n = n + 1;
+        if (n % 2 == 0) {
+            continue;
+        }
+
+        sumOddUntilFive = sumOddUntilFive + n;
+        if (n >= 5) {
+            break;
+        }
+    }
+
+    var doCount = 0;
+    do {
+        doCount = doCount + 1;
+    } while (false);
+
+    var forTotal = 0;
+    for (var i = 1; i <= 4; i = i + 1) {
+        forTotal = forTotal + i;
+    }
+
+    var weighted = 0;
+    foreach (var key, value in {"a": 2, "bb": 3}) {
+        weighted = weighted + len(key) * value;
+    }
+
+    var command = "ship";
+    var commandResult = "";
+    match (command) {
+        case "list": { commandResult = "show"; }
+        case "ship": { commandResult = "dispatch"; }
+        default: { commandResult = "unknown"; }
+    }
+
+    var statusText = 2 match {
+        1: "draft",
+        2: "active",
+        _: "archived"
+    };
+
+    func safeDivide(a, b) {
+        try {
+            if (b == 0) {
+                throw {"code": "DIV_ZERO", "message": "division by zero"};
+            }
+
+            return a / b;
+        } catch (e) {
+            return e["code"];
+        } finally {
+            var _ = "finally reached";
+        }
+    }
+
+    ensure("while loop", sumOddUntilFive == 9);
+    ensure("do while", doCount == 1);
+    ensure("for loop", forTotal == 10);
+    ensure("foreach pairs", weighted == 8);
+    ensure("match statement", commandResult == "dispatch");
+    ensure("match expression", statusText == "active");
+    ensure("pattern match dict", describeEvent({"type": "stock", "sku": "A-1", "count": 5}) == "stock:A-1:5");
+    ensure("pattern match array", describeEvent([2, 8]) == "range:2-8");
+    ensure("try catch success", safeDivide(8, 2) == 4);
+    ensure("try catch error", safeDivide(8, 0) == "DIV_ZERO");
+    print("match=" + statusText + ", command=" + commandResult);
+
+    section("Functions");
+
+    var add10 = makeAdder(10);
+    var mutable = 1;
+    var readMutable = func() {
+        return mutable;
+    };
+    mutable = 9;
+    var source = [2, 3, 4];
+
+    ensure("simple function", add(2, 5) == 7);
+    ensure("recursion", factorial(6) == 720);
+    ensure("default parameters", priceLine(3) == 33);
+    ensure("named arguments", priceLine(quantity: 3, tax: 1, unit: 4) == 13);
+    ensure("closure", add10(5) == 15);
+    ensure("closure mutation", readMutable() == 9);
+    ensure("array parameter destructuring", describePair([4, 8]) == "4:8");
+    ensure("dict parameter destructuring", describeOrder({"sku": "A-1", "qty": 3}) == "A-1:3");
+    ensure("rest parameters", collect(1, 2, 3, 4) == 10);
+    ensure("spread call", collect(1, * source) == 10);
+    print("functions=" + str(collect(1, * source)));
+
+    section("Classes And Inheritance");
+
+    var cat = new Cat("Nya");
+    var snapshot = new Ledger(40).Snapshot(2);
+    var settings = new Settings() { host: "api.local", port: 443, title: "  Main Store  " };
+    Settings.schemaVersion = 2;
+
+    ensure("instance method", cat.speak() == "meow");
+    ensure("instance super", cat.viaSuperSpeak() == "???");
+    ensure("static type", Cat.who() == "Cat(2.0)");
+    ensure("static super", Cat.whoBase() == "Animal(1.0)");
+    ensure("enum", LocalLevel["Mid"] == 2 && LocalLevel.name(3) == "High");
+    ensure("outer", snapshot.total() == 42);
+    ensure("object initializer", settings.host == "api.local" && settings.port == 443);
+    ensure("property field", settings.title == "Main Store");
+    ensure("static property", Settings.schemaVersion == 2);
+    print("oop=" + cat.tag() + ", who=" + Cat.whoBase());
+
+    section("Interfaces");
+
+    var named = new NamedThing();
+    var bag = new Bag();
+    var explicitRunner = new ExplicitRunner();
+    bag["id"] = 42;
+
+    var record = new DemoRecord("X-7", 5);
+    var metricMeta = interfaceof(IMetric);
+
+    ensure("default interface method", named.label() == "name:cfgs");
+    ensure("index contract", bag["id"] == 42);
+    ensure("explicit interface method", interface_call(explicitRunner, IExplicitRunner, "run", [7]) == "explicit:7");
+    ensure("same namespace interface resolution", record is IEntity && record is IMetric);
+    ensure("same namespace base class", record.viaSuperKind() == "base");
+    ensure("same namespace explicit interface", interface_call(record, IRunner, "run", [3]) == "base:demo:8");
+    ensure("same namespace default interface", interface_call(record, IMetric, "describeMetric", [2]) == "metric:7");
+    ensure("implements builtin", implements(record, IMetric));
+    ensure("interfaces builtin", len(interfaces(record)) >= 1);
+    ensure("interfaceof builtin", metricMeta["name"] == "IMetric");
+    print("interface=" + interface_call(record, IRunner, "run", [4]));
+
+    section("Modules And Namespaces");
+
+    var code = makeCode("SKU", 42);
+    var ExportBoxType = ExportBox;
+    var box = new ExportBoxType(10);
+    var multiplier = StarTools["Multiplier"](5);
+
+    ensure("named import const", exportedVersion == "1.0");
+    ensure("named import func", code == "SKU-42");
+    ensure("named import class", box.add(3) == 13);
+    ensure("named import enum", FeatureMode["Advanced"] == 2);
+    ensure("namespace import func", StarTools["triple"](4) == 12);
+    ensure("namespace import class", multiplier.apply(3) == 15);
+    ensure("namespace import enum", StarTools["SwitchFlag"]["On"] == 1);
+    ensure("single symbol import", singleBoost(4) == 15);
+    print("modules=" + code + ", " + StarTools["toolName"] + ", " + str(ExportBoxType));
+
+    section("Standard Library");
+
+    var parsed = json.parse("{\"sku\":\"A-1\",\"counts\":[2,3]}");
+    var firstMatch = regex.match("abc 42 def", "\\d+");
+    var bytes = encoding.encode("ABC", "utf-8");
+    var rounded = math.round(1.6);
+
+    ensure("json parse", parsed["counts"][1] == 3);
+    ensure("json stringify", json.stringify(parsed).contains("\"sku\""));
+    ensure("regex match", firstMatch["matched"] == "42");
+    ensure("regex use", test("A1", "\\d+"));
+    ensure("regex replace", regex.replace("A B", "\\s+", "-") == "A-B");
+    ensure("encoding", encoding.decode(bytes, "utf-8") == "ABC");
+    ensure("math", math.abs(-5) == 5 && rounded == 2 && math.pow(2, 4) == 16);
+    print("stdlib=" + parsed["sku"] + ", regex=" + firstMatch["matched"]);
+
+    section("Async And Cleanup");
+
+    var taskValue = addLater(2, 3);
+    var timer = task();
+    var rows = await [taskValue, timer.delay(5, {"sku": "B-2", "count": 3}), {"sku": "static", "count": 1}];
+    var totals = await {
+        "first": timer.delay(5, rows[0]),
+        "second": timer.delay(5, rows[1]["count"]),
+        "plain": 2
+    };
+
+    var deferLog = [];
+
+    func deferOrder() {
+        defer deferLog.push("outer");
+        defer deferLog.push("inner");
+        deferLog.push("body");
+    }
+
+    func usingBlock() {
+        using (var resource = new ManagedResource("block")) {
+            ensure("using binding", resource.name == "block");
+        }
+    }
+
+    func usingShortForm() {
+        using var resource = new ManagedResource("short");
+        ensure("using short binding", resource.name == "short");
+    }
+
+    func manualDestroy() {
+        var resource = new ManagedResource("manual");
+        var first = destroy(resource);
+        var second = destroy(resource);
+        return first == true && second == false;
+    }
+
+    deferOrder();
+    usingBlock();
+    usingShortForm();
+
+    ensure("async returns task", typeof(taskValue) == "Task<Object>");
+    ensure("await array", rows[0] == 5 && rows[1]["sku"] == "B-2");
+    ensure("await dictionary", totals["first"] + totals["second"] + totals["plain"] == 10);
+    ensure("defer order", deferLog[0] == "body" && deferLog[1] == "inner" && deferLog[2] == "outer");
+    ensure("manual destroy", manualDestroy());
+    ensure("using destroy count", len(ManagedResource.log) == 3);
+    ensure("using destroy order", ManagedResource.log[0] == "destroy:block" && ManagedResource.log[1] == "destroy:short");
+    print("async=" + str(totals["first"]) + ", cleanup=" + str(len(ManagedResource.log)));
+
+    print("");
+    print("FEATURE_SHOWCASE_OK");
+}
+
+var _ = await main();

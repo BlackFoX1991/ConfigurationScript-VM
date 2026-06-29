@@ -1,0 +1,4 @@
+class Broken(x = 1) {
+    func init(x) {
+    }
+}

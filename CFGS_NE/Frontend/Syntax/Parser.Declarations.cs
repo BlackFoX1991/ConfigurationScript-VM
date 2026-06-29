@@ -583,7 +583,11 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
             Eat(TokenType.Ident);
 
-            List<string> ctorParams = ParseParams();
+            List<string> ctorParams;
+            int ctorMinArgs;
+            string? ctorRestParameter;
+            List<FunctionParameterSpec> ctorParameterSpecs;
+            (ctorParams, ctorMinArgs, ctorRestParameter, ctorParameterSpecs) = ParseFunctionParamsWithDefaults();
 
             string? baseName = null;
             List<Expr> baseArgs = new();
@@ -761,6 +765,9 @@ namespace CFGS_VM.Analytic.Core
                         inner.StaticMethods,
                         inner.StaticProperties,
                         inner.Parameters,
+                        inner.ConstructorMinArgs,
+                        inner.ConstructorRestParameter,
+                        new List<FunctionParameterSpec>(inner.ConstructorParameterSpecs),
                         inner.Line,
                         inner.Col,
                         inner.OriginFile,
@@ -864,6 +871,9 @@ namespace CFGS_VM.Analytic.Core
                 staticMethods,
                 staticProperties,
                 ctorParams,
+                ctorMinArgs,
+                ctorRestParameter,
+                ctorParameterSpecs,
                 line,
                 col,
                 _current.Filename,

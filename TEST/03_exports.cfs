@@ -1,0 +1,22 @@
+export const showcaseVersion = "1.0";
+
+export func makeCode(prefix, number) {
+    return prefix + "-" + str(number);
+}
+
+export class ExportBox(seed) {
+    var seed = 0;
+
+    func init(seed) {
+        this.seed = seed;
+    }
+
+    func add(value) {
+        return this.seed + value;
+    }
+}
+
+export enum FeatureMode {
+    Basic = 1,
+    Advanced = 2
+}

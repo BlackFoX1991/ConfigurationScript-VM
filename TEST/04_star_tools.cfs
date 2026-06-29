@@ -1,0 +1,22 @@
+export const toolName = "star-tools";
+
+export func triple(value) {
+    return value * 3;
+}
+
+export class Multiplier(factor) {
+    var factor = 1;
+
+    func init(factor) {
+        this.factor = factor;
+    }
+
+    func apply(value) {
+        return value * this.factor;
+    }
+}
+
+export enum SwitchFlag {
+    Off = 0,
+    On = 1
+}

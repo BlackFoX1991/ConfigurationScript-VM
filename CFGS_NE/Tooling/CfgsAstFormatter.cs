@@ -445,7 +445,7 @@ internal static class CfgsAstFormatter
             _sb.Append("class ");
             _sb.Append(classDecl.Name);
             _sb.Append('(');
-            _sb.Append(string.Join(", ", classDecl.Parameters));
+            _sb.Append(FormatParameters(classDecl.ConstructorParameterSpecs, classDecl.Parameters, classDecl.ConstructorRestParameter));
             _sb.Append(')');
 
             List<string> inheritanceParts = new();
@@ -1073,8 +1073,8 @@ internal static class CfgsAstFormatter
                 DictExpr dict => dict.Pairs.Count > 1,
                 CallExpr call => call.Args.Count > 1,
                 MethodCallExpr methodCall => methodCall.Args.Count > 1,
-                NewExpr newExpr => newExpr.Args.Count > 1 || newExpr.Initializers.Count > 1,
-                ObjectInitExpr objectInit => objectInit.Inits.Count > 1,
+                NewExpr newExpr => newExpr.Args.Count > 1 || HasMultilineObjectInitializer(newExpr.Initializers),
+                ObjectInitExpr objectInit => HasMultilineObjectInitializer(objectInit.Inits),
                 BinaryExpr binary when binary.Op is TokenType.AndAnd or TokenType.OrOr => HasLogicalChain(binary),
                 _ => false
             };
@@ -1175,24 +1175,14 @@ internal static class CfgsAstFormatter
                 return;
 
             _sb.Append(" {");
-            WriteMultilineItems(newExpr.Initializers, init =>
-            {
-                _sb.Append(init.Name);
-                _sb.Append(": ");
-                _sb.Append(FormatExpr(init.Value));
-            }, '}');
+            WriteMultilineItems(newExpr.Initializers, WriteObjectInitializerEntry, '}');
         }
 
         private void WriteMultilineObjectInitializer(ObjectInitExpr objectInit)
         {
             _sb.Append(FormatExpr(objectInit.Target, GetPrecedence(objectInit)));
             _sb.Append(" {");
-            WriteMultilineItems(objectInit.Inits, init =>
-            {
-                _sb.Append(init.Name);
-                _sb.Append(": ");
-                _sb.Append(FormatExpr(init.Value));
-            }, '}');
+            WriteMultilineItems(objectInit.Inits, WriteObjectInitializerEntry, '}');
         }
 
         private void WriteMultilineLogicalChain(BinaryExpr binary)
@@ -1247,6 +1237,67 @@ internal static class CfgsAstFormatter
 
             int width = GetCurrentColumn() + string.Join(", ", items).Length + 1;
             return width > _maxLineWidth;
+        }
+
+        private bool HasMultilineObjectInitializer(IReadOnlyList<ObjectInitializerEntry> entries)
+        {
+            if (entries.Count > 1)
+                return true;
+
+            return entries.Any(IsMultilineObjectInitializerEntryCandidate);
+        }
+
+        private bool IsMultilineObjectInitializerEntryCandidate(ObjectInitializerEntry entry)
+        {
+            return entry switch
+            {
+                ObjectMemberInitializerEntry member when member.IsNested => HasMultilineObjectInitializer(member.NestedInitializers),
+                ObjectMemberInitializerEntry member when member.Value is not null => IsMultilineCandidate(member.Value),
+                ObjectIndexerInitializerEntry indexer => IsMultilineCandidate(indexer.Index) || IsMultilineCandidate(indexer.Value),
+                _ => false
+            };
+        }
+
+        private void WriteObjectInitializerEntry(ObjectInitializerEntry entry)
+        {
+            switch (entry)
+            {
+                case ObjectMemberInitializerEntry member when member.IsNested:
+                    _sb.Append(member.Name);
+                    _sb.Append(" = ");
+                    WriteInitializerBlock(member.NestedInitializers);
+                    return;
+
+                case ObjectMemberInitializerEntry member:
+                    _sb.Append(member.Name);
+                    _sb.Append(": ");
+                    _sb.Append(FormatExpr(member.Value ?? throw new CfgsAstFormatUnsupportedException()));
+                    return;
+
+                case ObjectIndexerInitializerEntry indexer:
+                    _sb.Append('[');
+                    _sb.Append(FormatExpr(indexer.Index));
+                    _sb.Append("] = ");
+                    _sb.Append(FormatExpr(indexer.Value));
+                    return;
+
+                default:
+                    throw new CfgsAstFormatUnsupportedException();
+            }
+        }
+
+        private void WriteInitializerBlock(IReadOnlyList<ObjectInitializerEntry> entries)
+        {
+            if (HasMultilineObjectInitializer(entries))
+            {
+                _sb.Append('{');
+                WriteMultilineItems(entries, WriteObjectInitializerEntry, '}');
+                return;
+            }
+
+            _sb.Append("{ ");
+            _sb.Append(string.Join(", ", entries.Select(FormatObjectInitializerEntry)));
+            _sb.Append(" }");
         }
 
         private static bool HasLogicalChain(BinaryExpr binary)
@@ -1409,7 +1460,7 @@ internal static class CfgsAstFormatter
                 FuncExpr funcExpr => FormatFunctionExpr(funcExpr),
                 OutExpr outExpr => FormatOutExpr(outExpr),
                 NewExpr newExpr => FormatNewExpr(newExpr),
-                ObjectInitExpr objectInit => $"{FormatExpr(objectInit.Target, precedence)} {{ {string.Join(", ", objectInit.Inits.Select(init => $"{init.Name}: {FormatExpr(init.Value)}"))} }}",
+                ObjectInitExpr objectInit => $"{FormatExpr(objectInit.Target, precedence)} {{ {string.Join(", ", objectInit.Inits.Select(FormatObjectInitializerEntry))} }}",
                 NativeAssemblyExpr nativeAssembly => $"import native {FormatStringLiteral(nativeAssembly.Path)} as {nativeAssembly.Alias}",
                 GetFieldExpr getField => $"{FormatExpr(getField.Target, precedence)}.{getField.Field}",
                 NamedArgExpr namedArg => $"{namedArg.Name}: {FormatExpr(namedArg.Value)}",
@@ -1490,7 +1541,21 @@ internal static class CfgsAstFormatter
             if (newExpr.Initializers.Count == 0)
                 return text;
 
-            return text + " { " + string.Join(", ", newExpr.Initializers.Select(init => $"{init.Name}: {FormatExpr(init.Value)}")) + " }";
+            return text + " { " + string.Join(", ", newExpr.Initializers.Select(FormatObjectInitializerEntry)) + " }";
+        }
+
+        private string FormatObjectInitializerEntry(ObjectInitializerEntry entry)
+        {
+            return entry switch
+            {
+                ObjectMemberInitializerEntry member when member.IsNested =>
+                    $"{member.Name} = {{ {string.Join(", ", member.NestedInitializers.Select(FormatObjectInitializerEntry))} }}",
+                ObjectMemberInitializerEntry member =>
+                    $"{member.Name}: {FormatExpr(member.Value ?? throw new CfgsAstFormatUnsupportedException())}",
+                ObjectIndexerInitializerEntry indexer =>
+                    $"[{FormatExpr(indexer.Index)}] = {FormatExpr(indexer.Value)}",
+                _ => throw new CfgsAstFormatUnsupportedException()
+            };
         }
 
         private string FormatInlineBlock(BlockStmt block)

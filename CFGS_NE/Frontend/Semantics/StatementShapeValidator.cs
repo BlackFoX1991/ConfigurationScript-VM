@@ -208,6 +208,14 @@ namespace CFGS_VM.Analytic.Semantics
 
         private void ValidateClassDecl(ClassDeclStmt classDecl, bool insideFunction, bool insideAsyncFunction)
         {
+            foreach (FunctionParameterSpec parameter in classDecl.ConstructorParameterSpecs)
+            {
+                if (parameter.DestructurePattern is not null)
+                    ValidatePattern(parameter.DestructurePattern, insideFunction: true, insideAsyncFunction: false);
+                if (parameter.DefaultValue is not null)
+                    ValidateExpr(parameter.DefaultValue, insideFunction: false, insideAsyncFunction: false);
+            }
+
             foreach (Expr baseCtorArg in classDecl.BaseCtorArgs)
                 ValidateExpr(baseCtorArg, insideFunction, insideAsyncFunction);
 
@@ -345,8 +353,7 @@ namespace CFGS_VM.Analytic.Semantics
                 case NewExpr newExpr:
                     foreach (Expr arg in newExpr.Args)
                         ValidateExpr(arg, insideFunction, insideAsyncFunction);
-                    foreach ((string _, Expr Value) init in newExpr.Initializers)
-                        ValidateExpr(init.Value, insideFunction, insideAsyncFunction);
+                    ValidateObjectInitializerEntries(newExpr.Initializers, insideFunction, insideAsyncFunction);
                     return;
 
                 case GetFieldExpr getFieldExpr:
@@ -410,9 +417,31 @@ namespace CFGS_VM.Analytic.Semantics
 
                 case ObjectInitExpr objectInitExpr:
                     ValidateExpr(objectInitExpr.Target, insideFunction, insideAsyncFunction);
-                    foreach ((string _, Expr Value) init in objectInitExpr.Inits)
-                        ValidateExpr(init.Value, insideFunction, insideAsyncFunction);
+                    ValidateObjectInitializerEntries(objectInitExpr.Inits, insideFunction, insideAsyncFunction);
                     return;
+            }
+        }
+
+        private void ValidateObjectInitializerEntries(
+            IEnumerable<ObjectInitializerEntry> entries,
+            bool insideFunction,
+            bool insideAsyncFunction)
+        {
+            foreach (ObjectInitializerEntry entry in entries)
+            {
+                switch (entry)
+                {
+                    case ObjectMemberInitializerEntry member:
+                        if (member.Value is not null)
+                            ValidateExpr(member.Value, insideFunction, insideAsyncFunction);
+                        ValidateObjectInitializerEntries(member.NestedInitializers, insideFunction, insideAsyncFunction);
+                        break;
+
+                    case ObjectIndexerInitializerEntry indexer:
+                        ValidateExpr(indexer.Index, insideFunction, insideAsyncFunction);
+                        ValidateExpr(indexer.Value, insideFunction, insideAsyncFunction);
+                        break;
+                }
             }
         }
 

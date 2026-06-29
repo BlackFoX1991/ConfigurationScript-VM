@@ -1,0 +1,23 @@
+namespace Feature.Showcase.Model {
+    class DemoRecord(idValue, seed) : BaseRecord(idValue, seed), IEntity, IMetric, IRunner {
+        var seed = 0;
+        property name { get; } = "demo";
+
+        func init(idValue, seed) {
+            super.init(idValue, seed);
+            this.seed = seed;
+        }
+
+        func metric(step) {
+            return this.seed + step;
+        }
+
+        func viaSuperKind() {
+            return super.kind();
+        }
+
+        func IRunner.run(step) {
+            return super.kind() + ":" + this.name + ":" + str(this.metric(step));
+        }
+    }
+}

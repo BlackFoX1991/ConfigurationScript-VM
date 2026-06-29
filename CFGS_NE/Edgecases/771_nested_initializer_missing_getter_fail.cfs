@@ -1,0 +1,9 @@
+class Child() {
+    var value = 0;
+}
+
+class Holder() {
+    property child { set; } = new Child();
+}
+
+var holder = new Holder() { child = { value: 1 } };

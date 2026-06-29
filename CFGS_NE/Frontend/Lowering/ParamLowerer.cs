@@ -157,6 +157,8 @@ namespace CFGS_VM.Analytic.Lowering
                 pair => LowerNullableExpr(pair.Value),
                 StringComparer.Ordinal);
 
+            List<FunctionParameterSpec> constructorParameterSpecs = LowerParameterSpecs(stmt.ConstructorParameterSpecs);
+
             return CopyNamespaceVisibility(new ClassDeclStmt(
                 stmt.Name,
                 stmt.Methods.Select(LowerFunctionDecl).ToList(),
@@ -167,6 +169,9 @@ namespace CFGS_VM.Analytic.Lowering
                 stmt.StaticMethods.Select(LowerFunctionDecl).ToList(),
                 stmt.StaticProperties.Select(LowerPropertyDecl).ToList(),
                 stmt.Parameters,
+                stmt.ConstructorMinArgs,
+                stmt.ConstructorRestParameter,
+                constructorParameterSpecs,
                 stmt.Line,
                 stmt.Col,
                 stmt.OriginFile,
@@ -286,6 +291,24 @@ namespace CFGS_VM.Analytic.Lowering
             return statements;
         }
 
+        private List<FunctionParameterSpec> LowerParameterSpecs(IEnumerable<FunctionParameterSpec> parameterSpecs)
+        {
+            List<FunctionParameterSpec> lowered = new();
+            foreach (FunctionParameterSpec parameter in parameterSpecs)
+            {
+                lowered.Add(new FunctionParameterSpec(
+                    parameter.Name,
+                    parameter.DestructurePattern is null ? null : LowerPattern(parameter.DestructurePattern),
+                    LowerNullableExpr(parameter.DefaultValue),
+                    parameter.IsRest,
+                    parameter.Line,
+                    parameter.Col,
+                    parameter.File));
+            }
+
+            return lowered;
+        }
+
         private CaseClause LowerCaseClause(CaseClause clause)
             => new(LowerPattern(clause.Pattern), LowerNullableExpr(clause.Guard), LowerBlock(clause.Body), clause.Line, clause.Col, clause.OriginFile);
 
@@ -343,12 +366,12 @@ namespace CFGS_VM.Analytic.Lowering
                 NewExpr n => new NewExpr(
                     n.ClassName,
                     n.Args.Select(LowerExpr).ToList(),
-                    n.Initializers.Select(init => (init.Name, LowerExpr(init.Value))).ToList(),
+                    LowerObjectInitializerEntries(n.Initializers),
                     n.Line,
                     n.Col,
                     n.OriginFile),
                 GetFieldExpr g => new GetFieldExpr(LowerExpr(g.Target), g.Field, g.Line, g.Col, g.OriginFile),
-                ObjectInitExpr o => new ObjectInitExpr(LowerExpr(o.Target), o.Inits.Select(init => (init.Name, LowerExpr(init.Value))).ToList(), o.Line, o.Col, o.OriginFile),
+                ObjectInitExpr o => new ObjectInitExpr(LowerExpr(o.Target), LowerObjectInitializerEntries(o.Inits), o.Line, o.Col, o.OriginFile),
                 OutExpr o => new OutExpr(LowerBlock(o.Body), o.Line, o.Col, o.OriginFile),
                 ConditionalExpr c => new ConditionalExpr(LowerExpr(c.Condition), LowerExpr(c.ThenExpr), LowerExpr(c.ElseExpr), c.Line, c.Col, c.OriginFile),
                 MatchExpr m => new MatchExpr(
@@ -365,6 +388,37 @@ namespace CFGS_VM.Analytic.Lowering
                 CallExpr c => new CallExpr(LowerNullableExpr(c.Target), c.Args.Select(LowerExpr).ToList(), c.Line, c.Col, c.OriginFile),
                 _ => expr
             };
+        }
+
+        private List<ObjectInitializerEntry> LowerObjectInitializerEntries(IEnumerable<ObjectInitializerEntry> entries)
+        {
+            List<ObjectInitializerEntry> lowered = new();
+            foreach (ObjectInitializerEntry entry in entries)
+            {
+                switch (entry)
+                {
+                    case ObjectMemberInitializerEntry member:
+                        lowered.Add(new ObjectMemberInitializerEntry(
+                            member.Name,
+                            LowerNullableExpr(member.Value),
+                            LowerObjectInitializerEntries(member.NestedInitializers),
+                            member.Line,
+                            member.Col,
+                            member.OriginFile));
+                        break;
+
+                    case ObjectIndexerInitializerEntry indexer:
+                        lowered.Add(new ObjectIndexerInitializerEntry(
+                            LowerExpr(indexer.Index),
+                            LowerExpr(indexer.Value),
+                            indexer.Line,
+                            indexer.Col,
+                            indexer.OriginFile));
+                        break;
+                }
+            }
+
+            return lowered;
         }
     }
 }

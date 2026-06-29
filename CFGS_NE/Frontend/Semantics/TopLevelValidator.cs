@@ -104,7 +104,7 @@ namespace CFGS_VM.Analytic.Semantics
         {
             foreach (ClassDeclStmt cls in classDecls)
             {
-                foreach (string parameter in cls.Parameters)
+                foreach (string parameter in cls.GetAutoPromotedConstructorMemberNames())
                 {
                     if (Compiler.IsReservedRuntimeMemberName(parameter) || Compiler.IsReservedInternalMemberName(parameter))
                     {

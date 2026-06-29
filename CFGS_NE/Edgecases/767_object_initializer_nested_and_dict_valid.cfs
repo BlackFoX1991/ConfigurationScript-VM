@@ -1,0 +1,29 @@
+import "edge_assert.cfs";
+
+edge_begin("767_object_initializer_nested_and_dict_valid");
+
+class Address() {
+    var city = "";
+    var zip = 0;
+}
+
+class Profile() {
+    var address = new Address() { city: "seed", zip: 1 };
+    property shipping { get; } = new Address() { city: "orig", zip: 2 };
+    var payload = {};
+}
+
+var profile = new Profile() {
+    address = { city: "Berlin", zip: 10115 },
+    shipping = { city: "Hamburg", zip: 20095 },
+    payload: { "kind": "cfgs", "count": 2 }
+};
+
+edge_eq("field_nested_city", profile.address.city, "Berlin");
+edge_eq("field_nested_zip", profile.address.zip, 10115);
+edge_eq("property_nested_city", profile.shipping.city, "Hamburg");
+edge_eq("property_nested_zip", profile.shipping.zip, 20095);
+edge_eq("dict_literal_kept", profile.payload["kind"], "cfgs");
+edge_eq("dict_literal_count", profile.payload["count"], 2);
+
+edge_finish("767_object_initializer_nested_and_dict_valid");

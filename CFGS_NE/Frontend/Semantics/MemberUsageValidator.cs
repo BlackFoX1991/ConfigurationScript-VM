@@ -260,6 +260,8 @@ namespace CFGS_VM.Analytic.Semantics
 
             try
             {
+                ValidateConstructorParameterSpecs(classDecl);
+
                 _namespaceAccessRules.ValidateQualifiedTypeAccess(
                     classDecl.BaseName,
                     CurrentNamespacePath,
@@ -275,13 +277,22 @@ namespace CFGS_VM.Analytic.Semantics
                         NamespaceAccessRules.NamespaceSymbolKind.Interface);
                 }
 
-                foreach (Expr baseCtorArg in classDecl.BaseCtorArgs)
-                    ValidateExpr(baseCtorArg);
-
-                foreach (Expr? fieldValue in classDecl.Fields.Values)
+                HashSet<string> constructorLocals = BuildConstructorLocalScope(classDecl.GetEffectiveConstructorSignature());
+                _localVarsStack.Push(new HashSet<string>(constructorLocals, StringComparer.Ordinal));
+                try
                 {
-                    if (fieldValue is not null)
-                        ValidateExpr(fieldValue);
+                    foreach (Expr baseCtorArg in classDecl.BaseCtorArgs)
+                        ValidateExpr(baseCtorArg);
+
+                    foreach (Expr? fieldValue in classDecl.Fields.Values)
+                    {
+                        if (fieldValue is not null)
+                            ValidateExpr(fieldValue);
+                    }
+                }
+                finally
+                {
+                    _localVarsStack.Pop();
                 }
 
                 foreach (Expr? staticFieldValue in classDecl.StaticFields.Values)
@@ -291,7 +302,7 @@ namespace CFGS_VM.Analytic.Semantics
                 }
 
                 foreach (PropertyDeclStmt property in classDecl.Properties)
-                    ValidateClassProperty(property, classDecl, isStaticProperty: false);
+                    ValidateClassProperty(property, classDecl, isStaticProperty: false, constructorLocals);
 
                 foreach (PropertyDeclStmt staticProperty in classDecl.StaticProperties)
                     ValidateClassProperty(staticProperty, classDecl, isStaticProperty: true);
@@ -328,7 +339,7 @@ namespace CFGS_VM.Analytic.Semantics
                 ValidateInterfaceMethodDecl(method);
         }
 
-        private void ValidateClassProperty(PropertyDeclStmt propertyDecl, ClassDeclStmt classDecl, bool isStaticProperty)
+        private void ValidateClassProperty(PropertyDeclStmt propertyDecl, ClassDeclStmt classDecl, bool isStaticProperty, HashSet<string>? constructorLocals = null)
         {
             ClassDeclStmt? previousClassDecl = _currentClassDecl;
             bool previousMethodIsStatic = _currentMethodIsStatic;
@@ -344,7 +355,24 @@ namespace CFGS_VM.Analytic.Semantics
             try
             {
                 if (propertyDecl.Initializer is not null)
-                    ValidateExpr(propertyDecl.Initializer);
+                {
+                    if (constructorLocals is null)
+                    {
+                        ValidateExpr(propertyDecl.Initializer);
+                    }
+                    else
+                    {
+                        _localVarsStack.Push(new HashSet<string>(constructorLocals, StringComparer.Ordinal));
+                        try
+                        {
+                            ValidateExpr(propertyDecl.Initializer);
+                        }
+                        finally
+                        {
+                            _localVarsStack.Pop();
+                        }
+                    }
+                }
 
                 foreach (PropertyAccessorDecl accessor in propertyDecl.Accessors)
                 {
@@ -594,8 +622,7 @@ namespace CFGS_VM.Analytic.Semantics
 
                     foreach (Expr arg in newExpr.Args)
                         ValidateExpr(arg);
-                    foreach ((string _, Expr Value) init in newExpr.Initializers)
-                        ValidateExpr(init.Value);
+                    ValidateObjectInitializerEntries(newExpr.Initializers);
                     _memberAccessRules.ValidateNewObjectInitializers(_compiler, newExpr, _currentClassDecl);
                     return;
 
@@ -655,9 +682,29 @@ namespace CFGS_VM.Analytic.Semantics
 
                 case ObjectInitExpr objectInitExpr:
                     ValidateExpr(objectInitExpr.Target);
-                    foreach ((string _, Expr Value) init in objectInitExpr.Inits)
-                        ValidateExpr(init.Value);
+                    ValidateObjectInitializerEntries(objectInitExpr.Inits);
+                    _memberAccessRules.ValidateObjectInitializers(_compiler, objectInitExpr.Target, objectInitExpr.Inits, _currentClassDecl, CurrentLocals);
                     return;
+            }
+        }
+
+        private void ValidateObjectInitializerEntries(IEnumerable<ObjectInitializerEntry> entries)
+        {
+            foreach (ObjectInitializerEntry entry in entries)
+            {
+                switch (entry)
+                {
+                    case ObjectMemberInitializerEntry member:
+                        if (member.Value is not null)
+                            ValidateExpr(member.Value);
+                        ValidateObjectInitializerEntries(member.NestedInitializers);
+                        break;
+
+                    case ObjectIndexerInitializerEntry indexer:
+                        ValidateExpr(indexer.Index);
+                        ValidateExpr(indexer.Value);
+                        break;
+                }
             }
         }
 
@@ -686,6 +733,28 @@ namespace CFGS_VM.Analytic.Semantics
             {
                 _localVarsStack.Pop();
                 _receiverContext = previousReceiverContext;
+            }
+        }
+
+        private void ValidateConstructorParameterSpecs(ClassDeclStmt classDecl)
+        {
+            if (!classDecl.HasPrimaryConstructorHeader || classDecl.ConstructorParameterSpecs.Count == 0)
+                return;
+
+            _localVarsStack.Push(BuildConstructorLocalScope(classDecl.GetPrimaryConstructorSignature()));
+            try
+            {
+                foreach (FunctionParameterSpec parameter in classDecl.ConstructorParameterSpecs)
+                {
+                    if (parameter.DestructurePattern is not null)
+                        ValidatePattern(parameter.DestructurePattern);
+                    if (parameter.DefaultValue is not null)
+                        ValidateExpr(parameter.DefaultValue);
+                }
+            }
+            finally
+            {
+                _localVarsStack.Pop();
             }
         }
 
@@ -1100,6 +1169,27 @@ namespace CFGS_VM.Analytic.Semantics
 
                     yield break;
             }
+        }
+
+        private HashSet<string> BuildConstructorLocalScope(ClassConstructorSignature signature)
+        {
+            HashSet<string> locals = _localVarsStack.Count > 0
+                ? new HashSet<string>(_localVarsStack.Peek(), StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (string parameter in signature.Parameters)
+                locals.Add(parameter);
+
+            foreach (FunctionParameterSpec parameter in signature.ParameterSpecs)
+            {
+                if (parameter.DestructurePattern is null)
+                    continue;
+
+                foreach (string binding in CollectPatternBindingNames(parameter.DestructurePattern))
+                    locals.Add(binding);
+            }
+
+            return locals;
         }
     }
 }

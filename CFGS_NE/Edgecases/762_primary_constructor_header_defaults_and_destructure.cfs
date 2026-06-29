@@ -1,0 +1,40 @@
+import "edge_assert.cfs";
+
+edge_begin("762_primary_constructor_header_defaults_and_destructure");
+
+class Base(seed) {
+    func getSeed() { return this.seed; }
+}
+
+class Config(host = "localhost", {port, scheme} = {"port": 80, "scheme": "http"}, *tails) : Base(host + ":" + str(port)) {
+    var hostSnapshot = host;
+    var schemeSnapshot = scheme;
+    property summary { get; } = scheme + "://" + host + ":" + str(port);
+    var tailCount = -1;
+    var rawScheme = "";
+
+    func init(host = null, raw = null, *tails) {
+        this.tailCount = len(tails);
+        this.rawScheme = raw["scheme"];
+    }
+}
+
+var first = new Config();
+edge_eq("primary_default_promoted_host", first.host, "localhost");
+edge_eq("primary_field_initializer_named_param", first.hostSnapshot, "localhost");
+edge_eq("primary_field_initializer_destructure", first.schemeSnapshot, "http");
+edge_eq("primary_property_initializer_destructure", first.summary, "http://localhost:80");
+edge_eq("primary_base_ctor_uses_defaults", first.getSeed(), "localhost:80");
+edge_eq("primary_init_receives_normalized_default", first.rawScheme, "http");
+edge_eq("primary_init_rest_default", first.tailCount, 0);
+
+var second = new Config("srv", {"port": 443, "scheme": "https"}, 1, 2, 3);
+edge_eq("primary_override_promoted_host", second.host, "srv");
+edge_eq("primary_override_field_initializer", second.hostSnapshot, "srv");
+edge_eq("primary_override_destructure", second.schemeSnapshot, "https");
+edge_eq("primary_override_property_initializer", second.summary, "https://srv:443");
+edge_eq("primary_override_base_ctor", second.getSeed(), "srv:443");
+edge_eq("primary_override_init_raw", second.rawScheme, "https");
+edge_eq("primary_override_init_rest", second.tailCount, 3);
+
+edge_finish("762_primary_constructor_header_defaults_and_destructure");

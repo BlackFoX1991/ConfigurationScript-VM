@@ -723,14 +723,29 @@ namespace CFGS_VM.Analytic.Modules
             foreach (HashSet<string> locals in state.LocalScopes.Reverse())
                 classState.LocalScopes.Push(new HashSet<string>(locals, StringComparer.Ordinal));
 
-            Dictionary<string, Expr?> fields = RewriteFieldMap(classDecl.Fields, classState);
             Dictionary<string, Expr?> staticFields = RewriteFieldMap(classDecl.StaticFields, classState);
+            List<FunctionParameterSpec> constructorParameterSpecs = RewriteParameterSpecs(classDecl.ConstructorParameterSpecs, classState);
+            HashSet<string> constructorLocals = BuildConstructorLocalScope(classState, classDecl.GetEffectiveConstructorSignature());
+            Dictionary<string, Expr?> fields;
+            List<PropertyDeclStmt> properties;
+            List<Expr> baseCtorArgs;
+
+            PushSyntheticParameterScope(classState, constructorLocals);
+            try
+            {
+                fields = RewriteFieldMap(classDecl.Fields, classState);
+                baseCtorArgs = classDecl.BaseCtorArgs.Select(arg => RewriteExpr(arg, classState)).ToList();
+            }
+            finally
+            {
+                classState.LocalScopes.Pop();
+            }
+
             List<FuncDeclStmt> methods = classDecl.Methods.Select(m => RewriteFunctionDecl(m, classState)).ToList();
             List<FuncDeclStmt> staticMethods = classDecl.StaticMethods.Select(m => RewriteFunctionDecl(m, classState)).ToList();
-            List<PropertyDeclStmt> properties = classDecl.Properties.Select(p => RewritePropertyDecl(p, classState)).ToList();
+            properties = classDecl.Properties.Select(p => RewritePropertyDecl(p, classState, constructorLocals)).ToList();
             List<PropertyDeclStmt> staticProperties = classDecl.StaticProperties.Select(p => RewritePropertyDecl(p, classState)).ToList();
             List<ClassDeclStmt> nestedClasses = classDecl.NestedClasses.Select(c => RewriteClassDecl(c, classState)).ToList();
-            List<Expr> baseCtorArgs = classDecl.BaseCtorArgs.Select(arg => RewriteExpr(arg, classState)).ToList();
             string? baseName = RewriteTypeReference(
                 classDecl.BaseName,
                 classDecl,
@@ -757,6 +772,9 @@ namespace CFGS_VM.Analytic.Modules
                 staticMethods,
                 staticProperties,
                 classDecl.Parameters,
+                classDecl.ConstructorMinArgs,
+                classDecl.ConstructorRestParameter,
+                constructorParameterSpecs,
                 classDecl.Line,
                 classDecl.Col,
                 classDecl.OriginFile,
@@ -841,18 +859,40 @@ namespace CFGS_VM.Analytic.Modules
             return rewritten;
         }
 
-        private PropertyDeclStmt RewritePropertyDecl(PropertyDeclStmt propertyDecl, RewriteState state)
+        private PropertyDeclStmt RewritePropertyDecl(PropertyDeclStmt propertyDecl, RewriteState state, HashSet<string>? constructorLocals = null)
         {
             List<PropertyAccessorDecl> rewrittenAccessors = propertyDecl.Accessors
                 .Select(accessor => RewritePropertyAccessor(accessor, state))
                 .ToList();
+
+            Expr? rewrittenInitializer;
+            if (propertyDecl.Initializer is null)
+            {
+                rewrittenInitializer = null;
+            }
+            else if (constructorLocals is null)
+            {
+                rewrittenInitializer = RewriteNullableExpr(propertyDecl.Initializer, state);
+            }
+            else
+            {
+                PushSyntheticParameterScope(state, constructorLocals);
+                try
+                {
+                    rewrittenInitializer = RewriteNullableExpr(propertyDecl.Initializer, state);
+                }
+                finally
+                {
+                    state.LocalScopes.Pop();
+                }
+            }
 
             return new PropertyDeclStmt(
                 propertyDecl.Name,
                 propertyDecl.Visibility,
                 propertyDecl.IsStatic,
                 rewrittenAccessors,
-                RewriteNullableExpr(propertyDecl.Initializer, state),
+                rewrittenInitializer,
                 propertyDecl.HasAutoStorage,
                 propertyDecl.Line,
                 propertyDecl.Col,
@@ -999,7 +1039,7 @@ namespace CFGS_VM.Analytic.Modules
                 CallExpr callExpr => RewriteCallExpr(callExpr, state),
                 ObjectInitExpr objectInitExpr => new ObjectInitExpr(
                     RewriteExpr(objectInitExpr.Target, state),
-                    objectInitExpr.Inits.Select(init => (init.Item1, RewriteExpr(init.Item2, state))).ToList(),
+                    RewriteObjectInitializerEntries(objectInitExpr.Inits, state),
                     objectInitExpr.Line,
                     objectInitExpr.Col,
                     objectInitExpr.OriginFile),
@@ -1113,10 +1153,43 @@ namespace CFGS_VM.Analytic.Modules
             return new NewExpr(
                 rewrittenClassName,
                 newExpr.Args.Select(arg => RewriteExpr(arg, state)).ToList(),
-                newExpr.Initializers.Select(init => (init.Name, RewriteExpr(init.Value, state))).ToList(),
+                RewriteObjectInitializerEntries(newExpr.Initializers, state),
                 newExpr.Line,
                 newExpr.Col,
                 newExpr.OriginFile);
+        }
+
+        private List<ObjectInitializerEntry> RewriteObjectInitializerEntries(
+            IEnumerable<ObjectInitializerEntry> entries,
+            RewriteState state)
+        {
+            List<ObjectInitializerEntry> rewritten = new();
+            foreach (ObjectInitializerEntry entry in entries)
+            {
+                switch (entry)
+                {
+                    case ObjectMemberInitializerEntry member:
+                        rewritten.Add(new ObjectMemberInitializerEntry(
+                            member.Name,
+                            RewriteNullableExpr(member.Value, state),
+                            RewriteObjectInitializerEntries(member.NestedInitializers, state),
+                            member.Line,
+                            member.Col,
+                            member.OriginFile));
+                        break;
+
+                    case ObjectIndexerInitializerEntry indexer:
+                        rewritten.Add(new ObjectIndexerInitializerEntry(
+                            RewriteExpr(indexer.Index, state),
+                            RewriteExpr(indexer.Value, state),
+                            indexer.Line,
+                            indexer.Col,
+                            indexer.OriginFile));
+                        break;
+                }
+            }
+
+            return rewritten;
         }
 
         private MatchPattern RewritePattern(MatchPattern pattern, RewriteState state)
@@ -1432,6 +1505,27 @@ namespace CFGS_VM.Analytic.Modules
 
         private static void PushSyntheticParameterScope(RewriteState state, HashSet<string> locals)
             => state.LocalScopes.Push(new HashSet<string>(locals, StringComparer.Ordinal));
+
+        private static HashSet<string> BuildConstructorLocalScope(RewriteState state, ClassConstructorSignature signature)
+        {
+            HashSet<string> locals = state.LocalScopes.Count > 0
+                ? new HashSet<string>(state.CurrentLocals, StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (string parameter in signature.Parameters)
+                locals.Add(parameter);
+
+            foreach (FunctionParameterSpec parameter in signature.ParameterSpecs)
+            {
+                if (parameter.DestructurePattern is null)
+                    continue;
+
+                foreach (string binding in CollectPatternBindingNames(parameter.DestructurePattern))
+                    locals.Add(binding);
+            }
+
+            return locals;
+        }
 
         private static bool IsSpecialIdentifier(string name)
             => name is "this" or "type" or "super" or "outer" or "field";

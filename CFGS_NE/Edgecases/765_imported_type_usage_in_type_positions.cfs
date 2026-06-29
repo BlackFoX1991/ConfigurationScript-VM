@@ -1,0 +1,19 @@
+import "edge_assert.cfs";
+import { BaseThing, IThing, DerivedThing } from "765_imported_type_usage_in_type_positions_lib.cfs";
+
+edge_begin("765_imported_type_usage_in_type_positions");
+
+class LocalThing(name) : BaseThing(name), IThing {
+    func run() {
+        return this.label();
+    }
+}
+
+var local = new LocalThing("local");
+var derived = new DerivedThing("imported");
+
+edge_eq("base_import_used_in_class_header", local.label(), "local");
+edge_true("interface_import_used_in_type_context", local is IThing);
+edge_eq("named_import_used_only_via_new", derived.run(), "imported");
+
+edge_finish("765_imported_type_usage_in_type_positions");
