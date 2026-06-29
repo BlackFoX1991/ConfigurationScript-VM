@@ -1,5 +1,13 @@
 # Change Log
 
+## Unreleased
+
+### Fixed
+- Updated the TextMate grammar to recognize CFGS interpolated strings (`$"..."`), verbatim strings (`@"..."`), and combined verbatim interpolated prefixes (`$@"..."`, `@$"..."`).
+- Added highlighting for explicit interface member declarations such as `func IFace.run(...)`.
+- Added current declaration/accessor keywords like `native`, `get`, `set`, and `init`.
+- Corrected the README package example to the current VSIX filename.
+
 ## 0.7.0 - 2026-06-26
 
 ### Added

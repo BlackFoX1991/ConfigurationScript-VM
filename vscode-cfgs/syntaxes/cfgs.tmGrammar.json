@@ -41,6 +41,105 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.interpolated.verbatim.double.cfgs",
+          "begin": "(?:\\$@|@\\$)\"",
+          "end": "\"(?!\")",
+          "patterns": [
+            {
+              "name": "constant.character.escape.quote.cfgs",
+              "match": "\"\""
+            },
+            {
+              "name": "meta.interpolation.cfgs",
+              "begin": "\\{(?!\\{)",
+              "end": "\\}",
+              "patterns": [
+                {
+                  "name": "constant.character.escape.brace.cfgs",
+                  "match": "\\{\\{|\\}\\}"
+                },
+                {
+                  "include": "#strings"
+                },
+                {
+                  "include": "#numbers"
+                },
+                {
+                  "include": "#declarations"
+                },
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#receivers"
+                },
+                {
+                  "include": "#operators"
+                }
+              ]
+            },
+            {
+              "name": "constant.character.escape.brace.cfgs",
+              "match": "\\{\\{|\\}\\}"
+            }
+          ]
+        },
+        {
+          "name": "string.interpolated.double.cfgs",
+          "begin": "\\$\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.cfgs",
+              "match": "\\\\(?:[ntr\\\\\"']|u[0-9A-Fa-f]{4}|x[0-9A-Fa-f]{2})"
+            },
+            {
+              "name": "meta.interpolation.cfgs",
+              "begin": "\\{(?!\\{)",
+              "end": "\\}",
+              "patterns": [
+                {
+                  "name": "constant.character.escape.brace.cfgs",
+                  "match": "\\{\\{|\\}\\}"
+                },
+                {
+                  "include": "#strings"
+                },
+                {
+                  "include": "#numbers"
+                },
+                {
+                  "include": "#declarations"
+                },
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#receivers"
+                },
+                {
+                  "include": "#operators"
+                }
+              ]
+            },
+            {
+              "name": "constant.character.escape.brace.cfgs",
+              "match": "\\{\\{|\\}\\}"
+            }
+          ]
+        },
+        {
+          "name": "string.verbatim.double.cfgs",
+          "begin": "@\"",
+          "end": "\"(?!\")",
+          "patterns": [
+            {
+              "name": "constant.character.escape.quote.cfgs",
+              "match": "\"\""
+            }
+          ]
+        },
+        {
           "name": "string.quoted.double.cfgs",
           "begin": "\"",
           "end": "\"",
@@ -80,7 +179,7 @@
         },
         {
           "name": "keyword.declaration.cfgs",
-          "match": "\\b(?:var|const|import|use|export|from|as|static|public|private|protected|async|new|delete|property|index)\\b"
+          "match": "\\b(?:var|const|import|use|export|from|as|static|public|private|protected|async|new|delete|property|index|native|get|set|init)\\b"
         },
         {
           "name": "constant.language.cfgs",
@@ -90,6 +189,23 @@
     },
     "declarations": {
       "patterns": [
+        {
+          "match": "\\b(async\\s+)?(func)\\b(\\s+)([A-Za-z_][A-Za-z0-9_]*)(\\.)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.async.cfgs"
+            },
+            "2": {
+              "name": "keyword.declaration.cfgs"
+            },
+            "4": {
+              "name": "entity.name.type.interface.cfgs"
+            },
+            "6": {
+              "name": "entity.name.function.member.cfgs"
+            }
+          }
+        },
         {
           "match": "\\b(async\\s+)?(func)\\b(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
@@ -105,13 +221,46 @@
           }
         },
         {
-          "match": "\\b(class|interface|enum|namespace)\\b(\\s+)([A-Za-z_][A-Za-z0-9_\\.]*)",
+          "match": "\\b(class)\\b(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.declaration.cfgs"
             },
             "3": {
               "name": "entity.name.type.class.cfgs"
+            }
+          }
+        },
+        {
+          "match": "\\b(interface)\\b(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.cfgs"
+            },
+            "3": {
+              "name": "entity.name.type.interface.cfgs"
+            }
+          }
+        },
+        {
+          "match": "\\b(enum)\\b(\\s+)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.cfgs"
+            },
+            "3": {
+              "name": "entity.name.type.enum.cfgs"
+            }
+          }
+        },
+        {
+          "match": "\\b(namespace)\\b(\\s+)([A-Za-z_][A-Za-z0-9_\\.]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.cfgs"
+            },
+            "3": {
+              "name": "entity.name.namespace.cfgs"
             }
           }
         }

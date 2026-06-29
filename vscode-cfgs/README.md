@@ -5,6 +5,7 @@ Visual Studio Code support for ConfigurationScript.
 Features:
 
 - `.cfs` language registration and syntax highlighting
+- grammar support for interpolated strings, verbatim strings, explicit interface member declarations, file-scoped namespaces, and current accessor keywords
 - CFGS LSP integration
 - diagnostics, hover, completion, definitions, references, rename, symbols, semantic tokens, inlay hints, code lenses, call hierarchy, document links, selection ranges, and formatting
 - incremental document sync so normal typing errors no longer force full-document resend from the VS Code side
@@ -27,4 +28,4 @@ Build an installable package from this folder with:
 npm run package
 ```
 
-The generated package is `cfgs-vscode-0.6.0.vsix`.
+The generated package is `cfgs-vscode-0.7.0.vsix`.

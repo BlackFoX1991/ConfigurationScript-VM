@@ -63,6 +63,14 @@ assert(properties && properties['cfgs.lint.fixOnSave'], 'cfgs.lint.fixOnSave set
 assertFile('language-configuration.json');
 const grammar = readJson('syntaxes/cfgs.tmGrammar.json');
 assert(grammar.scopeName === 'source.cfgs', 'unexpected CFGS grammar scope');
+const stringPatterns = (((grammar.repository || {}).strings || {}).patterns || []);
+assert(stringPatterns.some((pattern) => String(pattern.begin || '').includes('\\$"')), 'interpolated string grammar missing');
+assert(stringPatterns.some((pattern) => String(pattern.begin || '').includes('@"')), 'verbatim string grammar missing');
+assert(stringPatterns.some((pattern) => String(pattern.begin || '').includes('\\$@') || String(pattern.begin || '').includes('@\\$')), 'verbatim interpolated string grammar missing');
+const declarationPatterns = (((grammar.repository || {}).declarations || {}).patterns || []);
+assert(declarationPatterns.some((pattern) => String(pattern.match || '').includes('(\\\\.)') || String(pattern.match || '').includes('(\\.)')), 'explicit interface method declaration grammar missing');
+const keywordPatterns = (((grammar.repository || {}).keywords || {}).patterns || []);
+assert(keywordPatterns.some((pattern) => String(pattern.match || '').includes('native') && String(pattern.match || '').includes('init')), 'current CFGS declaration keywords missing from grammar');
 
 assert(Array.isArray(contributes.semanticTokenScopes), 'semanticTokenScopes contribution missing');
 const cfgsSemanticScopes = contributes.semanticTokenScopes.find((entry) => entry.language === 'cfgs');
