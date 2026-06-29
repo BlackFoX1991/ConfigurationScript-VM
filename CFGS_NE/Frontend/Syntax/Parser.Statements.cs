@@ -144,6 +144,9 @@ namespace CFGS_VM.Analytic.Core
             => expr switch
             {
                 NullExpr or NumberExpr or StringExpr or CharExpr or BoolExpr or VarExpr => true,
+                InterpolatedStringExpr interpolatedStringExpr => interpolatedStringExpr.Parts.All(part =>
+                    part is InterpolatedStringTextPart ||
+                    part is InterpolatedStringExprPart exprPart && IsPureModuleInitializer(exprPart.Expression)),
                 UnaryExpr unaryExpr => IsPureModuleInitializer(unaryExpr.Right),
                 BinaryExpr binaryExpr => IsPureModuleInitializer(binaryExpr.Left) && IsPureModuleInitializer(binaryExpr.Right),
                 ConditionalExpr conditionalExpr => IsPureModuleInitializer(conditionalExpr.Condition) &&

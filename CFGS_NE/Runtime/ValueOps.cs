@@ -1608,6 +1608,13 @@ namespace CFGS_VM.VMCore
             _ => 4
         };
 
+        private static string FormatComparisonFallbackValue(object? value)
+        {
+            using StringWriter writer = new();
+            PrintValue(value, writer);
+            return writer.ToString();
+        }
+
         /// <summary>
         /// Numeric-aware ordering of two coerced values, reusing the exact same coercion the
         /// &lt; / &gt; operators use. Returns false when the pair is not numeric.
@@ -1670,7 +1677,7 @@ namespace CFGS_VM.VMCore
 
             if (x is string sx && y is string sy) return string.CompareOrdinal(sx, sy);
             if (x is bool bx && y is bool by) return bx.CompareTo(by);
-            return string.CompareOrdinal(x.ToString() ?? string.Empty, y.ToString() ?? string.Empty);
+            return string.CompareOrdinal(FormatComparisonFallbackValue(x), FormatComparisonFallbackValue(y));
         }
 
         /// <summary>

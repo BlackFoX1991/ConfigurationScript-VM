@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
+using System.Text;
 using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore.Codegen;
@@ -14,6 +16,63 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
+        private static string EscapeInterpolatedFormatSegment(string text)
+            => text.Replace("{", "{{", StringComparison.Ordinal).Replace("}", "}}", StringComparison.Ordinal);
+
+        private static string BuildInterpolatedPlaceholder(int index, InterpolatedStringExprPart exprPart)
+        {
+            StringBuilder placeholder = new();
+            placeholder.Append('{');
+            placeholder.Append(index.ToString(CultureInfo.InvariantCulture));
+            if (exprPart.Alignment.HasValue)
+            {
+                placeholder.Append(',');
+                placeholder.Append(exprPart.Alignment.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (exprPart.Format is not null)
+            {
+                placeholder.Append(':');
+                placeholder.Append(exprPart.Format);
+            }
+
+            placeholder.Append('}');
+            return placeholder.ToString();
+        }
+
+        private void CompileInterpolatedStringExpression(InterpolatedStringExpr interpolated)
+        {
+            List<Expr> args = new();
+            StringBuilder template = new();
+            int placeholderIndex = 0;
+
+            foreach (InterpolatedStringPart part in interpolated.Parts)
+            {
+                switch (part)
+                {
+                    case InterpolatedStringTextPart textPart:
+                        template.Append(EscapeInterpolatedFormatSegment(textPart.Value));
+                        break;
+                    case InterpolatedStringExprPart exprPart:
+                        template.Append(BuildInterpolatedPlaceholder(placeholderIndex++, exprPart));
+                        args.Add(exprPart.Expression);
+                        break;
+                }
+            }
+
+            if (args.Count == 0)
+            {
+                _insns.Add(new Instruction(OpCode.PUSH_STR, template.ToString(), interpolated.Line, interpolated.Col, interpolated.OriginFile));
+                return;
+            }
+
+            _insns.Add(new Instruction(OpCode.LOAD_VAR, "format", interpolated.Line, interpolated.Col, interpolated.OriginFile));
+            for (int i = args.Count - 1; i >= 0; i--)
+                CompileExpr(args[i]);
+            _insns.Add(new Instruction(OpCode.PUSH_STR, template.ToString(), interpolated.Line, interpolated.Col, interpolated.OriginFile));
+            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, args.Count + 1, interpolated.Line, interpolated.Col, interpolated.OriginFile));
+        }
+
         private void CompileExpr(Expr? e)
         {
             switch (e)
@@ -46,6 +105,10 @@ namespace CFGS_VM.VMCore
 
                 case StringExpr s:
                     _insns.Add(new Instruction(OpCode.PUSH_STR, s.Value, e.Line, e.Col, e.OriginFile));
+                    break;
+
+                case InterpolatedStringExpr interpolated:
+                    CompileInterpolatedStringExpression(interpolated);
                     break;
 
                 case CharExpr che:

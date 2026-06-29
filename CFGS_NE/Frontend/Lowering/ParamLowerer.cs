@@ -316,6 +316,19 @@ namespace CFGS_VM.Analytic.Lowering
                 StringExpr => expr,
                 CharExpr => expr,
                 BoolExpr => expr,
+                InterpolatedStringExpr interpolated => new InterpolatedStringExpr(
+                    interpolated.Parts.Select(part => part switch
+                    {
+                        InterpolatedStringTextPart textPart => new InterpolatedStringTextPart(textPart.Value),
+                        InterpolatedStringExprPart exprPart => new InterpolatedStringExprPart(
+                            LowerExpr(exprPart.Expression),
+                            exprPart.Alignment,
+                            exprPart.Format),
+                        _ => part
+                    }).ToList(),
+                    interpolated.Line,
+                    interpolated.Col,
+                    interpolated.OriginFile),
                 VarExpr => expr,
                 BinaryExpr b => new BinaryExpr(LowerExpr(b.Left), b.Op, LowerExpr(b.Right), b.Line, b.Col, b.OriginFile),
                 UnaryExpr u => new UnaryExpr(u.Op, LowerExpr(u.Right), u.Line, u.Col, u.OriginFile),

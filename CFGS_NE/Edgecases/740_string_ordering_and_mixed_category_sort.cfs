@@ -1,0 +1,27 @@
+import "edge_assert.cfs";
+
+# String comparison is ordinal, and mixed-category sort/min/max follow the
+# runtime category rank used by CompareRuntimeValues: null < numeric < bool < string.
+
+edge_begin("740_string_ordering_and_mixed_category_sort");
+
+edge_true("ordinal_upper_before_lower", "A" < "a");
+edge_true("prefix_before_suffix", "app" < "apple");
+edge_true("ascii_before_umlaut", "z" < "ä");
+edge_eq("ordinal_eq_case_sensitive", "A" == "a", false);
+
+var xs = ["z", false, 2, null, "a", true, 1];
+xs.sort();
+
+edge_eq("mixed_sort_0", xs[0], null);
+edge_eq("mixed_sort_1", xs[1], 1);
+edge_eq("mixed_sort_2", xs[2], 2);
+edge_eq("mixed_sort_3", xs[3], false);
+edge_eq("mixed_sort_4", xs[4], true);
+edge_eq("mixed_sort_5", xs[5], "a");
+edge_eq("mixed_sort_6", xs[6], "z");
+
+edge_eq("math_min_cross_category", math.min("a", true), true);
+edge_eq("math_max_cross_category", math.max(null, 1), 1);
+
+edge_finish("740_string_ordering_and_mixed_category_sort");

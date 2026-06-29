@@ -1,0 +1,26 @@
+import "edge_assert.cfs";
+
+edge_begin("747_interface_call_rejects_non_contract_methods");
+
+interface IRunner {
+    func run(value);
+}
+
+class Runner() : IRunner {
+    func run(value) {
+        return "run:" + str(value);
+    }
+
+    func secret(value) {
+        return "secret:" + str(value);
+    }
+}
+
+var runner = new Runner();
+
+edge_eq("contract_method_allowed", interface_call(runner, IRunner, "run", [3]), "run:3");
+edge_throws("non_contract_method_rejected", func() {
+    return interface_call(runner, IRunner, "secret", [4]);
+});
+
+edge_finish("747_interface_call_rejects_non_contract_methods");

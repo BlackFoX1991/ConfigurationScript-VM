@@ -1,0 +1,25 @@
+import "edge_assert.cfs";
+
+edge_begin("749_string_intrinsics_use_vm_string_coercion");
+
+class Tag() {}
+
+var tag = new Tag();
+var dict = {"a": 1};
+
+edge_true("contains_null", "xnully".contains(null));
+edge_true("startswith_instance", "Tag:value".startsWith(tag));
+edge_true("endswith_dict", "value{\"a\": 1}".endsWith(dict));
+edge_eq("indexof_null", "xnully".indexOf(null), 1);
+edge_eq("lastindexof_instance", "Tag|Tag".lastIndexOf(tag), 4);
+
+var splitNull = "a:null:b".split(null);
+edge_eq("split_null_len", len(splitNull), 2);
+edge_eq("split_null_0", splitNull[0], "a:");
+edge_eq("split_null_1", splitNull[1], ":b");
+
+edge_eq("insert_at_null", "ab".insert_at(1, null), "anullb");
+edge_eq("replace_range_instance", "abcd".replace_range(1, 3, tag), "aTagd");
+edge_eq("replace_dict_needle", "x{\"a\": 1}y".replace(dict, "-"), "x-y");
+
+edge_finish("749_string_intrinsics_use_vm_string_coercion");

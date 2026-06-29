@@ -508,6 +508,14 @@ namespace CFGS_VM.Analytic.Semantics
                 case BoolExpr:
                     return;
 
+                case InterpolatedStringExpr interpolatedStringExpr:
+                    foreach (InterpolatedStringPart part in interpolatedStringExpr.Parts)
+                    {
+                        if (part is InterpolatedStringExprPart exprPart)
+                            ValidateExpr(exprPart.Expression);
+                    }
+                    return;
+
                 case VarExpr variableExpr:
                     if (_insidePropertyAccessor && IsPropertyBackingFieldIdentifier(variableExpr.Name))
                     {

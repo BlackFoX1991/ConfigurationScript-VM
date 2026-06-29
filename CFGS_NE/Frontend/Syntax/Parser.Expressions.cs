@@ -1,12 +1,78 @@
 using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
+using System.Linq;
 using System.Text;
 
 namespace CFGS_VM.Analytic.Core
 {
     public partial class Parser
     {
+        private static string RequirePlainStringTokenValue(Token token, string context)
+        {
+            if (token.Value is string s)
+                return s;
+
+            throw new ParserException(
+                $"{context} does not allow interpolated string literals",
+                token.Line,
+                token.Column,
+                token.Filename,
+                token.Length);
+        }
+
+        private static Expr ParseInterpolatedExpressionFragment(InterpolatedStringExpressionTokenPart part, string file)
+        {
+            Parser parser = new(new Lexer(file, part.ExpressionText, part.Line, part.Column));
+            Expr expr = parser.Expr();
+            if (parser._current.Type != TokenType.EOF)
+            {
+                throw new ParserException(
+                    "unexpected token in interpolated string expression",
+                    parser._current.Line,
+                    parser._current.Column,
+                    parser._current.Filename,
+                    parser._current.Length);
+            }
+
+            return expr;
+        }
+
+        private static Expr BuildInterpolatedStringExpr(InterpolatedStringTokenValue tokenValue, int line, int col, string file)
+        {
+            bool hasExpression = tokenValue.Parts.Any(static part => part is InterpolatedStringExpressionTokenPart);
+            if (!hasExpression)
+            {
+                StringBuilder text = new();
+                foreach (InterpolatedStringTokenPart part in tokenValue.Parts)
+                {
+                    if (part is InterpolatedStringTextTokenPart textPart)
+                        text.Append(textPart.Text);
+                }
+
+                return new StringExpr(text.ToString(), line, col, file);
+            }
+
+            List<InterpolatedStringPart> parts = new();
+            foreach (InterpolatedStringTokenPart part in tokenValue.Parts)
+            {
+                switch (part)
+                {
+                    case InterpolatedStringTextTokenPart textPart:
+                        parts.Add(new InterpolatedStringTextPart(textPart.Text));
+                        break;
+                    case InterpolatedStringExpressionTokenPart exprPart:
+                        parts.Add(new InterpolatedStringExprPart(
+                            ParseInterpolatedExpressionFragment(exprPart, file),
+                            exprPart.Alignment,
+                            exprPart.Format));
+                        break;
+                }
+            }
+
+            return new InterpolatedStringExpr(parts, line, col, file);
+        }
+
         private Expr Expr()
         {
             int startTokenIndex = MarkNodeStart();
@@ -268,9 +334,14 @@ namespace CFGS_VM.Analytic.Core
                 int line = _current.Line;
                 int col = _current.Column;
                 string file = _current.Filename;
-                string s = _current.Value.ToString() ?? "";
+                object tokenValue = _current.Value;
                 Eat(TokenType.String);
-                node = new StringExpr(s, line, col, file);
+                node = tokenValue switch
+                {
+                    string s => new StringExpr(s, line, col, file),
+                    InterpolatedStringTokenValue interpolated => BuildInterpolatedStringExpr(interpolated, line, col, file),
+                    _ => throw new ParserException("invalid string token payload", line, col, file)
+                };
             }
             else if (_current.Type == TokenType.Char)
             {

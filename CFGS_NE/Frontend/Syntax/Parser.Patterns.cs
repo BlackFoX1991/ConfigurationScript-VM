@@ -135,7 +135,7 @@ namespace CFGS_VM.Analytic.Core
                     string key = _current.Type switch
                     {
                         TokenType.Ident => _current.Value?.ToString() ?? "",
-                        TokenType.String => _current.Value?.ToString() ?? "",
+                        TokenType.String => RequirePlainStringTokenValue(_current, "dictionary match pattern key"),
                         _ => throw new ParserException("expected identifier or string key in dictionary match pattern", _current.Line, _current.Column, _current.Filename),
                     };
 
@@ -286,8 +286,7 @@ namespace CFGS_VM.Analytic.Core
                     {
                         TokenType.Ident => _current.Value?.ToString()
                             ?? throw new ParserException("invalid key in destructuring pattern", _current.Line, _current.Column, _current.Filename),
-                        TokenType.String => _current.Value?.ToString()
-                            ?? throw new ParserException("invalid key in destructuring pattern", _current.Line, _current.Column, _current.Filename),
+                        TokenType.String => RequirePlainStringTokenValue(_current, "destructuring pattern key"),
                         _ => throw new ParserException("expected identifier or string key in destructuring pattern", _current.Line, _current.Column, _current.Filename),
                     };
                     Advance();

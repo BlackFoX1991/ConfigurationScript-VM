@@ -1177,6 +1177,11 @@ namespace CFGS_VM.VMCore
             Closure closure;
             if (!TryResolveExplicitInterfaceMethod(instance, iface, methodName, out StaticInstance? ownerType, out closure))
             {
+                if (!InterfaceDeclaresInstanceMethod(iface, methodName))
+                {
+                    throw new VMException($"Runtime error: interface_call could not find method '{methodName}' for interface '{iface.ClassName}'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                }
+
                 if (!TryResolveInstanceMemberValueInHierarchy(instance, methodName, out _, out ownerType, out Value memberValue) ||
                     memberValue.Reference is not Closure fallbackClosure)
                 {

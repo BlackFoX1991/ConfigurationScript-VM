@@ -1,0 +1,27 @@
+import "edge_assert.cfs";
+
+edge_begin("752_interpolated_string_alignment_and_format");
+
+class Box() {}
+
+var rightAligned = $"|{42,5}|";
+var spacedAligned = $"|{42, 5}|";
+var leftAligned = $"|{42,-5}|";
+var fixed = $"pi={1.5:F2}";
+var alignedFixed = $"|{1.5,6:F1}|";
+var customThousands = $"{12345.6:#,##0.0}";
+var nested = $"outer={$"inner={1 + 2}"}";
+var vmStringAligned = $"|{new Box(),6}|";
+var conditionalFormat = $"pick={(true ? 2 : 9):D2}";
+
+edge_eq("align_right", rightAligned, "|   42|");
+edge_eq("align_right_spaced", spacedAligned, "|   42|");
+edge_eq("align_left", leftAligned, "|42   |");
+edge_eq("fixed_format", fixed, "pi=1.50");
+edge_eq("align_with_format", alignedFixed, "|   1.5|");
+edge_eq("format_with_commas", customThousands, "12,345.6");
+edge_eq("nested_interpolated_expression", nested, "outer=inner=3");
+edge_eq("vm_string_alignment", vmStringAligned, "|   Box|");
+edge_eq("conditional_with_format", conditionalFormat, "pick=02");
+
+edge_finish("752_interpolated_string_alignment_and_format");

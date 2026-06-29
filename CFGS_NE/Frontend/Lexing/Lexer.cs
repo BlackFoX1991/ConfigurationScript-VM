@@ -64,12 +64,12 @@ public class Lexer
 
         };
 
-    private Token MakeToken(TokenType type, object value)
+    private Token MakeToken(TokenType type, object value, int? lengthOverride = null)
     {
         value ??= string.Empty;
-        int length = _line == _tokLine
+        int length = lengthOverride ?? (_line == _tokLine
             ? Math.Max(1, _col - _tokCol)
-            : Math.Max(1, value.ToString()?.Length ?? 1);
+            : Math.Max(1, value.ToString()?.Length ?? 1));
         return new Token(type, value, _tokLine, _tokCol, FileName, length, _tokenIndex++, _tokPos);
     }
 
@@ -114,13 +114,13 @@ public class Lexer
     /// </summary>
     /// <param name="name">The name<see cref="string"/></param>
     /// <param name="text">The text<see cref="string"/></param>
-    public Lexer(string name, string text)
+    public Lexer(string name, string text, int initialLine = 1, int initialColumn = 1)
     {
         FileName = name;
-        _line = 1;
-        _col = 1;
-        _tokLine = 1;
-        _tokCol = 1;
+        _line = initialLine;
+        _col = initialColumn;
+        _tokLine = initialLine;
+        _tokCol = initialColumn;
         _text = text;
     }
 
@@ -133,6 +133,348 @@ public class Lexer
     /// Gets the Peek
     /// </summary>
     private char Peek => _pos + 1 < _text.Length ? _text[_pos + 1] : '\0';
+
+    private char Peek2 => _pos + 2 < _text.Length ? _text[_pos + 2] : '\0';
+
+    private bool TryLexStringToken(out Token token)
+    {
+        token = null!;
+
+        bool isInterpolated = false;
+        bool isVerbatim = false;
+
+        if (Current == '$')
+        {
+            if (Peek == '\"')
+            {
+                isInterpolated = true;
+                SyncPos();
+            }
+            else if (Peek == '@' && Peek2 == '\"')
+            {
+                isInterpolated = true;
+                isVerbatim = true;
+                SyncPos(2);
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else if (Current == '@')
+        {
+            if (Peek == '\"')
+            {
+                isVerbatim = true;
+                SyncPos();
+            }
+            else if (Peek == '$' && Peek2 == '\"')
+            {
+                isInterpolated = true;
+                isVerbatim = true;
+                SyncPos(2);
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else if (Current != '\"')
+        {
+            return false;
+        }
+
+        int startLine = _tokLine;
+        int startCol = _tokCol;
+
+        if (Current != '\"')
+            throw new LexerException("invalid string literal prefix", startLine, startCol, FileName);
+
+        SyncPos();
+
+        System.Text.StringBuilder text = new();
+        List<InterpolatedStringTokenPart>? parts = isInterpolated ? new List<InterpolatedStringTokenPart>() : null;
+
+        void FlushTextPart()
+        {
+            if (!isInterpolated || text.Length == 0)
+                return;
+
+            parts!.Add(new InterpolatedStringTextTokenPart(text.ToString()));
+            text.Clear();
+        }
+
+        while (Current != '\0')
+        {
+            if (Current == '\"')
+            {
+                if (isVerbatim && Peek == '\"')
+                {
+                    text.Append('\"');
+                    SyncPos(2);
+                    continue;
+                }
+
+                SyncPos();
+                if (!isInterpolated)
+                {
+                    token = MakeToken(TokenType.String, text.ToString(), _pos - _tokPos);
+                    return true;
+                }
+
+                FlushTextPart();
+                token = MakeToken(TokenType.String, new InterpolatedStringTokenValue(parts!), _pos - _tokPos);
+                return true;
+            }
+
+            if (isInterpolated)
+            {
+                if (Current == '{')
+                {
+                    if (Peek == '{')
+                    {
+                        text.Append('{');
+                        SyncPos(2);
+                        continue;
+                    }
+
+                    FlushTextPart();
+                    int braceLine = _line;
+                    int braceCol = _col;
+                    SyncPos();
+                    parts!.Add(ReadInterpolatedExpressionPart(braceLine, braceCol));
+                    continue;
+                }
+
+                if (Current == '}')
+                {
+                    if (Peek == '}')
+                    {
+                        text.Append('}');
+                        SyncPos(2);
+                        continue;
+                    }
+
+                    throw new LexerException("unexpected '}' in interpolated string literal; escape it as '}}'", _line, _col, FileName);
+                }
+            }
+
+            if (isVerbatim)
+            {
+                text.Append(Current);
+                SyncPos();
+                continue;
+            }
+
+            if (Current == '\\')
+            {
+                SyncPos();
+                char esc = Current;
+                if (esc == 'n') { text.Append('\n'); }
+                else if (esc == 't') { text.Append('\t'); }
+                else if (esc == 'r') { text.Append('\r'); }
+                else if (esc == '\\') { text.Append('\\'); }
+                else if (esc == '\"') { text.Append('\"'); }
+                else if (esc == 'u')
+                {
+                    string hex = "";
+                    for (int i = 0; i < 4; i++)
+                    {
+                        SyncPos();
+                        if (Current == '\0') throw new LexerException("unterminated \\u escape in string (expected 4 hex digits)", startLine, startCol, FileName);
+                        if (!Uri.IsHexDigit(Current)) throw new LexerException("invalid \\u escape in string", startLine, startCol, FileName);
+                        hex += Current;
+                    }
+                    text.Append((char)Convert.ToInt32(hex, 16));
+                }
+                else if (esc == 'x' || esc == 'X')
+                {
+                    string hex = "";
+                    for (int i = 0; i < 2; i++)
+                    {
+                        SyncPos();
+                        if (Current == '\0') throw new LexerException("unterminated \\x escape in string (expected 2 hex digits)", startLine, startCol, FileName);
+                        if (!Uri.IsHexDigit(Current))
+                            throw new LexerException("invalid \\x escape in string (expected 2 hex digits)", startLine, startCol, FileName);
+                        hex += Current;
+                    }
+                    text.Append((char)Convert.ToInt32(hex, 16));
+                }
+                else
+                {
+                    throw new LexerException($"unknown escape '\\{esc}' in string", startLine, startCol, FileName);
+                }
+
+                SyncPos();
+                continue;
+            }
+
+            text.Append(Current);
+            SyncPos();
+        }
+
+        throw new LexerException("unterminated string literal", startLine, startCol, FileName);
+    }
+
+    private InterpolatedStringExpressionTokenPart ReadInterpolatedExpressionPart(int braceLine, int braceCol)
+    {
+        int exprLine = _line;
+        int exprCol = _col;
+        int exprStart = _pos;
+
+        Lexer fragmentLexer = new(FileName, _text.Substring(_pos), _line, _col);
+        int parenDepth = 0;
+        int bracketDepth = 0;
+        int braceDepth = 0;
+        int? alignmentOffset = null;
+        int? formatOffset = null;
+        bool sawTopLevelQuestion = false;
+
+        while (true)
+        {
+            Token token = fragmentLexer.GetNextToken();
+            bool isTopLevel = parenDepth == 0 && bracketDepth == 0 && braceDepth == 0;
+
+            switch (token.Type)
+            {
+                case TokenType.EOF:
+                    throw new LexerException("unterminated interpolation expression (expected '}')", braceLine, braceCol, FileName);
+                case TokenType.LParen:
+                    parenDepth++;
+                    break;
+                case TokenType.RParen:
+                    if (parenDepth > 0)
+                        parenDepth--;
+                    break;
+                case TokenType.LBracket:
+                    bracketDepth++;
+                    break;
+                case TokenType.RBracket:
+                    if (bracketDepth > 0)
+                        bracketDepth--;
+                    break;
+                case TokenType.Question:
+                    if (isTopLevel && !formatOffset.HasValue)
+                        sawTopLevelQuestion = true;
+                    break;
+                case TokenType.Comma:
+                    if (isTopLevel && !alignmentOffset.HasValue && !formatOffset.HasValue)
+                        alignmentOffset = token.StartOffset;
+                    break;
+                case TokenType.Colon:
+                    if (isTopLevel && !formatOffset.HasValue)
+                    {
+                        if (sawTopLevelQuestion && !alignmentOffset.HasValue)
+                        {
+                            throw new LexerException(
+                                "conditional expressions inside interpolated strings must be wrapped in parentheses",
+                                exprLine,
+                                exprCol,
+                                FileName);
+                        }
+
+                        formatOffset = token.StartOffset;
+                        int formatStartPos = exprStart + formatOffset.Value + 1;
+                        int closingBracePos = formatStartPos;
+                        while (closingBracePos < _text.Length && _text[closingBracePos] != '}')
+                        {
+                            if (_text[closingBracePos] == '{')
+                            {
+                                throw new LexerException(
+                                    "interpolation format strings cannot contain '{'",
+                                    token.Line,
+                                    token.Column,
+                                    FileName);
+                            }
+
+                            closingBracePos++;
+                        }
+
+                        if (closingBracePos >= _text.Length)
+                        {
+                            throw new LexerException(
+                                "unterminated interpolation expression (expected '}')",
+                                braceLine,
+                                braceCol,
+                                FileName);
+                        }
+
+                        int exprEndOffset = alignmentOffset ?? formatOffset.Value;
+                        string exprText = _text.Substring(exprStart, exprEndOffset).Trim();
+                        if (string.IsNullOrWhiteSpace(exprText))
+                            throw new LexerException("empty interpolation expression", exprLine, exprCol, FileName);
+
+                        int? alignment = null;
+                        if (alignmentOffset.HasValue)
+                        {
+                            string alignmentText = _text
+                                .Substring(exprStart + alignmentOffset.Value + 1, formatOffset.Value - alignmentOffset.Value - 1)
+                                .Trim();
+                            if (!int.TryParse(alignmentText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedAlignment))
+                            {
+                                throw new LexerException(
+                                    "invalid interpolation alignment; expected an integer width",
+                                    token.Line,
+                                    token.Column,
+                                    FileName);
+                            }
+
+                            alignment = parsedAlignment;
+                        }
+
+                        string format = _text.Substring(formatStartPos, closingBracePos - formatStartPos);
+                        SyncPos(closingBracePos - exprStart + 1);
+                        return new InterpolatedStringExpressionTokenPart(exprText, exprLine, exprCol, alignment, format);
+                    }
+                    break;
+                case TokenType.LBrace:
+                    braceDepth++;
+                    break;
+                case TokenType.RBrace:
+                    if (isTopLevel)
+                    {
+                        int exprEndOffset = alignmentOffset ?? formatOffset ?? token.StartOffset;
+                        string exprText = _text.Substring(exprStart, exprEndOffset).Trim();
+                        if (string.IsNullOrWhiteSpace(exprText))
+                            throw new LexerException("empty interpolation expression", exprLine, exprCol, FileName);
+
+                        int? alignment = null;
+                        if (alignmentOffset.HasValue)
+                        {
+                            int alignmentEndOffset = formatOffset ?? token.StartOffset;
+                            string alignmentText = _text
+                                .Substring(exprStart + alignmentOffset.Value + 1, alignmentEndOffset - alignmentOffset.Value - 1)
+                                .Trim();
+                            if (!int.TryParse(alignmentText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedAlignment))
+                            {
+                                throw new LexerException(
+                                    "invalid interpolation alignment; expected an integer width",
+                                    token.Line,
+                                    token.Column,
+                                    FileName);
+                            }
+
+                            alignment = parsedAlignment;
+                        }
+
+                        string? format = null;
+                        if (formatOffset.HasValue)
+                        {
+                            format = _text.Substring(
+                                exprStart + formatOffset.Value + 1,
+                                token.StartOffset - formatOffset.Value - 1);
+                        }
+
+                        SyncPos(token.EndOffset);
+                        return new InterpolatedStringExpressionTokenPart(exprText, exprLine, exprCol, alignment, format);
+                    }
+
+                    if (braceDepth > 0)
+                        braceDepth--;
+                    break;
+            }
+        }
+    }
 
     public Token GetNextToken()
     {
@@ -183,67 +525,8 @@ public class Lexer
             _tokCol = _col;
             _tokPos = _pos;
 
-            if (Current == '\"')
-            {
-                int startLine = _line, startCol = _col;
-                SyncPos();
-                System.Text.StringBuilder sb = new();
-
-                while (Current != '\"' && Current != '\0')
-                {
-                    if (Current == '\\')
-                    {
-                        SyncPos();
-                        char esc = Current;
-                        if (esc == 'n') { sb.Append('\n'); }
-                        else if (esc == 't') { sb.Append('\t'); }
-                        else if (esc == 'r') { sb.Append('\r'); }
-                        else if (esc == '\\') { sb.Append('\\'); }
-                        else if (esc == '\"') { sb.Append('\"'); }
-                        else if (esc == 'u')
-                        {
-                            string hex = "";
-                            for (int i = 0; i < 4; i++)
-                            {
-                                SyncPos();
-                                if (Current == '\0') throw new LexerException("unterminated \\u escape in string (expected 4 hex digits)", startLine, startCol, FileName);
-                                if (!Uri.IsHexDigit(Current)) throw new LexerException("invalid \\u escape in string", startLine, startCol, FileName);
-                                hex += Current;
-                            }
-                            sb.Append((char)Convert.ToInt32(hex, 16));
-                        }
-                        else if (esc == 'x' || esc == 'X')
-                        {
-                            string hex = "";
-                            for (int i = 0; i < 2; i++)
-                            {
-                                SyncPos();
-                                if (Current == '\0') throw new LexerException("unterminated \\x escape in string (expected 2 hex digits)", startLine, startCol, FileName);
-                                if (!Uri.IsHexDigit(Current))
-                                    throw new LexerException("invalid \\x escape in string (expected 2 hex digits)", startLine, startCol, FileName);
-                                hex += Current;
-                            }
-                            sb.Append((char)Convert.ToInt32(hex, 16));
-                        }
-                        else
-                        {
-                            throw new LexerException($"unknown escape '\\{esc}' in string", startLine, startCol, FileName);
-                        }
-                        SyncPos();
-                    }
-                    else
-                    {
-                        sb.Append(Current);
-                        SyncPos();
-                    }
-                }
-
-                if (Current != '\"')
-                    throw new LexerException("unterminated string literal", startLine, startCol, FileName);
-                SyncPos();
-
-                return MakeToken(TokenType.String, sb.ToString());
-            }
+            if (TryLexStringToken(out Token stringToken))
+                return stringToken;
 
             if (Current == '\'')
             {

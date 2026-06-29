@@ -711,6 +711,14 @@ internal static class CfgsLinter
                 case NativeAssemblyExpr:
                     break;
 
+                case InterpolatedStringExpr interpolatedStringExpr:
+                    foreach (InterpolatedStringPart part in interpolatedStringExpr.Parts)
+                    {
+                        if (part is InterpolatedStringExprPart exprPart)
+                            VisitExpr(exprPart.Expression);
+                    }
+                    break;
+
                 case NumberExpr n:
                     MaybeReportMagicNumber(n);
                     break;
@@ -1210,6 +1218,13 @@ internal static class CfgsLinter
                     value = text.Value.Length > 0;
                     return true;
 
+                case InterpolatedStringExpr interpolatedStringExpr
+                    when interpolatedStringExpr.Parts.All(part => part is InterpolatedStringTextPart):
+                    value = interpolatedStringExpr.Parts
+                        .OfType<InterpolatedStringTextPart>()
+                        .Sum(static part => part.Value.Length) > 0;
+                    return true;
+
                 case CharExpr character:
                     value = character.Value != '\0';
                     return true;
@@ -1371,6 +1386,13 @@ internal static class CfgsLinter
 
                 case StringExpr text:
                     literal = new ComparableLiteral(LiteralKind.String, text.Value);
+                    return true;
+
+                case InterpolatedStringExpr interpolatedStringExpr
+                    when interpolatedStringExpr.Parts.All(part => part is InterpolatedStringTextPart):
+                    literal = new ComparableLiteral(
+                        LiteralKind.String,
+                        string.Concat(interpolatedStringExpr.Parts.OfType<InterpolatedStringTextPart>().Select(static part => part.Value)));
                     return true;
 
                 case CharExpr character:

@@ -166,6 +166,10 @@ namespace CFGS_VM.VMCore
                            callExpr.Args.Any(ContainsDirectMainCall);
                 case AwaitExpr awaitExpr:
                     return ContainsDirectMainCall(awaitExpr.Inner);
+                case InterpolatedStringExpr interpolatedStringExpr:
+                    return interpolatedStringExpr.Parts
+                        .OfType<InterpolatedStringExprPart>()
+                        .Any(part => ContainsDirectMainCall(part.Expression));
                 case BinaryExpr binaryExpr:
                     return ContainsDirectMainCall(binaryExpr.Left) || ContainsDirectMainCall(binaryExpr.Right);
                 case UnaryExpr unaryExpr:

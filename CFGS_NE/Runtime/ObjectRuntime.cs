@@ -533,6 +533,23 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        private static bool InterfaceDeclaresInstanceMethod(StaticInstance iface, string methodName)
+        {
+            foreach (StaticInstance contractIface in EnumerateInterfaceSelfAndBases(iface))
+            {
+                foreach (Dictionary<string, object> method in ReadInterfaceMetadataList(contractIface, "__interface_methods"))
+                {
+                    if (MetadataBool(method, "static"))
+                        continue;
+
+                    if (string.Equals(MetadataString(method, "name"), methodName, StringComparison.Ordinal))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
         private static string MetadataString(Dictionary<string, object> metadata, string key)
             => metadata.TryGetValue(key, out object? value) ? value?.ToString() ?? string.Empty : string.Empty;
 

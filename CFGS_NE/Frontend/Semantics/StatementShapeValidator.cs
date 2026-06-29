@@ -276,6 +276,14 @@ namespace CFGS_VM.Analytic.Semantics
                 case VarExpr:
                     return;
 
+                case InterpolatedStringExpr interpolatedStringExpr:
+                    foreach (InterpolatedStringPart part in interpolatedStringExpr.Parts)
+                    {
+                        if (part is InterpolatedStringExprPart exprPart)
+                            ValidateExpr(exprPart.Expression, insideFunction, insideAsyncFunction);
+                    }
+                    return;
+
                 case BinaryExpr binaryExpr:
                     ValidateExpr(binaryExpr.Left, insideFunction, insideAsyncFunction);
                     ValidateExpr(binaryExpr.Right, insideFunction, insideAsyncFunction);

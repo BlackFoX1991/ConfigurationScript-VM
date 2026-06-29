@@ -1,0 +1,11 @@
+import "edge_assert.cfs";
+
+edge_begin("748_array_join_separator_uses_vm_representation");
+
+class Sep() {}
+
+edge_eq("join_null_separator", ["a", "b"].join(null), "anullb");
+edge_eq("join_instance_separator", ["a", "b"].join(new Sep()), "aSepb");
+edge_eq("join_dict_separator", [1, 2].join({"k": 3}), "1{\"k\": 3}2");
+
+edge_finish("748_array_join_separator_uses_vm_representation");

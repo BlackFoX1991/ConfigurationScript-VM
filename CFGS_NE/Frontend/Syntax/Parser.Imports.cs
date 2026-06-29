@@ -28,7 +28,9 @@ namespace CFGS_VM.Analytic.Core
                     string file = _current.Filename;
 
                     Eat(TokenType.Ident);
-                    string path = Expect(TokenType.String, "expected string after 'import native'").Value?.ToString() ?? string.Empty;
+                    string path = RequirePlainStringTokenValue(
+                        Expect(TokenType.String, "expected string after 'import native'"),
+                        "import path");
                     Eat(TokenType.As);
                     Token aliasToken = Expect(TokenType.Ident, "expected identifier after 'as' in native import statement");
                     string alias = aliasToken.Value?.ToString() ?? string.Empty;
@@ -43,7 +45,7 @@ namespace CFGS_VM.Analytic.Core
                     int col = _current.Column;
                     string file = _current.Filename;
 
-                    string path = _current.Value?.ToString() ?? string.Empty;
+                    string path = RequirePlainStringTokenValue(_current, "import path");
                     Eat(TokenType.String);
                     stmts.Add(StampNode(new BareImportSyntaxStmt(path, line, col, file), importStartTokenIndex));
                 }
@@ -62,7 +64,9 @@ namespace CFGS_VM.Analytic.Core
                         throw new ParserException($"invalid symbol declaration name '{alias}'", aliasToken.Line, aliasToken.Column, aliasToken.Filename);
 
                     Eat(TokenType.From);
-                    string path = Expect(TokenType.String, "expected string after 'from' in import statement").Value?.ToString() ?? string.Empty;
+                    string path = RequirePlainStringTokenValue(
+                        Expect(TokenType.String, "expected string after 'from' in import statement"),
+                        "import path");
                     stmts.Add(StampNode(new NamespaceImportSyntaxStmt(alias, path, line, col, file), importStartTokenIndex));
                 }
                 else if (_current.Type == TokenType.LBrace)
@@ -107,7 +111,9 @@ namespace CFGS_VM.Analytic.Core
 
                     Eat(TokenType.RBrace);
                     Eat(TokenType.From);
-                    string path = Expect(TokenType.String, "expected string after 'from' in import statement").Value?.ToString() ?? string.Empty;
+                    string path = RequirePlainStringTokenValue(
+                        Expect(TokenType.String, "expected string after 'from' in import statement"),
+                        "import path");
                     stmts.Add(StampNode(new NamedImportSyntaxStmt(imports, path, line, col, file), importStartTokenIndex));
                 }
                 else if (_current.Type == TokenType.Ident)
@@ -128,7 +134,7 @@ namespace CFGS_VM.Analytic.Core
                     int line = _current.Line;
                     int col = _current.Column;
                     string file = _current.Filename;
-                    string path = _current.Value?.ToString() ?? string.Empty;
+                    string path = RequirePlainStringTokenValue(_current, "import path");
                     Eat(TokenType.String);
                     stmts.Add(StampNode(new DefaultImportSyntaxStmt(importName, path, line, col, file), importStartTokenIndex));
                 }

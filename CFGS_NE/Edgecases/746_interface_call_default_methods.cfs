@@ -1,0 +1,38 @@
+import "edge_assert.cfs";
+
+edge_begin("746_interface_call_default_methods");
+
+interface INamed {
+    property name { get; }
+
+    func label() {
+        return "name:" + this.name;
+    }
+}
+
+interface ITagged : INamed {
+}
+
+class NominalBox() : ITagged {
+    property name { get; } = "box";
+}
+
+class StructuralBox() {
+    property name { get; } = "shape";
+
+    func label() {
+        return "local:" + this.name;
+    }
+}
+
+var nominal = new NominalBox();
+edge_true("nominal_is_base", nominal is INamed);
+edge_true("nominal_is_derived", nominal is ITagged);
+edge_eq("nominal_interface_call_base_default", interface_call(nominal, INamed, "label"), "name:box");
+edge_eq("nominal_interface_call_derived_default", interface_call(nominal, ITagged, "label"), "name:box");
+
+var structural = new StructuralBox();
+edge_true("structural_is_named", structural is INamed);
+edge_eq("structural_interface_call_local_method", interface_call(structural, INamed, "label"), "local:shape");
+
+edge_finish("746_interface_call_default_methods");

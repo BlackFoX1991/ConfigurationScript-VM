@@ -114,6 +114,25 @@ namespace CFGS_VM.Analytic.Tree
         public string Value = v;
     }
 
+    public abstract class InterpolatedStringPart;
+
+    public sealed class InterpolatedStringTextPart(string v) : InterpolatedStringPart
+    {
+        public string Value = v;
+    }
+
+    public sealed class InterpolatedStringExprPart(Expr expr, int? alignment = null, string? format = null) : InterpolatedStringPart
+    {
+        public Expr Expression = expr;
+        public int? Alignment = alignment;
+        public string? Format = format;
+    }
+
+    public sealed class InterpolatedStringExpr(List<InterpolatedStringPart> parts, int line, int col, string fname) : Expr(line, col, fname)
+    {
+        public List<InterpolatedStringPart> Parts = parts;
+    }
+
     public class CharExpr(char v, int line, int col, string fname) : Expr(line, col, fname)
     {
         public char Value = v;

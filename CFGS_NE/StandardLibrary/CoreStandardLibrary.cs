@@ -7,6 +7,7 @@ using CFGS_VM.VMCore.Extensions;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Numerics;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -48,6 +49,66 @@ namespace CFGS_VM.StandardLibrary
             if (t == typeof(Dictionary<string, object>)) return "Dictionary";
             if (t == typeof(NamespaceBuiltinCallable)) return "BuiltinCallable";
             return t.Name;
+        }
+
+        private static string VmStringify(object? value)
+        {
+            using StringWriter writer = new();
+            PrintValue(value, writer);
+            return writer.ToString();
+        }
+
+        private static string VmStringArg(object? value) => VmStringify(value);
+
+        private static object NormalizeFormatArg(object? value) => value switch
+        {
+            null => "null",
+            string s => s,
+            bool b => b ? "true" : "false",
+            sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal or BigInteger or char or DateTime or DateTimeOffset or TimeSpan => value,
+            _ => VmStringify(value)
+        };
+
+        private static bool IsImplicitReceiverParameter(string name)
+            => string.Equals(name, "this", StringComparison.Ordinal) ||
+               string.Equals(name, "type", StringComparison.Ordinal);
+
+        private static int GetCallableExposedParameterCount(object callback, Instruction instr)
+        {
+            return callback switch
+            {
+                Closure closure => GetClosureExposedParameterCount(closure),
+                BoundMethod boundMethod => GetClosureExposedParameterCount(boundMethod.Function),
+                _ => throw new VMException(
+                    $"Runtime error: callback must be a function or bound method (got {callback?.GetType().Name ?? "null"})",
+                    instr.Line,
+                    instr.Col,
+                    instr.OriginFile,
+                    VM.IsDebugging,
+                    VM.DebugStream!)
+            };
+        }
+
+        private static int GetClosureExposedParameterCount(Closure closure)
+        {
+            int receiverOffset = closure.Parameters.Count > 0 && IsImplicitReceiverParameter(closure.Parameters[0]) ? 1 : 0;
+            return closure.Parameters.Count - receiverOffset;
+        }
+
+        private static object? InvokeCallbackSync(VM vm, object callback, List<object> args, Instruction instr)
+        {
+            return callback switch
+            {
+                Closure closure => vm.InvokeClosureSync(closure, args, instr),
+                BoundMethod boundMethod => vm.InvokeClosureSync(boundMethod.Function, args, instr, boundMethod.Receiver, boundMethod.DeclaringType),
+                _ => throw new VMException(
+                    $"Runtime error: callback must be a function or bound method (got {callback?.GetType().Name ?? "null"})",
+                    instr.Line,
+                    instr.Col,
+                    instr.OriginFile,
+                    VM.IsDebugging,
+                    VM.DebugStream!)
+            };
         }
 
         public static void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
@@ -884,8 +945,7 @@ namespace CFGS_VM.StandardLibrary
 
             builtins.Register(new BuiltinDescriptor("str", 1, 1, (args, instr) =>
             {
-                if (args[0] is null) return null!;
-                return args[0].ToString() ?? "";
+                return VmStringify(args[0]);
             }));
             builtins.Register(new BuiltinDescriptor("format", 1, int.MaxValue, (args, instr) =>
             {
@@ -895,17 +955,16 @@ namespace CFGS_VM.StandardLibrary
                     return format;
                 var fmtArgs = new object[args.Count - 1];
                 for (int i = 1; i < args.Count; i++)
-                    fmtArgs[i - 1] = args[i];
+                    fmtArgs[i - 1] = NormalizeFormatArg(args[i]);
 
-                return string.Format(format, fmtArgs);
+                return string.Format(CultureInfo.InvariantCulture, format, fmtArgs);
             }));
 
 
 
             builtins.Register(new BuiltinDescriptor("string", 1, 1, (args, instr) =>
             {
-                if (args[0] is null) return null!;
-                return args[0].ToString() ?? "";
+                return VmStringify(args[0]);
             }));
 
             builtins.Register(new BuiltinDescriptor("int", 1, 1, (args, instr) =>
@@ -1134,7 +1193,11 @@ namespace CFGS_VM.StandardLibrary
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("len", 0, 0, (recv, a, i) => ((string)(recv ?? ""))!.Length));
-            intrinsics.Register(T, new IntrinsicDescriptor("contains", 1, 1, (recv, a, i) => ((string)(recv ?? ""))!.Contains(a[0].ToString()! ?? "")));
+            intrinsics.Register(T, new IntrinsicDescriptor("contains", 1, 1, (recv, a, i) =>
+            {
+                string s = recv?.ToString() ?? "";
+                return s.Contains(VmStringArg(a[0]), StringComparison.Ordinal);
+            }));
             intrinsics.Register(T, new IntrinsicDescriptor("substr", 2, 2, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
@@ -1161,7 +1224,7 @@ namespace CFGS_VM.StandardLibrary
                 string s = recv?.ToString() ?? "";
                 int len = s.Length;
                 (int st, int ex) = NormalizeSliceBounds(a[0], a[1], len);
-                string repl = a[2]?.ToString() ?? "";
+                string repl = VmStringArg(a[2]);
                 return s.Substring(0, st) + repl + s.Substring(ex);
             }));
 
@@ -1175,22 +1238,21 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("replace", 2, 2, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
-                if (a[0] is not string || a[1] is not string) return s;
-                return s.Replace((string)a[0], (string)a[1]);
+                return s.Replace(VmStringArg(a[0]), VmStringArg(a[1]), StringComparison.Ordinal);
             }));
             intrinsics.Register(T, new IntrinsicDescriptor("insert_at", 2, 2, (recv, a, instr) =>
             {
                 string s = recv?.ToString() ?? "";
                 int len = s.Length;
                 int idx = ClampIndex(Convert.ToInt32(a[0]), len);
-                string repl = a[1]?.ToString() ?? "";
+                string repl = VmStringArg(a[1]);
                 return s.Substring(0, idx) + repl + s.Substring(idx);
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("split", 1, 1, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
-                string sep = a[0]?.ToString() ?? "";
+                string sep = VmStringArg(a[0]);
                 if (sep.Length == 0)
                     return s.Select(c => (object)c.ToString()).ToList();
                 return s.Split(sep).Select(p => (object)p).ToList();
@@ -1199,29 +1261,29 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("startsWith", 1, 1, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
-                string prefix = a[0]?.ToString() ?? "";
-                return s.StartsWith(prefix);
+                string prefix = VmStringArg(a[0]);
+                return s.StartsWith(prefix, StringComparison.Ordinal);
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("endsWith", 1, 1, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
-                string suffix = a[0]?.ToString() ?? "";
-                return s.EndsWith(suffix);
+                string suffix = VmStringArg(a[0]);
+                return s.EndsWith(suffix, StringComparison.Ordinal);
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("indexOf", 1, 1, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
-                string needle = a[0]?.ToString() ?? "";
-                return s.IndexOf(needle);
+                string needle = VmStringArg(a[0]);
+                return s.IndexOf(needle, StringComparison.Ordinal);
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("lastIndexOf", 1, 1, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
-                string needle = a[0]?.ToString() ?? "";
-                return s.LastIndexOf(needle);
+                string needle = VmStringArg(a[0]);
+                return s.LastIndexOf(needle, StringComparison.Ordinal);
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("repeat", 1, 1, (recv, a, i) =>
@@ -1235,7 +1297,7 @@ namespace CFGS_VM.StandardLibrary
             {
                 string s = recv?.ToString() ?? "";
                 int totalWidth = Convert.ToInt32(a[0]);
-                char padChar = (a[1]?.ToString() ?? " ").FirstOrDefault(' ');
+                char padChar = VmStringArg(a[1]).FirstOrDefault(' ');
                 return s.PadLeft(totalWidth, padChar);
             }));
 
@@ -1243,7 +1305,7 @@ namespace CFGS_VM.StandardLibrary
             {
                 string s = recv?.ToString() ?? "";
                 int totalWidth = Convert.ToInt32(a[0]);
-                char padChar = (a[1]?.ToString() ?? " ").FirstOrDefault(' ');
+                char padChar = VmStringArg(a[1]).FirstOrDefault(' ');
                 return s.PadRight(totalWidth, padChar);
             }));
         }
@@ -1368,8 +1430,8 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("join", 1, 1, (recv, a, i) =>
             {
                 List<object> arr = SnapshotMutableList((List<object>)recv);
-                string sep = a[0]?.ToString() ?? "";
-                return string.Join(sep, arr.Select(x => x?.ToString() ?? ""));
+                string sep = VmStringify(a[0]);
+                return string.Join(sep, arr.Select(VmStringify));
             }));
 
             intrinsics.Register(T, new IntrinsicDescriptor("flat", 0, 1, (recv, a, instr) =>
@@ -1382,15 +1444,16 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("map", 1, 1, (recv, a, instr) =>
             {
                 List<object> arr = SnapshotMutableList((List<object>)recv);
-                Closure fn = (Closure)a[0];
+                object callback = a[0];
                 VM vm = VM.CurrentVm!;
                 List<object> result = new(arr.Count);
+                bool passIndex = GetCallableExposedParameterCount(callback, instr) >= 2;
                 for (int idx = 0; idx < arr.Count; idx++)
                 {
-                    List<object> cbArgs = fn.Parameters.Count >= 2
+                    List<object> cbArgs = passIndex
                         ? new List<object> { arr[idx], idx }
                         : new List<object> { arr[idx] };
-                    result.Add(vm.InvokeClosureSync(fn, cbArgs, instr)!);
+                    result.Add(InvokeCallbackSync(vm, callback, cbArgs, instr)!);
                 }
                 return result;
             }));
@@ -1398,15 +1461,16 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("filter", 1, 1, (recv, a, instr) =>
             {
                 List<object> arr = SnapshotMutableList((List<object>)recv);
-                Closure fn = (Closure)a[0];
+                object callback = a[0];
                 VM vm = VM.CurrentVm!;
                 List<object> result = new();
+                bool passIndex = GetCallableExposedParameterCount(callback, instr) >= 2;
                 for (int idx = 0; idx < arr.Count; idx++)
                 {
-                    List<object> cbArgs = fn.Parameters.Count >= 2
+                    List<object> cbArgs = passIndex
                         ? new List<object> { arr[idx], idx }
                         : new List<object> { arr[idx] };
-                    object? val = vm.InvokeClosureSync(fn, cbArgs, instr);
+                    object? val = InvokeCallbackSync(vm, callback, cbArgs, instr);
                     if (val is true) result.Add(arr[idx]);
                 }
                 return result;
@@ -1415,12 +1479,12 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("reduce", 2, 2, (recv, a, instr) =>
             {
                 List<object> arr = SnapshotMutableList((List<object>)recv);
-                Closure fn = (Closure)a[0];
+                object callback = a[0];
                 object accumulator = a[1];
                 VM vm = VM.CurrentVm!;
                 foreach (object item in arr)
                 {
-                    accumulator = vm.InvokeClosureSync(fn, new List<object> { accumulator, item }, instr)!;
+                    accumulator = InvokeCallbackSync(vm, callback, new List<object> { accumulator, item }, instr)!;
                 }
                 return accumulator;
             }));
@@ -1428,14 +1492,15 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("find", 1, 1, (recv, a, instr) =>
             {
                 List<object> arr = SnapshotMutableList((List<object>)recv);
-                Closure fn = (Closure)a[0];
+                object callback = a[0];
                 VM vm = VM.CurrentVm!;
+                bool passIndex = GetCallableExposedParameterCount(callback, instr) >= 2;
                 for (int idx = 0; idx < arr.Count; idx++)
                 {
-                    List<object> cbArgs = fn.Parameters.Count >= 2
+                    List<object> cbArgs = passIndex
                         ? new List<object> { arr[idx], idx }
                         : new List<object> { arr[idx] };
-                    object? val = vm.InvokeClosureSync(fn, cbArgs, instr);
+                    object? val = InvokeCallbackSync(vm, callback, cbArgs, instr);
                     if (val is true) return arr[idx];
                 }
                 return null!;
@@ -1444,14 +1509,15 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("findIndex", 1, 1, (recv, a, instr) =>
             {
                 List<object> arr = SnapshotMutableList((List<object>)recv);
-                Closure fn = (Closure)a[0];
+                object callback = a[0];
                 VM vm = VM.CurrentVm!;
+                bool passIndex = GetCallableExposedParameterCount(callback, instr) >= 2;
                 for (int idx = 0; idx < arr.Count; idx++)
                 {
-                    List<object> cbArgs = fn.Parameters.Count >= 2
+                    List<object> cbArgs = passIndex
                         ? new List<object> { arr[idx], idx }
                         : new List<object> { arr[idx] };
-                    object? val = vm.InvokeClosureSync(fn, cbArgs, instr);
+                    object? val = InvokeCallbackSync(vm, callback, cbArgs, instr);
                     if (val is true) return idx;
                 }
                 return -1;
@@ -1460,11 +1526,11 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("every", 1, 1, (recv, a, instr) =>
             {
                 List<object> arr = SnapshotMutableList((List<object>)recv);
-                Closure fn = (Closure)a[0];
+                object callback = a[0];
                 VM vm = VM.CurrentVm!;
                 foreach (object item in arr)
                 {
-                    object? val = vm.InvokeClosureSync(fn, new List<object> { item }, instr);
+                    object? val = InvokeCallbackSync(vm, callback, new List<object> { item }, instr);
                     if (val is not true) return false;
                 }
                 return true;
@@ -1473,11 +1539,11 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("some", 1, 1, (recv, a, instr) =>
             {
                 List<object> arr = SnapshotMutableList((List<object>)recv);
-                Closure fn = (Closure)a[0];
+                object callback = a[0];
                 VM vm = VM.CurrentVm!;
                 foreach (object item in arr)
                 {
-                    object? val = vm.InvokeClosureSync(fn, new List<object> { item }, instr);
+                    object? val = InvokeCallbackSync(vm, callback, new List<object> { item }, instr);
                     if (val is true) return true;
                 }
                 return false;

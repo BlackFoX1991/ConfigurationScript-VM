@@ -1389,6 +1389,7 @@ internal static class CfgsAstFormatter
                 NullExpr => "null",
                 NumberExpr number => FormatNumber(number.Value),
                 StringExpr str => FormatStringLiteral(str.Value),
+                InterpolatedStringExpr interpolated => FormatInterpolatedString(interpolated),
                 CharExpr ch => FormatCharLiteral(ch.Value),
                 BoolExpr boolean => boolean.Value ? "true" : "false",
                 VarExpr variable => variable.Name,
@@ -1893,6 +1894,81 @@ internal static class CfgsAstFormatter
             }
             sb.Append('"');
             return sb.ToString();
+        }
+
+        private string FormatInterpolatedString(InterpolatedStringExpr expr)
+        {
+            StringBuilder sb = new();
+            sb.Append('$');
+            sb.Append('"');
+
+            foreach (InterpolatedStringPart part in expr.Parts)
+            {
+                switch (part)
+                {
+                    case InterpolatedStringTextPart textPart:
+                        foreach (char ch in textPart.Value)
+                        {
+                            switch (ch)
+                            {
+                                case '{':
+                                    sb.Append("{{");
+                                    break;
+                                case '}':
+                                    sb.Append("}}");
+                                    break;
+                                case '\\':
+                                    sb.Append("\\\\");
+                                    break;
+                                case '"':
+                                    sb.Append("\\\"");
+                                    break;
+                                case '\n':
+                                    sb.Append("\\n");
+                                    break;
+                                case '\r':
+                                    sb.Append("\\r");
+                                    break;
+                                case '\t':
+                                    sb.Append("\\t");
+                                    break;
+                                default:
+                                    if (char.IsControl(ch))
+                                        sb.Append($"\\u{(int)ch:x4}");
+                                    else
+                                        sb.Append(ch);
+                                    break;
+                            }
+                        }
+                        break;
+                    case InterpolatedStringExprPart exprPart:
+                        sb.Append('{');
+                        sb.Append(FormatInterpolatedExpression(exprPart.Expression));
+                        if (exprPart.Alignment.HasValue)
+                        {
+                            sb.Append(',');
+                            sb.Append(exprPart.Alignment.Value.ToString(CultureInfo.InvariantCulture));
+                        }
+
+                        if (exprPart.Format is not null)
+                        {
+                            sb.Append(':');
+                            sb.Append(exprPart.Format);
+                        }
+
+                        sb.Append('}');
+                        break;
+                }
+            }
+
+            sb.Append('"');
+            return sb.ToString();
+        }
+
+        private string FormatInterpolatedExpression(Expr expr)
+        {
+            string formatted = FormatExpr(expr);
+            return expr is ConditionalExpr ? $"({formatted})" : formatted;
         }
 
         private static string FormatCharLiteral(char value)

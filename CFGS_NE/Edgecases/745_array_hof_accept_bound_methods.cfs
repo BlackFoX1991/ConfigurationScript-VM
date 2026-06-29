@@ -1,0 +1,85 @@
+import "edge_assert.cfs";
+
+edge_begin("745_array_hof_accept_bound_methods");
+
+class Worker(seed) {
+    var bias = 0;
+
+    func init(seed) {
+        this.bias = seed;
+    }
+
+    func add(value) {
+        return value + this.bias;
+    }
+
+    func annotate(value, index) {
+        return str(index) + ":" + str(value + this.bias);
+    }
+
+    func keep(value, index) {
+        return value + this.bias + index == 13;
+    }
+
+    func accumulate(acc, value) {
+        return acc + value + this.bias;
+    }
+
+    func isAtLeast(value) {
+        return value + this.bias >= 11;
+    }
+
+    func isAtLeastThirteen(value) {
+        return value + this.bias >= 13;
+    }
+}
+
+class Base(seed) {
+    var bias = 0;
+
+    func init(seed) {
+        this.bias = seed;
+    }
+
+    func addBase(value) {
+        return value + this.bias;
+    }
+}
+
+class Derived(seed) : Base(seed) {
+    func init(seed) {
+        super.init(7);
+    }
+
+    func getSuperAdder() {
+        return super.addBase;
+    }
+}
+
+var values = [1, 2, 3];
+var worker = new Worker(10);
+
+var mapped = values.map(worker.add);
+edge_eq("map_bound_method_0", mapped[0], 11);
+edge_eq("map_bound_method_2", mapped[2], 13);
+
+var annotated = values.map(worker.annotate);
+edge_eq("map_bound_method_index_0", annotated[0], "0:11");
+edge_eq("map_bound_method_index_2", annotated[2], "2:13");
+
+var filtered = values.filter(worker.keep);
+edge_eq("filter_bound_method_len", len(filtered), 1);
+edge_eq("filter_bound_method_value", filtered[0], 2);
+
+edge_eq("reduce_bound_method", values.reduce(worker.accumulate, 0), 36);
+edge_eq("find_bound_method", values.find(worker.keep), 2);
+edge_eq("find_index_bound_method", values.findIndex(worker.keep), 1);
+edge_true("every_bound_method", values.every(worker.isAtLeast));
+edge_true("some_bound_method", values.some(worker.isAtLeastThirteen));
+
+var derived = new Derived(0);
+var viaSuper = [1, 2].map(derived.getSuperAdder());
+edge_eq("super_bound_method_map_0", viaSuper[0], 8);
+edge_eq("super_bound_method_map_1", viaSuper[1], 9);
+
+edge_finish("745_array_hof_accept_bound_methods");

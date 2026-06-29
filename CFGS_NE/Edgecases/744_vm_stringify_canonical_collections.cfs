@@ -1,0 +1,20 @@
+import "edge_assert.cfs";
+
+edge_begin("744_vm_stringify_canonical_collections");
+
+var dict = {};
+dict["b"] = 2;
+dict["a"] = 1;
+
+edge_eq("str_dict_sorted", str(dict), "{\"a\": 1, \"b\": 2}");
+edge_eq("join_dict_sorted", [dict].join("|"), "{\"a\": 1, \"b\": 2}");
+
+var cycleList = [];
+cycleList.push(cycleList);
+edge_eq("str_list_cycle", str(cycleList), "[[...]]");
+
+var cycleDict = {};
+cycleDict["self"] = cycleDict;
+edge_eq("str_dict_cycle", str(cycleDict), "{\"self\": {...}}");
+
+edge_finish("744_vm_stringify_canonical_collections");

@@ -1,0 +1,12 @@
+import "edge_assert.cfs";
+
+edge_begin("743_array_join_uses_vm_representation");
+
+class Box() {}
+
+var parts = [null, [1, 2], {"a": 1}, new Box(), true, 3];
+var joined = parts.join("|");
+
+edge_eq("join_vm_rendering", joined, "null|[1, 2]|{\"a\": 1}|Box|true|3");
+
+edge_finish("743_array_join_uses_vm_representation");

@@ -1,0 +1,14 @@
+import "edge_assert.cfs";
+
+edge_begin("750_format_builtin_uses_vm_representation");
+
+class Box() {}
+
+edge_eq("format_null", format("{0}", null), "null");
+edge_eq("format_array", format("{0}", [1, 2]), "[1, 2]");
+edge_eq("format_dict", format("{0}", {"a": 1}), "{\"a\": 1}");
+edge_eq("format_instance", format("{0}", new Box()), "Box");
+edge_eq("format_mixed", format("{0}|{1}", null, new Box()), "null|Box");
+edge_eq("format_double_invariant", format("{0:F1}", 1.5), "1.5");
+
+edge_finish("750_format_builtin_uses_vm_representation");

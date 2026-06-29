@@ -1,0 +1,32 @@
+import "edge_assert.cfs";
+
+edge_begin("751_verbatim_and_interpolated_strings");
+
+class Box() {}
+
+const name = "cfgs";
+const greeting = $"hello {name}";
+
+var path = @"C:\temp\folder\file.txt";
+var quoted = @"say ""hi""";
+var sum = $"sum={1 + 2}";
+var braces = $"{{{name}}}";
+var dict = {"a": 1};
+var interpolatedDict = $"dict={dict}";
+var interpolatedBox = $"box={new Box()}";
+var verbatimInterpolated = $@"C:\{name}\logs";
+var altVerbatimInterpolated = @$"{name}\tail";
+var ternary = $"pick={(true ? "x" : "y")}";
+
+edge_eq("verbatim_path", path, "C:\\temp\\folder\\file.txt");
+edge_eq("verbatim_quotes", quoted, "say \"hi\"");
+edge_eq("interpolated_const_initializer", greeting, "hello cfgs");
+edge_eq("interpolated_sum", sum, "sum=3");
+edge_eq("interpolated_braces", braces, "{cfgs}");
+edge_eq("interpolated_dict_vm_stringify", interpolatedDict, "dict={\"a\": 1}");
+edge_eq("interpolated_box_vm_stringify", interpolatedBox, "box=Box");
+edge_eq("interpolated_verbatim_prefix_dollar_at", verbatimInterpolated, "C:\\cfgs\\logs");
+edge_eq("interpolated_verbatim_prefix_at_dollar", altVerbatimInterpolated, "cfgs\\tail");
+edge_eq("interpolated_nested_expression", ternary, "pick=x");
+
+edge_finish("751_verbatim_and_interpolated_strings");

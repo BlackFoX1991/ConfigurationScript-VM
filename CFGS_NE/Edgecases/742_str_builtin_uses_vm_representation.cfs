@@ -1,0 +1,17 @@
+import "edge_assert.cfs";
+
+# str(...) should expose the canonical VM representation, not raw CLR ToString()
+# defaults or a null return value.
+
+edge_begin("742_str_builtin_uses_vm_representation");
+
+class Box() { }
+
+edge_eq("str_null", str(null), "null");
+edge_eq("str_array", str([1, 2]), "[1, 2]");
+edge_eq("str_dict", str({"a": 1}), "{\"a\": 1}");
+edge_eq("str_instance", str(new Box()), "Box");
+edge_eq("string_null", string(null), "null");
+edge_eq("string_instance", string(new Box()), "Box");
+
+edge_finish("742_str_builtin_uses_vm_representation");

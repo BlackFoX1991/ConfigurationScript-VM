@@ -1,0 +1,70 @@
+import "edge_assert.cfs";
+
+edge_begin("753_interpolated_string_oop_dispatch");
+
+interface IRunner {
+    func run(step);
+}
+
+class Base(seed) {
+    var value = 0;
+
+    func init(seed) {
+        this.value = seed;
+    }
+
+    func add(step) {
+        this.value = this.value + step;
+        return this.value;
+    }
+}
+
+class Derived(seed) : Base(seed), IRunner {
+    func init(seed) {
+        super.init(seed);
+        this.value = this.value + 1;
+    }
+
+    func run(step) {
+        return this.add(step * 2);
+    }
+
+    func viaSuper(step) {
+        return $"super={super.add(step)}";
+    }
+
+    func viaSuperBound(step) {
+        var addBase = super.add;
+        return $"super-bound={addBase(step)}";
+    }
+
+    func viaBound(step) {
+        var add = this.add;
+        return $"bound={add(step)}";
+    }
+
+    func viaInterface(step) {
+        return $"iface={interface_call(this, IRunner, "run", [step])}";
+    }
+
+    func snapshot(step) {
+        return $"mix={this.value + super.add(step) + interface_call(this, IRunner, "run", [1])}";
+    }
+}
+
+var superCase = new Derived(10);
+var superBoundCase = new Derived(10);
+var boundCase = new Derived(10);
+var ifaceCase = new Derived(10);
+var mixedCase = new Derived(10);
+var externalCase = new Derived(10);
+var externalRun = externalCase.run;
+
+edge_eq("super_call_in_interpolation", superCase.viaSuper(3), "super=14");
+edge_eq("super_bound_in_interpolation", superBoundCase.viaSuperBound(5), "super-bound=16");
+edge_eq("bound_method_in_interpolation", boundCase.viaBound(2), "bound=13");
+edge_eq("interface_call_in_interpolation", ifaceCase.viaInterface(4), "iface=19");
+edge_eq("mixed_dispatch_arithmetic_in_interpolation", mixedCase.snapshot(2), "mix=39");
+edge_eq("external_bound_method_interpolation", $"ext={externalRun(3)}", "ext=17");
+
+edge_finish("753_interpolated_string_oop_dispatch");

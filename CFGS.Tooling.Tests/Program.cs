@@ -1627,7 +1627,8 @@ func simpleRegression() {
 
     private static void NullConcatenatesAsNull()
     {
-        // C2: null in '+' string concatenation renders as "null", consistent with str(null)/print(null).
+        // C2: null contributes an empty string in '+' concatenation (C#-style string concat),
+        // while str(null)/print(null) still render "null".
         CfgsScriptEngine engine = new()
         {
             WorkingDirectory = Environment.CurrentDirectory,
@@ -1641,8 +1642,8 @@ func concatNulls() {
 """);
 
         script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
-        AssertEqual("xnull|nully|anullb|null", script.InvokeAsync<string>("concatNulls").GetAwaiter().GetResult() ?? "",
-            "null must concatenate as \"null\" (C2)");
+        AssertEqual("x|y|ab|", script.InvokeAsync<string>("concatNulls").GetAwaiter().GetResult() ?? "",
+            "null must concatenate as an empty string (C2)");
     }
 
     private static void ShiftsPromoteInsteadOfMasking()

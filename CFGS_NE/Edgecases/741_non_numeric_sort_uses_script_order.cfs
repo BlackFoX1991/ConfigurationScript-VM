@@ -1,0 +1,30 @@
+import "edge_assert.cfs";
+
+# Non-numeric rank-4 values should sort by their script-visible representation,
+# not by leaking CLR ToString() defaults or treating distinct values as equal.
+
+edge_begin("741_non_numeric_sort_uses_script_order");
+
+class A() { }
+class B() { }
+
+var objects = [new B(), new A()];
+objects.sort();
+edge_eq("sort_classes_visible_order", "" + objects, "[A, B]");
+
+var lists = [[2], [1]];
+lists.sort();
+edge_eq("sort_lists_first", lists[0][0], 1);
+edge_eq("sort_lists_second", lists[1][0], 2);
+
+var dicts = [{"b": 1}, {"a": 1}];
+dicts.sort();
+edge_eq("sort_dicts_first", dicts[0]["a"], 1);
+edge_eq("sort_dicts_second", dicts[1]["b"], 1);
+
+var minObj = math.min(new B(), new A());
+var maxObj = math.max(new B(), new A());
+edge_eq("math_min_class_visible_order", "" + [minObj], "[A]");
+edge_eq("math_max_class_visible_order", "" + [maxObj], "[B]");
+
+edge_finish("741_non_numeric_sort_uses_script_order");
