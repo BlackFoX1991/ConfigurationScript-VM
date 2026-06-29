@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
+using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
 
 namespace CFGS.Lsp;
@@ -1081,7 +1082,10 @@ internal sealed class CfgsSemanticModelBuilder
 
             case BinaryExpr binaryExpr:
                 VisitExpr(binaryExpr.Left, scope);
-                VisitExpr(binaryExpr.Right, scope);
+                if (binaryExpr.Op == TokenType.Is)
+                    VisitTypeContextExpr(binaryExpr.Right, scope);
+                else
+                    VisitExpr(binaryExpr.Right, scope);
                 return;
 
             case UnaryExpr unaryExpr:
@@ -1218,8 +1222,15 @@ internal sealed class CfgsSemanticModelBuilder
                     RecordCallSite(callExpr.Target, scope);
                     TryRecordCallableOccurrence(callExpr.Target, scope);
                 }
-                foreach (Expr arg in callExpr.Args)
-                    VisitExpr(arg, scope);
+                int? typeContextArgIndex = TryGetBuiltinTypeContextArgumentIndex(callExpr);
+                for (int i = 0; i < callExpr.Args.Count; i++)
+                {
+                    Expr arg = callExpr.Args[i];
+                    if (typeContextArgIndex == i)
+                        VisitTypeContextExpr(arg, scope);
+                    else
+                        VisitExpr(arg, scope);
+                }
                 return;
 
             case ObjectInitExpr objectInitExpr:
@@ -1939,6 +1950,27 @@ internal sealed class CfgsSemanticModelBuilder
             AddOccurrence(symbol!, line, column, originFile, typeName, isDeclaration: false);
     }
 
+    private void VisitTypeContextExpr(Expr expr, SemanticScope scope)
+    {
+        if (TryRecordQualifiedTypePath(expr, scope))
+            return;
+
+        VisitExpr(expr, scope);
+    }
+
+    private static int? TryGetBuiltinTypeContextArgumentIndex(CallExpr callExpr)
+    {
+        if (callExpr.Target is not VarExpr target)
+            return null;
+
+        return target.Name switch
+        {
+            "implements" when callExpr.Args.Count >= 2 => 1,
+            "interface_call" when callExpr.Args.Count >= 2 => 1,
+            _ => null
+        };
+    }
+
     private void RecordQualifiedMemberReference(Expr target, string memberName, int line, int column, string originFile, SemanticScope scope)
     {
         foreach (CfgsSymbol symbol in ResolveMemberSymbols(TryResolveContainerAccessPaths(target, scope), memberName))
@@ -1965,7 +1997,7 @@ internal sealed class CfgsSemanticModelBuilder
             return true;
         }
 
-        if (scope.TryResolve(typeName, out CfgsSymbol? scoped) && scoped!.Kind is 5 or 10 or 11)
+        if (scope.TryResolveWhere(typeName, static candidate => candidate.Kind is 5 or 10 or 11, out CfgsSymbol? scoped))
         {
             symbol = scoped;
             return true;
@@ -3584,6 +3616,14 @@ internal sealed class CfgsSemanticModelBuilder
                 return true;
 
             return Parent is not null && Parent.TryResolve(name, out symbol);
+        }
+
+        public bool TryResolveWhere(string name, Func<CfgsSymbol, bool> predicate, out CfgsSymbol? symbol)
+        {
+            if (_symbols.TryGetValue(name, out symbol) && predicate(symbol))
+                return true;
+
+            return Parent is not null && Parent.TryResolveWhere(name, predicate, out symbol);
         }
 
         public bool TryGetResolvedValueType(string name, out string? valueTypeQualifiedName)

@@ -1,0 +1,24 @@
+import "edge_assert.cfs";
+import "758_multifile_same_namespace_hidden_type_positions_valid_contracts.cfs";
+
+edge_begin("758_multifile_same_namespace_hidden_type_positions_valid");
+
+namespace Wave6.Hidden.Local {
+    class Entity() : BaseEntity(), ILocalContract {
+        func ILocalContract.tag() {
+            return this.kind();
+        }
+    }
+
+    func runChecks() {
+        var entity = new Entity();
+        edge_eq("same_namespace_hidden_base", entity.kind(), "hidden-base");
+        edge_true("same_namespace_hidden_interface", entity is ILocalContract);
+        edge_eq("same_namespace_hidden_interface_call", interface_call(entity, ILocalContract, "tag"), "hidden-base");
+        return 1;
+    }
+}
+
+Wave6.Hidden.Local.runChecks();
+
+edge_finish("758_multifile_same_namespace_hidden_type_positions_valid");

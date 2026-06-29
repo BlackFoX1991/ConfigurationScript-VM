@@ -1,0 +1,8 @@
+namespace Wave6.Hidden.Shared {
+    private interface ILocalContract {
+        func tag();
+    }
+
+    protected class BaseEntity() {
+    }
+}

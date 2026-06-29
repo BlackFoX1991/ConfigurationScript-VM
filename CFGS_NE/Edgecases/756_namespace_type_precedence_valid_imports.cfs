@@ -1,0 +1,15 @@
+namespace Wave6.Imported {
+    interface IModel {
+        property importedId { get; }
+    }
+
+    interface IRunner {
+        func run(value);
+    }
+
+    class BaseModel() {
+        func kind() {
+            return "import-base";
+        }
+    }
+}

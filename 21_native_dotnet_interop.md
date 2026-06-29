@@ -19,7 +19,7 @@ func main() {
 
 The alias after `as` becomes the root object for the imported assembly.
 
-The path is resolved like other local imports. Simple DLL names can be found in the script directory, restored `.cfgs/plugins` directories, the current working directory, the application directory, or `plugins` below the application directory.
+The path is resolved like other local imports. Simple DLL names can be found in the script directory, restored `.cfgs/plugins` directories, the current working directory, the application directory, or `plugins` below the application directory. The process `PATH` environment variable is not consulted.
 
 ## Type and Namespace Access
 

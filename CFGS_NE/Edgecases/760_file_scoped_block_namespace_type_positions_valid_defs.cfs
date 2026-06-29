@@ -1,0 +1,21 @@
+namespace Mixed.Model;
+
+interface INode {
+    property label { get; }
+
+    func read() {
+        return this.label;
+    }
+}
+
+class BaseNode(prefix) {
+    var prefix = "";
+
+    func init(prefix) {
+        this.prefix = prefix;
+    }
+
+    func stamp() {
+        return this.prefix;
+    }
+}

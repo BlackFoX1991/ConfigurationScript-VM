@@ -1,0 +1,5 @@
+namespace Wave6.Ambiguous.Right {
+    interface INode {
+        property right { get; }
+    }
+}

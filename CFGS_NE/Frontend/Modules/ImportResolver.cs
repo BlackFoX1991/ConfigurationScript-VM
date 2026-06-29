@@ -129,7 +129,7 @@ namespace CFGS_VM.Analytic.Modules
             if (resolvedPath is null)
             {
                 throw new ParserException(
-                    $"plugin dll not found '{rawPath}' (searched script dir, working dir, exe dir)",
+                    $"plugin dll not found '{rawPath}' ({SourceResolver.LocalImportSearchDescription})",
                     line,
                     col,
                     sourceFileName);

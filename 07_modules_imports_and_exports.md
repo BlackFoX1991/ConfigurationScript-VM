@@ -117,8 +117,11 @@ Relative and simple module paths are searched in this order.
 3. The current working directory.
 4. The nearest package restore directory found from the current working directory.
 5. The directory of the running CLI.
+6. The `plugins` directory below the running CLI.
 
 This applies to both `.cfs` and `.dll`.
+
+The process `PATH` environment variable is not consulted for CFGS imports.
 
 Package restore lets scripts import restored plugins by DLL file name.
 

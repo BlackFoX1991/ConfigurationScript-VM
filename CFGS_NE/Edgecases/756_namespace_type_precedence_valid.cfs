@@ -1,0 +1,38 @@
+import "edge_assert.cfs";
+import "756_namespace_type_precedence_valid_imports.cfs";
+
+use Wave6.Imported;
+
+edge_begin("756_namespace_type_precedence_valid");
+
+namespace Wave6.Local {
+    interface IModel {
+        property id { get; }
+    }
+
+    interface IRunner {
+        func run();
+    }
+
+    class BaseModel() {
+        func kind() {
+            return "local-base";
+        }
+    }
+
+    class UserModel() : BaseModel(), IModel, IRunner {
+        property id { get; } = 11;
+
+        func IRunner.run() {
+            return this.kind() + ":" + str(this.id);
+        }
+    }
+}
+
+var model = new Wave6.Local.UserModel();
+edge_true("local_model_contract", model is Wave6.Local.IModel);
+edge_true("local_runner_contract", model is Wave6.Local.IRunner);
+edge_eq("local_base_precedence", model.kind(), "local-base");
+edge_eq("local_explicit_interface_precedence", interface_call(model, Wave6.Local.IRunner, "run"), "local-base:11");
+
+edge_finish("756_namespace_type_precedence_valid");

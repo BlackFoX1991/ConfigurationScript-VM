@@ -1,0 +1,13 @@
+import "759_sibling_namespace_hidden_type_access_defs.cfs";
+
+use Wave6.Hidden.Shared;
+
+namespace Wave6.Hidden.Other {
+    class Wrong() : BaseEntity(), ILocalContract {
+        func ILocalContract.tag() {
+            return "bad";
+        }
+    }
+}
+
+var wrong = new Wave6.Hidden.Other.Wrong();

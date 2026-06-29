@@ -421,6 +421,8 @@ Import resolution searches documented locations in order:
 5. the directory of the running CLI executable
 6. the `plugins` directory below the running CLI executable
 
+The process `PATH` environment variable is not consulted for import resolution.
+
 Exported declarations define the public import surface of a module.
 
 Importing hidden or non-exported symbols MUST fail.

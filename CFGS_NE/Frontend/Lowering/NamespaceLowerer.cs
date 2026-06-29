@@ -65,9 +65,10 @@ namespace CFGS_VM.Analytic.Lowering
                 new VarDecl(namespaceTemp, namespaceExpr, stmt.Line, stmt.Col, stmt.OriginFile)
             };
 
-            scopedBody.AddRange(stmt.BodyStatements);
             foreach (Stmt bodyStmt in stmt.BodyStatements)
             {
+                scopedBody.Add(bodyStmt);
+
                 if (!TryGetNamedTopLevel(bodyStmt, out string? name) || string.IsNullOrWhiteSpace(name))
                     continue;
 

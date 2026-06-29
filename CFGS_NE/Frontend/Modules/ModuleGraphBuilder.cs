@@ -109,7 +109,7 @@ namespace CFGS_VM.Analytic.Modules
             if (resolvedPath is null)
             {
                 throw new ParserException(
-                    $"import path not found '{path}' (searched script dir, working dir, exe dir)",
+                    $"import path not found '{path}' ({SourceResolver.LocalImportSearchDescription})",
                     line,
                     col,
                     sourceFileName);

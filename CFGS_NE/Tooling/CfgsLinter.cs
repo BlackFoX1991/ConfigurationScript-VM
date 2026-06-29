@@ -739,8 +739,15 @@ internal static class CfgsLinter
                         VisitExpr(c.Target);
                     }
 
-                    foreach (Expr arg in c.Args)
-                        VisitExpr(arg);
+                    int? typeContextArgIndex = TryGetBuiltinTypeContextArgumentIndex(c);
+                    for (int i = 0; i < c.Args.Count; i++)
+                    {
+                        Expr arg = c.Args[i];
+                        if (typeContextArgIndex == i)
+                            VisitTypeContextExpr(arg);
+                        else
+                            VisitExpr(arg);
+                    }
                     break;
 
                 case MethodCallExpr m:
@@ -751,7 +758,10 @@ internal static class CfgsLinter
 
                 case BinaryExpr b:
                     VisitExpr(b.Left);
-                    VisitExpr(b.Right);
+                    if (b.Op == TokenType.Is)
+                        VisitTypeContextExpr(b.Right);
+                    else
+                        VisitExpr(b.Right);
                     MaybeReportSuspiciousEquality(b);
                     break;
 
@@ -949,6 +959,52 @@ internal static class CfgsLinter
             {
                 _magicNumberAllowanceDepth--;
             }
+        }
+
+        private void VisitTypeContextExpr(Expr? expr)
+        {
+            if (expr is null)
+                return;
+
+            if (TryExtractQualifiedPath(expr, out _))
+                return;
+
+            VisitExpr(expr);
+        }
+
+        private static int? TryGetBuiltinTypeContextArgumentIndex(CallExpr callExpr)
+        {
+            if (callExpr.Target is not VarExpr target)
+                return null;
+
+            return target.Name switch
+            {
+                "implements" when callExpr.Args.Count >= 2 => 1,
+                "interface_call" when callExpr.Args.Count >= 2 => 1,
+                _ => null
+            };
+        }
+
+        private static bool TryExtractQualifiedPath(Expr expr, out string? path)
+        {
+            switch (expr)
+            {
+                case VarExpr varExpr:
+                    path = varExpr.Name;
+                    return true;
+
+                case IndexExpr indexExpr when indexExpr.Target is not null && indexExpr.Index is StringExpr stringExpr:
+                    if (TryExtractQualifiedPath(indexExpr.Target, out string? prefix) && !string.IsNullOrWhiteSpace(prefix))
+                    {
+                        path = $"{prefix}.{stringExpr.Value}";
+                        return true;
+                    }
+
+                    break;
+            }
+
+            path = null;
+            return false;
         }
 
         private bool ContainsAwait(Node node)

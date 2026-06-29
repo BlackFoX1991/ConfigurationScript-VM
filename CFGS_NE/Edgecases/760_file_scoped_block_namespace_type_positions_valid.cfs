@@ -1,0 +1,17 @@
+import "edge_assert.cfs";
+import "760_file_scoped_block_namespace_type_positions_valid_defs.cfs";
+
+edge_begin("760_file_scoped_block_namespace_type_positions_valid");
+
+namespace Mixed.Model {
+    class Node(prefix) : BaseNode(prefix), INode {
+        property label { get; } = "node";
+    }
+}
+
+var node = new Mixed.Model.Node("cfg");
+edge_true("merged_namespace_interface", node is Mixed.Model.INode);
+edge_eq("merged_namespace_base_class", node.stamp(), "cfg");
+edge_eq("merged_namespace_default_interface_method", node.read(), "node");
+
+edge_finish("760_file_scoped_block_namespace_type_positions_valid");

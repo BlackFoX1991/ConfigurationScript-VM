@@ -26,6 +26,7 @@ internal static class Program
             FormatterAstPathFormatsImportsAndObjectInitializers,
             FormatterAstPathFormatsClassesAndProperties,
             FormatterAstPathFormatsInterfacesAndEnums,
+            FormatterAstPathFormatsFileScopedNamespacesWithInterpolationAndExplicitInterfaceMembers,
             FormatterWrapsLongCallsCollectionsAndConditions,
             FormatterWrapsLongNewExpressionsAndInitializers,
             FormatterPreservesShortUsingSyntaxViaFallback,
@@ -36,8 +37,10 @@ internal static class Program
             LinterSuppressesExpandedRuleSet,
             LinterStrictPresetEnablesAdditionalRules,
             LinterDoesNotFlagExportedOrNamespacedApiFunctionsAsUnused,
+            LinterDoesNotTreatTypeContextNamesAsValueReads,
             CliLintJsonProducesStableDiagnosticShape,
             CliLintHonorsToolingLintConfig,
+            ImportResolutionIncludesApplicationPluginsDirectory,
             HostingFileIoPermissionScopeAppliesToInvocations,
             HostingDefaultsDenyFileIo,
             RunAsyncCanDeferAndThenAutoInvokeMainOnce,
@@ -415,6 +418,36 @@ export enum Mode{
         AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "AST formatter should handle interface contracts and enum canonicalization structurally");
     }
 
+    private static void FormatterAstPathFormatsFileScopedNamespacesWithInterpolationAndExplicitInterfaceMembers()
+    {
+        string source = """
+namespace Demo.Model;
+interface IModel{
+func read();
+}
+class Runner(name):Base(name),IModel{
+func IModel.read(){
+return $"{this.name,-8:raw}";
+}
+}
+""";
+
+        string expected = """
+namespace Demo.Model;
+interface IModel{
+    func read();
+}
+class Runner(name) : Base(name), IModel{
+    func IModel.read(){
+        return $"{this.name,-8:raw}";
+    }
+}
+""" + "\n";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
+        AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "AST formatter should preserve file-scoped namespaces, explicit interface members and interpolated strings");
+    }
+
     private static void FormatterWrapsLongCallsCollectionsAndConditions()
     {
         string source = """
@@ -557,6 +590,31 @@ export const dep = 1;
         AssertContains(codes, "CFGS8017", "empty block diagnostic missing");
         AssertContains(codes, "CFGS8018", "suspicious equality diagnostic missing");
         AssertContains(codes, "CFGS8020", "guaranteed-termination unreachable diagnostic missing");
+    }
+
+    private static void LinterDoesNotTreatTypeContextNamesAsValueReads()
+    {
+        string file = WriteTempCfgs("""
+namespace Demo.Model;
+
+interface IModel {
+    func read();
+}
+
+class Runner() {
+    func probe(other) {
+        var IModel = "shadow";
+        var checkIs = other is IModel;
+        var checkBuiltins = implements(other, IModel) || interface_call(other, IModel, "read") == null;
+        return checkIs || checkBuiltins;
+    }
+}
+""");
+
+        CfgsLintResult result = CfgsLinter.LintFile(file, new CfgsLintOptions(), global::Program.Version);
+        string[] codes = result.Diagnostics.Select(static d => d.Code).ToArray();
+
+        AssertContains(codes, "CFGS8011", "type-context operands must not count as value reads for shadowing locals");
     }
 
     private static void LinterSuppressesExpandedRuleSet()
@@ -793,6 +851,51 @@ export const dep = 1;
         JsonElement magicNumberDiagnostic = root.EnumerateArray()
             .First(static d => string.Equals(d.GetProperty("code").GetString(), "CFGS8021", StringComparison.Ordinal));
         AssertEqual("error", magicNumberDiagnostic.GetProperty("severity").GetString(), "tooling.lint severity override must apply to CFGS8021");
+    }
+
+    private static void ImportResolutionIncludesApplicationPluginsDirectory()
+    {
+        string appPluginDirectory = Path.Combine(AppContext.BaseDirectory, "plugins");
+        Directory.CreateDirectory(appPluginDirectory);
+
+        string moduleFileName = $"cfgs_app_plugins_{Guid.NewGuid():N}.cfs";
+        string dllFileName = $"cfgs_app_plugins_{Guid.NewGuid():N}.dll";
+        string modulePath = Path.Combine(appPluginDirectory, moduleFileName);
+        string dllPath = Path.Combine(appPluginDirectory, dllFileName);
+        string tempWorkingDirectory = Path.Combine(Path.GetTempPath(), "cfgs-import-search", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempWorkingDirectory);
+
+        File.WriteAllText(modulePath, "export const importedValue = 77;\n");
+        File.Copy(typeof(global::Program).Assembly.Location, dllPath);
+
+        try
+        {
+            CfgsScriptEngine engine = new()
+            {
+                WorkingDirectory = tempWorkingDirectory,
+                CompilerVersion = global::Program.Version
+            };
+            engine.Permissions.AllowPluginLoading = true;
+
+            CfgsScript script = engine.CompileSource("<app-plugins-import>", $$"""
+import "{{dllFileName}}";
+import { importedValue } from "{{moduleFileName}}";
+
+func read() {
+    return importedValue;
+}
+""");
+
+            script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+            int importedValue = Convert.ToInt32(script.InvokeAsync<object>("read").GetAwaiter().GetResult());
+            AssertEqual(77, importedValue, "compiler did not search the application plugins directory for source and plugin imports");
+        }
+        finally
+        {
+            TryDeleteFile(modulePath);
+            TryDeleteFile(dllPath);
+            TryDeleteDirectory(tempWorkingDirectory);
+        }
     }
 
     private static void HostingFileIoPermissionScopeAppliesToInvocations()
@@ -1227,6 +1330,36 @@ func writeInWorkspace(path) {
 
     private static string WriteTempCfgs(string source)
         => WriteTempCfgsProject(source).File;
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
 
     private static (string Directory, string File) WriteTempCfgsProject(
         string source,

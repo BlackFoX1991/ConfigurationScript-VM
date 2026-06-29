@@ -18,9 +18,11 @@ internal static class Program
             CompletionReturnsLanguageItems,
             CompletionReflectsStandardLibraryNamespacePolicy,
             FormattingReturnsDocumentEdit,
+            DocumentLinksResolveImportsFromApplicationPluginsDirectory,
             SemanticTokensRangeReturnsSubset,
             HoverFindsFunctionSymbol,
             HoverIncludesQualifiedContainerDetails,
+            HoverPrefersTypeSymbolsInTypeContextExpressions,
             AnalyzerKeepsSymbolsAliveAcrossMidFunctionSyntaxErrors,
             AnalyzerReportsMultipleSyntaxDiagnostics,
             DocumentSymbolsUseLastGoodAnalysisAfterCatastrophicLexerFailure,
@@ -174,6 +176,50 @@ internal static class Program
         AssertTrue(edits[0].GetProperty("newText").GetString()?.Contains("var total = a + b;", StringComparison.Ordinal) == true, "format edit did not normalize spacing");
     }
 
+    private static void DocumentLinksResolveImportsFromApplicationPluginsDirectory()
+    {
+        string appPluginDirectory = Path.Combine(AppContext.BaseDirectory, "plugins");
+        Directory.CreateDirectory(appPluginDirectory);
+        string moduleFileName = $"cfgs_lsp_doclink_{Guid.NewGuid():N}.cfs";
+        string modulePath = Path.Combine(appPluginDirectory, moduleFileName);
+        File.WriteAllText(modulePath, "export const value = 1;\n");
+
+        try
+        {
+            using LspTestClient client = LspTestClient.StartInitialized();
+            string uri = CreateDocumentUri("document-link-import.cfs");
+            client.DidOpen(uri, $$"""
+import { value } from "{{moduleFileName}}";
+""");
+            JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+            AssertEqual(0, diagnostics.GetArrayLength(), "expected document-link import sample to analyze cleanly");
+
+            JsonElement links = client.SendRequest("textDocument/documentLink", new
+            {
+                textDocument = new { uri }
+            });
+
+            AssertEqual(JsonValueKind.Array, links.ValueKind, "documentLink result must be an array");
+            AssertTrue(links.GetArrayLength() >= 1, "expected at least one document link for the import path");
+            string target = links[0].GetProperty("target").GetString() ?? string.Empty;
+            AssertEqual(new Uri(Path.GetFullPath(modulePath)).AbsoluteUri, target, "document link did not resolve through the application plugins directory");
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(modulePath))
+                    File.Delete(modulePath);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
     private static void SemanticTokensRangeReturnsSubset()
     {
         using LspTestClient client = LspTestClient.StartInitialized();
@@ -260,6 +306,58 @@ namespace Demo.App {
         AssertTrue(value.Contains("Namespace: `Demo.App`", StringComparison.Ordinal), "hover does not include the namespace path");
         AssertTrue(value.Contains("Type/Class: `Runner`", StringComparison.Ordinal), "hover does not include the owning type name");
         AssertTrue(value.Contains("Container: `Demo.App.Runner`", StringComparison.Ordinal), "hover does not include the containing namespace/class path");
+    }
+
+    private static void HoverPrefersTypeSymbolsInTypeContextExpressions()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+namespace Demo.Model;
+
+interface IModel {
+    func read();
+}
+
+class Runner() {
+    func probe(other) {
+        var IModel = "shadow";
+        var checkIs = other is IModel;
+        var checkImplements = implements(other, IModel);
+        return interface_call(other, IModel, "read");
+    }
+}
+""";
+        string uri = CreateDocumentUri("hover-type-context.cfs");
+        client.DidOpen(uri, source);
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertEqual(0, diagnostics.GetArrayLength(), "expected type-context hover sample to analyze cleanly");
+
+        string[] lines = source.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        string expectedSymbol = "Symbol: `Demo.Model.IModel`";
+
+        JsonElement isHover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 9, character = lines[9].LastIndexOf("IModel", StringComparison.Ordinal) + 1 }
+        });
+        string isValue = isHover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(isValue.Contains(expectedSymbol, StringComparison.Ordinal), "`is` type context should resolve the interface symbol, not the shadowing local");
+
+        JsonElement implementsHover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 10, character = lines[10].LastIndexOf("IModel", StringComparison.Ordinal) + 1 }
+        });
+        string implementsValue = implementsHover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(implementsValue.Contains(expectedSymbol, StringComparison.Ordinal), "`implements` type context should resolve the interface symbol, not the shadowing local");
+
+        JsonElement interfaceCallHover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 11, character = lines[11].LastIndexOf("IModel", StringComparison.Ordinal) + 1 }
+        });
+        string interfaceCallValue = interfaceCallHover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(interfaceCallValue.Contains(expectedSymbol, StringComparison.Ordinal), "`interface_call` type context should resolve the interface symbol, not the shadowing local");
     }
 
     private static void AnalyzerKeepsSymbolsAliveAcrossMidFunctionSyntaxErrors()

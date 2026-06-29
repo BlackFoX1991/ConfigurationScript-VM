@@ -1,0 +1,8 @@
+import "761_use_namespace_type_ambiguity_left.cfs";
+import "761_use_namespace_type_ambiguity_right.cfs";
+
+use Wave6.Ambiguous.Left;
+use Wave6.Ambiguous.Right;
+
+class Bad() : INode {
+}

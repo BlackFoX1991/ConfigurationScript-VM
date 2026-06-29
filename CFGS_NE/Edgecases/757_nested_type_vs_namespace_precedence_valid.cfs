@@ -1,0 +1,36 @@
+import "edge_assert.cfs";
+
+edge_begin("757_nested_type_vs_namespace_precedence_valid");
+
+namespace Wave6.NestedChoice {
+    class Service() {
+        func who() {
+            return "namespace";
+        }
+    }
+
+    class Factory() {
+        class Service() {
+            func who() {
+                return "nested";
+            }
+        }
+
+        func localChoice() {
+            var service = new Service();
+            return service.who();
+        }
+
+        func qualifiedChoice() {
+            var service = new Wave6.NestedChoice.Service();
+            return service.who();
+        }
+
+    }
+}
+
+var factory = new Wave6.NestedChoice.Factory();
+edge_eq("nested_unqualified_wins", factory.localChoice(), "nested");
+edge_eq("namespace_fully_qualified", factory.qualifiedChoice(), "namespace");
+
+edge_finish("757_nested_type_vs_namespace_precedence_valid");

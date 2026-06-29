@@ -460,11 +460,19 @@ namespace CFGS_VM.VMCore
 
                 foreach (ClassDeclStmt inner in cds.NestedClasses)
                 {
-                    CompileStmt(inner, insideFunction: false);
-                    _insns.Add(new Instruction(OpCode.DUP, null, inner.Line, inner.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, inner.Name, inner.Line, inner.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, inner.Name, inner.Line, inner.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, inner.Line, inner.Col, cds.OriginFile));
+                    EmitPushScope(inner);
+                    try
+                    {
+                        CompileStmt(inner, insideFunction: false);
+                        _insns.Add(new Instruction(OpCode.DUP, null, inner.Line, inner.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.PUSH_STR, inner.Name, inner.Line, inner.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, inner.Name, inner.Line, inner.Col, cds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, inner.Line, inner.Col, cds.OriginFile));
+                    }
+                    finally
+                    {
+                        EmitPopScope(inner);
+                    }
                 }
 
                 _insns.Add(new Instruction(OpCode.VAR_DECL, cds.Name, cds.Line, cds.Col, cds.OriginFile));
@@ -484,8 +492,7 @@ namespace CFGS_VM.VMCore
             {
                 if (parts.Length == 1)
                 {
-                    if (_currentClassDecl != null && _classInfos.TryGetValue(_currentClassDecl, out ClassInfo? ci)
-                        && ci.StaticMembers.Contains(parts[0]))
+                    if (_currentClass.IsStaticMember(parts[0]))
                     {
                         _insns.Add(new Instruction(OpCode.LOAD_VAR, "this", ne.Line, ne.Col, ne.OriginFile));
                         _insns.Add(new Instruction(OpCode.PUSH_STR, parts[0], ne.Line, ne.Col, ne.OriginFile));

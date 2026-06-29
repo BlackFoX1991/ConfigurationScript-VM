@@ -8,6 +8,7 @@ namespace CFGS_VM.Analytic.Modules
         private static readonly HttpClient Http = CreateImportHttpClient();
         private static readonly int HttpImportMaxBytes = ParsePositiveEnvInt("CFGS_IMPORT_HTTP_MAX_BYTES", 4 * 1024 * 1024);
         private static readonly int HttpImportMaxRedirects = ParsePositiveEnvInt("CFGS_IMPORT_HTTP_MAX_REDIRECTS", 5);
+        internal const string LocalImportSearchDescription = "searched script dir, package plugin dirs, working dir, app dir, and app plugins dir";
         private readonly string? _workingDirectory;
 
         public SourceResolver(string? workingDirectory = null)
@@ -70,6 +71,12 @@ namespace CFGS_VM.Analytic.Modules
         {
             if (string.IsNullOrWhiteSpace(rawPath))
                 return null;
+
+            if (Uri.TryCreate(rawPath, UriKind.Absolute, out Uri? absoluteImportUri) && absoluteImportUri.IsFile)
+            {
+                string fullAbsolutePath = Path.GetFullPath(absoluteImportUri.LocalPath);
+                return File.Exists(fullAbsolutePath) ? fullAbsolutePath : null;
+            }
 
             if (Path.IsPathRooted(rawPath))
             {
@@ -220,6 +227,7 @@ namespace CFGS_VM.Analytic.Modules
             }
 
             yield return GetExeBaseDir();
+            yield return Path.Combine(GetExeBaseDir(), "plugins");
         }
 
         private static IEnumerable<string> GetPackagePluginDirectories(string startDirectory)

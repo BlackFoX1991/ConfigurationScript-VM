@@ -1680,16 +1680,11 @@ internal sealed class CfgsAnalyzer
             return File.Exists(absoluteImportPath) ? new Uri(absoluteImportPath).AbsoluteUri : null;
         }
 
-        string? sourceDir = Path.GetDirectoryName(origin);
-        if (string.IsNullOrWhiteSpace(sourceDir))
+        string? resolvedPath = ResolveImportPath(origin, rawPath);
+        if (string.IsNullOrWhiteSpace(resolvedPath))
             return null;
 
-        string candidatePath = Path.IsPathFullyQualified(rawPath)
-            ? rawPath
-            : Path.Combine(sourceDir, rawPath.Replace('/', Path.DirectorySeparatorChar));
-        string fullPath = Path.GetFullPath(candidatePath);
-
-        return File.Exists(fullPath) ? new Uri(fullPath).AbsoluteUri : null;
+        return new Uri(resolvedPath!).AbsoluteUri;
     }
 
     private static (string RawPath, int StartChar, int EndChar)? TryMatchImportPath(string lineText)
@@ -2173,7 +2168,9 @@ internal sealed class CfgsAnalyzer
             searchDirs.AddRange(GetPackagePluginDirectories(workingDirectory!));
         }
 
-        searchDirs.Add(Directory.GetCurrentDirectory());
+        string currentDirectory = Directory.GetCurrentDirectory();
+        searchDirs.Add(currentDirectory);
+        searchDirs.AddRange(GetPackagePluginDirectories(currentDirectory));
         searchDirs.Add(AppContext.BaseDirectory);
         searchDirs.Add(Path.Combine(AppContext.BaseDirectory, "plugins"));
 

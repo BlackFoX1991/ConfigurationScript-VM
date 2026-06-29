@@ -1,0 +1,5 @@
+namespace Wave6.Ambiguous.Left {
+    interface INode {
+        property left { get; }
+    }
+}

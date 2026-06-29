@@ -1,0 +1,11 @@
+namespace Wave6.Hidden.Local {
+    private interface ILocalContract {
+        func tag();
+    }
+
+    protected class BaseEntity() {
+        func kind() {
+            return "hidden-base";
+        }
+    }
+}

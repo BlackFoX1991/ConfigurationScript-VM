@@ -1,6 +1,7 @@
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Semantics;
+using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.VMCore.Plugin;
 
 namespace CFGS_VM.Analytic.Modules
@@ -959,13 +960,7 @@ namespace CFGS_VM.Analytic.Modules
                     interpolated.Col,
                     interpolated.OriginFile),
                 VarExpr varExpr => RewriteVarExpr(varExpr, state),
-                BinaryExpr binaryExpr => new BinaryExpr(
-                    RewriteExpr(binaryExpr.Left, state),
-                    binaryExpr.Op,
-                    RewriteExpr(binaryExpr.Right, state),
-                    binaryExpr.Line,
-                    binaryExpr.Col,
-                    binaryExpr.OriginFile),
+                BinaryExpr binaryExpr => RewriteBinaryExpr(binaryExpr, state),
                 UnaryExpr unaryExpr => new UnaryExpr(unaryExpr.Op, RewriteExpr(unaryExpr.Right, state), unaryExpr.Line, unaryExpr.Col, unaryExpr.OriginFile),
                 ArrayExpr arrayExpr => new ArrayExpr(arrayExpr.Elements.Select(element => RewriteExpr(element, state)).ToList(), arrayExpr.Line, arrayExpr.Col, arrayExpr.OriginFile),
                 IndexExpr indexExpr => RewriteIndexExpr(indexExpr, state),
@@ -1001,12 +996,7 @@ namespace CFGS_VM.Analytic.Modules
                 FuncExpr funcExpr => RewriteFunctionExpr(funcExpr, state),
                 NamedArgExpr namedArgExpr => new NamedArgExpr(namedArgExpr.Name, RewriteExpr(namedArgExpr.Value, state), namedArgExpr.Line, namedArgExpr.Col, namedArgExpr.OriginFile),
                 SpreadArgExpr spreadArgExpr => new SpreadArgExpr(RewriteExpr(spreadArgExpr.Value, state), spreadArgExpr.Line, spreadArgExpr.Col, spreadArgExpr.OriginFile),
-                CallExpr callExpr => new CallExpr(
-                    RewriteNullableExpr(callExpr.Target, state),
-                    callExpr.Args.Select(arg => RewriteExpr(arg, state)).ToList(),
-                    callExpr.Line,
-                    callExpr.Col,
-                    callExpr.OriginFile),
+                CallExpr callExpr => RewriteCallExpr(callExpr, state),
                 ObjectInitExpr objectInitExpr => new ObjectInitExpr(
                     RewriteExpr(objectInitExpr.Target, state),
                     objectInitExpr.Inits.Select(init => (init.Item1, RewriteExpr(init.Item2, state))).ToList(),
@@ -1148,6 +1138,86 @@ namespace CFGS_VM.Analytic.Modules
                 return new VarExpr(varExpr.Name, varExpr.Line, varExpr.Col, varExpr.OriginFile);
 
             return BuildResolvedNamespaceMemberExpr(resolved!, varExpr, state.CurrentNamespacePath);
+        }
+
+        private Expr RewriteBinaryExpr(BinaryExpr binaryExpr, RewriteState state)
+        {
+            Expr rewrittenLeft = RewriteExpr(binaryExpr.Left, state);
+            Expr rewrittenRight = binaryExpr.Op == TokenType.Is
+                ? RewriteTypeExpression(binaryExpr.Right, state, NamespaceMemberKind.Class, NamespaceMemberKind.Interface, NamespaceMemberKind.Namespace)
+                : RewriteExpr(binaryExpr.Right, state);
+
+            return new BinaryExpr(
+                rewrittenLeft,
+                binaryExpr.Op,
+                rewrittenRight,
+                binaryExpr.Line,
+                binaryExpr.Col,
+                binaryExpr.OriginFile);
+        }
+
+        private Expr RewriteCallExpr(CallExpr callExpr, RewriteState state)
+        {
+            Expr? rewrittenTarget = RewriteNullableExpr(callExpr.Target, state);
+            List<Expr> rewrittenArgs = callExpr.Args.Select(arg => RewriteExpr(arg, state)).ToList();
+
+            if (rewrittenTarget is VarExpr builtinVar)
+            {
+                if (string.Equals(builtinVar.Name, "implements", StringComparison.Ordinal) && rewrittenArgs.Count >= 2)
+                {
+                    rewrittenArgs[1] = RewriteTypeExpression(
+                        callExpr.Args[1],
+                        state,
+                        NamespaceMemberKind.Class,
+                        NamespaceMemberKind.Interface,
+                        NamespaceMemberKind.Namespace);
+                }
+                else if (string.Equals(builtinVar.Name, "interface_call", StringComparison.Ordinal) && rewrittenArgs.Count >= 2)
+                {
+                    rewrittenArgs[1] = RewriteTypeExpression(
+                        callExpr.Args[1],
+                        state,
+                        NamespaceMemberKind.Interface,
+                        NamespaceMemberKind.Namespace);
+                }
+            }
+
+            return new CallExpr(
+                rewrittenTarget,
+                rewrittenArgs,
+                callExpr.Line,
+                callExpr.Col,
+                callExpr.OriginFile);
+        }
+
+        private Expr RewriteTypeExpression(Expr expr, RewriteState state, params NamespaceMemberKind[] allowedRootKinds)
+        {
+            if (expr is not VarExpr varExpr)
+                return RewriteExpr(expr, state);
+
+            if (IsNestedTypeRoot(varExpr.Name, state) || IsGlobalTypeRoot(varExpr.Name))
+                return new VarExpr(varExpr.Name, varExpr.Line, varExpr.Col, varExpr.OriginFile);
+
+            if (TryResolveCurrentNamespaceTypeRoot(varExpr.Name, state, out NamespaceMemberInfo? namespaceCandidate) &&
+                allowedRootKinds.Contains(namespaceCandidate!.Kind))
+            {
+                return BuildResolvedNamespaceMemberExpr(namespaceCandidate!, varExpr, state.CurrentNamespacePath);
+            }
+
+            if (TryResolveUseMember(varExpr.Name, varExpr, state, out List<NamespaceMemberInfo>? candidates))
+            {
+                List<NamespaceMemberInfo> filtered = candidates!
+                    .Where(candidate => allowedRootKinds.Contains(candidate.Kind))
+                    .ToList();
+
+                if (filtered.Count > 1)
+                    throw CreateAmbiguousUseException(varExpr.Name, filtered, varExpr);
+
+                if (filtered.Count == 1)
+                    return BuildResolvedNamespaceMemberExpr(filtered[0], varExpr, state.CurrentNamespacePath);
+            }
+
+            return new VarExpr(varExpr.Name, varExpr.Line, varExpr.Col, varExpr.OriginFile);
         }
 
         private Expr? RewriteNullableExpr(Expr? expr, RewriteState state)
