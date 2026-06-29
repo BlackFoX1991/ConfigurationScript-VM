@@ -1,0 +1,26 @@
+import "edge_assert.cfs";
+import "755_same_namespace_unqualified_interface_resolution_contracts.cfs";
+
+edge_begin("755_same_namespace_unqualified_interface_resolution");
+
+namespace Callmanager.Model {
+    interface IAudited : IModel {
+    }
+
+    class UserModel() : BaseModel(), IAudited, IRunner {
+        property id { get; } = 7;
+
+        func IRunner.run() {
+            return this.kind() + ":" + str(this.id);
+        }
+    }
+}
+
+var model = new Callmanager.Model.UserModel();
+edge_true("same_namespace_interface_is", model is Callmanager.Model.IModel);
+edge_true("same_namespace_derived_interface_is", model is Callmanager.Model.IAudited);
+edge_eq("same_namespace_interface_property", model.id, 7);
+edge_eq("same_namespace_base_class_method", model.kind(), "base");
+edge_eq("same_namespace_explicit_interface_call", interface_call(model, Callmanager.Model.IRunner, "run"), "base:7");
+
+edge_finish("755_same_namespace_unqualified_interface_resolution");

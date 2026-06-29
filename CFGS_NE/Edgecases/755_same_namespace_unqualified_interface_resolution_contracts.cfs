@@ -1,0 +1,15 @@
+namespace Callmanager.Model {
+    interface IModel {
+        property id { get; }
+    }
+
+    interface IRunner {
+        func run();
+    }
+
+    class BaseModel() {
+        func kind() {
+            return "base";
+        }
+    }
+}

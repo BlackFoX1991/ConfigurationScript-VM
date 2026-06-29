@@ -1158,15 +1158,26 @@ namespace CFGS_VM.Analytic.Modules
             if (string.IsNullOrWhiteSpace(typeName))
                 return typeName;
 
-            string candidateName = typeName;
             string[] parts = typeName.Split('.', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 0)
                 return typeName;
 
             string root = parts[0];
-            if (IsShadowedTypeRoot(root, state))
+            string suffix = parts.Length > 1 ? "." + string.Join(".", parts.Skip(1)) : string.Empty;
+
+            if (IsNestedTypeRoot(root, state))
                 return typeName;
 
+            if (TryResolveCurrentNamespaceTypeRoot(root, state, out NamespaceMemberInfo? namespaceCandidate) &&
+                allowedRootKinds.Contains(namespaceCandidate!.Kind))
+            {
+                return namespaceCandidate.QualifiedPath + suffix;
+            }
+
+            if (IsGlobalTypeRoot(root))
+                return typeName;
+
+            string candidateName = typeName;
             if (TryResolveUseMember(root, node, state, out List<NamespaceMemberInfo>? candidates))
             {
                 List<NamespaceMemberInfo> filtered = candidates!
@@ -1177,10 +1188,7 @@ namespace CFGS_VM.Analytic.Modules
                     throw CreateAmbiguousUseException(root, filtered, node);
 
                 if (filtered.Count == 1)
-                {
-                    string suffix = parts.Length > 1 ? "." + string.Join(".", parts.Skip(1)) : string.Empty;
                     candidateName = filtered[0].QualifiedPath + suffix;
-                }
             }
 
             return candidateName;
@@ -1235,7 +1243,7 @@ namespace CFGS_VM.Analytic.Modules
             return _globalTopLevelValueNames.Contains(name);
         }
 
-        private bool IsShadowedTypeRoot(string name, RewriteState state)
+        private bool IsNestedTypeRoot(string name, RewriteState state)
         {
             foreach (HashSet<string> nestedTypeNames in state.ContainingClassNestedTypeNames)
             {
@@ -1243,20 +1251,31 @@ namespace CFGS_VM.Analytic.Modules
                     return true;
             }
 
-            if (!string.IsNullOrWhiteSpace(state.CurrentNamespacePath))
+            return false;
+        }
+
+        private bool TryResolveCurrentNamespaceTypeRoot(string name, RewriteState state, out NamespaceMemberInfo? resolved)
+        {
+            resolved = null;
+            if (string.IsNullOrWhiteSpace(state.CurrentNamespacePath))
+                return false;
+
+            foreach (string namespacePath in EnumerateNamespacePrefixes(state.CurrentNamespacePath))
             {
-                foreach (string namespacePath in EnumerateNamespacePrefixes(state.CurrentNamespacePath))
+                if (_namespaceMembersByPath.TryGetValue(namespacePath, out Dictionary<string, NamespaceMemberInfo>? members) &&
+                    members.TryGetValue(name, out NamespaceMemberInfo? candidate) &&
+                    IsNamespaceMemberAccessible(candidate, state.CurrentNamespacePath))
                 {
-                    if (_namespaceDeclaredTypeNamesByPath.TryGetValue(namespacePath, out HashSet<string>? namespaceTypeNames) &&
-                        namespaceTypeNames.Contains(name))
-                    {
-                        return true;
-                    }
+                    resolved = candidate;
+                    return true;
                 }
             }
 
-            return _globalTopLevelTypeNames.Contains(name);
+            return false;
         }
+
+        private bool IsGlobalTypeRoot(string name)
+            => _globalTopLevelTypeNames.Contains(name);
 
         private static IEnumerable<string> EnumerateNamespacePrefixes(string namespacePath)
         {
