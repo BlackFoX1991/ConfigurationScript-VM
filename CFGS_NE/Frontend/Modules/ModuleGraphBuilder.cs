@@ -12,13 +12,15 @@ namespace CFGS_VM.Analytic.Modules
         private readonly Dictionary<string, ModuleGraphNode> _moduleByImportKey;
         private readonly Stack<string> _importStack;
         private readonly SourceResolver _sourceResolver;
+        private readonly ModuleSyntaxCache? _syntaxCache;
 
         public ModuleGraphBuilder(
             Func<List<Stmt>, List<Stmt>> materializeModule,
             Func<string, string?>? loadImportSource = null,
             Dictionary<string, List<Stmt>>? sharedAstByHash = null,
             Stack<string>? sharedImportStack = null,
-            SourceResolver? sourceResolver = null)
+            SourceResolver? sourceResolver = null,
+            ModuleSyntaxCache? syntaxCache = null)
         {
             _materializeModule = materializeModule;
             _loadImportSource = loadImportSource;
@@ -26,6 +28,7 @@ namespace CFGS_VM.Analytic.Modules
             _moduleByImportKey = new Dictionary<string, ModuleGraphNode>();
             _importStack = sharedImportStack ?? new Stack<string>();
             _sourceResolver = sourceResolver ?? new SourceResolver();
+            _syntaxCache = syntaxCache;
         }
 
         public List<Stmt> GetImports(string path, int line, int col, string sourceFileName, string specClass = "")
@@ -167,9 +170,9 @@ namespace CFGS_VM.Analytic.Modules
 
         private ModuleGraphNode BuildModuleNode(string cacheKey, string sourceName, string sourceText, bool isFileImport)
         {
-            Lexer lexer = new(sourceName, sourceText);
-            Parser parser = new(lexer, Parser.TopLevelMode.Module);
-            List<Stmt> syntaxStatements = parser.Parse();
+            List<Stmt> syntaxStatements = _syntaxCache is not null
+                ? _syntaxCache.GetOrParse(sourceName, sourceText, () => ParseModule(sourceName, sourceText))
+                : ParseModule(sourceName, sourceText);
 
             ModuleGraphNode node = new(
                 cacheKey,
@@ -193,6 +196,13 @@ namespace CFGS_VM.Analytic.Modules
             node.SetResolvedStatements(materializedStatements);
             _astByImportKey[cacheKey] = materializedStatements;
             return node;
+        }
+
+        private static List<Stmt> ParseModule(string sourceName, string sourceText)
+        {
+            Lexer lexer = new(sourceName, sourceText);
+            Parser parser = new(lexer, Parser.TopLevelMode.Module);
+            return parser.Parse();
         }
 
         private ModuleGraphNode GetOrCreateCachedNode(string cacheKey, string sourceName, List<Stmt> cachedStatements, bool isFileImport)

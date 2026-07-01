@@ -17,6 +17,10 @@ namespace CFGS.Lsp;
 
 internal sealed class CfgsAnalyzer
 {
+    // Persistiert geparste Import-ASTs ueber Analysen hinweg, damit beim Tippen nicht bei jedem
+    // Tastendruck alle importierten Module neu gelext/geparst werden (selbst-invalidierend per Inhalt).
+    private readonly ModuleSyntaxCache _moduleSyntaxCache = new();
+
     private static readonly HashSet<string> NonSymbolKeywords = new(StringComparer.Ordinal)
     {
         "var", "const", "if", "else", "delete", "while", "do", "for", "foreach", "in", "is",
@@ -212,7 +216,8 @@ internal sealed class CfgsAnalyzer
                 loadPluginDll: _ => { },
                 loadImportSource: sources.GetOverlaySourceText,
                 workingDirectory: ResolveAnalysisWorkingDirectory(workspaceRoot, origin),
-                additionalSearchRoots: BuildImportSearchRoots(origin, workspaceRoot));
+                additionalSearchRoots: BuildImportSearchRoots(origin, workspaceRoot),
+                syntaxCache: _moduleSyntaxCache);
             FrontendTolerantBuildResult frontendBuild = frontendPipeline.BuildLoweredAstTolerant(origin, sourceText);
 
             foreach (ParserException diagnostic in frontendBuild.Diagnostics)

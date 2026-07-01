@@ -647,7 +647,16 @@ internal sealed class LspServer
 
     private async Task AnalyzeAndPublishAsync(DocumentState state, CancellationToken cancellationToken)
     {
-        CfgsAnalysisResult analysis = _analyzer.Analyze(state.Uri, state.Text, GetOpenDocumentSources(), _workspaceRootPath);
+        string text = state.Text;
+
+        // Unveraenderter Text -> es kann sich nichts an den Diagnostics dieser Datei geaendert haben; der
+        // teure Vier-Pass-Neuaufbau (Parse+Import, Symbole, Semantik, Codegen) wird uebersprungen. Andere
+        // offene Dateien loesen ohnehin nur ihre eigene Analyse aus, daher bleibt das Verhalten konsistent.
+        if (state.AnalyzedText is not null && string.Equals(text, state.AnalyzedText, StringComparison.Ordinal))
+            return;
+
+        CfgsAnalysisResult analysis = _analyzer.Analyze(state.Uri, text, GetOpenDocumentSources(), _workspaceRootPath);
+        state.AnalyzedText = text;
         state.Analysis = analysis;
         if (IsSuccessfulInteractiveAnalysis(analysis))
             state.LastSuccessfulAnalysis = analysis;
@@ -1820,6 +1829,11 @@ internal sealed class LspServer
         public CfgsAnalysisResult? LastSuccessfulAnalysis { get; set; }
 
         public HashSet<string> PublishedDiagnosticUris { get; set; }
+
+        // Text, der zur zuletzt veroeffentlichten Analyse gefuehrt hat. Aendert sich der Text zwischen
+        // zwei Analyse-Laeufen nicht (z.B. Save ohne Aenderung, redundante didChange-Sequenzen), wird der
+        // komplette Re-Build uebersprungen.
+        public string? AnalyzedText { get; set; }
     }
 
     private readonly record struct ReferenceKey(string Uri, RangeInfo Range);

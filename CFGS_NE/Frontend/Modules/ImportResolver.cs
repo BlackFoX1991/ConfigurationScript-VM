@@ -19,7 +19,7 @@ namespace CFGS_VM.Analytic.Modules
             INamespaceRegistry? namespaces = null,
             Dictionary<string, List<Stmt>>? sharedAstByHash = null,
             Stack<string>? sharedImportStack = null)
-            : this(loadPluginDll, loadImportSource, namespaces, sharedAstByHash, sharedImportStack, null)
+            : this(loadPluginDll, loadImportSource, namespaces, sharedAstByHash, sharedImportStack, null, null)
         {
         }
 
@@ -29,7 +29,8 @@ namespace CFGS_VM.Analytic.Modules
             INamespaceRegistry? namespaces,
             Dictionary<string, List<Stmt>>? sharedAstByHash,
             Stack<string>? sharedImportStack,
-            SourceResolver? sourceResolver)
+            SourceResolver? sourceResolver,
+            ModuleSyntaxCache? syntaxCache = null)
         {
             _loadPluginDll = loadPluginDll;
             _namespaces = namespaces;
@@ -39,7 +40,8 @@ namespace CFGS_VM.Analytic.Modules
                 loadImportSource,
                 sharedAstByHash,
                 sharedImportStack,
-                _sourceResolver);
+                _sourceResolver,
+                syntaxCache);
         }
 
         public List<Stmt> ResolveImports(List<Stmt> statements)

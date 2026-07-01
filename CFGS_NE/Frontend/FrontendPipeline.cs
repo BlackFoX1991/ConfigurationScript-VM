@@ -19,6 +19,7 @@ namespace CFGS_VM.Analytic
         private readonly IReadOnlyList<string>? _additionalSearchRoots;
         private readonly Dictionary<string, List<Stmt>>? _sharedAstByHash;
         private readonly Stack<string>? _sharedImportStack;
+        private readonly ModuleSyntaxCache? _syntaxCache;
 
         public FrontendPipeline(
             Action<string>? loadPluginDll = null,
@@ -27,7 +28,8 @@ namespace CFGS_VM.Analytic
             string? workingDirectory = null,
             Dictionary<string, List<Stmt>>? sharedAstByHash = null,
             Stack<string>? sharedImportStack = null,
-            IReadOnlyList<string>? additionalSearchRoots = null)
+            IReadOnlyList<string>? additionalSearchRoots = null,
+            ModuleSyntaxCache? syntaxCache = null)
         {
             _loadPluginDll = loadPluginDll;
             _loadImportSource = loadImportSource;
@@ -36,6 +38,7 @@ namespace CFGS_VM.Analytic
             _additionalSearchRoots = additionalSearchRoots;
             _sharedAstByHash = sharedAstByHash;
             _sharedImportStack = sharedImportStack;
+            _syntaxCache = syntaxCache;
         }
 
         public FrontendBuildResult BuildLoweredAstWithSyntax(
@@ -52,7 +55,8 @@ namespace CFGS_VM.Analytic
                 _namespaces,
                 _sharedAstByHash,
                 _sharedImportStack,
-                sourceResolver);
+                sourceResolver,
+                _syntaxCache);
 
             List<Stmt> syntaxAst = parser.Parse();
             List<Stmt> resolvedAst = importResolver.ResolveImports(syntaxAst);
@@ -96,7 +100,8 @@ namespace CFGS_VM.Analytic
                 _namespaces,
                 _sharedAstByHash,
                 _sharedImportStack,
-                sourceResolver);
+                sourceResolver,
+                _syntaxCache);
 
             List<Stmt> resolvedAst = syntaxAst;
             try
