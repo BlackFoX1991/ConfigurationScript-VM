@@ -197,7 +197,7 @@ internal sealed class CfgsAnalyzer
             ]
         };
 
-    public CfgsAnalysisResult Analyze(string documentUri, string sourceText, IReadOnlyDictionary<string, string>? openDocumentSources = null)
+    public CfgsAnalysisResult Analyze(string documentUri, string sourceText, IReadOnlyDictionary<string, string>? openDocumentSources = null, string? workspaceRoot = null)
     {
         string origin = GetDocumentOrigin(documentUri);
         SourceResolver sources = new(documentUri, origin, sourceText, openDocumentSources);
@@ -211,7 +211,7 @@ internal sealed class CfgsAnalyzer
             FrontendPipeline frontendPipeline = new(
                 loadPluginDll: _ => { },
                 loadImportSource: sources.GetOverlaySourceText,
-                workingDirectory: FrontendPipeline.TryGetWorkingDirectory(origin));
+                workingDirectory: ResolveAnalysisWorkingDirectory(workspaceRoot, origin));
             FrontendTolerantBuildResult frontendBuild = frontendPipeline.BuildLoweredAstTolerant(origin, sourceText);
 
             foreach (ParserException diagnostic in frontendBuild.Diagnostics)
@@ -2137,6 +2137,27 @@ internal sealed class CfgsAnalyzer
         }
 
         return fullPath;
+    }
+
+    private static string? ResolveAnalysisWorkingDirectory(string? workspaceRoot, string origin)
+    {
+        // Der Compiler leitet sein Arbeitsverzeichnis aus der EINSTIEGS-Datei ab und benutzt es
+        // fuer den gesamten Modulgraphen. Damit relative Imports wie "./interfaces/IModule.cfs"
+        // im Linter genauso aufloesen wie beim Kompilieren, muss die Analyse denselben Anker
+        // (den Workspace-Root) verwenden statt nur das Verzeichnis der gerade offenen Datei.
+        if (!string.IsNullOrWhiteSpace(workspaceRoot))
+        {
+            try
+            {
+                string full = Path.GetFullPath(workspaceRoot);
+                if (Directory.Exists(full))
+                    return full;
+            }
+            catch (ArgumentException) { }
+            catch (IOException) { }
+        }
+
+        return FrontendPipeline.TryGetWorkingDirectory(origin);
     }
 
     private static string? ResolveImportPath(string origin, string rawPath)

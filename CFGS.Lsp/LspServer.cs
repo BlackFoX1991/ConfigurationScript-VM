@@ -629,7 +629,7 @@ internal sealed class LspServer
         string text = LoadDocumentText(uri);
         DocumentState created = new(uri, text, 0)
         {
-            Analysis = _analyzer.Analyze(uri, text, GetOpenDocumentSources())
+            Analysis = _analyzer.Analyze(uri, text, GetOpenDocumentSources(), _workspaceRootPath)
         };
         created.PublishedDiagnosticUris = created.Analysis.DiagnosticsByUri.Keys.ToHashSet(GetUriComparer());
         _documents[uri] = created;
@@ -647,7 +647,7 @@ internal sealed class LspServer
 
     private async Task AnalyzeAndPublishAsync(DocumentState state, CancellationToken cancellationToken)
     {
-        CfgsAnalysisResult analysis = _analyzer.Analyze(state.Uri, state.Text, GetOpenDocumentSources());
+        CfgsAnalysisResult analysis = _analyzer.Analyze(state.Uri, state.Text, GetOpenDocumentSources(), _workspaceRootPath);
         state.Analysis = analysis;
         if (IsSuccessfulInteractiveAnalysis(analysis))
             state.LastSuccessfulAnalysis = analysis;
