@@ -10,10 +10,12 @@ namespace CFGS_VM.Analytic.Modules
         private static readonly int HttpImportMaxRedirects = ParsePositiveEnvInt("CFGS_IMPORT_HTTP_MAX_REDIRECTS", 5);
         internal const string LocalImportSearchDescription = "searched script dir, package plugin dirs, working dir, app dir, and app plugins dir";
         private readonly string? _workingDirectory;
+        private readonly IReadOnlyList<string> _additionalSearchRoots;
 
-        public SourceResolver(string? workingDirectory = null)
+        public SourceResolver(string? workingDirectory = null, IReadOnlyList<string>? additionalSearchRoots = null)
         {
             _workingDirectory = NormalizeWorkingDirectory(workingDirectory);
+            _additionalSearchRoots = NormalizeAdditionalSearchRoots(additionalSearchRoots);
         }
 
         public bool IsHttpUrl(string? source, out Uri uri)
@@ -226,8 +228,32 @@ namespace CFGS_VM.Analytic.Modules
                     yield return packagePluginDirectory;
             }
 
+            foreach (string additionalRoot in _additionalSearchRoots)
+            {
+                yield return additionalRoot;
+                foreach (string packagePluginDirectory in GetPackagePluginDirectories(additionalRoot))
+                    yield return packagePluginDirectory;
+            }
+
             yield return GetExeBaseDir();
             yield return Path.Combine(GetExeBaseDir(), "plugins");
+        }
+
+        private static IReadOnlyList<string> NormalizeAdditionalSearchRoots(IReadOnlyList<string>? additionalSearchRoots)
+        {
+            if (additionalSearchRoots is null || additionalSearchRoots.Count == 0)
+                return Array.Empty<string>();
+
+            List<string> normalized = new();
+            HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+            foreach (string candidate in additionalSearchRoots)
+            {
+                string? full = NormalizeWorkingDirectory(candidate);
+                if (full is not null && seen.Add(full))
+                    normalized.Add(full);
+            }
+
+            return normalized;
         }
 
         private static IEnumerable<string> GetPackagePluginDirectories(string startDirectory)

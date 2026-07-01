@@ -1021,10 +1021,17 @@ public class Program
             Preset = command.Preset,
             RuleOverrides = new Dictionary<string, CfgsLintRuleOverride>(command.RuleOverrides, StringComparer.OrdinalIgnoreCase)
         };
+        // Beim Linten eines Ordners ist der Eingabeordner der natuerliche Projekt-Root; beim Linten einer
+        // einzelnen Datei (z.B. lint.onSave in VS Code) gibt es keinen expliziten Root, also laufen wir ein
+        // paar Vorfahren-Ebenen hoch. So loesen relative Imports, die gegen einen hoeher liegenden Source-
+        // Root gehen (wie "./interfaces/IModule.cfs"), konsistent zum LSP und zum Kompilieren via Entry-Datei.
+        string? lintBoundary = Directory.Exists(command.Input) ? Path.GetFullPath(command.Input) : null;
+
         List<CfgsToolDiagnostic> diagnostics = [];
         foreach (string file in files)
         {
-            CfgsLintResult result = CfgsLinter.LintFile(file, options, Version);
+            IReadOnlyList<string> searchRoots = FrontendPipeline.BuildAncestorSearchRoots(file, lintBoundary);
+            CfgsLintResult result = CfgsLinter.LintFile(file, options, Version, searchRoots);
             if (command.Fix && result.Fixed && result.FixedText is not null)
             {
                 File.WriteAllText(file, result.FixedText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
@@ -1032,7 +1039,7 @@ public class Program
                     Console.WriteLine($"[LINT] fixed: {file}");
 
                 CfgsLintOptions postFixOptions = options with { Fix = false };
-                result = CfgsLinter.LintFile(file, postFixOptions, Version);
+                result = CfgsLinter.LintFile(file, postFixOptions, Version, searchRoots);
             }
 
             diagnostics.AddRange(result.Diagnostics);

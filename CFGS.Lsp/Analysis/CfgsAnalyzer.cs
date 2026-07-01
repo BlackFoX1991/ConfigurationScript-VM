@@ -211,7 +211,8 @@ internal sealed class CfgsAnalyzer
             FrontendPipeline frontendPipeline = new(
                 loadPluginDll: _ => { },
                 loadImportSource: sources.GetOverlaySourceText,
-                workingDirectory: ResolveAnalysisWorkingDirectory(workspaceRoot, origin));
+                workingDirectory: ResolveAnalysisWorkingDirectory(workspaceRoot, origin),
+                additionalSearchRoots: BuildImportSearchRoots(origin, workspaceRoot));
             FrontendTolerantBuildResult frontendBuild = frontendPipeline.BuildLoweredAstTolerant(origin, sourceText);
 
             foreach (ParserException diagnostic in frontendBuild.Diagnostics)
@@ -2138,6 +2139,15 @@ internal sealed class CfgsAnalyzer
 
         return fullPath;
     }
+
+    private static IReadOnlyList<string> BuildImportSearchRoots(string origin, string? workspaceRoot)
+        // CFGS loest relative Imports gegen das Arbeitsverzeichnis der EINSTIEGS-Datei auf, nicht gegen
+        // die importierende Datei. Beim Editieren einer einzelnen Datei kennt der Linter die Einstiegs-
+        // datei nicht, also probieren wir jedes Vorfahren-Verzeichnis von der Datei bis zum Workspace-Root
+        // als moeglichen Projekt-/Source-Root. So loest z.B. "./interfaces/IModule.cfs" aus
+        // "Modules/Personen/model/Person.cfs" auch dann auf, wenn der echte Projekt-Root der Unterordner
+        // "Modules/Personen" ist und nicht der geoeffnete Workspace "Modules".
+        => FrontendPipeline.BuildAncestorSearchRoots(origin, workspaceRoot);
 
     private static string? ResolveAnalysisWorkingDirectory(string? workspaceRoot, string origin)
     {

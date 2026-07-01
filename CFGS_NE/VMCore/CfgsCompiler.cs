@@ -14,7 +14,8 @@ namespace CFGS_VM.VMCore
             string path,
             Action<string>? loadPluginDll = null,
             INamespaceRegistry? namespaces = null,
-            string compilerVersion = "")
+            string compilerVersion = "",
+            IReadOnlyList<string>? additionalSearchRoots = null)
         {
             string source = File.ReadAllText(path);
             string workingDirectory =
@@ -22,7 +23,7 @@ namespace CFGS_VM.VMCore
                 ?? Path.GetDirectoryName(Path.GetFullPath(path))
                 ?? Environment.CurrentDirectory;
 
-            return CompileSource(path, source, loadPluginDll, namespaces, workingDirectory, compilerVersion);
+            return CompileSource(path, source, loadPluginDll, namespaces, workingDirectory, compilerVersion, additionalSearchRoots);
         }
 
         public static CompiledScript CompileSource(
@@ -31,7 +32,8 @@ namespace CFGS_VM.VMCore
             Action<string>? loadPluginDll = null,
             INamespaceRegistry? namespaces = null,
             string? workingDirectory = null,
-            string compilerVersion = "")
+            string compilerVersion = "",
+            IReadOnlyList<string>? additionalSearchRoots = null)
         {
             List<string> requiredPlugins = new();
             Action<string> trackingPluginLoader = path =>
@@ -44,7 +46,8 @@ namespace CFGS_VM.VMCore
             FrontendPipeline frontendPipeline = new(
                 loadPluginDll: trackingPluginLoader,
                 namespaces: namespaces,
-                workingDirectory: workingDirectory);
+                workingDirectory: workingDirectory,
+                additionalSearchRoots: additionalSearchRoots);
 
             FrontendBuildResult frontendBuild = frontendPipeline.BuildLoweredAstWithSyntax(name, source);
             Compiler compiler = new(name);

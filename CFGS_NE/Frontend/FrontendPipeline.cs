@@ -16,6 +16,7 @@ namespace CFGS_VM.Analytic
         private readonly Func<string, string?>? _loadImportSource;
         private readonly INamespaceRegistry? _namespaces;
         private readonly string? _workingDirectory;
+        private readonly IReadOnlyList<string>? _additionalSearchRoots;
         private readonly Dictionary<string, List<Stmt>>? _sharedAstByHash;
         private readonly Stack<string>? _sharedImportStack;
 
@@ -25,12 +26,14 @@ namespace CFGS_VM.Analytic
             INamespaceRegistry? namespaces = null,
             string? workingDirectory = null,
             Dictionary<string, List<Stmt>>? sharedAstByHash = null,
-            Stack<string>? sharedImportStack = null)
+            Stack<string>? sharedImportStack = null,
+            IReadOnlyList<string>? additionalSearchRoots = null)
         {
             _loadPluginDll = loadPluginDll;
             _loadImportSource = loadImportSource;
             _namespaces = namespaces;
             _workingDirectory = NormalizeWorkingDirectory(workingDirectory);
+            _additionalSearchRoots = additionalSearchRoots;
             _sharedAstByHash = sharedAstByHash;
             _sharedImportStack = sharedImportStack;
         }
@@ -42,7 +45,7 @@ namespace CFGS_VM.Analytic
         {
             Lexer lexer = new(origin, sourceText);
             Parser parser = new(lexer, topLevelMode);
-            SourceResolver sourceResolver = new(_workingDirectory);
+            SourceResolver sourceResolver = new(_workingDirectory, _additionalSearchRoots);
             ImportResolver importResolver = new(
                 _loadPluginDll,
                 _loadImportSource,
@@ -86,7 +89,7 @@ namespace CFGS_VM.Analytic
                 diagnostics.Add(NormalizeDiagnostic(ex));
             }
 
-            SourceResolver sourceResolver = new(_workingDirectory);
+            SourceResolver sourceResolver = new(_workingDirectory, _additionalSearchRoots);
             ImportResolver importResolver = new(
                 _loadPluginDll,
                 _loadImportSource,
@@ -116,6 +119,70 @@ namespace CFGS_VM.Analytic
             }
 
             return new FrontendTolerantBuildResult(syntaxAst, loweredAst, diagnostics);
+        }
+
+        /// <summary>
+        /// Baut die Kette moeglicher Projekt-/Source-Roots von der Datei aufwaerts. CFGS loest relative
+        /// Imports gegen das Arbeitsverzeichnis der Einstiegs-Datei auf; wenn Tools (LSP, Einzeldatei-Lint)
+        /// die Einstiegs-Datei nicht kennen, kann jedes Vorfahren-Verzeichnis der Projekt-Root sein.
+        /// Bei bekanntem <paramref name="boundaryDirectory"/> (Workspace-/Lint-Ordner) wird bis dorthin
+        /// inklusive hochgelaufen, sonst nur <paramref name="maxUnboundedLevels"/> Ebenen.
+        /// </summary>
+        public static IReadOnlyList<string> BuildAncestorSearchRoots(
+            string? startFileOrDirectory,
+            string? boundaryDirectory,
+            int maxUnboundedLevels = 6)
+        {
+            if (string.IsNullOrWhiteSpace(startFileOrDirectory))
+                return Array.Empty<string>();
+
+            string? directory;
+            try
+            {
+                string full = Path.GetFullPath(startFileOrDirectory);
+                directory = Directory.Exists(full) ? full : Path.GetDirectoryName(full);
+            }
+            catch (ArgumentException)
+            {
+                return Array.Empty<string>();
+            }
+            catch (IOException)
+            {
+                return Array.Empty<string>();
+            }
+
+            if (string.IsNullOrWhiteSpace(directory))
+                return Array.Empty<string>();
+
+            string? boundary = null;
+            if (!string.IsNullOrWhiteSpace(boundaryDirectory))
+            {
+                try { boundary = Path.GetFullPath(boundaryDirectory); }
+                catch (ArgumentException) { }
+                catch (IOException) { }
+            }
+
+            List<string> roots = new();
+            string? current = directory;
+            int guard = 0;
+            while (!string.IsNullOrWhiteSpace(current) && guard++ < 64)
+            {
+                roots.Add(current!);
+
+                if (boundary is not null && string.Equals(current, boundary, StringComparison.OrdinalIgnoreCase))
+                    break;
+
+                string? parent = Path.GetDirectoryName(current);
+                if (string.IsNullOrWhiteSpace(parent) || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
+                    break;
+
+                current = parent;
+
+                if (boundary is null && roots.Count >= maxUnboundedLevels)
+                    break;
+            }
+
+            return roots;
         }
 
         public static string? TryGetWorkingDirectory(string? origin)

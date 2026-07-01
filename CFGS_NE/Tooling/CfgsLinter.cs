@@ -15,7 +15,7 @@ internal sealed record CfgsLintResult(IReadOnlyList<CfgsToolDiagnostic> Diagnost
 
 internal static class CfgsLinter
 {
-    public static CfgsLintResult LintFile(string path, CfgsLintOptions options, string compilerVersion)
+    public static CfgsLintResult LintFile(string path, CfgsLintOptions options, string compilerVersion, IReadOnlyList<string>? additionalSearchRoots = null)
     {
         List<CfgsToolDiagnostic> diagnostics = [];
         string fullPath = Path.GetFullPath(path);
@@ -30,7 +30,7 @@ internal static class CfgsLinter
 
         string sourceText = File.ReadAllText(fullPath);
         AddStyleDiagnostics(fullPath, sourceText, diagnostics, options, resolvedRules);
-        AddCompileDiagnostic(fullPath, diagnostics, compilerVersion);
+        AddCompileDiagnostic(fullPath, diagnostics, compilerVersion, additionalSearchRoots);
         AddAstDiagnostics(fullPath, sourceText, diagnostics, resolvedRules);
         ApplySuppressions(sourceText, diagnostics);
 
@@ -54,7 +54,7 @@ internal static class CfgsLinter
         return new CfgsLintResult(diagnostics, fixedText, fixedChanged);
     }
 
-    private static void AddCompileDiagnostic(string path, List<CfgsToolDiagnostic> diagnostics, string compilerVersion)
+    private static void AddCompileDiagnostic(string path, List<CfgsToolDiagnostic> diagnostics, string compilerVersion, IReadOnlyList<string>? additionalSearchRoots)
     {
         try
         {
@@ -63,7 +63,8 @@ internal static class CfgsLinter
                 path,
                 loadPluginDll: vm.LoadPlugin,
                 namespaces: vm.Namespaces,
-                compilerVersion: compilerVersion);
+                compilerVersion: compilerVersion,
+                additionalSearchRoots: additionalSearchRoots);
         }
         catch (Exception ex)
         {
