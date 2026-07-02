@@ -10,6 +10,28 @@ namespace CFGS_VM.VMCore
 {
     public partial class VM
     {
+        /// <summary>
+        /// Builds a language-native runtime error for a failed native .NET interop operation.
+        /// The inner fault is unwrapped (past reflection/aggregate wrappers) and rendered in CFGS
+        /// wording; a <see cref="VMException"/> raised by a script closure invoked as a native
+        /// callback is surfaced unchanged rather than double-wrapped as an interop failure.
+        /// </summary>
+        private VMException CreateNativeInteropException(Exception ex, string operation, Instruction instr)
+        {
+            Exception inner = HostExceptionTranslator.Unwrap(ex);
+            if (inner is VMException vm)
+                return vm;
+
+            return new VMException(
+                $"Runtime error: {operation}: {HostExceptionTranslator.DescribeHostFailure(inner)}",
+                instr.Line,
+                instr.Col,
+                instr.OriginFile,
+                IsDebugging,
+                DebugStream!,
+                ex);
+        }
+
         public object? GetMember(object? target, string memberName, string? originFile = null)
         {
             target = ToHostObject(target);

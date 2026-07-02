@@ -1,0 +1,12 @@
+import "edge_assert.cfs";
+
+# CFGS has no auto-main: an async main() must be invoked explicitly. Top-level await is only valid
+# in expression position, so the result is bound rather than written as a bare `await` statement.
+async func main() {
+    edge_begin("514_script_explicit_main_async");
+    var _ = await nextTick();
+    edge_eq("explicit_main_async_runs", 41 + 1, 42);
+    edge_finish("514_script_explicit_main_async");
+}
+
+var _ = await main();

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CFGS_VM.VMCore.Extensions.Instance;
 
 namespace CFGS_VM.VMCore.Plugin
 {
@@ -43,39 +44,50 @@ namespace CFGS_VM.VMCore.Plugin
             string[] parts = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 1)
             {
-                _roots[parts[0]] = instance;
+                _roots[parts[0]] = WrapNamespaceMember(path, instance);
                 return;
             }
 
-            Dictionary<string, object> root = GetOrCreateRootDictionary(parts[0]);
-            Dictionary<string, object> current = root;
+            // Multi-part native namespace roots are exposed to scripts as distinct namespace values
+            // (accessed by dot), not user dictionaries, so member access is not subject to the
+            // dictionary bracket-only-for-data rule.
+            NamespaceInstance root = GetOrCreateRootNamespace(parts[0]);
+            NamespaceInstance current = root;
 
             for (int i = 1; i < parts.Length - 1; i++)
             {
                 string part = parts[i];
-                if (!current.TryGetValue(part, out object? next) || next is not Dictionary<string, object> nested)
+                if (!current.Members.TryGetValue(part, out object? next) || next is not NamespaceInstance nested)
                 {
-                    nested = new Dictionary<string, object>(StringComparer.Ordinal);
-                    current[part] = nested;
+                    nested = new NamespaceInstance(string.Join(".", parts.Take(i + 1)));
+                    current.Members[part] = nested;
                 }
 
                 current = nested;
             }
 
-            current[parts[^1]] = instance;
+            current.Members[parts[^1]] = WrapNamespaceMember(path, instance);
         }
 
-        private Dictionary<string, object> GetOrCreateRootDictionary(string name)
+        // A plugin may register a namespace whose instance is a dictionary of members; expose it as a
+        // distinct namespace value (dot access) rather than a user dictionary, sharing the member map.
+        // Non-dictionary instances (native singletons resolved via intrinsics) are exposed unchanged.
+        private static object WrapNamespaceMember(string path, object instance)
+            => instance is Dictionary<string, object> dictInstance
+                ? new NamespaceInstance(path, dictInstance)
+                : instance;
+
+        private NamespaceInstance GetOrCreateRootNamespace(string name)
         {
             if (_roots.TryGetValue(name, out object? existing))
             {
-                if (existing is Dictionary<string, object> dict)
-                    return dict;
+                if (existing is NamespaceInstance ns)
+                    return ns;
 
                 throw new InvalidOperationException($"Namespace root '{name}' is already registered as a concrete namespace.");
             }
 
-            Dictionary<string, object> root = new(StringComparer.Ordinal);
+            NamespaceInstance root = new(name);
             _roots[name] = root;
             return root;
         }

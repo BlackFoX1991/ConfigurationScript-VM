@@ -73,7 +73,7 @@ Top-level declaration forms include:
 - variable declarations
 - constant declarations
 
-When a directly executed script is purely declarative at top level and defines `main`, the CLI invokes `main` automatically after module initialization. Scripts that explicitly call `main()` remain valid.
+CFGS has no auto-main. After module initialization the CLI runs the script's top-level statements; a `main` function is executed only if the script calls it explicitly (for example `main();`, or `var _ = await main();` for an async `main`).
 
 ## Values and Runtime Types
 
@@ -89,6 +89,7 @@ CFGS runtime values include:
 - closures
 - class instances
 - static class objects
+- namespace values
 - enum objects and enum values
 - exception objects
 - task and awaitable values
@@ -199,7 +200,7 @@ Array indexing requires an integer index. Non-integer array indexes MUST fail.
 
 Array indexes are zero-based. Out-of-range indexes MUST fail.
 
-Dictionary indexing requires a string-compatible key. Dictionary writes MUST reject keys reserved for dictionary intrinsics.
+Dictionary data is accessed with bracket indexing and requires a string-compatible key. Any non-empty string is a valid data key; intrinsic method names are NOT reserved, because dictionary data and dictionary methods are separated by syntax (see Dot Member Access). Dot access on a dictionary resolves an intrinsic method only and MUST NOT read or write a data key.
 
 Slicing is supported for arrays and strings, and dictionary slice behavior is defined by the runtime collection rules.
 
@@ -212,6 +213,8 @@ Bracket access is collection/index access. It MUST NOT be treated as class membe
 ## Dot Member Access
 
 Dot access is used for object, static class, enum, namespace, property, method, and intrinsic member lookup.
+
+Dot access on a dictionary resolves only its intrinsic methods (for example `cfg.merge(other)`); it MUST NOT read or write a data key. Dictionary data keys are addressed exclusively with bracket access (`cfg["host"]`). Namespaces are a distinct value kind, not dictionaries, and expose their members through member access.
 
 Examples:
 
@@ -577,7 +580,7 @@ The REPL evaluates submitted snippets in a shared VM session. It preserves globa
 
 REPL commands MUST use the `$` prefix so command words cannot collide with normal script input. Examples include `$help`, `$exit`, and `$debug`.
 
-If a REPL snippet only declares a parameterless `main` function and has no imperative top-level statements, the REPL MAY auto-invoke `main` once for that submission.
+The REPL does not auto-invoke `main`; a snippet must call `main()` explicitly, like any other script.
 
 REPL plugin autoloading is active only in REPL mode and reads `repl_plugins.json` from the application path.
 
@@ -591,7 +594,7 @@ Windows service hosting is a Windows-only facility. `-as_service <script>` runs 
 
 `.cfb` files are compiled CFGS bytecode artifacts.
 
-A CFB file stores bytecode, function metadata, source hash, compiler version, auto-main metadata, plugin DLL names discovered during compilation, and native interop DLL names discovered during compilation.
+A CFB file stores bytecode, function metadata, source hash, compiler version, plugin DLL names discovered during compilation, and native interop DLL names discovered during compilation.
 
 CFB files MUST NOT store local source file paths or local plugin file paths as dependency identities.
 

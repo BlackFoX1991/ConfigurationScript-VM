@@ -61,7 +61,7 @@ public class Program
     /// </summary>
     public static bool IsInteractiveDebug { get; private set; } = false;
 
-    public const string Version = "v12.9.2";
+    public const string Version = "v13.0.0";
 
     public static bool AnsiMode = true;
 
@@ -1689,9 +1689,6 @@ public class Program
 
         await vm.RunAsync(debug, 0, ct);
 
-        if ((sharedVm is null || isRepl) && compiled.ShouldAutoInvokeMain)
-            _ = await vm.InvokeGlobalFunctionAsync("main", originFile: name, ct: ct);
-
         if (debug)
             WriteDebugLog(vm, workingDirectory);
     }
@@ -1763,9 +1760,6 @@ public class Program
             PrintInstructions(file, compiled.Instructions, compiled.Functions);
 
         await vm.RunAsync(debug, 0, ct);
-
-        if (compiled.ShouldAutoInvokeMain)
-            _ = await vm.InvokeGlobalFunctionAsync("main", originFile: file, ct: ct);
 
         if (debug)
             WriteDebugLog(vm, workingDirectory);

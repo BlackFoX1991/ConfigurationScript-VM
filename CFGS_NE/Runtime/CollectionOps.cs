@@ -318,18 +318,17 @@ namespace CFGS_VM.VMCore
             return (start, endEx);
         }
 
+        // Dictionary data keys may be any non-empty string. Intrinsic method names are no longer
+        // reserved: data lives behind bracket access and methods behind dot access, so they never
+        // collide (cfg["merge"] is the data key "merge"; cfg.merge(...) is the method).
         private string NormalizeDictionaryWriteKey(
             Dictionary<string, object> dict,
             object? idxObj,
-            Instruction instr,
-            bool allowReservedIntrinsicKeys = false)
+            Instruction instr)
         {
             string key = idxObj?.ToString() ?? string.Empty;
             if (key.Length == 0)
                 throw new VMException("Runtime error: dictionary key cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-            if (!allowReservedIntrinsicKeys && IsReservedIntrinsicName(dict, key))
-                throw new VMException($"Runtime error: key '{key}' is reserved for dictionary intrinsics", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
             return key;
         }
@@ -556,7 +555,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Handles the NEW_DICT opcode.
         /// </summary>
-        private StepResult HandleNewDictionaryInstruction(Instruction instr, bool allowReservedIntrinsicKeys = false)
+        private StepResult HandleNewDictionaryInstruction(Instruction instr)
         {
             if (instr.Operand is null)
                 return StepResult.Next;
@@ -576,11 +575,22 @@ namespace CFGS_VM.VMCore
             Dictionary<string, object> dict = CaptureMutableCollectionOwnership(new Dictionary<string, object>(dcount));
             for (int i = 0; i < dcount; i++)
             {
-                string key = NormalizeDictionaryWriteKey(dict, pairs[i].key, instr, allowReservedIntrinsicKeys);
+                string key = NormalizeDictionaryWriteKey(dict, pairs[i].key, instr);
                 dict[key] = pairs[i].val;
             }
 
             PushRuntimeObject(dict);
+            return StepResult.Next;
+        }
+
+        /// <summary>
+        /// Handles the NEW_NAMESPACE opcode. Produces an empty distinct namespace value; members are
+        /// populated by the namespace-path stores emitted after it.
+        /// </summary>
+        private StepResult HandleNewNamespaceInstruction(Instruction instr)
+        {
+            string name = instr.Operand as string ?? string.Empty;
+            PushRuntimeObject(new NamespaceInstance(name));
             return StepResult.Next;
         }
 
@@ -836,16 +846,17 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private StepResult HandleArrayDeleteElementInstruction(Instruction instr)
         {
-            if (instr.Operand != null)
+            // A string operand carries a variable name (single-pop legacy form); any other operand
+            // (null, or the boolean dot-access marker) uses the two-pop target-on-stack form.
+            if (instr.Operand is string)
                 RequireStack(1, instr, "ARRAY_DELETE_ELEM");
             else
                 RequireStack(2, instr, "ARRAY_DELETE_ELEM");
 
             object idxObj = PopRuntimeObject()!;
 
-            if (instr.Operand != null)
+            if (instr.Operand is string name)
             {
-                string name = (string)instr.Operand;
                 if (!TryResolveVarOwnerValue(name, out Env owner, out Value current))
                     throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
@@ -972,6 +983,12 @@ namespace CFGS_VM.VMCore
 
             if (target is Dictionary<string, object> dict)
             {
+                // Dictionary data is addressed by bracket access; dot access is reserved for methods.
+                if (IsMemberAccessInstruction(instr))
+                    throw new VMException(
+                        $"Runtime error: cannot delete a dictionary entry through dot access; use bracket access, e.g. delete value[\"{idxObj}\"]",
+                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
                 string key = Convert.ToString(idxObj, CultureInfo.InvariantCulture) ?? string.Empty;
                 if (RemoveDictionaryValue(dict, key))
                     return;

@@ -232,7 +232,7 @@ namespace CFGS_VM.VMCore
                         {
                             CompileExpr(ie.Target);
                             CompileExpr(ie.Index);
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, null, des.Line, des.Col, s.OriginFile));
+                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, IndexAccessOperand(ie), des.Line, des.Col, s.OriginFile));
                             break;
                         }
 

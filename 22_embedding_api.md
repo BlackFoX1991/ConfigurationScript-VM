@@ -4,7 +4,7 @@ CFGS exposes a host API through `CFGS_VM.Hosting`. A host application can:
 
 - compile CFGS source or files
 - run the top-level module body
-- auto-run `main()` when desired
+- invoke `main()` (or any function) explicitly when desired
 - read and write globals
 - call exported CFGS functions
 - construct script classes and call their members
@@ -37,7 +37,7 @@ func add(a, b) {
 }
 """);
 
-await script.RunAsync(autoInvokeMain: false);
+await script.RunAsync();
 
 string? appName = script.GetGlobal<string>("appName");
 int maxUsers = script.GetGlobal<int>("maxUsers");
@@ -134,7 +134,7 @@ The host lifecycle is intentionally explicit:
 Top-level statements execute only once per `CfgsScript` instance.
 
 ```csharp
-await script.RunAsync(autoInvokeMain: false);
+await script.RunAsync();
 ```
 
 After the top-level body has run:
@@ -144,28 +144,23 @@ After the top-level body has run:
 - top-level classes are constructible
 - imports, namespaces, and script declarations are loaded into that VM instance
 
-### Auto-main behavior
+### Running main
 
-`RunAsync()` supports normal CFGS auto-main behavior for library-style hosts and CLI-like hosts.
+CFGS has no auto-main. `RunAsync()` loads the top-level body (once per `CfgsScript`) and never invokes `main`. A host runs `main` by calling it explicitly.
 
 ```csharp
-await script.RunAsync();                      // load top-level and auto-run main if eligible
-await script.RunAsync(autoInvokeMain: false); // load top-level only
+await script.RunAsync();           // load top-level once
+await script.InvokeAsync("main");  // run main explicitly when you want it
 ```
 
 Rules:
 
 - The top-level body runs at most once per `CfgsScript`
-- `main()` is auto-invoked only if the compiled script is marked as auto-main eligible
-- `RunAsync(autoInvokeMain: false)` suppresses auto-main for that call only
-- A later `RunAsync()` may still auto-run `main()` once after an earlier top-level-only load
-- Once `main()` has been auto-run for a script instance, later `RunAsync()` calls do not auto-run it again
-
-This is useful when a host needs a two-phase flow:
-
-1. load declarations and inspect globals
-2. inject or modify state
-3. then let `main()` run
+- `main` is never invoked implicitly — the host decides when, and whether, to call it
+- Use a two-phase flow when a host needs to inspect or adjust state before `main`:
+  1. `RunAsync()` to load declarations and inspect globals
+  2. inject or modify state with `SetGlobal(...)`
+  3. `InvokeAsync("main")` to run `main`
 
 ## End-to-End Host Example
 
@@ -184,7 +179,7 @@ engine.SetService("currentUser", "Ada");
 
 CfgsScript script = engine.CompileFile("CFGS_NE/Samples/09_embedding_tooling/01_embedding_library_style.cfs");
 
-await script.RunAsync(autoInvokeMain: false);
+await script.RunAsync();
 
 Dictionary<string, object> data = CfgsScript.CreateDictionary(new Dictionary<string, object?>
 {
@@ -201,8 +196,8 @@ int next = await script.InvokeMemberAsync<int>(counter!, "next");
 This host flow is usually the best baseline for embedding:
 
 - compile
-- top-level load without auto-main
-- call exported functions explicitly
+- top-level load with `RunAsync()` (main is never auto-invoked)
+- call exported functions explicitly (including `main`, if desired)
 - use `NewAsync(...)` plus member helpers for script objects
 
 ## Globals
@@ -210,7 +205,7 @@ This host flow is usually the best baseline for embedding:
 The host can read and write top-level globals through the script wrapper.
 
 ```csharp
-await script.RunAsync(autoInvokeMain: false);
+await script.RunAsync();
 
 object? value = script.GetGlobal("config");
 bool exists = script.TryGetGlobal("config", out object? config);
@@ -231,7 +226,7 @@ Behavior:
 Recommended usage:
 
 - use `SetService(...)` for host-provided globals that should exist before script execution
-- use `SetGlobal(...)` after `RunAsync(autoInvokeMain: false)` when you intentionally want to adjust state between top-level load and script calls
+- use `SetGlobal(...)` after `RunAsync()` when you intentionally want to adjust state between top-level load and script calls
 
 ## Host Services
 
@@ -242,7 +237,7 @@ engine.SetService("clock", new SystemClock());
 engine.SetService("currentUser", "Ada");
 
 CfgsScript script = engine.CompileFile("scripts/app.cfs");
-await script.RunAsync(autoInvokeMain: false);
+await script.RunAsync();
 ```
 
 ```cfs
@@ -536,7 +531,7 @@ script.SaveCfb("rules.cfb");
 CompiledScript compiled = engine.CompileFileToCfb("scripts/rules.cfs", "rules.cfb");
 
 CfgsScript loaded = engine.LoadCfb("rules.cfb");
-await loaded.RunAsync(autoInvokeMain: false);
+await loaded.RunAsync();
 object? result = await loaded.InvokeAsync("calculate", 10, 20);
 ```
 
@@ -571,7 +566,7 @@ Engine-level configuration is copied into each new script instance:
 Use this when CFGS is an internal rules engine or scripting extension:
 
 1. `CompileFile(...)` or `CompileSource(...)`
-2. `RunAsync(autoInvokeMain: false)`
+2. `RunAsync()`
 3. inspect globals or inject state
 4. call exported functions explicitly
 
@@ -580,8 +575,8 @@ Use this when CFGS is an internal rules engine or scripting extension:
 Use this when the host wants CLI-like behavior:
 
 1. compile or load the script
-2. call `RunAsync()`
-3. let CFGS auto-run `main()` when eligible
+2. call `RunAsync()` to run the top-level body
+3. call `InvokeAsync("main")` to run `main`
 
 ### Secure automation embedding
 
@@ -598,5 +593,5 @@ Use this when scripts come from outside the host team:
 - Prefer `SetService(...)` for long-lived host-provided dependencies or context
 - Prefer `SetGlobal(...)` for per-run values that should be injected after top-level loading
 - Use separate `CfgsScript` instances instead of sharing one instance across real parallel work
-- Use `RunAsync(autoInvokeMain: false)` for deterministic library-style hosts
+- Use `RunAsync()` for deterministic library-style hosts
 - Use the sample `CFGS_NE\Samples\09_embedding_tooling\01_embedding_library_style.cfs` as the reference shape for exported host APIs

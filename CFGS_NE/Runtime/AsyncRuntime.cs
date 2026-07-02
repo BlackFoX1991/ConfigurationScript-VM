@@ -40,9 +40,10 @@ namespace CFGS_VM.VMCore
                 if (task.IsFaulted)
                 {
                     Exception ex = task.Exception?.InnerException ?? task.Exception ?? new Exception("await faulted");
+                    bool awaitTranslated = HostExceptionTranslator.TryTranslate(ex, out string awaitClrMessage, out string awaitClrCode);
                     ExceptionObject payload = new(
-                        type: "AwaitError",
-                        message: ex.Message,
+                        type: awaitTranslated ? HostExceptionTranslator.RuntimeErrorType : "AwaitError",
+                        message: awaitTranslated ? awaitClrMessage : ex.Message,
                         file: instr.OriginFile,
                         line: instr.Line,
                         col: instr.Col,
@@ -54,6 +55,9 @@ namespace CFGS_VM.VMCore
                         _ip = nip;
                         return StepResult.Routed;
                     }
+
+                    if (awaitTranslated)
+                        throw new VMException(awaitClrMessage, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex, payload.Stack, awaitClrCode);
 
                     throw new VMException(payload.ToString()!, instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, payload.Stack);
                 }
@@ -131,9 +135,10 @@ namespace CFGS_VM.VMCore
                 catch (Exception ex)
                 {
                     Instruction at = SafeCurrentInstr(_program!, resumeIp);
+                    bool awaitTranslated = HostExceptionTranslator.TryTranslate(ex, out string awaitClrMessage, out string awaitClrCode);
                     ExceptionObject payload = new(
-                        type: "AwaitError",
-                        message: ex.Message,
+                        type: awaitTranslated ? HostExceptionTranslator.RuntimeErrorType : "AwaitError",
+                        message: awaitTranslated ? awaitClrMessage : ex.Message,
                         file: at.OriginFile,
                         line: at.Line,
                         col: at.Col,
@@ -145,6 +150,9 @@ namespace CFGS_VM.VMCore
                         ip = nip;
                         continue;
                     }
+
+                    if (awaitTranslated)
+                        throw new VMException(awaitClrMessage, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, ex, payload.Stack, awaitClrCode);
 
                     throw new VMException(payload.ToString()!, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, payload.Stack);
                 }

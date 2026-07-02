@@ -67,8 +67,8 @@ values[1] += 10;
 ensure("compound index assignment", values[1] == 12);
 
 var settings = {"retries": 2};
-settings.retries += 3;
-ensure("compound dot assignment", settings.retries == 5);
+settings["retries"] += 3;
+ensure("compound bracket assignment", settings["retries"] == 5);
 
 # Conversion helpers make VM values explicit when crossing boundaries.
 ensure("string conversion", str(major) + "." + str(minor) == "7.1");

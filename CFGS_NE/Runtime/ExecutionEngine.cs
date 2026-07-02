@@ -138,9 +138,16 @@ namespace CFGS_VM.VMCore
 
                         int safeIp = Math.Min(_ip, _program.Count - 1);
                         Debugger?.OnException(this, CreateDebugContext(safeIp, _program[safeIp]), sysEx);
+
+                        // A recognized CLR fault (numeric overflow, invalid cast, bad numeric format,
+                        // key/index errors, ...) is a runtime fault of the running script, not a host
+                        // failure: report it as a clean CFGS RuntimeError instead of leaking the raw
+                        // .NET message and the SystemError category.
+                        bool translated = HostExceptionTranslator.TryTranslate(sysEx, out string clrMessage, out string clrCode);
+
                         ExceptionObject payload = new(
-                            type: "SystemError",
-                            message: sysEx.Message,
+                            type: translated ? HostExceptionTranslator.RuntimeErrorType : "SystemError",
+                            message: translated ? clrMessage : sysEx.Message,
                             file: _program[safeIp].OriginFile,
                             line: _program[safeIp].Line,
                             col: _program[safeIp].Col,
@@ -156,6 +163,18 @@ namespace CFGS_VM.VMCore
                         {
                             if (_minRouteCallDepth > 0)
                                 throw;
+
+                            if (translated)
+                                throw new VMException(
+                                    clrMessage,
+                                    _program[safeIp].Line,
+                                    _program[safeIp].Col,
+                                    _program[safeIp].OriginFile,
+                                    IsDebugging,
+                                    DebugStream!,
+                                    sysEx,
+                                    BuildStackString(_program, _program[safeIp]),
+                                    clrCode);
 
                             throw new VMException(
                                 $"Uncaught system exception : {sysEx.Message}\n{sysEx.Source}",
@@ -244,9 +263,15 @@ namespace CFGS_VM.VMCore
 
                     Instruction at = SafeCurrentInstr(_program!, _awaitResumeIp);
 
+                    // Translate recognized CLR faults from an awaited plugin task into a clean CFGS
+                    // runtime diagnostic rather than surfacing the raw .NET message as an AwaitError.
+                    // A VMException thrown by an async CFGS function is not translated: its message is
+                    // already language-native and is preserved as-is.
+                    bool awaitTranslated = HostExceptionTranslator.TryTranslate(ex, out string awaitClrMessage, out string awaitClrCode);
+
                     ExceptionObject payload = new(
-                        type: "AwaitError",
-                        message: ex.Message,
+                        type: awaitTranslated ? HostExceptionTranslator.RuntimeErrorType : "AwaitError",
+                        message: awaitTranslated ? awaitClrMessage : ex.Message,
                         file: at.OriginFile,
                         line: at.Line,
                         col: at.Col,
@@ -259,6 +284,9 @@ namespace CFGS_VM.VMCore
                         _awaitTask = null;
                         continue;
                     }
+
+                    if (awaitTranslated)
+                        throw new VMException(awaitClrMessage, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, ex, payload.Stack, awaitClrCode);
 
                     throw new VMException(payload.ToString()!, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, payload.Stack);
                 }

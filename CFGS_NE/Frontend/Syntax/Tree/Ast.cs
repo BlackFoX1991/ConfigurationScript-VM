@@ -381,6 +381,18 @@ namespace CFGS_VM.Analytic.Tree
         public List<(Expr Key, Expr Value)> Pairs;
 
         /// <summary>
+        /// Gets or sets a value indicating whether this literal is a synthetic namespace container
+        /// produced during namespace lowering. Such literals materialize as a distinct runtime
+        /// namespace value rather than a user dictionary.
+        /// </summary>
+        public bool IsNamespaceContainer { get; set; }
+
+        /// <summary>
+        /// Gets or sets the fully qualified namespace path for a namespace container literal.
+        /// </summary>
+        public string NamespaceContainerName { get; set; } = string.Empty;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="DictExpr"/> class.
         /// </summary>
         /// <param name="pairs">The pairs<see cref="List{(Expr, Expr)}"/></param>

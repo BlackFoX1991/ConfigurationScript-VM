@@ -45,7 +45,7 @@ internal static class Program
             ImportResolutionIncludesApplicationPluginsDirectory,
             HostingFileIoPermissionScopeAppliesToInvocations,
             HostingDefaultsDenyFileIo,
-            RunAsyncCanDeferAndThenAutoInvokeMainOnce,
+            RunAsyncRunsTopLevelOnceAndNeverAutoInvokesMain,
             WorkspaceJailRejectsEscapingPaths,
             HostingSerializesConcurrentInvocations,
             AsyncHotStartInheritsVmPolicy,
@@ -932,7 +932,7 @@ func read() {
 }
 """);
 
-            script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+            script.RunAsync().GetAwaiter().GetResult();
             int importedValue = Convert.ToInt32(script.InvokeAsync<object>("read").GetAwaiter().GetResult());
             AssertEqual(77, importedValue, "compiler did not search the application plugins directory for source and plugin imports");
         }
@@ -964,7 +964,7 @@ func is_file_allowed() {
             0,
             (args, instr) => VM.AllowFileIO));
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
         bool allowedDuringInvoke = script.InvokeAsync<bool>("is_file_allowed").GetAwaiter().GetResult();
 
         AssertFalse(allowedDuringInvoke, "host InvokeAsync did not apply the configured file I/O permission scope");
@@ -995,13 +995,13 @@ func is_file_allowed() {
             0,
             (args, instr) => VM.AllowFileIO));
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
         bool allowed = script.InvokeAsync<bool>("is_file_allowed").GetAwaiter().GetResult();
 
         AssertFalse(allowed, "file I/O must be denied by default when no permissions are granted");
     }
 
-    private static void RunAsyncCanDeferAndThenAutoInvokeMainOnce()
+    private static void RunAsyncRunsTopLevelOnceAndNeverAutoInvokesMain()
     {
         CfgsScriptEngine engine = new()
         {
@@ -1009,7 +1009,7 @@ func is_file_allowed() {
             CompilerVersion = global::Program.Version
         };
 
-        CfgsScript script = engine.CompileSource("<host-auto-main>", """
+        CfgsScript script = engine.CompileSource("<host-no-auto-main>", """
 var counter = 0;
 
 func main() {
@@ -1017,14 +1017,20 @@ func main() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
-        AssertEqual(0, script.GetGlobal<int>("counter"), "top-level load should not auto-run main when autoInvokeMain=false");
-
+        // CFGS has no auto-main: RunAsync runs top-level code only, never the main() function.
         script.RunAsync().GetAwaiter().GetResult();
-        AssertEqual(1, script.GetGlobal<int>("counter"), "a later RunAsync() should still auto-run main once after a manual top-level load");
+        AssertEqual(0, script.GetGlobal<int>("counter"), "RunAsync must not auto-invoke main");
 
+        // Top-level runs exactly once and is idempotent across repeated RunAsync calls.
         script.RunAsync().GetAwaiter().GetResult();
-        AssertEqual(1, script.GetGlobal<int>("counter"), "auto-main should not run more than once per script instance");
+        AssertEqual(0, script.GetGlobal<int>("counter"), "a repeated RunAsync must not run main and must not re-run top-level");
+
+        // A host runs main by invoking it explicitly, and each explicit invocation runs it.
+        script.InvokeAsync("main").GetAwaiter().GetResult();
+        AssertEqual(1, script.GetGlobal<int>("counter"), "explicit InvokeAsync(main) must run main");
+
+        script.InvokeAsync("main").GetAwaiter().GetResult();
+        AssertEqual(2, script.GetGlobal<int>("counter"), "explicit InvokeAsync(main) must run main each time");
     }
 
     private static void WorkspaceJailRejectsEscapingPaths()
@@ -1055,7 +1061,7 @@ func resolve(path) {
                 return vm.ResolveWorkspacePath(args[0]?.ToString() ?? string.Empty);
             }));
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         string inside = script.InvokeAsync<string>("resolve", "sub/file.bin").GetAwaiter().GetResult() ?? "";
         AssertTrue(
@@ -1121,7 +1127,7 @@ async func gated(value) {
                 return null!;
             }));
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
         Task<object?>[] calls =
         [
             script.InvokeAsync("gated", 1),
@@ -1157,7 +1163,7 @@ async func checkPolicy() {
             0,
             (args, instr) => VM.CurrentVm?.AllowNativeInterop ?? true));
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
         bool allowed = script.InvokeAsync<bool>("checkPolicy").GetAwaiter().GetResult();
 
         AssertFalse(allowed, "async hot-start child VM did not inherit AllowNativeInterop=false");
@@ -1192,7 +1198,7 @@ async func resolveAsync(path) {
                 return vm.ResolveWorkspacePath(args[0]?.ToString() ?? string.Empty);
             }));
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         string inside = script.InvokeAsync<string>("resolveAsync", "sub/file.bin").GetAwaiter().GetResult() ?? "";
         AssertTrue(
@@ -1243,7 +1249,7 @@ func readCurrentPerson() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         object person = script.NewAsync("Person", "Ada").GetAwaiter().GetResult()
             ?? throw new InvalidOperationException("host NewAsync returned null");
@@ -1310,7 +1316,7 @@ func writeInWorkspace(path) {
                 return null!;
             }));
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
         string actualWorkspace = script.InvokeAsync<string>("writeInWorkspace", workspace).GetAwaiter().GetResult() ?? "";
 
         AssertEqual(Path.GetFullPath(workspace), Path.GetFullPath(actualWorkspace), "script workspace did not update");
@@ -1454,7 +1460,6 @@ func writeInWorkspace(path) {
                 writer.Write("test");        // name
                 writer.Write(string.Empty);  // sourceHash
                 writer.Write("1.0");         // compilerVersion
-                writer.Write(false);         // shouldAutoInvokeMain
                 writer.Write(int.MaxValue);  // malicious plugin count
             }
 
@@ -1511,7 +1516,7 @@ func joinArray() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         // B1: two distinct closures and a re-applied first closure must each dispatch to the
         // correct function. The old hash-code cache could collide and return a foreign delegate.
@@ -1547,7 +1552,7 @@ func triggerCycle() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         // B3: converting a self-referencing CLR collection back to CFGS must surface a clean,
         // catchable error rather than recursing into an unrecoverable StackOverflowException.
@@ -1600,7 +1605,7 @@ func probe() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         string result = script.InvokeAsync<string>("probe").GetAwaiter().GetResult() ?? "";
         AssertEqual("42,2199023255552,true,12,6,3,caught", result,
@@ -1648,7 +1653,6 @@ func probe() {
                 writer.Write("test");        // name
                 writer.Write(string.Empty);  // sourceHash
                 writer.Write("1.0");         // compilerVersion
-                writer.Write(false);         // shouldAutoInvokeMain
                 writer.Write(0);             // plugin count
                 writer.Write(0);             // function count
                 writer.Write(1);             // instruction count
@@ -1715,7 +1719,7 @@ func forCapture() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         string foreachResult = script.InvokeAsync<string>("foreachCapture").GetAwaiter().GetResult() ?? "";
         AssertEqual("1,2,3", foreachResult, "foreach must give each iteration a fresh binding (C# semantics, S1)");
@@ -1791,7 +1795,7 @@ func probe() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         string result = script.InvokeAsync<string>("probe").GetAwaiter().GetResult() ?? "";
         AssertEqual("5,5,7,animal,105,102030", result, "lambdas must lexically capture the enclosing this/type/super like C#");
@@ -1837,7 +1841,7 @@ func destructureCapture() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         AssertEqual(21, Convert.ToInt32(script.InvokeAsync<object>("destructure").GetAwaiter().GetResult()),
             "foreach array destructuring broke after the per-iteration scope change");
@@ -1891,7 +1895,7 @@ func nestedOnce() {
 func memberOnce() {
     var box = {"v": 1}; var calls = 0;
     func getBox() { calls = calls + 1; return box; }
-    getBox().v += 10;
+    getBox()["v"] += 10;
     return ("" + box["v"]) + ",calls=" + ("" + calls);
 }
 
@@ -1903,7 +1907,7 @@ func simpleRegression() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         AssertEqual("100,0,seq=1", script.InvokeAsync<string>("compoundOnce").GetAwaiter().GetResult() ?? "",
             "compound assignment evaluated the index more than once / wrote the wrong slot (C1)");
@@ -1935,7 +1939,7 @@ func concatNulls() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
         AssertEqual("x|y|ab|", script.InvokeAsync<string>("concatNulls").GetAwaiter().GetResult() ?? "",
             "null must concatenate as an empty string (C2)");
     }
@@ -1964,7 +1968,7 @@ func small() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         AssertEqual("2147483648,4294967296,1099511627776,9223372036854775808,18446744073709551616,25769803776",
             script.InvokeAsync<string>("shl").GetAwaiter().GetResult() ?? "",
@@ -2003,7 +2007,7 @@ func tooShort() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         AssertEqual("07734", script.InvokeAsync<string>("exact").GetAwaiter().GetResult() ?? "",
             "slice assignment with matching length regressed (C4)");
@@ -2039,7 +2043,7 @@ func indexOfPlain() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
 
         AssertEqual("[3, 5, 1099511627776]", script.InvokeAsync<string>("sortMixedIntLong").GetAwaiter().GetResult() ?? "",
             "sort must order mixed int/long numerically instead of throwing (C5)");
@@ -2074,7 +2078,7 @@ func r() {
 }
 """);
 
-        script.RunAsync(autoInvokeMain: false).GetAwaiter().GetResult();
+        script.RunAsync().GetAwaiter().GetResult();
         AssertEqual("5,1099511627776,1.5,1180591620717411303424",
             script.InvokeAsync<string>("r").GetAwaiter().GetResult() ?? "",
             "min/max must compare mixed numeric kinds without throwing");

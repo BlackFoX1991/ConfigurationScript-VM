@@ -12,7 +12,6 @@ namespace CFGS_VM.Hosting
         private readonly CfgsScriptPermissions _permissions;
         private readonly SemaphoreSlim _operationGate = new(1, 1);
         private bool _topLevelRan;
-        private bool _autoMainRan;
 
         internal CfgsScript(VM vm, CompiledScript compiledScript, string originFile, CfgsScriptPermissions permissions)
         {
@@ -28,7 +27,7 @@ namespace CFGS_VM.Hosting
 
         public VM Runtime => _vm;
 
-        public async Task RunAsync(bool autoInvokeMain = true, CancellationToken cancellationToken = default)
+        public async Task RunAsync(CancellationToken cancellationToken = default)
         {
             try
             {
@@ -37,7 +36,7 @@ namespace CFGS_VM.Hosting
                 try
                 {
                     using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
-                    await RunCoreAsync(autoInvokeMain, effectiveToken).ConfigureAwait(false);
+                    await RunCoreAsync(effectiveToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -50,19 +49,15 @@ namespace CFGS_VM.Hosting
             }
         }
 
-        private async Task RunCoreAsync(bool autoInvokeMain, CancellationToken effectiveToken)
+        // Runs the script's top-level code exactly once. CFGS has no auto-main: a script that wants
+        // its main() to run must call it explicitly (or invoke it from the host via InvokeAsync).
+        private async Task RunCoreAsync(CancellationToken effectiveToken)
         {
-            if (!_topLevelRan)
-            {
-                await _vm.RunAsync(ct: effectiveToken).ConfigureAwait(false);
-                _topLevelRan = true;
-            }
-
-            if (!autoInvokeMain || _autoMainRan || !CompiledScript.ShouldAutoInvokeMain)
+            if (_topLevelRan)
                 return;
 
-            _ = await InvokeCoreAsync("main", args: null, effectiveToken).ConfigureAwait(false);
-            _autoMainRan = true;
+            await _vm.RunAsync(ct: effectiveToken).ConfigureAwait(false);
+            _topLevelRan = true;
         }
 
         public Task<object?> InvokeAsync(string functionName, params object[] args)

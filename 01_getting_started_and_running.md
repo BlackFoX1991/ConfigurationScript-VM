@@ -197,7 +197,7 @@ Then run the compiled artifact directly.
 dotnet run --project CFGS_NE -- .\my_script.cfb
 ```
 
-The `.cfb` format stores bytecode, function metadata, source hash, compiler version, auto-main metadata, and plugin DLL names discovered during compilation. It does not store local source or plugin file paths.
+The `.cfb` format stores bytecode, function metadata, source hash, compiler version, and plugin DLL names discovered during compilation. It does not store local source or plugin file paths.
 
 ## The Smallest Reasonable Starting Point
 
@@ -225,6 +225,6 @@ func main() {
 }
 ```
 
-When a directly executed script is purely declarative at top level and defines `main`, the CLI invokes `main` automatically. Older scripts that still call `main();` or `var _ = await main();` at top level continue to work.
+There is no auto-main. A script runs its imperative top-level statements; to run a `main` function, call it explicitly with `main();` (or `var _ = await main();` for an async `main`). Defining `main` without calling it does nothing.
 
 If you want to understand why certain constructs are not allowed at top level, continue with [Language and Data](02_language_and_data.md) and [Control Flow and Errors](03_control_flow_and_errors.md).

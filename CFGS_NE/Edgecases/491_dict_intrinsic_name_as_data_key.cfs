@@ -1,0 +1,26 @@
+import "edge_assert.cfs";
+
+edge_begin("491_dict_intrinsic_name_as_data_key");
+
+# Intrinsic method names are no longer reserved as dictionary keys: data lives behind bracket access
+# and methods behind dot access, so they never collide.
+
+# A dictionary literal may use an intrinsic name as a data key.
+var d = { "get_or": 1, "merge": 2, "keys": 3 };
+edge_eq("literal_intrinsic_key", d["get_or"], 1);
+edge_eq("literal_merge_key", d["merge"], 2);
+
+# Bracket assignment with an intrinsic name stores data.
+d["contains"] = 9;
+edge_eq("bracket_intrinsic_write", d["contains"], 9);
+
+# Dict push merges a pair whose key is an intrinsic name.
+var e = {};
+e[] = { "get_or": 5 };
+edge_eq("push_intrinsic_key", e["get_or"], 5);
+
+# Dot access still resolves the intrinsic METHOD, independent of the same-named data key.
+edge_eq("dot_calls_intrinsic_present", d.get_or("get_or", 99), 1);
+edge_eq("dot_calls_intrinsic_absent", d.get_or("absent", 99), 99);
+
+edge_finish("491_dict_intrinsic_name_as_data_key");

@@ -31,7 +31,7 @@ Direct control flow statements such as `if`, `for`, `foreach`, `while`, `match`,
 
 In imported modules and namespace bodies, `var` and `const` initializers are also restricted to non-executing expressions: literals, variable references, indexing/member access, collection literals, and pure operators. Calls, object construction, `await`, `out`, and function expressions belong inside functions.
 
-Directly executed root scripts still accept the older script-style top level for compatibility. If a direct script is purely declarative and defines `main`, the CLI invokes `main` automatically.
+Directly executed root scripts still accept the older script-style top level for compatibility. There is no auto-main: a script must call `main()` explicitly (or run imperative top-level code). Defining `main` without calling it does nothing.
 
 ## Literals
 
@@ -222,11 +222,10 @@ Dictionary literals look like this.
 var cfg = {"host": "localhost", "port": 80};
 ```
 
-Access works through brackets and often also through dot access.
+Data is accessed through brackets. Dot access on a dictionary is reserved for its intrinsic methods (see below), never for data keys.
 
 ```cfs
-print(cfg["host"]);
-print(cfg.host);
+print(cfg["host"]);   # data access
 ```
 
 ### Merging
@@ -296,7 +295,6 @@ delete arr[1~3];
 delete arr;
 
 delete cfg["host"];
-delete cfg.host;
 delete cfg;
 ```
 
@@ -305,16 +303,29 @@ The meaning is straightforward.
 - `delete arr[1];` removes one element.
 - `delete arr[1~3];` removes a range.
 - `delete arr;` clears the entire array.
-- `delete cfg["k"];` or `delete cfg.k;` removes one key.
+- `delete cfg["k"];` removes one key.
 - `delete cfg;` clears the entire dictionary.
 
 Delete on strings is not allowed.
 
-## Dictionary Hardening for Reserved Intrinsic Names
+## Dictionaries: Data via Brackets, Methods via Dot
 
-The runtime protects some reserved dictionary intrinsic names. One example is `get_or`. Those names should not be used as normal application data keys when they are written through literals or push style merges. This avoids collisions between data and methods.
+A dictionary separates data from methods by syntax, so the two never collide:
 
-The practical rule is simple. Use regular business keys such as `mode`, `retries`, `host`, `status`, or `value`.
+- **Bracket access** (`cfg["host"]`) reads and writes data keys. Any non-empty string is a valid key, including names that match an intrinsic method such as `merge` or `get_or`.
+- **Dot access** (`cfg.merge(other)`) resolves an intrinsic method only. It never reads or writes a data key.
+
+Because they never overlap, a data key may freely share a name with a method: `cfg["merge"]` is the value stored under `"merge"`, while `cfg.merge(...)` calls the merge intrinsic. There is no longer any reserved-key restriction.
+
+```cfs
+var cfg = {"host": "localhost", "merge": 3};
+print(cfg["host"]);         # data
+print(cfg["merge"]);        # data value 3
+print(cfg.merge({"x": 1})); # merge intrinsic
+
+# cfg.host       -> error: dictionaries read data with bracket access, e.g. cfg["host"]
+# cfg.host = 8   -> error: assign data with bracket access, e.g. cfg["host"] = 8
+```
 
 ## Strings as a First Class Type
 
@@ -341,7 +352,7 @@ arr[1~3] = [20, 30];
 
 var cfg = {"host": "localhost", "port": 80};
 cfg[] = {"mode": "safe"};
-delete cfg.port;
+delete cfg["port"];
 
 var text = "abcdef";
 print(text[1~4]);

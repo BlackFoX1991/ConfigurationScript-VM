@@ -37,7 +37,6 @@ namespace CFGS_VM.VMCore
             writer.Write(SanitizeSourceName(script.Name));
             writer.Write(script.SourceHash);
             writer.Write(script.CompilerVersion);
-            writer.Write(script.ShouldAutoInvokeMain);
 
             writer.Write(script.RequiredPlugins.Count);
             foreach (string plugin in script.RequiredPlugins)
@@ -89,7 +88,6 @@ namespace CFGS_VM.VMCore
             string name = reader.ReadString();
             string sourceHash = reader.ReadString();
             string compilerVersion = reader.ReadString();
-            bool shouldAutoInvokeMain = reader.ReadBoolean();
 
             int pluginCount = ReadCount(reader);
             List<string> requiredPlugins = new(pluginCount);
@@ -133,7 +131,6 @@ namespace CFGS_VM.VMCore
                 sourceHash,
                 compilerVersion,
                 bytecodeVersion,
-                shouldAutoInvokeMain,
                 requiredPlugins,
                 instructions,
                 functions);

@@ -358,7 +358,11 @@ namespace CFGS_VM.Analytic.Lowering
                 ArrayExpr a => new ArrayExpr(a.Elements.Select(LowerExpr).ToList(), a.Line, a.Col, a.OriginFile),
                 IndexExpr i => new IndexExpr(LowerNullableExpr(i.Target), LowerNullableExpr(i.Index), i.Line, i.Col, i.OriginFile, i.IsDotAccess),
                 SliceExpr s => new SliceExpr(LowerNullableExpr(s.Target), LowerNullableExpr(s.Start), LowerNullableExpr(s.End), s.Line, s.Col, s.OriginFile),
-                DictExpr d => new DictExpr(d.Pairs.Select(pair => (LowerExpr(pair.Key), LowerExpr(pair.Value))).ToList(), d.Line, d.Col, d.OriginFile),
+                DictExpr d => new DictExpr(d.Pairs.Select(pair => (LowerExpr(pair.Key), LowerExpr(pair.Value))).ToList(), d.Line, d.Col, d.OriginFile)
+                {
+                    IsNamespaceContainer = d.IsNamespaceContainer,
+                    NamespaceContainerName = d.NamespaceContainerName
+                },
                 PrefixExpr p => new PrefixExpr(LowerNullableExpr(p.Target), p.Op, p.Line, p.Col, p.OriginFile),
                 PostfixExpr p => new PostfixExpr(LowerNullableExpr(p.Target), p.Op, p.Line, p.Col, p.OriginFile),
                 TryUnwrapExpr t => new TryUnwrapExpr(LowerNullableExpr(t.Inner), t.Line, t.Col, t.OriginFile),

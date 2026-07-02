@@ -1,0 +1,10 @@
+import "edge_assert.cfs";
+
+# CFGS has no auto-main: a script must call main() explicitly (or use imperative top-level).
+func main() {
+    edge_begin("513_script_explicit_main_sync");
+    edge_eq("explicit_main_sync_runs", 2 + 3, 5);
+    edge_finish("513_script_explicit_main_sync");
+}
+
+main();

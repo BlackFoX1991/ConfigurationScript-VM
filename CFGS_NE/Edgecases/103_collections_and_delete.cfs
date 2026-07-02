@@ -66,8 +66,8 @@ func run_collection_tests() {
     edge_eq("string_negative_slice", s[-3~], "def");
 
     var cfg = {"mode": "x", "retry": 3};
-    delete cfg.mode;
-    edge_eq("dict_dot_delete", cfg["mode"], null);
+    delete cfg["mode"];
+    edge_eq("dict_bracket_delete", cfg["mode"], null);
 }
 
 run_collection_tests();

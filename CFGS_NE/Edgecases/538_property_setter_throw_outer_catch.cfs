@@ -31,7 +31,7 @@ func main() {
         prs.last = "must-not-run";
         reached_after_throw = true;
     } catch(ex) {
-        caught = ex.message;
+        caught = ex["message"];
     }
 
     edge_eq("setter_throw_caught_message", caught, "bad first");

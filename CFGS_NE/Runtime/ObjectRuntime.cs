@@ -1194,11 +1194,35 @@ namespace CFGS_VM.VMCore
                         return (char)strv[index];
                     }
 
+                case NamespaceInstance ns:
+                    {
+                        // Namespaces are a distinct type with no data/method ambiguity, so member
+                        // access is resolved for both dot and bracket forms. (The dictionary
+                        // bracket-only-for-data rule applies to user dictionaries, not namespaces.)
+                        string nsKey = idxObj?.ToString() ?? "";
+                        if (ns.Members.TryGetValue(nsKey, out object? nsMember))
+                            return nsMember;
+                        return null!;
+                    }
+
                 case Dictionary<string, object> dict:
                     {
                         MarkAsyncHazardForMutableCollection(dict);
-                        if (idxObj is string mname && TryBindIntrinsic(dict, mname, out IntrinsicBound? bound, instr))
-                            return bound;
+
+                        // Dot access on a dictionary resolves intrinsic methods only (cfg.merge(...));
+                        // it is never a data read. Data keys are read with bracket access (cfg["key"]),
+                        // which is data-only and does not bind intrinsics, so a data key may share a
+                        // name with a method with no collision.
+                        if (IsMemberAccessInstruction(instr))
+                        {
+                            if (idxObj is string mname && TryBindIntrinsic(dict, mname, out IntrinsicBound? bound, instr))
+                                return bound;
+
+                            throw new VMException(
+                                $"Runtime error: '{idxObj}' is not a dictionary method; use bracket access for data keys, e.g. value[\"{idxObj}\"]",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        }
+
                         string key = idxObj?.ToString() ?? "";
                         if (TryGetDictionaryValue(dict, key, out object? val))
                             return val!;
@@ -1221,7 +1245,7 @@ namespace CFGS_VM.VMCore
                         catch (Exception ex)
                         {
                             string op = IsMemberAccessInstruction(instr) ? "member access" : "index access";
-                            throw new VMException($"Runtime error: native interop {op} failed: {ex.Message}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex);
+                            throw CreateNativeInteropException(ex, $"native interop {op} failed", instr);
                         }
                     }
 
@@ -1405,9 +1429,29 @@ namespace CFGS_VM.VMCore
                 case string _:
                     throw new VMException("Runtime error: INDEX_SET on string. Strings are immutable.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
+                case NamespaceInstance ns:
+                    {
+                        // Namespace members are written by the synthetic namespace lowering (and may be
+                        // addressed by either dot or bracket form); there is no data/method ambiguity.
+                        string nsKey = idxObj?.ToString() ?? string.Empty;
+                        if (nsKey.Length == 0)
+                            throw new VMException("Runtime error: namespace member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                        ns.Members[nsKey] = value;
+                        break;
+                    }
+
                 case Dictionary<string, object> dict:
                     {
                         MarkAsyncHazardForMutableCollection(dict);
+
+                        // Dot access on a dictionary is for intrinsic methods only, and methods are not
+                        // assignable; data is written with bracket access (cfg["key"] = ...).
+                        if (IsMemberAccessInstruction(instr))
+                            throw new VMException(
+                                $"Runtime error: cannot assign to a dictionary through dot access; use bracket access, e.g. value[\"{idxObj}\"] = ...",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
                         string key = NormalizeDictionaryWriteKey(dict, idxObj, instr);
                         SetDictionaryValue(dict, key, value);
                         break;
@@ -1432,7 +1476,7 @@ namespace CFGS_VM.VMCore
                         catch (Exception ex)
                         {
                             string op = IsMemberAccessInstruction(instr) ? "member assignment" : "index assignment";
-                            throw new VMException($"Runtime error: native interop {op} failed: {ex.Message}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex);
+                            throw CreateNativeInteropException(ex, $"native interop {op} failed", instr);
                         }
 
                         break;

@@ -88,7 +88,8 @@ namespace CFGS_VM.Analytic.Lowering
                     new StringExpr(name, bodyStmt.Line, bodyStmt.Col, bodyStmt.OriginFile),
                     bodyStmt.Line,
                     bodyStmt.Col,
-                    bodyStmt.OriginFile);
+                    bodyStmt.OriginFile,
+                    isDotAccess: true);
 
                 scopedBody.Add(new AssignExprStmt(
                     target,
@@ -169,7 +170,11 @@ namespace CFGS_VM.Analytic.Lowering
         {
             List<Stmt> statements = new()
             {
-                new VarDecl(alias, new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file), line, col, file)
+                new VarDecl(alias, new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file)
+                {
+                    IsNamespaceContainer = true,
+                    NamespaceContainerName = alias
+                }, line, col, file)
             };
 
             foreach (string name in names.OrderBy(x => x, StringComparer.Ordinal))
@@ -179,7 +184,8 @@ namespace CFGS_VM.Analytic.Lowering
                     new StringExpr(name, line, col, file),
                     line,
                     col,
-                    file);
+                    file,
+                    isDotAccess: true);
 
                 statements.Add(new AssignExprStmt(target, new VarExpr(name, line, col, file), line, col, file)
                 {
@@ -214,7 +220,11 @@ namespace CFGS_VM.Analytic.Lowering
             {
                 VarDecl rootDecl = new(
                     parts[0],
-                    new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file),
+                    new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file)
+                    {
+                        IsNamespaceContainer = true,
+                        NamespaceContainerName = parts[0]
+                    },
                     line,
                     col,
                     file)
@@ -231,7 +241,11 @@ namespace CFGS_VM.Analytic.Lowering
                 Expr ensureExpr = new BinaryExpr(
                     next,
                     TokenType.QQNull,
-                    new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file),
+                    new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file)
+                    {
+                        IsNamespaceContainer = true,
+                        NamespaceContainerName = string.Join(".", parts.Take(i + 1))
+                    },
                     line,
                     col,
                     file);

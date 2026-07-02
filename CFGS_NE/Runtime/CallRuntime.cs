@@ -566,7 +566,7 @@ namespace CFGS_VM.VMCore
                     }
                     catch (Exception ex)
                     {
-                        throw new VMException($"Runtime error: native interop call failed: {ex.Message}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex);
+                        throw CreateNativeInteropException(ex, "native interop call failed", instr);
                     }
                 }
                 else if (callee is ClrDelegateHandle clrDelegate)
@@ -579,7 +579,7 @@ namespace CFGS_VM.VMCore
                     }
                     catch (Exception ex)
                     {
-                        throw new VMException($"Runtime error: native interop delegate call failed: {ex.Message}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex);
+                        throw CreateNativeInteropException(ex, "native interop delegate call failed", instr);
                     }
                 }
                 else if (callee is ClrEventAccessor clrEventAccessor)
@@ -592,7 +592,7 @@ namespace CFGS_VM.VMCore
                     }
                     catch (Exception ex)
                     {
-                        throw new VMException($"Runtime error: native interop call failed: {ex.Message}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!, ex);
+                        throw CreateNativeInteropException(ex, "native interop call failed", instr);
                     }
                 }
                 else if (callee is BoundMethod bm)

@@ -181,5 +181,7 @@
         MERGE_LEFT,
 
         MERGE_RIGHT,
+
+        NEW_NAMESPACE,
     }
 }

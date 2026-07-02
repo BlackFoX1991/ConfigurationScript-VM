@@ -1024,7 +1024,11 @@ namespace CFGS_VM.Analytic.Modules
                         .ToList(),
                     dictExpr.Line,
                     dictExpr.Col,
-                    dictExpr.OriginFile),
+                    dictExpr.OriginFile)
+                {
+                    IsNamespaceContainer = dictExpr.IsNamespaceContainer,
+                    NamespaceContainerName = dictExpr.NamespaceContainerName
+                },
                 PrefixExpr prefixExpr => new PrefixExpr(RewriteNullableExpr(prefixExpr.Target, state), prefixExpr.Op, prefixExpr.Line, prefixExpr.Col, prefixExpr.OriginFile),
                 PostfixExpr postfixExpr => new PostfixExpr(RewriteNullableExpr(postfixExpr.Target, state), postfixExpr.Op, postfixExpr.Line, postfixExpr.Col, postfixExpr.OriginFile),
                 TryUnwrapExpr tryUnwrapExpr => new TryUnwrapExpr(RewriteNullableExpr(tryUnwrapExpr.Inner, state), tryUnwrapExpr.Line, tryUnwrapExpr.Col, tryUnwrapExpr.OriginFile),
