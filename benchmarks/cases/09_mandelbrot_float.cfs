@@ -30,4 +30,4 @@ func run(size, maxIter) {
     return count;
 }
 
-print(run(200, 100));
+print(run(1024, 100));
