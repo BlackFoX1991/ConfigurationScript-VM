@@ -17,6 +17,17 @@ namespace CFGS_VM.VMCore.Extensions.Core
         Ok
     }
 
+    /// <summary>
+    /// A lexical scope: variable bindings plus a link to the enclosing scope.
+    ///
+    /// Variable access is NOT internally synchronized. It does not need to be: all bytecode execution
+    /// (the only path that reads or writes environments) is serialized by the VM execution gate
+    /// (<c>VM._executionGate</c>), so at most one context ever touches an environment at a time, even
+    /// across hot-started async child VMs that share environments by reference. The debugger only reads
+    /// locals while execution is paused, i.e. while no other context runs. <see cref="SyncRoot"/> is kept
+    /// for the few remaining call sites that still lock on it; that locking is likewise redundant under the
+    /// gate. Removing the per-access lock takes a Monitor.Enter/Exit off every LOAD_VAR/STORE_VAR.
+    /// </summary>
     public class Env
     {
         public readonly object SyncRoot = new();
@@ -38,19 +49,14 @@ namespace CFGS_VM.VMCore.Extensions.Core
 
         public bool TryGetValueValue(string name, out Value value)
         {
-            Env? parent;
-            lock (SyncRoot)
+            for (Env? env = this; env != null; env = env.Parent)
             {
-                if (Vars.TryGetValue(name, out Value local))
+                if (env.Vars.TryGetValue(name, out Value local))
                 {
                     value = local;
                     return true;
                 }
-                parent = Parent;
             }
-
-            if (parent != null)
-                return parent.TryGetValueValue(name, out value);
 
             value = Value.Null;
             return false;
@@ -69,26 +75,18 @@ namespace CFGS_VM.VMCore.Extensions.Core
         }
 
         public bool HasLocal(string name)
-        {
-            lock (SyncRoot)
-                return Vars.ContainsKey(name);
-        }
+            => Vars.ContainsKey(name);
 
         public bool SetValue(string name, Value value)
         {
-            Env? parent;
-            lock (SyncRoot)
+            for (Env? env = this; env != null; env = env.Parent)
             {
-                if (Vars.ContainsKey(name))
+                if (env.Vars.ContainsKey(name))
                 {
-                    Vars[name] = value;
+                    env.Vars[name] = value;
                     return true;
                 }
-                parent = Parent;
             }
-
-            if (parent != null)
-                return parent.SetValue(name, value);
 
             return false;
         }
@@ -97,60 +95,44 @@ namespace CFGS_VM.VMCore.Extensions.Core
             => SetValue(name, Value.FromObject(value));
 
         public void DefineValue(string name, Value value)
-        {
-            lock (SyncRoot)
-                Vars[name] = value;
-        }
+            => Vars[name] = value;
 
         public void Define(string name, object? value)
             => DefineValue(name, Value.FromObject(value));
 
         public void DefineConstValue(string name, Value value)
         {
-            lock (SyncRoot)
-            {
-                Vars[name] = value;
-                ConstVars.Add(name);
-            }
+            Vars[name] = value;
+            ConstVars.Add(name);
         }
 
         public void DefineConst(string name, object? value)
             => DefineConstValue(name, Value.FromObject(value));
 
         public bool IsConstLocal(string name)
-        {
-            lock (SyncRoot)
-                return ConstVars.Contains(name);
-        }
+            => ConstVars.Contains(name);
 
         public bool RemoveLocal(string name)
         {
-            lock (SyncRoot)
-            {
-                ConstVars.Remove(name);
-                return Vars.Remove(name);
-            }
+            ConstVars.Remove(name);
+            return Vars.Remove(name);
         }
 
         /// <summary>
-        /// Atomically updates an existing local in this environment, honoring const-ness. The
-        /// existence check, const check, and write all happen under a single lock so a concurrent
-        /// remove or const declaration cannot be observed in a torn state between them.
+        /// Updates an existing local in this environment, honoring const-ness. Single-threaded under the
+        /// VM execution gate, so the existence check, const check, and write are naturally atomic.
         /// </summary>
         /// <param name="name">The local name.</param>
         /// <param name="value">The new value.</param>
         /// <returns>The <see cref="LocalAssign"/> outcome.</returns>
         public LocalAssign SetLocalIfNotConst(string name, Value value)
         {
-            lock (SyncRoot)
-            {
-                if (!Vars.ContainsKey(name))
-                    return LocalAssign.NotPresent;
-                if (ConstVars.Contains(name))
-                    return LocalAssign.IsConst;
-                Vars[name] = value;
-                return LocalAssign.Ok;
-            }
+            if (!Vars.ContainsKey(name))
+                return LocalAssign.NotPresent;
+            if (ConstVars.Contains(name))
+                return LocalAssign.IsConst;
+            Vars[name] = value;
+            return LocalAssign.Ok;
         }
 
         public LocalAssign SetLocalIfNotConst(string name, object? value)

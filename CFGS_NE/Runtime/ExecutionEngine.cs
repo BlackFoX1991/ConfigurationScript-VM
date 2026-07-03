@@ -63,17 +63,27 @@ namespace CFGS_VM.VMCore
                     try
                     {
                         Instruction instr = _program[_ip];
-                        VmDebugContext debugContext = CreateDebugContext(_ip, instr);
 
-                        if (Debugger?.BeforeInstruction(this, debugContext) == VmDebuggerControl.Stop)
-                            return RunStopReason.Halted;
+                        // The debug context (stack/scope/callstack depths + instruction) is only needed when
+                        // a debugger is attached, which is the rare case. Building it on every instruction
+                        // otherwise is pure overhead on the hottest loop in the VM, so gate it.
+                        VmDebugContext debugContext = default;
+                        bool hasDebugger = Debugger is not null;
+                        if (hasDebugger)
+                        {
+                            debugContext = CreateDebugContext(_ip, instr);
+                            if (Debugger!.BeforeInstruction(this, debugContext) == VmDebuggerControl.Stop)
+                                return RunStopReason.Halted;
+                        }
 
                         if (debugging)
                             WriteDebugTrace(_ip);
 
                         _ip++;
                         StepResult res = HandleInstruction(ref _ip, _program, instr);
-                        Debugger?.AfterInstruction(this, debugContext);
+
+                        if (hasDebugger)
+                            Debugger!.AfterInstruction(this, debugContext);
 
                         if (res == StepResult.Halt)
                             return RunStopReason.Halted;

@@ -96,17 +96,25 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private static void MarkAsyncHazardForMutableReceiver(object? receiver) { }
 
+        // Collection element operations run directly, without a per-operation lock. Locking here was
+        // redundant machinery: every bytecode-path collection access is serialized by VM._executionGate,
+        // so no two contexts touch a collection at once. The old WithMutableLock wrappers cost a
+        // ConditionalWeakTable lookup, a Monitor.Enter/Exit, AND a lambda-closure allocation on EVERY
+        // push/index/len, which dominated array and dictionary throughput. Snapshot helpers keep their
+        // copy (that copy is a semantic guarantee: intrinsics like map/filter iterate a stable copy while
+        // the callback may mutate the source), they just no longer take the lock.
+
         /// <summary>
         /// Returns the current item count of a runtime list.
         /// </summary>
         private static int GetListCount(List<object> list)
-            => WithMutableLock(list, () => list.Count);
+            => list.Count;
 
         /// <summary>
         /// Returns a snapshot copy of a runtime list.
         /// </summary>
         private static List<object> SnapshotList(List<object> list)
-            => WithMutableLock(list, () => list.ToList());
+            => list.ToList();
 
         /// <summary>
         /// Returns a snapshot copy of a mutable CFGS runtime list.
@@ -118,90 +126,85 @@ namespace CFGS_VM.VMCore
         /// Returns the item at the supplied list index.
         /// </summary>
         private static object GetListValue(List<object> list, int index)
-            => WithMutableLock(list, () => list[index]);
+            => list[index];
 
         /// <summary>
         /// Sets the item at the supplied list index.
         /// </summary>
         private static void SetListValue(List<object> list, int index, object value)
-            => WithMutableLock(list, () => list[index] = value);
+            => list[index] = value;
 
         /// <summary>
         /// Appends a value to a runtime list.
         /// </summary>
         private static void AddListValue(List<object> list, object value)
-            => WithMutableLock(list, () => list.Add(value));
+            => list.Add(value);
 
         /// <summary>
         /// Removes a range from a runtime list.
         /// </summary>
         private static void RemoveListRange(List<object> list, int index, int count)
-            => WithMutableLock(list, () => list.RemoveRange(index, count));
+            => list.RemoveRange(index, count);
 
         /// <summary>
         /// Removes the item at the supplied list index.
         /// </summary>
         private static void RemoveListAt(List<object> list, int index)
-            => WithMutableLock(list, () => list.RemoveAt(index));
+            => list.RemoveAt(index);
 
         /// <summary>
         /// Clears a runtime list.
         /// </summary>
         private static void ClearList(List<object> list)
-            => WithMutableLock(list, list.Clear);
+            => list.Clear();
 
         /// <summary>
         /// Returns a copied slice of a runtime list.
         /// </summary>
         private static List<object> GetListRange(List<object> list, int start, int count)
-            => WithMutableLock(list, () => list.GetRange(start, count));
+            => list.GetRange(start, count);
 
         /// <summary>
         /// Returns the current item count of a runtime dictionary.
         /// </summary>
         private static int GetDictionaryCount(Dictionary<string, object> dict)
-            => WithMutableLock(dict, () => dict.Count);
+            => dict.Count;
 
         /// <summary>
         /// Returns whether the supplied key exists in the runtime dictionary.
         /// </summary>
         private static bool ContainsDictionaryKey(Dictionary<string, object> dict, string key)
-            => WithMutableLock(dict, () => dict.ContainsKey(key));
+            => dict.ContainsKey(key);
 
         /// <summary>
         /// Tries to read a value from a runtime dictionary.
         /// </summary>
         private static bool TryGetDictionaryValue(Dictionary<string, object> dict, string key, out object? value)
-        {
-            object? local = null;
-            bool found = WithMutableLock(dict, () => dict.TryGetValue(key, out local));
-            value = local;
-            return found;
-        }
+            => dict.TryGetValue(key, out value);
 
         /// <summary>
         /// Writes a value into a runtime dictionary.
         /// </summary>
         private static void SetDictionaryValue(Dictionary<string, object> dict, string key, object value)
-            => WithMutableLock(dict, () => dict[key] = value);
+            => dict[key] = value;
 
         /// <summary>
         /// Removes a value from a runtime dictionary.
         /// </summary>
         private static bool RemoveDictionaryValue(Dictionary<string, object> dict, string key)
-            => WithMutableLock(dict, () => dict.Remove(key));
+            => dict.Remove(key);
 
         /// <summary>
         /// Clears a runtime dictionary.
         /// </summary>
         private static void ClearDictionary(Dictionary<string, object> dict)
-            => WithMutableLock(dict, dict.Clear);
+            => dict.Clear();
 
         /// <summary>
         /// Returns a snapshot copy of runtime dictionary keys.
         /// </summary>
         private static List<string> SnapshotDictionaryKeys(Dictionary<string, object> dict)
-            => WithMutableLock(dict, () => dict.Keys.ToList());
+            => dict.Keys.ToList();
 
         /// <summary>
         /// Returns a snapshot copy of a mutable CFGS runtime dictionary's keys.
@@ -213,7 +216,7 @@ namespace CFGS_VM.VMCore
         /// Returns a snapshot copy of runtime dictionary entries.
         /// </summary>
         private static List<KeyValuePair<string, object>> SnapshotDictionaryEntries(Dictionary<string, object> dict)
-            => WithMutableLock(dict, () => dict.ToList());
+            => dict.ToList();
 
         /// <summary>
         /// Returns a snapshot copy of a mutable CFGS runtime dictionary's entries.
@@ -225,7 +228,7 @@ namespace CFGS_VM.VMCore
         /// Returns an ordered snapshot copy of runtime dictionary entries.
         /// </summary>
         private static List<KeyValuePair<string, object>> SnapshotOrderedDictionaryEntries(Dictionary<string, object> dict)
-            => WithMutableLock(dict, () => dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList());
+            => dict.OrderBy(k => k.Key, StringComparer.Ordinal).ToList();
 
         private int RequireIntIndex(object idxObj, Instruction instr)
         {
@@ -726,13 +729,10 @@ namespace CFGS_VM.VMCore
                 }
                 else
                 {
-                    WithMutableLock(dict, () =>
-                    {
-                        int k = 0;
-                        while (dict.ContainsKey(k.ToString(CultureInfo.InvariantCulture)))
-                            k++;
-                        dict[k.ToString(CultureInfo.InvariantCulture)] = value;
-                    });
+                    int k = 0;
+                    while (dict.ContainsKey(k.ToString(CultureInfo.InvariantCulture)))
+                        k++;
+                    dict[k.ToString(CultureInfo.InvariantCulture)] = value;
                 }
 
                 return;

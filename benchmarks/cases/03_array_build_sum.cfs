@@ -1,0 +1,25 @@
+# name: Array build + index sum
+# units: 1500000
+# unit-label: elements
+#
+# Appends N elements with push syntax, then sums them by index. Stresses
+# ARRAY_PUSH, dynamic growth, LOAD_INDEX, and len().
+
+func run(n) {
+    var a = [];
+    var i = 0;
+    while (i < n) {
+        a[] = i * 2;
+        i = i + 1;
+    }
+
+    var s = 0;
+    var j = 0;
+    while (j < len(a)) {
+        s = s + a[j];
+        j = j + 1;
+    }
+    return s;
+}
+
+print(run(1500000));

@@ -137,13 +137,11 @@ namespace CFGS_VM.VMCore
 
         private static bool TryGetLocalVarValue(Env env, string name, out Value value)
         {
-            lock (env.SyncRoot)
+            // No lock: all bytecode-path environment access is serialized by VM._executionGate. See Env.
+            if (env.Vars.TryGetValue(name, out Value local))
             {
-                if (env.Vars.TryGetValue(name, out Value local))
-                {
-                    value = local;
-                    return true;
-                }
+                value = local;
+                return true;
             }
 
             value = Value.Null;
@@ -151,10 +149,7 @@ namespace CFGS_VM.VMCore
         }
 
         private static void SetLocalVarValue(Env env, string name, Value value)
-        {
-            lock (env.SyncRoot)
-                env.Vars[name] = value;
-        }
+            => env.Vars[name] = value;
 
         /// <summary>
         /// Atomically resolves a variable by walking the current scope chain (then the global scope
@@ -531,6 +526,17 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is null) break;
                         string name = (string)instr.Operand;
 
+                        // Hot path first: a normal variable read. The receiver keywords this/type/super/
+                        // outer can never be stored as ordinary locals (VAR_DECL/CONST_DECL reject them),
+                        // so resolving the environment first is semantically identical to the old order and
+                        // takes the four keyword string comparisons off every successful variable load.
+                        if (TryResolveVarOwnerValue(name, out Env hotOwner, out Value hotVal))
+                        {
+                            MarkAsyncHazardForEnvAccess(hotOwner);
+                            _valueStack.Push(hotVal);
+                            break;
+                        }
+
                         if (name == "this")
                         {
                             object? th = CurrentThis;
@@ -620,13 +626,6 @@ namespace CFGS_VM.VMCore
                             throw new VMException("Runtime error: 'outer' is not bound in current frame", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                         }
 
-                        if (TryResolveVarOwnerValue(name, out Env owner, out Value val))
-                        {
-                            MarkAsyncHazardForEnvAccess(owner);
-                            _valueStack.Push(val);
-                            break;
-                        }
-
                         if (TryGetRegisteredNamespaceRoot(name, out object namespaceObject))
                         {
                             _valueStack.Push(Value.FromObject(namespaceObject));
@@ -684,23 +683,25 @@ namespace CFGS_VM.VMCore
                         if (instr.Operand is null) break;
                         string name = (string)instr.Operand;
 
+                        RequireStack(1, instr, "STORE_VAR");
+                        Value value = _valueStack.Pop();
+
+                        // Hot path: assign to an existing binding. The resolver already located the owning
+                        // environment, so we set directly (const-checked) instead of re-probing it via
+                        // SetLocalIfNotConst, and the receiver-keyword checks move to the cold miss path.
+                        if (TryResolveVarOwnerValue(name, out Env env, out _))
+                        {
+                            MarkAsyncHazardForEnvAccess(env);
+                            if (env.ConstVars.Contains(name))
+                                throw new VMException($"Runtime error: cannot assign to constant '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            env.Vars[name] = value;
+                            break;
+                        }
+
                         if (name == "this" || name == "type" || name == "super" || name == "outer")
                             throw new VMException($"Runtime error: cannot assign to '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-                        RequireStack(1, instr, "STORE_VAR");
-                        Value value = _valueStack.Pop();
-                        if (!TryResolveVarOwnerValue(name, out Env env, out _))
-                            throw new VMException(UndefinedAssignmentMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-                        MarkAsyncHazardForEnvAccess(env);
-                        switch (env.SetLocalIfNotConst(name, value))
-                        {
-                            case LocalAssign.IsConst:
-                                throw new VMException($"Runtime error: cannot assign to constant '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                            case LocalAssign.NotPresent:
-                                throw new VMException(UndefinedAssignmentMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        }
-                        break;
+                        throw new VMException(UndefinedAssignmentMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }
 
                 case OpCode.ADD:

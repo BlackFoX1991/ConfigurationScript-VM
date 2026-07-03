@@ -117,17 +117,41 @@ namespace CFGS_VM.VMCore
             }
         }
 
+        // Pre-boxed immutable scalars so ToObject() returns a shared reference instead of allocating on
+        // every conversion at the object boundary (array/dict element stores, call arguments, host
+        // interop). Boxed values are immutable, so sharing them is always correct; the only observable
+        // effect is that two boxes of the same small value are reference-equal, which CFGS never exposes
+        // as a script-visible identity (equality is value-based). Same idea as the JVM's Integer cache.
+        private static readonly object BoxedTrue = true;
+        private static readonly object BoxedFalse = false;
+        private const int BoxCacheMin = -128;
+        private const int BoxCacheMax = 1024;
+        private static readonly object[] BoxedInts = CreateIntBoxCache();
+
+        private static object[] CreateIntBoxCache()
+        {
+            object[] cache = new object[BoxCacheMax - BoxCacheMin + 1];
+            for (int i = 0; i < cache.Length; i++)
+                cache[i] = BoxCacheMin + i;
+            return cache;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static object BoxInt(int value)
+            => value >= BoxCacheMin && value <= BoxCacheMax ? BoxedInts[value - BoxCacheMin] : value;
+
         /// <summary>
         /// Lowers a <see cref="Value"/> back to the legacy <see cref="object"/> representation,
         /// boxing the inline scalar kinds. Used at boundaries with code that has not yet been
-        /// migrated to operate on <see cref="Value"/> directly.
+        /// migrated to operate on <see cref="Value"/> directly. Small ints and bools return a cached
+        /// box to avoid an allocation on the common case.
         /// </summary>
         public object? ToObject()
             => _kind switch
             {
                 ValueKind.Null => null,
-                ValueKind.Bool => AsBool,
-                ValueKind.Int => AsInt,
+                ValueKind.Bool => AsBool ? BoxedTrue : BoxedFalse,
+                ValueKind.Int => BoxInt(AsInt),
                 ValueKind.Long => AsLong,
                 ValueKind.Double => AsDouble,
                 ValueKind.Char => AsChar,

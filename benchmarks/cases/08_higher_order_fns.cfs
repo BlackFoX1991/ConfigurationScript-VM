@@ -1,0 +1,21 @@
+# name: Higher-order array functions
+# units: 1000000
+# unit-label: elements
+#
+# Builds an array then runs map -> filter -> reduce over it. Stresses the array
+# intrinsic HOFs plus repeated closure invocation inside them.
+
+func run(n) {
+    var a = [];
+    var i = 0;
+    while (i < n) {
+        a[] = i;
+        i = i + 1;
+    }
+
+    var tripled = a.map(func(x) { return x * 3; });
+    var evens = tripled.filter(func(x) { return x % 2 == 0; });
+    return evens.reduce(func(acc, x) { return acc + x; }, 0);
+}
+
+print(run(1000000));

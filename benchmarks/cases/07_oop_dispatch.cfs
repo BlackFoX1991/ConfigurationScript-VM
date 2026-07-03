@@ -1,0 +1,33 @@
+# name: OOP object + method dispatch
+# units: 300000
+# unit-label: objects
+#
+# Allocates an object and calls an instance method each iteration. Stresses
+# NEW_OBJECT, init, field access via this, and instance method dispatch.
+
+class Point(px, py) {
+    var x = 0;
+    var y = 0;
+
+    func init(px, py) {
+        this.x = px;
+        this.y = py;
+    }
+
+    func dist2() {
+        return this.x * this.x + this.y * this.y;
+    }
+}
+
+func run(n) {
+    var s = 0;
+    var i = 0;
+    while (i < n) {
+        var p = new Point(i, i + 1);
+        s = s + p.dist2();
+        i = i + 1;
+    }
+    return s;
+}
+
+print(run(300000));

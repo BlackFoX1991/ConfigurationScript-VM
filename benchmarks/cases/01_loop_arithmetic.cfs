@@ -1,0 +1,18 @@
+# name: Integer loop + arithmetic
+# units: 4000000
+# unit-label: iterations
+#
+# Tight while loop with integer add/compare. Stresses the core bytecode dispatch
+# loop (LOAD_VAR, ADD, LT, JMP_IF_FALSE, STORE_VAR) with no allocation.
+
+func run(n) {
+    var i = 0;
+    var s = 0;
+    while (i < n) {
+        s = s + i;
+        i = i + 1;
+    }
+    return s;
+}
+
+print(run(4000000));

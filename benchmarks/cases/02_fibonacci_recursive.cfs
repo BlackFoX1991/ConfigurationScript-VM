@@ -1,0 +1,15 @@
+# name: Recursive fibonacci
+# units: 2692537
+# unit-label: calls
+#
+# fib(30) makes 2*fib(31)-1 = 2,692,537 calls. Stresses call/return overhead:
+# frame setup, argument binding, and the return path.
+
+func fib(n) {
+    if (n < 2) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+print(fib(30));

@@ -1,0 +1,25 @@
+# name: Closure create + call
+# units: 1500000
+# unit-label: closures
+#
+# Creates a fresh closure capturing a variable and immediately invokes it, once
+# per iteration. Stresses PUSH_CLOSURE, environment capture, and CALL_INDIRECT.
+
+func makeAdder(k) {
+    return func(x) {
+        return x + k;
+    };
+}
+
+func run(n) {
+    var s = 0;
+    var i = 0;
+    while (i < n) {
+        var f = makeAdder(i);
+        s = s + f(i);
+        i = i + 1;
+    }
+    return s;
+}
+
+print(run(1500000));

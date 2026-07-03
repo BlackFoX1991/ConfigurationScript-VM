@@ -1,0 +1,13 @@
+# name: Baseline (startup + compile)
+# units: 0
+# unit-label: n/a
+#
+# Does almost no work. Its wall time is the fixed cost of spawning the process,
+# starting the .NET runtime, loading the VM, and compiling a tiny script. The
+# runner subtracts this baseline from every other case to estimate pure VM time.
+
+func run() {
+    return 0;
+}
+
+print(run());

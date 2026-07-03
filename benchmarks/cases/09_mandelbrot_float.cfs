@@ -1,0 +1,33 @@
+# name: Mandelbrot (double arithmetic)
+# units: 40000
+# unit-label: pixels
+#
+# Computes escape iterations for a 200x200 grid, up to 100 iterations each.
+# Float-heavy: stresses double mul/add/compare in a hot nested loop.
+
+func run(size, maxIter) {
+    var count = 0;
+    var py = 0;
+    while (py < size) {
+        var px = 0;
+        while (px < size) {
+            var x0 = (px * 3.0 / size) - 2.0;
+            var y0 = (py * 3.0 / size) - 1.5;
+            var x = 0.0;
+            var y = 0.0;
+            var it = 0;
+            while (it < maxIter && x * x + y * y <= 4.0) {
+                var xt = x * x - y * y + x0;
+                y = 2.0 * x * y + y0;
+                x = xt;
+                it = it + 1;
+            }
+            count = count + it;
+            px = px + 1;
+        }
+        py = py + 1;
+    }
+    return count;
+}
+
+print(run(200, 100));
