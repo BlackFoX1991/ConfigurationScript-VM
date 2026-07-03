@@ -57,6 +57,16 @@ namespace CFGS_VM.VMCore
 
         private int _minRouteCallDepth;
 
+        /// <summary>
+        /// Serialisiert die Bytecode-Ausfuehrung ueber die Wurzel-VM und alle daraus hot-gestarteten
+        /// Child-VMs hinweg: zu jedem Zeitpunkt fuehrt hoechstens EIN VM-Kontext Bytecode aus, waehrend
+        /// echte IO-Awaits ausserhalb der Sperre liegen. Das entfernt die Data-Race-Klasse auf dem
+        /// geteilten, per Referenz genutzten Heap (Arrays, Dictionaries, Instanzfelder, Globals), ohne die
+        /// IO-Nebenlaeufigkeit des Hot-Start-Modells aufzugeben. Alle Child-VMs teilen dieselbe Instanz
+        /// (zugewiesen im jeweiligen Konstruktor; Child-VMs erhalten die Instanz der Wurzel-VM).
+        /// </summary>
+        private readonly SemaphoreSlim _executionGate;
+
         private void PopScopesToBase(int baseDepth)
         {
             while (_scopes.Count > baseDepth)
@@ -1050,11 +1060,30 @@ namespace CFGS_VM.VMCore
         public VM()
         {
             _debugStream = new MemoryStream();
+            _builtins = new BuiltinRegistry();
+            _intrinsics = new IntrinsicRegistry();
+            _namespaces = new NamespaceRegistry();
+            _executionGate = new SemaphoreSlim(1, 1);
             RegisterInterfaceReflectionBuiltins();
 
             // The non-IO standard library is built into the runtime and always available, so scripts
             // no longer need to import it. File-system APIs remain opt-in via the CFGS.IO plugin.
             CFGS_VM.StandardLibrary.CoreStandardLibrary.Register(_builtins, _intrinsics, _namespaces);
+        }
+
+        /// <summary>
+        /// Konstruktor fuer hot-gestartete Child-VMs. Er teilt die Binding-Registries UND die Execution-Gate
+        /// der Wurzel-VM per Referenz, statt die Standardbibliothek pro async-Aufruf erneut zu registrieren
+        /// und die Bindings zu kopieren. Die Registries werden nach dem Setup nicht mehr mutiert und Reads
+        /// sind durch die Execution-Gate serialisiert, daher ist das Teilen sicher.
+        /// </summary>
+        private VM(VM root)
+        {
+            _debugStream = new MemoryStream();
+            _builtins = root._builtins;
+            _intrinsics = root._intrinsics;
+            _namespaces = root._namespaces;
+            _executionGate = root._executionGate;
         }
 
         private void RegisterInterfaceReflectionBuiltins()

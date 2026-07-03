@@ -43,11 +43,17 @@ namespace CFGS_VM.VMCore
                 loadPluginDll?.Invoke(fullPath);
             };
 
+            // Wenn der Aufrufer (Laufzeit/REPL) keine expliziten Suchwurzeln uebergibt, wird derselbe
+            // kanonische Wurzelsatz berechnet, den Linter und LSP verwenden. Damit loest die Ausfuehrung
+            // dieselben Importe auf wie das Tooling (kein "im Editor gruen, zur Laufzeit rot").
+            IReadOnlyList<string> effectiveSearchRoots =
+                additionalSearchRoots ?? FrontendPipeline.BuildImportSearchRoots(name, explicitBoundary: null);
+
             FrontendPipeline frontendPipeline = new(
                 loadPluginDll: trackingPluginLoader,
                 namespaces: namespaces,
                 workingDirectory: workingDirectory,
-                additionalSearchRoots: additionalSearchRoots);
+                additionalSearchRoots: effectiveSearchRoots);
 
             FrontendBuildResult frontendBuild = frontendPipeline.BuildLoweredAstWithSyntax(name, source);
             Compiler compiler = new(name);

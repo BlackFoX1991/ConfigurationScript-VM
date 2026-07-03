@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -138,9 +139,9 @@ namespace CFGS_VM.VMCore
         /// same <see cref="ValueKind"/> and identical bits (or reference). This is deliberately NOT
         /// the language's numeric equality — <c>Int 1</c> does not equal <c>Long 1</c> here, and two
         /// <c>NaN</c> doubles with the same bit pattern compare equal. Language-level <c>==</c>/<c>!=</c>
-        /// (cross-kind numeric coercion, IEEE NaN semantics) lives in <c>NumericOrValueEquals</c>; use
-        /// this only for raw value identity (e.g. struct-level collection membership), never as the
-        /// script-visible equality operator.
+        /// (cross-kind numeric coercion, IEEE NaN semantics) lives in <c>ValueOps.RuntimeValuesEqual</c>;
+        /// for raw value identity in a keyed collection prefer the explicit <see cref="StructuralComparer"/>
+        /// so the intent is visible at the call site. Never use this as the script-visible equality operator.
         /// </summary>
         public bool Equals(Value other)
         {
@@ -170,5 +171,21 @@ namespace CFGS_VM.VMCore
                 ValueKind.Char => AsChar.ToString(),
                 _ => _ref?.ToString() ?? "null"
             };
+
+        /// <summary>
+        /// The explicit comparer for the struct's raw structural identity (kind plus bits or reference).
+        /// Use this by name when a keyed collection genuinely needs value identity (for example a
+        /// <c>HashSet&lt;Value&gt;</c> or <c>Dictionary&lt;Value, …&gt;</c>), so the call site documents that it
+        /// is NOT the script-visible equality. Script-level <c>==</c>/<c>!=</c> semantics (cross-kind numeric
+        /// coercion, IEEE NaN) are provided by <c>ValueOps.RuntimeValuesEqual</c>, never by this comparer.
+        /// </summary>
+        public static IEqualityComparer<Value> StructuralComparer { get; } = new StructuralValueComparer();
+
+        private sealed class StructuralValueComparer : IEqualityComparer<Value>
+        {
+            public bool Equals(Value x, Value y) => x.Equals(y);
+
+            public int GetHashCode(Value obj) => obj.GetHashCode();
+        }
     }
 }

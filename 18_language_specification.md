@@ -468,6 +468,17 @@ Invalid `await` or `yield` positions MUST fail.
 
 Async calls may hot-start according to the VM async model. Observable ordering MUST follow the documented async behavior.
 
+### Shared-State Memory Model
+
+The runtime shares one mutable heap across the root execution context and every hot-started async call: closure environments, globals, class instances, arrays, and dictionaries are reachable by reference from concurrently pending async calls. To keep that shared heap consistent, bytecode execution is serialized: at any instant at most one execution context runs bytecode, while genuine I/O awaits run outside the serialization boundary. Awaiting an array of hot-started calls still overlaps their I/O, but their bytecode segments resume one at a time.
+
+As a consequence:
+
+- Concurrent structural mutation of a shared array or dictionary from parallel async calls MUST NOT corrupt the collection or fault the runtime.
+- A read-modify-write across an `await` or `yield` boundary is still subject to interleaving: another async call MAY observe or change the shared value between the read and the write. Programs that require an indivisible update across a suspension point MUST serialize it explicitly (for example by not suspending between the read and the write).
+
+The serialization boundary does not add CPU parallelism; a bytecode interpreter over a shared heap gains none. It preserves I/O concurrency while removing the data-race class on shared script state.
+
 ## Error Handling
 
 `try`, `catch`, and `finally` provide structured error handling.

@@ -28,7 +28,9 @@ internal static class Program
             AnalyzerReportsMultipleSyntaxDiagnostics,
             DocumentSymbolsUseLastGoodAnalysisAfterCatastrophicLexerFailure,
             HoverUsesLastGoodAnalysisAfterCatastrophicLexerFailure,
-            ReferencesUseLastGoodAnalysisAfterCatastrophicLexerFailure
+            ReferencesUseLastGoodAnalysisAfterCatastrophicLexerFailure,
+            LiveLintPublishesStyleDiagnosticsWhenEnabled,
+            LiveLintStaysSilentWhenDisabled
         ];
 
         List<string> failures = [];
@@ -75,6 +77,43 @@ internal static class Program
         JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
         AssertTrue(diagnostics.GetArrayLength() > 0, "expected diagnostics for broken source");
         AssertFalse(string.IsNullOrWhiteSpace(diagnostics[0].GetProperty("message").GetString()), "diagnostic message is empty");
+    }
+
+    private static void LiveLintPublishesStyleDiagnosticsWhenEnabled()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized(liveLint: true);
+        string uri = CreateDocumentUri("live_lint_on.cfs");
+        // Trailing whitespace after the first statement is a style lint; the script itself compiles
+        // cleanly, so any diagnostic that appears must come from the live linter.
+        client.DidOpen(uri, "var greeting = \"hi\"; \nprint(greeting);\n");
+
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertTrue(CountLintDiagnostics(diagnostics) > 0, "expected a cfgs-lint diagnostic when live lint is enabled");
+    }
+
+    private static void LiveLintStaysSilentWhenDisabled()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string uri = CreateDocumentUri("live_lint_off.cfs");
+        client.DidOpen(uri, "var greeting = \"hi\"; \nprint(greeting);\n");
+
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertEqual(0, CountLintDiagnostics(diagnostics), "expected no cfgs-lint diagnostics when live lint is disabled");
+    }
+
+    private static int CountLintDiagnostics(JsonElement diagnostics)
+    {
+        int count = 0;
+        foreach (JsonElement diagnostic in diagnostics.EnumerateArray())
+        {
+            if (diagnostic.TryGetProperty("source", out JsonElement source) &&
+                string.Equals(source.GetString(), "cfgs-lint", StringComparison.Ordinal))
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private static void CompletionReturnsLanguageItems()
@@ -581,15 +620,15 @@ internal sealed class LspTestClient : IDisposable
         return new LspTestClient(process);
     }
 
-    public static LspTestClient StartInitialized()
+    public static LspTestClient StartInitialized(bool liveLint = false)
     {
         LspTestClient client = Start();
-        client.Initialize();
+        client.Initialize(liveLint);
         client.SendNotification("initialized", new { });
         return client;
     }
 
-    public JsonElement Initialize()
+    public JsonElement Initialize(bool liveLint = false)
     {
         string root = Path.Combine(Path.GetTempPath(), "cfgs-lsp-tests-root");
         Directory.CreateDirectory(root);
@@ -597,7 +636,8 @@ internal sealed class LspTestClient : IDisposable
         {
             processId = Environment.ProcessId,
             rootUri = new Uri(root).AbsoluteUri,
-            capabilities = new { }
+            capabilities = new { },
+            initializationOptions = new { liveLint }
         });
     }
 

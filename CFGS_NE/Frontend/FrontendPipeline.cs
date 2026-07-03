@@ -3,6 +3,7 @@ using CFGS_VM.Analytic.Ex;
 using CFGS_VM.Analytic.Lowering;
 using CFGS_VM.Analytic.Modules;
 using CFGS_VM.Analytic.Tree;
+using CFGS_VM.Packaging;
 using CFGS_VM.VMCore.Plugin;
 
 namespace CFGS_VM.Analytic
@@ -188,6 +189,63 @@ namespace CFGS_VM.Analytic
             }
 
             return roots;
+        }
+
+        /// <summary>
+        /// Bestimmt die Projekt-Root fuer die Import-Aufloesung: das naechste Vorfahren-Verzeichnis von
+        /// <paramref name="startFileOrDirectory"/>, das ein Projekt-Manifest (<c>cfgs.json</c>) enthaelt.
+        /// Ohne Manifest wird <c>null</c> zurueckgegeben und der Aufrufer faellt auf den beschraenkten
+        /// Vorfahren-Walk zurueck.
+        /// </summary>
+        public static string? FindProjectRoot(string? startFileOrDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(startFileOrDirectory))
+                return null;
+
+            string? directory;
+            try
+            {
+                string full = Path.GetFullPath(startFileOrDirectory);
+                directory = Directory.Exists(full) ? full : Path.GetDirectoryName(full);
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+
+            DirectoryInfo? current = string.IsNullOrWhiteSpace(directory) ? null : new DirectoryInfo(directory!);
+            int guard = 0;
+            while (current is not null && guard++ < 64)
+            {
+                if (File.Exists(Path.Combine(current.FullName, CfgsPackageManager.ManifestFileName)))
+                    return current.FullName;
+
+                current = current.Parent;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Die kanonische, an allen Einstiegspunkten (Ausfuehrung, Linter, LSP) identisch verwendete
+        /// Berechnung der zusaetzlichen Import-Suchwurzeln. Die Grenze ist entweder ein explizit bekannter
+        /// Rand (<paramref name="explicitBoundary"/>, z.B. der LSP-Workspace-Root oder der Lint-Ordner) oder,
+        /// falls keiner uebergeben wurde, die naechste Projekt-Root mit <c>cfgs.json</c>. So sucht das Tooling
+        /// nie eine Obermenge dessen, was die Laufzeit aufloest: Editor und Ausfuehrung stimmen ueberein.
+        /// </summary>
+        public static IReadOnlyList<string> BuildImportSearchRoots(
+            string? startFileOrDirectory,
+            string? explicitBoundary = null)
+        {
+            string? boundary = !string.IsNullOrWhiteSpace(explicitBoundary)
+                ? explicitBoundary
+                : FindProjectRoot(startFileOrDirectory);
+
+            return BuildAncestorSearchRoots(startFileOrDirectory, boundary);
         }
 
         public static string? TryGetWorkingDirectory(string? origin)

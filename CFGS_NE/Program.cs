@@ -61,7 +61,7 @@ public class Program
     /// </summary>
     public static bool IsInteractiveDebug { get; private set; } = false;
 
-    public const string Version = "v13.0.0";
+    public const string Version = "v13.1.0";
 
     public static bool AnsiMode = true;
 
@@ -1030,7 +1030,7 @@ public class Program
         List<CfgsToolDiagnostic> diagnostics = [];
         foreach (string file in files)
         {
-            IReadOnlyList<string> searchRoots = FrontendPipeline.BuildAncestorSearchRoots(file, lintBoundary);
+            IReadOnlyList<string> searchRoots = FrontendPipeline.BuildImportSearchRoots(file, lintBoundary);
             CfgsLintResult result = CfgsLinter.LintFile(file, options, Version, searchRoots);
             if (command.Fix && result.Fixed && result.FixedText is not null)
             {

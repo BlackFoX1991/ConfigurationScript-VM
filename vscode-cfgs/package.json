@@ -2,7 +2,7 @@
   "name": "cfgs-vscode",
   "displayName": "CFGS Language Tools",
   "description": "Visual Studio Code support for ConfigurationScript with CFGS LSP, formatter, and linter integration.",
-  "version": "0.7.1",
+  "version": "0.8.1",
   "publisher": "blackfox1991",
   "engines": {
     "vscode": "^1.90.0"
@@ -118,15 +118,20 @@
           },
           "description": "Optional base arguments for the CFGS CLI command."
         },
+        "cfgs.lint.live": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show CFGS lint diagnostics (style and AST rules) live while typing, not only on save. Changing this restarts the language server."
+        },
         "cfgs.lint.onSave": {
           "type": "boolean",
           "default": false,
-          "description": "Run CFGS lint on the saved file."
+          "description": "Run the CFGS lint CLI on the saved file into a separate collection. Redundant when cfgs.lint.live is on."
         },
         "cfgs.lint.fixOnSave": {
           "type": "boolean",
           "default": false,
-          "description": "Run CFGS lint --fix on save before diagnostics are refreshed."
+          "description": "Run CFGS lint --fix on save to auto-apply safe style fixes."
         }
       }
     }

@@ -1,5 +1,17 @@
 # Change Log
 
+## 0.8.1 - 2026-07-03
+
+### Added
+- Live linting: style and AST lint diagnostics now appear while typing, not only on save, controlled by the new `cfgs.lint.live` setting (default on). Changing the setting restarts the language server.
+
+### Changed
+- The language server no longer blocks on workspace-wide requests. Read-only requests such as references, rename, code lens resolution, workspace symbols, and call hierarchy run concurrently, so a slow reference scan no longer freezes hovers, diagnostics, or typing.
+- The on-save lint CLI pass was removed from the extension because live linting now covers it; `cfgs.lint.fixOnSave` still applies safe `--fix` edits on save.
+
+### Fixed
+- Reference CodeLens no longer appears twice over symbols that share a source range (for example a class and its primary constructor).
+
 ## Unreleased
 
 ### Fixed

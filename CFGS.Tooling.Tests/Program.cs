@@ -43,6 +43,7 @@ internal static class Program
             CliLintJsonProducesStableDiagnosticShape,
             CliLintHonorsToolingLintConfig,
             ImportResolutionIncludesApplicationPluginsDirectory,
+        RuntimeImportResolutionMatchesToolingAncestorRoots,
             HostingFileIoPermissionScopeAppliesToInvocations,
             HostingDefaultsDenyFileIo,
             RunAsyncRunsTopLevelOnceAndNeverAutoInvokesMain,
@@ -941,6 +942,45 @@ func read() {
             TryDeleteFile(modulePath);
             TryDeleteFile(dllPath);
             TryDeleteDirectory(tempWorkingDirectory);
+        }
+    }
+
+    private static void RuntimeImportResolutionMatchesToolingAncestorRoots()
+    {
+        // Regression fuer die vereinheitlichte Import-Aufloesung: eine Einstiegs-Datei in einem Unterordner
+        // importiert per BLOSSEM relativen Namen ("shared.cfs") eine Datei, die im Projekt-Root liegt (dort,
+        // wo cfgs.json steht). Diese Datei ist nur ueber die Projekt-/Vorfahren-Suchwurzeln auffindbar, nicht
+        // ueber das Verzeichnis der importierenden Datei. Frueher lieferte der Laufzeitpfad (CompileFile ->
+        // CompileSource) keine solchen Wurzeln (additionalSearchRoots == null) und schlug hier fehl, waehrend
+        // Linter und LSP denselben Import aufloesten. Jetzt teilen sich alle drei dieselbe Policy.
+        string projectRoot = Path.Combine(Path.GetTempPath(), "cfgs-import-anchor", Guid.NewGuid().ToString("N"));
+        string appDirectory = Path.Combine(projectRoot, "app");
+        Directory.CreateDirectory(appDirectory);
+
+        string sharedPath = Path.Combine(projectRoot, "shared.cfs");
+        string manifestPath = Path.Combine(projectRoot, "cfgs.json");
+        string mainPath = Path.Combine(appDirectory, "main.cfs");
+
+        File.WriteAllText(manifestPath, "{}\n");
+        File.WriteAllText(sharedPath, "export const importedValue = 4242;\n");
+        File.WriteAllText(mainPath, """
+import { importedValue } from "shared.cfs";
+
+func read() {
+    return importedValue;
+}
+""");
+
+        try
+        {
+            CompiledScript compiled = CfgsCompiler.CompileFile(mainPath, compilerVersion: global::Program.Version);
+            AssertTrue(
+                compiled.Instructions.Count > 0,
+                "runtime CompileFile did not resolve an ancestor-root import that the tooling resolves");
+        }
+        finally
+        {
+            TryDeleteDirectory(projectRoot);
         }
     }
 

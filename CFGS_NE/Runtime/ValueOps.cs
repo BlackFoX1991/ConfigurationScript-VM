@@ -1571,6 +1571,9 @@ namespace CFGS_VM.VMCore
             if (TryEqualDecimalFloatingSpecialPair(left, right, out bool decimalFloatingEquals))
                 return decimalFloatingEquals;
 
+            // Alle numerischen Cross-Kind-Faelle sind oben bereits abgehandelt; hier bleiben nur
+            // gleichartige Nicht-Zahl-Skalare (Bool, Char, Null) uebrig, fuer die die strukturelle
+            // Bit-Gleichheit GENAU der Sprach-Gleichheit entspricht. Der Aufruf ist daher bewusst.
             if (left.Kind != ValueKind.Ref && right.Kind != ValueKind.Ref)
                 return left.Equals(right);
 

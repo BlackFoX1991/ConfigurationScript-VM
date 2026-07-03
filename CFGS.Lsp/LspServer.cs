@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using CFGS_VM.Tooling;
 
 namespace CFGS.Lsp;
 
@@ -18,13 +19,20 @@ internal sealed class LspServer
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _pendingAnalysisByUri = OperatingSystem.IsWindows()
         ? new(StringComparer.OrdinalIgnoreCase)
         : new(StringComparer.Ordinal);
-    private readonly Dictionary<string, DocumentState> _documents = OperatingSystem.IsWindows()
+    // Threadsicher, weil lese-only Requests (references, rename, codeLens/resolve, ...) jetzt nebenlaeufig
+    // zum seriellen Notification-Strom laufen und dabei ueber EnsureDocument in diese Map schreiben koennen.
+    private readonly ConcurrentDictionary<string, DocumentState> _documents = OperatingSystem.IsWindows()
         ? new(StringComparer.OrdinalIgnoreCase)
         : new(StringComparer.Ordinal);
 
     private static readonly TimeSpan DidChangeAnalysisDebounce = TimeSpan.FromMilliseconds(150);
     private string? _workspaceRootPath;
     private bool _shutdownRequested;
+
+    // Live-Lint (Style + AST-Regeln beim Tippen) ist per Client-Option schaltbar und standardmaessig aus,
+    // damit Tools/Tests, die die Option nicht senden, nur Compile-/Semantik-Diagnosen sehen. Die VS-Code-
+    // Extension setzt initializationOptions.liveLint (Default an, ueber cfgs.lint.live abschaltbar).
+    private bool _liveLintEnabled;
 
     public LspServer(CfgsAnalyzer analyzer)
     {
@@ -41,9 +49,73 @@ internal sealed class LspServer
             if (json is null)
                 break;
 
+            string method;
+            bool hasId;
+            using (JsonDocument peek = JsonDocument.Parse(json))
+            {
+                method = peek.RootElement.TryGetProperty("method", out JsonElement m) ? m.GetString() ?? string.Empty : string.Empty;
+                hasId = peek.RootElement.TryGetProperty("id", out _);
+            }
+
+            // Reihenfolge-kritische Nachrichten (alle Notifications inkl. didChange, plus der
+            // initialize/shutdown-Handshake) werden weiterhin seriell verarbeitet, damit Textzustand und
+            // Lebenszyklus konsistent bleiben. Alle uebrigen id-Requests sind lesend und potenziell
+            // workspace-weit (references, rename, codeLens/resolve, workspace/symbol, callHierarchy); sie
+            // laufen nebenlaeufig, damit ein langsamer Scan nicht die nachfolgenden Nachrichten blockiert.
+            if (MustHandleInline(method, hasId))
+            {
+                using JsonDocument document = JsonDocument.Parse(json);
+                if (!await HandleMessageAsync(document.RootElement, cancellationToken))
+                    break;
+            }
+            else
+            {
+                DispatchRequestInBackground(json, cancellationToken);
+            }
+        }
+    }
+
+    private static bool MustHandleInline(string method, bool hasId)
+    {
+        // Notifications (kein id) muessen in Reihenfolge bleiben; initialize/shutdown sind der Handshake.
+        if (!hasId)
+            return true;
+
+        return method is "initialize" or "shutdown";
+    }
+
+    private void DispatchRequestInBackground(string json, CancellationToken cancellationToken)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(json);
+                await HandleMessageAsync(document.RootElement, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                await TrySendRequestFailureAsync(json, ex, cancellationToken);
+            }
+        }, CancellationToken.None);
+    }
+
+    private async Task TrySendRequestFailureAsync(string json, Exception ex, CancellationToken cancellationToken)
+    {
+        // Ein Hintergrund-Request darf nicht stumm haengen bleiben: dem Client eine JSON-RPC-Fehlerantwort
+        // fuer die ausstehende id schicken, damit VS Code die Anfrage nicht bis zum Timeout offen haelt.
+        try
+        {
             using JsonDocument document = JsonDocument.Parse(json);
-            if (!await HandleMessageAsync(document.RootElement, cancellationToken))
-                break;
+            if (document.RootElement.TryGetProperty("id", out JsonElement idElement))
+                await SendErrorResponseAsync(idElement, -32603, ex.Message, cancellationToken);
+        }
+        catch
+        {
+            // Best effort: ein Fehler beim Melden des Fehlers darf den Server nicht zusaetzlich stoeren.
         }
     }
 
@@ -64,6 +136,7 @@ internal sealed class LspServer
             {
                 case "initialize":
                     _workspaceRootPath = TryGetWorkspaceRootPath(parameters);
+                    _liveLintEnabled = TryGetLiveLintOption(parameters);
                     if (hasId)
                     {
                         await SendResponseAsync(idElement, new
@@ -610,7 +683,7 @@ internal sealed class LspServer
     {
         string uri = GetTextDocumentUri(parameters);
         CancelPendingAnalysis(uri);
-        if (_documents.Remove(uri, out DocumentState? state))
+        if (_documents.TryRemove(uri, out DocumentState? state))
         {
             foreach (string publishedUri in state.PublishedDiagnosticUris)
                 await PublishDiagnosticsAsync(publishedUri, [], cancellationToken);
@@ -623,17 +696,19 @@ internal sealed class LspServer
 
     private DocumentState EnsureDocument(string uri)
     {
-        if (_documents.TryGetValue(uri, out DocumentState? existing))
-            return existing;
-
-        string text = LoadDocumentText(uri);
-        DocumentState created = new(uri, text, 0)
+        // GetOrAdd statt TryGetValue+Insert: unter Nebenlaeufigkeit koennen zwei Requests dieselbe noch
+        // ungeoeffnete Datei gleichzeitig anfordern; die Analyse ist seiteneffektfrei, also ist ein
+        // seltener Doppel-Lauf harmlos und nur eine Instanz landet in der Map.
+        return _documents.GetOrAdd(uri, u =>
         {
-            Analysis = _analyzer.Analyze(uri, text, GetOpenDocumentSources(), _workspaceRootPath)
-        };
-        created.PublishedDiagnosticUris = created.Analysis.DiagnosticsByUri.Keys.ToHashSet(GetUriComparer());
-        _documents[uri] = created;
-        return created;
+            string text = LoadDocumentText(u);
+            DocumentState created = new(u, text, 0)
+            {
+                Analysis = _analyzer.Analyze(u, text, GetOpenDocumentSources(), _workspaceRootPath)
+            };
+            created.PublishedDiagnosticUris = created.Analysis.DiagnosticsByUri.Keys.ToHashSet(GetUriComparer());
+            return created;
+        });
     }
 
     private static string LoadDocumentText(string uri)
@@ -661,19 +736,92 @@ internal sealed class LspServer
         if (IsSuccessfulInteractiveAnalysis(analysis))
             state.LastSuccessfulAnalysis = analysis;
 
+        // Live-Lint (Style + AST-Regeln) fuer die editierte Datei: laeuft im selben debounced Analyse-Pfad
+        // wie die Compile-/Semantik-Diagnosen, also erscheinen Lint-Hinweise schon beim Tippen und nicht
+        // erst beim Speichern. Der Compile-Pass des Linters wird bewusst ausgelassen, weil die Analyse
+        // oben diese Diagnosen bereits liefert.
+        IReadOnlyList<CfgsDiagnostic> lintDiagnostics = ComputeLintDiagnostics(state.Uri, text);
+
         HashSet<string> nextUris = analysis.DiagnosticsByUri.Keys.ToHashSet(GetUriComparer());
         nextUris.Add(state.Uri);
 
+        bool publishedOwnUri = false;
         foreach ((string uri, List<CfgsDiagnostic> diagnostics) in analysis.DiagnosticsByUri)
-            await PublishDiagnosticsAsync(uri, diagnostics, cancellationToken);
+        {
+            if (GetUriComparer().Equals(uri, state.Uri))
+            {
+                await PublishDiagnosticsAsync(uri, MergeDiagnostics(diagnostics, lintDiagnostics), cancellationToken);
+                publishedOwnUri = true;
+            }
+            else
+            {
+                await PublishDiagnosticsAsync(uri, diagnostics, cancellationToken);
+            }
+        }
 
-        if (!analysis.DiagnosticsByUri.ContainsKey(state.Uri))
-            await PublishDiagnosticsAsync(state.Uri, [], cancellationToken);
+        if (!publishedOwnUri)
+            await PublishDiagnosticsAsync(state.Uri, lintDiagnostics, cancellationToken);
 
         foreach (string staleUri in state.PublishedDiagnosticUris.Except(nextUris, GetUriComparer()))
             await PublishDiagnosticsAsync(staleUri, [], cancellationToken);
 
         state.PublishedDiagnosticUris = nextUris;
+    }
+
+    private static List<CfgsDiagnostic> MergeDiagnostics(
+        IReadOnlyList<CfgsDiagnostic> compile,
+        IReadOnlyList<CfgsDiagnostic> lint)
+    {
+        if (lint.Count == 0)
+            return compile as List<CfgsDiagnostic> ?? compile.ToList();
+
+        List<CfgsDiagnostic> merged = new(compile.Count + lint.Count);
+        merged.AddRange(compile);
+        merged.AddRange(lint);
+        return merged;
+    }
+
+    private IReadOnlyList<CfgsDiagnostic> ComputeLintDiagnostics(string uri, string text)
+    {
+        // Nur echte Dateien linten: der Style-Pass ist am Pfad verankert; fuer untitled-Buffer wird
+        // uebersprungen. Ein Linter-Fehler darf niemals die Editor-Diagnosen brechen -> defensiv gefangen.
+        if (!_liveLintEnabled)
+            return [];
+
+        string? localPath = TryGetLocalPath(uri);
+        if (localPath is null)
+            return [];
+
+        try
+        {
+            CfgsLintResult result = CfgsLinter.LintSource(localPath, text, new CfgsLintOptions());
+            List<CfgsDiagnostic> mapped = new(result.Diagnostics.Count);
+            foreach (CfgsToolDiagnostic diagnostic in result.Diagnostics)
+                mapped.Add(ToLintDiagnostic(diagnostic));
+            return mapped;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static CfgsDiagnostic ToLintDiagnostic(CfgsToolDiagnostic diagnostic)
+    {
+        int line = Math.Max(0, diagnostic.Line - 1);
+        int column = Math.Max(0, diagnostic.Column - 1);
+        int span = Math.Max(1, diagnostic.SpanLength);
+        RangeInfo range = new(new PositionInfo(line, column), new PositionInfo(line, column + span));
+
+        // Tool-Severity ist umgekehrt zur LSP-Severity: Error=3/Warning=2/Info=1 -> LSP 1/2/3.
+        int severity = diagnostic.Severity switch
+        {
+            CfgsToolDiagnosticSeverity.Error => 1,
+            CfgsToolDiagnosticSeverity.Warning => 2,
+            _ => 3
+        };
+
+        return new CfgsDiagnostic(range, diagnostic.Message, severity, "cfgs-lint", diagnostic.Code);
     }
 
     private void ScheduleAnalyzeAndPublish(DocumentState state, CancellationToken cancellationToken)
@@ -1745,6 +1893,19 @@ internal sealed class LspServer
             return Path.GetFullPath(parsed.LocalPath);
 
         return Path.IsPathFullyQualified(uri) ? Path.GetFullPath(uri) : null;
+    }
+
+    private static bool TryGetLiveLintOption(JsonElement parameters)
+    {
+        if (parameters.ValueKind == JsonValueKind.Object &&
+            parameters.TryGetProperty("initializationOptions", out JsonElement options) &&
+            options.ValueKind == JsonValueKind.Object &&
+            options.TryGetProperty("liveLint", out JsonElement liveLint))
+        {
+            return liveLint.ValueKind == JsonValueKind.True;
+        }
+
+        return false;
     }
 
     private static string? TryGetWorkspaceRootPath(JsonElement parameters)

@@ -54,6 +54,35 @@ internal static class CfgsLinter
         return new CfgsLintResult(diagnostics, fixedText, fixedChanged);
     }
 
+    /// <summary>
+    /// Lintet UNGESPEICHERTEN Quelltext (Style + AST-Regeln, ohne Compile-Pass und ohne Fix). Fuer die
+    /// Live-Nutzung im LSP gedacht: der Compile-/Semantik-Pass liefert dort bereits die Editor-Diagnosen,
+    /// also wuerde ihn hier zu wiederholen nur Duplikate erzeugen. Der <paramref name="path"/> dient nur als
+    /// Anzeigename/Anker fuer die Diagnosen; gelesen wird ausschliesslich <paramref name="sourceText"/>.
+    /// </summary>
+    public static CfgsLintResult LintSource(string path, string sourceText, CfgsLintOptions options)
+    {
+        List<CfgsToolDiagnostic> diagnostics = [];
+        string fullPath = Path.GetFullPath(path);
+        IReadOnlyDictionary<string, CfgsLintRuleConfiguration> resolvedRules =
+            CfgsLintRuleRegistry.ResolveRules(options.Preset, options.RuleOverrides);
+
+        AddStyleDiagnostics(fullPath, sourceText, diagnostics, options, resolvedRules);
+        AddAstDiagnostics(fullPath, sourceText, diagnostics, resolvedRules);
+        ApplySuppressions(sourceText, diagnostics);
+
+        if (options.WarningsAsErrors)
+        {
+            for (int i = 0; i < diagnostics.Count; i++)
+            {
+                if (diagnostics[i].Severity == CfgsToolDiagnosticSeverity.Warning)
+                    diagnostics[i] = diagnostics[i] with { Severity = CfgsToolDiagnosticSeverity.Error };
+            }
+        }
+
+        return new CfgsLintResult(diagnostics);
+    }
+
     private static void AddCompileDiagnostic(string path, List<CfgsToolDiagnostic> diagnostics, string compilerVersion, IReadOnlyList<string>? additionalSearchRoots)
     {
         try

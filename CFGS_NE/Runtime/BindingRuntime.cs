@@ -6,9 +6,13 @@ namespace CFGS_VM.VMCore
 {
     public partial class VM : IVmBindingRuntime
     {
-        private readonly BuiltinRegistry _builtins = new();
-        private readonly IntrinsicRegistry _intrinsics = new();
-        private readonly NamespaceRegistry _namespaces = new();
+        // Zuweisung erfolgt in den Konstruktoren: die Wurzel-VM legt eigene Registries an und registriert
+        // die Standardbibliothek; hot-gestartete Child-VMs teilen die Registries der Wurzel per Referenz
+        // (siehe VM-Konstruktoren und CreateHotStartChildVm), um die Core-Registrierung und das Kopieren
+        // pro async-Aufruf zu sparen.
+        private readonly BuiltinRegistry _builtins;
+        private readonly IntrinsicRegistry _intrinsics;
+        private readonly NamespaceRegistry _namespaces;
 
         /// <summary>
         /// Gets the builtin registry abstraction.
@@ -58,30 +62,6 @@ namespace CFGS_VM.VMCore
 
         private bool TryGetRegisteredNamespaceRoot(string name, out object namespaceObject)
             => _namespaces.TryGetRoot(name, out namespaceObject);
-
-        /// <summary>
-        /// Copies the current binding layer into another VM binding surface.
-        /// </summary>
-        private void CopyBindingsTo(IVmBindingRuntime target)
-        {
-            foreach (BuiltinDescriptor descriptor in _builtins.Snapshot())
-            {
-                if (!target.Builtins.Contains(descriptor.Name))
-                    target.Builtins.Register(descriptor);
-            }
-
-            foreach ((Type ReceiverType, IntrinsicDescriptor Descriptor) entry in _intrinsics.Snapshot())
-            {
-                if (!target.Intrinsics.ContainsExact(entry.ReceiverType, entry.Descriptor.Name))
-                    target.Intrinsics.Register(entry.ReceiverType, entry.Descriptor);
-            }
-
-            foreach (NamespaceDescriptor descriptor in _namespaces.Snapshot())
-            {
-                if (!target.Namespaces.Contains(descriptor.Path))
-                    target.Namespaces.Register(descriptor);
-            }
-        }
 
         /// <summary>
         /// Tries to bind an intrinsic for the given receiver and member name.

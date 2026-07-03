@@ -766,7 +766,23 @@ internal sealed class CfgsAnalyzer
         foreach (CfgsSymbol symbol in result.DocumentSymbols)
             CollectCodeLenses(result, symbol, lenses);
 
-        return lenses;
+        // Mehrere Symbole koennen dieselbe Selektions-Range teilen (z.B. eine Klasse und ihr
+        // Primaerkonstruktor oder eine explizite Interface-Implementierung). Ohne Deduplizierung erhielte
+        // dieselbe Quellstelle zwei "N references"-Lenses uebereinander. Pro Range genau eine Lens.
+        HashSet<(int, int, int, int)> seen = [];
+        List<CfgsCodeLens> deduped = new(lenses.Count);
+        foreach (CfgsCodeLens lens in lenses)
+        {
+            (int, int, int, int) key = (
+                lens.Range.Start.Line,
+                lens.Range.Start.Character,
+                lens.Range.End.Line,
+                lens.Range.End.Character);
+            if (seen.Add(key))
+                deduped.Add(lens);
+        }
+
+        return deduped;
     }
 
     public IReadOnlyList<CfgsDocumentLink> GetDocumentLinks(CfgsAnalysisResult result)
@@ -2146,13 +2162,11 @@ internal sealed class CfgsAnalyzer
     }
 
     private static IReadOnlyList<string> BuildImportSearchRoots(string origin, string? workspaceRoot)
-        // CFGS loest relative Imports gegen das Arbeitsverzeichnis der EINSTIEGS-Datei auf, nicht gegen
-        // die importierende Datei. Beim Editieren einer einzelnen Datei kennt der Linter die Einstiegs-
-        // datei nicht, also probieren wir jedes Vorfahren-Verzeichnis von der Datei bis zum Workspace-Root
-        // als moeglichen Projekt-/Source-Root. So loest z.B. "./interfaces/IModule.cfs" aus
-        // "Modules/Personen/model/Person.cfs" auch dann auf, wenn der echte Projekt-Root der Unterordner
-        // "Modules/Personen" ist und nicht der geoeffnete Workspace "Modules".
-        => FrontendPipeline.BuildAncestorSearchRoots(origin, workspaceRoot);
+        // Der Compiler verankert relative Imports am Verzeichnis der IMPORTIERENDEN Datei und faellt danach
+        // auf die Projekt-/Source-Roots zurueck. Damit die Editor-Analyse exakt dieselben Importe aufloest
+        // wie die Ausfuehrung, wird hier derselbe kanonische Wurzelsatz benutzt (gemeinsame Policy in
+        // FrontendPipeline). Der Workspace-Root dient als Rand; ohne ihn greift die cfgs.json-Erkennung.
+        => FrontendPipeline.BuildImportSearchRoots(origin, workspaceRoot);
 
     private static string? ResolveAnalysisWorkingDirectory(string? workspaceRoot, string origin)
     {

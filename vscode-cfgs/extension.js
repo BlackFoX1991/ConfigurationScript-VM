@@ -29,7 +29,9 @@ function activate(context) {
   context.subscriptions.push(output, lspDiagnostics, lintDiagnostics, client);
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (!event.affectsConfiguration('cfgs.server')) {
+      // cfgs.lint.live wird als initializationOption beim Start uebergeben, greift also erst nach einem
+      // Server-Neustart; daher hier ebenfalls neu starten.
+      if (!event.affectsConfiguration('cfgs.server') && !event.affectsConfiguration('cfgs.lint.live')) {
         return;
       }
 
@@ -58,12 +60,13 @@ function activate(context) {
         return;
       }
 
+      // Diagnose-Linting laeuft jetzt live ueber den Language-Server (auch beim Speichern), daher kein
+      // separater CLI-Lint-Durchlauf mehr, der die gleichen Eintraege doppeln wuerde. fixOnSave bleibt,
+      // weil --fix den Quelltext veraendert (Formatierung/Style) und keine reine Diagnose ist; nach der
+      // Aenderung linted der Server ohnehin erneut live. Manuell bleiben cfgs.lintFile/lintWorkspace.
       const config = vscode.workspace.getConfiguration('cfgs');
       if (config.get('lint.fixOnSave', false)) {
         await runCfgsCli(['-lint', document.uri.fsPath, '--fix', '--json'], output);
-      }
-      if (config.get('lint.onSave', false) || config.get('lint.fixOnSave', false)) {
-        await lintFile(document.uri, output);
       }
     })
   );
@@ -116,7 +119,11 @@ class CfgsLanguageClient {
     await this.sendRequest('initialize', {
       processId: process.pid,
       rootUri: getRootUri(),
-      capabilities: {}
+      capabilities: {},
+      initializationOptions: {
+        // Live-Linting (Style + AST-Regeln beim Tippen) standardmaessig an; ueber cfgs.lint.live abschaltbar.
+        liveLint: vscode.workspace.getConfiguration('cfgs').get('lint.live', true)
+      }
     });
     this.sendNotification('initialized', {});
 

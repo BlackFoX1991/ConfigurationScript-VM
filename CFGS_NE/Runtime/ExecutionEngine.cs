@@ -240,59 +240,90 @@ namespace CFGS_VM.VMCore
                 _debugStream = new MemoryStream();
 
             int startIp = lastPos;
-            while (true)
+
+            // Wurzel-Trampolin: jedes Bytecode-Segment laeuft unter der geteilten Execution-Gate, die nur
+            // um echte IO-Awaits herum freigegeben wird. Waehrend eines Segments hot-gestartete Child-VMs
+            // laufen ihre erste Phase inline unter demselben Permit; sobald hier fuer ein IO-Await
+            // freigegeben wird, koennen die Child-Fortsetzungen die Gate seriell uebernehmen.
+            bool ownsGate = false;
+            try
             {
-                ct.ThrowIfCancellationRequested();
-
-                RunStopReason reason = RunUntilAwaitOrHalt(debugging, startIp, ct: ct);
-                if (reason == RunStopReason.Halted)
-                    return;
-
-                Task<object?> task = _awaitTask!;
-                try
+                while (true)
                 {
-                    object? res = await AwaitTaskAsync(task).ConfigureAwait(false);
-                    _valueStack.Push(ToRuntimeValue(res));
-                }
-                catch (Exception ex)
-                {
-                    // See HandleInstruction's dispatch catch: cancellation and fatal CLR conditions
-                    // must propagate rather than be surfaced as a script-catchable AwaitError.
-                    if (ex is OperationCanceledException || ex is OutOfMemoryException)
-                        throw;
+                    ct.ThrowIfCancellationRequested();
 
-                    Instruction at = SafeCurrentInstr(_program!, _awaitResumeIp);
-
-                    // Translate recognized CLR faults from an awaited plugin task into a clean CFGS
-                    // runtime diagnostic rather than surfacing the raw .NET message as an AwaitError.
-                    // A VMException thrown by an async CFGS function is not translated: its message is
-                    // already language-native and is preserved as-is.
-                    bool awaitTranslated = HostExceptionTranslator.TryTranslate(ex, out string awaitClrMessage, out string awaitClrCode);
-
-                    ExceptionObject payload = new(
-                        type: awaitTranslated ? HostExceptionTranslator.RuntimeErrorType : "AwaitError",
-                        message: awaitTranslated ? awaitClrMessage : ex.Message,
-                        file: at.OriginFile,
-                        line: at.Line,
-                        col: at.Col,
-                        stack: BuildStackString(_program!, at)
-                    );
-
-                    if (RouteExceptionToTryHandlers(payload, at, out int nip))
+                    if (!ownsGate)
                     {
-                        startIp = nip;
-                        _awaitTask = null;
-                        continue;
+                        await _executionGate.WaitAsync(ct).ConfigureAwait(false);
+                        ownsGate = true;
                     }
 
-                    if (awaitTranslated)
-                        throw new VMException(awaitClrMessage, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, ex, payload.Stack, awaitClrCode);
+                    RunStopReason reason = RunUntilAwaitOrHalt(debugging, startIp, ct: ct);
+                    if (reason == RunStopReason.Halted)
+                        return;
 
-                    throw new VMException(payload.ToString()!, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, payload.Stack);
+                    Task<object?> task = _awaitTask!;
+
+                    // IO-Await liegt ausserhalb der Gate.
+                    _executionGate.Release();
+                    ownsGate = false;
+
+                    try
+                    {
+                        object? res = await AwaitTaskAsync(task).ConfigureAwait(false);
+                        await _executionGate.WaitAsync(ct).ConfigureAwait(false);
+                        ownsGate = true;
+                        _valueStack.Push(ToRuntimeValue(res));
+                    }
+                    catch (Exception ex)
+                    {
+                        // See HandleInstruction's dispatch catch: cancellation and fatal CLR conditions
+                        // must propagate rather than be surfaced as a script-catchable AwaitError.
+                        if (ex is OperationCanceledException || ex is OutOfMemoryException)
+                            throw;
+
+                        // Fehler-Routing mutiert VM-Kontrollzustand: erst die Gate wieder uebernehmen.
+                        await _executionGate.WaitAsync(ct).ConfigureAwait(false);
+                        ownsGate = true;
+
+                        Instruction at = SafeCurrentInstr(_program!, _awaitResumeIp);
+
+                        // Translate recognized CLR faults from an awaited plugin task into a clean CFGS
+                        // runtime diagnostic rather than surfacing the raw .NET message as an AwaitError.
+                        // A VMException thrown by an async CFGS function is not translated: its message is
+                        // already language-native and is preserved as-is.
+                        bool awaitTranslated = HostExceptionTranslator.TryTranslate(ex, out string awaitClrMessage, out string awaitClrCode);
+
+                        ExceptionObject payload = new(
+                            type: awaitTranslated ? HostExceptionTranslator.RuntimeErrorType : "AwaitError",
+                            message: awaitTranslated ? awaitClrMessage : ex.Message,
+                            file: at.OriginFile,
+                            line: at.Line,
+                            col: at.Col,
+                            stack: BuildStackString(_program!, at)
+                        );
+
+                        if (RouteExceptionToTryHandlers(payload, at, out int nip))
+                        {
+                            startIp = nip;
+                            _awaitTask = null;
+                            continue;
+                        }
+
+                        if (awaitTranslated)
+                            throw new VMException(awaitClrMessage, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, ex, payload.Stack, awaitClrCode);
+
+                        throw new VMException(payload.ToString()!, at.Line, at.Col, at.OriginFile, IsDebugging, DebugStream!, payload.Stack);
+                    }
+
+                    startIp = _awaitResumeIp;
+                    _awaitTask = null;
                 }
-
-                startIp = _awaitResumeIp;
-                _awaitTask = null;
+            }
+            finally
+            {
+                if (ownsGate)
+                    _executionGate.Release();
             }
         }
 

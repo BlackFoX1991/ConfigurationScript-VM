@@ -150,7 +150,10 @@ namespace CFGS_VM.VMCore
             if (_program is null || _program.Count == 0)
                 throw new InvalidOperationException("Hot-start async call requires loaded program instructions.");
 
-            VM child = new()
+            // Der Child-Konstruktor teilt Binding-Registries und Execution-Gate der Wurzel-VM per Referenz,
+            // sodass pro async-Aufruf weder die Standardbibliothek neu registriert noch die Bindings kopiert
+            // werden. Die Gate serialisiert die Bytecode-Segmente ueber den gesamten hot-gestarteten Baum.
+            VM child = new(this)
             {
                 AllowNativeInterop = AllowNativeInterop,
                 AllowPluginLoading = AllowPluginLoading,
@@ -161,7 +164,6 @@ namespace CFGS_VM.VMCore
             };
             child.LoadInstructions(_program);
             child.LoadFunctions(Functions);
-            CopyBindingsTo(child);
 
             return child;
         }
