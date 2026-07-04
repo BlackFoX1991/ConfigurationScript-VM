@@ -219,17 +219,6 @@ var _ = await t.delay(50);
 print("done");
 ```
 
-This is not delayed.
-
-```cfs
-var t = task();
-var _ = await t.delay(50, out {
-    print("done");
-});
-```
-
-In that version the `print("done")` runs immediately and `delay` later returns `null`.
-
 ## String Intrinsics
 
 Strings support these methods.

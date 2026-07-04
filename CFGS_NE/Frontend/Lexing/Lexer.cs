@@ -59,7 +59,6 @@ public class Lexer
             {"async", TokenType.Async},
             {"yield", TokenType.Yield},
             {"await", TokenType.Await},
-            {"out", TokenType.Out},
             {"do", TokenType.Do }
 
         };

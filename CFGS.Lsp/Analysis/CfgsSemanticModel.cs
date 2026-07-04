@@ -1178,9 +1178,6 @@ internal sealed class CfgsSemanticModelBuilder
                 RecordQualifiedMemberReference(getFieldExpr.Target, getFieldExpr.Field, getFieldExpr.Line, getFieldExpr.Col, getFieldExpr.OriginFile, scope);
                 return;
 
-            case OutExpr outExpr:
-                VisitBlock(outExpr.Body, scope, null);
-                return;
 
             case ConditionalExpr conditionalExpr:
                 VisitExpr(conditionalExpr.Condition, scope);

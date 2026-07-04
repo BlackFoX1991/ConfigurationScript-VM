@@ -376,7 +376,6 @@ namespace CFGS_VM.Analytic.Lowering
                     n.OriginFile),
                 GetFieldExpr g => new GetFieldExpr(LowerExpr(g.Target), g.Field, g.Line, g.Col, g.OriginFile),
                 ObjectInitExpr o => new ObjectInitExpr(LowerExpr(o.Target), LowerObjectInitializerEntries(o.Inits), o.Line, o.Col, o.OriginFile),
-                OutExpr o => new OutExpr(LowerBlock(o.Body), o.Line, o.Col, o.OriginFile),
                 ConditionalExpr c => new ConditionalExpr(LowerExpr(c.Condition), LowerExpr(c.ThenExpr), LowerExpr(c.ElseExpr), c.Line, c.Col, c.OriginFile),
                 MatchExpr m => new MatchExpr(
                     LowerExpr(m.Scrutinee),

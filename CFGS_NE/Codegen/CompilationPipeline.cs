@@ -15,6 +15,7 @@ namespace CFGS_VM.VMCore.Codegen
             compiler.ResolveTypeGraph(boundProgram);
             compiler.RunSemanticChecks(boundProgram);
             compiler.EmitProgram(boundProgram);
+            compiler.FinalizeScopeDescriptors();
 
             return compiler.Context.Instructions;
         }

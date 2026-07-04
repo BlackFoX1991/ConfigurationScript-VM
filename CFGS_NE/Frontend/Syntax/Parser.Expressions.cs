@@ -445,17 +445,6 @@ namespace CFGS_VM.Analytic.Core
 
                 node = new FuncExpr(parameters, body, minArgs, restParameter, line, col, file, isAsync, parameterSpecs);
             }
-            else if (_current.Type == TokenType.Out)
-            {
-                int line = _current.Line;
-                int col = _current.Column;
-                string file = _current.Filename;
-                Eat(TokenType.Out);
-                EnterOutBlockContext();
-                BlockStmt body = ParseBlock();
-                ExitOutBlockContext();
-                node = new OutExpr(body, line, col, file);
-            }
             else
             {
                 throw ErrorAtCurrent($"invalid factor, token {_current.Type}");
@@ -726,9 +715,6 @@ namespace CFGS_VM.Analytic.Core
         {
             if (!IsInFunction)
                 throw new ParserException("return can only be used in function statements", _current.Line, _current.Column, _current.Filename);
-
-            if (IsInOutBlock)
-                throw new ParserException("return can not be used in out-Block", _current.Line, _current.Column, _current.Filename);
 
             int line = _current.Line;
             int col = _current.Column;

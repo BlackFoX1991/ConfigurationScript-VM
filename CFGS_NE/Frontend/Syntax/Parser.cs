@@ -75,7 +75,6 @@ namespace CFGS_VM.Analytic.Core
                 TokenType.Namespace or
                 TokenType.From or
                 TokenType.As or
-                TokenType.Out or
                 TokenType.New or
                 TokenType.Func or
                 TokenType.Return or

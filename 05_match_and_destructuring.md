@@ -1,4 +1,4 @@
-# Match, Destructuring, and Out
+# Match and Destructuring
 
 ## Match as a Statement
 
@@ -136,45 +136,15 @@ foreach (var {x, y: yy} in [{"x": 1, "y": 7}, {"x": 2, "y": 8}]) {
 }
 ```
 
-## `out` as an Expression Block
-
-`out` is an expression form with its own block. The result is the last evaluated expression inside that block.
-
-```cfs
-var result = out {
-    var a = 4;
-    a;
-};
-```
-
-If there is no final expression, `out` returns `null`.
-
-```cfs
-var result = out {
-    var a = 1;
-};
-```
-
-This is useful for small local computation islands when you do not want to create a full function frame.
-
-## Important `out` Rules
-
-- `return` is not allowed inside an `out` block.
-- The block has its own scope.
-- The resulting value comes from the final expression, not from `return`.
-
 ## Good Use Cases
 
-`match` is strong when you work with structured data. `destructuring` is strong when you unpack values. `out` is strong for compact local computations. Together they make CFGS very comfortable for configuration and transformation scripts.
+`match` is strong when you work with structured data. `destructuring` is strong when you unpack values. Together they make CFGS very comfortable for configuration and transformation scripts.
 
 ## Combined Example
 
 ```cfs
 func normalize(msg) {
-    var header = out {
-        var raw = msg["headers"];
-        raw["Content-Type"] ?? "text/plain";
-    };
+    var header = msg["headers"]["Content-Type"] ?? "text/plain";
 
     return msg match {
         {"kind": "pair", "left": var x, "right": var y} if (x == y): {

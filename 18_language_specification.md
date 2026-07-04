@@ -143,7 +143,6 @@ Supported expression categories include:
 - slicing
 - member access
 - `match` expressions
-- `out` expressions
 - `await` expressions where permitted
 
 Short-circuit logical operators MUST avoid evaluating the right operand when the left operand determines the result.

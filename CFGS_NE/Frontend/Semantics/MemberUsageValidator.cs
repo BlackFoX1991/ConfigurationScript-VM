@@ -632,10 +632,6 @@ namespace CFGS_VM.Analytic.Semantics
                     ValidateExpr(getFieldExpr.Target);
                     return;
 
-                case OutExpr outExpr:
-                    ValidateStatement(outExpr.Body);
-                    return;
-
                 case ConditionalExpr conditionalExpr:
                     ValidateExpr(conditionalExpr.Condition);
                     ValidateExpr(conditionalExpr.ThenExpr);

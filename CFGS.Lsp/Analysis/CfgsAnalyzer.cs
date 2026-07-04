@@ -26,8 +26,8 @@ internal sealed class CfgsAnalyzer
         "var", "const", "if", "else", "delete", "while", "do", "for", "foreach", "in", "is",
         "break", "continue", "func", "return", "match", "case", "default", "try", "catch",
         "finally", "throw", "class", "interface", "enum", "new", "null", "true", "false", "import",
-        "export", "namespace", "from", "as", "static", "public", "private", "protected",
-        "async", "await", "yield", "out", "using", "defer"
+        "use", "export", "namespace", "from", "as", "static", "property", "public", "private", "protected",
+        "async", "await", "yield", "using", "defer"
     };
 
     public static readonly string[] SemanticTokenTypes =
@@ -57,8 +57,8 @@ internal sealed class CfgsAnalyzer
         "var", "const", "if", "else", "delete", "while", "do", "for", "foreach", "in", "is",
         "break", "continue", "func", "return", "match", "case", "default", "try", "catch",
         "finally", "throw", "class", "interface", "enum", "new", "null", "true", "false", "import",
-        "export", "namespace", "from", "as", "static", "public", "private", "protected",
-        "async", "await", "yield", "out", "using", "defer"
+        "use", "export", "namespace", "from", "as", "static", "property", "public", "private", "protected",
+        "async", "await", "yield", "using", "defer"
     ];
 
     private static readonly CfgsCompletionItem[] StandardLibraryCompletions =

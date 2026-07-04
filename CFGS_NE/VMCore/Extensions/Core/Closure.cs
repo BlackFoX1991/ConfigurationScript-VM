@@ -85,7 +85,7 @@ public class Closure
         {
             List<KeyValuePair<string, Value>> snapshot;
             lock (CapturedEnv.SyncRoot)
-                snapshot = CapturedEnv.Vars.ToList();
+                snapshot = CapturedEnv.LocalBindings().ToList();
 
             if (snapshot.Count > 0)
             {

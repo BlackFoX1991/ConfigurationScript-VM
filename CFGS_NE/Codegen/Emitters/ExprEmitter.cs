@@ -375,10 +375,6 @@ namespace CFGS_VM.VMCore
                     CompileSpreadArgumentExpression(sa);
                     break;
 
-                case OutExpr ox:
-                    CompileOutExpression(ox);
-                    break;
-
                 case ConditionalExpr cnd:
                     CompileConditionalExpression(cnd);
                     break;

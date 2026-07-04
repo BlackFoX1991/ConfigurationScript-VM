@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.8.2 - 2026-07-04
+
+### Changed
+- Syntax highlighting now matches the current language: the removed `out` expression block is no longer treated as a keyword (`out` highlights as an ordinary identifier).
+- Keyword completion adds the `use` and `property` keywords, bringing the completion list in sync with the lexer.
+
 ## 0.8.1 - 2026-07-03
 
 ### Added

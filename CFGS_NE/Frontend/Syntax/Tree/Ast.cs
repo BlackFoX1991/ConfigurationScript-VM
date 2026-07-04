@@ -1971,24 +1971,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    public sealed class OutExpr : Expr
-    {
-        /// <summary>
-        /// Gets the Body
-        /// </summary>
-        public BlockStmt Body { get; }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="OutExpr"/> class.
-        /// </summary>
-        /// <param name="body">The body<see cref="BlockStmt"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="file">The file<see cref="string"/></param>
-        public OutExpr(BlockStmt body, int line, int col, string file)
-            : base(line, col, file) => Body = body;
-    }
-
     public class ConditionalExpr : Expr
     {
         /// <summary>

@@ -32,7 +32,16 @@ namespace CFGS_VM.VMCore
         /// A reference- or rarely-used value (string, float, decimal, BigInteger, collections,
         /// class/static/enum instances, closures, handles, …) carried in <see cref="_ref"/>.
         /// </summary>
-        Ref
+        Ref,
+
+        /// <summary>
+        /// The "declared but not yet assigned" sentinel for a pre-sized scope slot. Distinct from
+        /// <see cref="Null"/> (an ordinary language value): an <c>Undefined</c> slot is treated as
+        /// "not present" by name resolution, reproducing temporal-dead-zone / shadowing semantics when
+        /// a scope's slots are allocated up front from a <c>ScopeDescriptor</c>. Never a script-visible
+        /// value; it must not escape to the operand stack or the host boundary.
+        /// </summary>
+        Undefined
     }
 
     /// <summary>
@@ -58,10 +67,18 @@ namespace CFGS_VM.VMCore
         /// <summary>The language <c>null</c> value.</summary>
         public static readonly Value Null = new(ValueKind.Null, 0, null);
 
+        /// <summary>
+        /// The "declared but not yet assigned" scope-slot sentinel. See <see cref="ValueKind.Undefined"/>.
+        /// </summary>
+        public static readonly Value Undefined = new(ValueKind.Undefined, 0, null);
+
         /// <summary>Gets the storage discriminator.</summary>
         public ValueKind Kind => _kind;
 
         public bool IsNull => _kind == ValueKind.Null;
+
+        /// <summary>True for the <see cref="Undefined"/> scope-slot sentinel.</summary>
+        public bool IsUndefined => _kind == ValueKind.Undefined;
 
         public bool IsReference => _kind == ValueKind.Ref;
 

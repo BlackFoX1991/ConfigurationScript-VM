@@ -233,4 +233,4 @@ var inc = func(x) { return x + 1; };
 print(apply_twice(inc, 5));
 ```
 
-If you want to combine functions with pattern matching and destructuring, continue with [Match, Destructuring, and Out](05_match_destructuring_and_out.md).
+If you want to combine functions with pattern matching and destructuring, continue with [Match and Destructuring](05_match_and_destructuring.md).

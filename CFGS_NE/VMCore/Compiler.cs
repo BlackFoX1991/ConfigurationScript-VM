@@ -25,6 +25,11 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public Dictionary<string, FunctionInfo> Functions => _context.Functions;
 
+        /// <summary>
+        /// Function-address → call-scope descriptor, produced by <see cref="FinalizeScopeDescriptors"/>.
+        /// </summary>
+        public Dictionary<int, ScopeDescriptor> RootScopeDescriptors => _context.RootScopeDescriptors;
+
         public List<Instruction> Compile(List<Stmt> program)
         {
             try

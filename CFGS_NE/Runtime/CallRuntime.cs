@@ -1,3 +1,4 @@
+using CFGS_VM.VMCore.Codegen;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
@@ -417,7 +418,11 @@ namespace CFGS_VM.VMCore
                 }
             }
 
-            Env callEnv = new(f.CapturedEnv);
+            // Pre-size the call scope from the function-root descriptor (params + body-top-level locals) when
+            // one is known; params are then placed into their descriptor slots by name below. Falls back to a
+            // dynamic scope (e.g. for a .cfb-loaded function that carries no descriptor).
+            _rootDescriptorByAddress.TryGetValue(f.Address, out ScopeDescriptor? rootDescriptor);
+            Env callEnv = new(f.CapturedEnv, rootDescriptor);
             for (int i = 0; i < fixedCount; i++)
                 callEnv.DefineValue(f.Parameters[piStart + i], finalArgs[i]);
 

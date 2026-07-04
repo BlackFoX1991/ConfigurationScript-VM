@@ -83,7 +83,7 @@ namespace CFGS_VM.VMCore
             {
                 lock (scope.SyncRoot)
                 {
-                    foreach (string candidate in scope.Vars.Keys)
+                    foreach (string candidate in scope.LocalNames)
                         candidates.Add(candidate);
                 }
             }
@@ -152,9 +152,9 @@ namespace CFGS_VM.VMCore
         {
             lock (env.SyncRoot)
             {
-                return env.Vars
+                return env.LocalBindings()
                     .OrderBy(static kv => kv.Key, StringComparer.Ordinal)
-                    .Select(kv => new VmDebugVariable(kv.Key, kv.Value.ToObject(), env.ConstVars.Contains(kv.Key)))
+                    .Select(kv => new VmDebugVariable(kv.Key, kv.Value.ToObject(), env.IsConstLocal(kv.Key)))
                     .ToList();
             }
         }

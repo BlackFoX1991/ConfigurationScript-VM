@@ -110,21 +110,7 @@ If you need strict ordering, serialize it explicitly in your CFGS code.
 
 `task().delay(ms, value)` waits and then returns `value`. The second argument is evaluated immediately when the call is made.
 
-That matters when you combine it with `out`, because `out` is also an eager expression block.
-
-This is misleading.
-
-```cfs
-async func wrong(timer) {
-    return await timer.delay(200, out {
-        print("DONE");
-    });
-}
-```
-
-The `print("DONE")` runs right away. After 200 ms the task simply completes with `null`.
-
-If you want the side effect to happen after the wait, place it after the `await`.
+If you want a side effect to happen after the wait, do not pass it as the value argument (it is evaluated immediately) — place it after the `await`.
 
 ```cfs
 async func correct(timer) {

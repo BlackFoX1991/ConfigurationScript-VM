@@ -1034,7 +1034,6 @@ namespace CFGS_VM.Analytic.Modules
                 TryUnwrapExpr tryUnwrapExpr => new TryUnwrapExpr(RewriteNullableExpr(tryUnwrapExpr.Inner, state), tryUnwrapExpr.Line, tryUnwrapExpr.Col, tryUnwrapExpr.OriginFile),
                 NewExpr newExpr => RewriteNewExpr(newExpr, state),
                 GetFieldExpr getFieldExpr => new GetFieldExpr(RewriteExpr(getFieldExpr.Target, state), getFieldExpr.Field, getFieldExpr.Line, getFieldExpr.Col, getFieldExpr.OriginFile),
-                OutExpr outExpr => new OutExpr(RewriteBlock(outExpr.Body, state), outExpr.Line, outExpr.Col, outExpr.OriginFile),
                 ConditionalExpr conditionalExpr => new ConditionalExpr(
                     RewriteExpr(conditionalExpr.Condition, state),
                     RewriteExpr(conditionalExpr.ThenExpr, state),

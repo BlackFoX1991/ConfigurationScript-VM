@@ -1,3 +1,4 @@
+using CFGS_VM.VMCore.Codegen;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions.Core;
 
@@ -26,6 +27,13 @@ namespace CFGS_VM.VMCore
             /// Gets the address-based function lookup.
             /// </summary>
             public Dictionary<int, FunctionInfo> FunctionsByAddress { get; } = new();
+
+            /// <summary>
+            /// Gets or sets the function-address → call-scope descriptor map used to pre-size call Envs.
+            /// Replaced on each script load; empty when a script carries no descriptors (e.g. from .cfb).
+            /// </summary>
+            public IReadOnlyDictionary<int, ScopeDescriptor> RootScopeDescriptors { get; set; }
+                = new Dictionary<int, ScopeDescriptor>();
 
             /// <summary>
             /// Gets the call stack.

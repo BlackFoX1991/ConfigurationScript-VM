@@ -104,6 +104,8 @@ namespace CFGS_VM.VMCore
 
         private void EnterFunctionLocals(IEnumerable<string> parameters)
         {
+            List<string> paramList = parameters as List<string> ?? parameters.ToList();
+
             HashSet<string> inherited;
 
             if (_localVarsStack.Count > 0)
@@ -111,16 +113,29 @@ namespace CFGS_VM.VMCore
             else
                 inherited = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (string p in parameters)
+            foreach (string p in paramList)
                 inherited.Add(p);
 
             _localVarsStack.Push(inherited);
+
+            // Mark the start of this function body's instruction range. The body is emitted inline from
+            // here; recording [start, end) lets the descriptor pass exclude it from the enclosing scope,
+            // and the params seed the function-root descriptor.
+            int start = _insns.Count;
+            _functionStartStack.Push(start);
+            _functionParams[start] = paramList;
         }
 
         private void LeaveFunctionLocals()
         {
             if (_localVarsStack.Count > 0)
                 _localVarsStack.Pop();
+
+            if (_functionStartStack.Count > 0)
+            {
+                int start = _functionStartStack.Pop();
+                _functionRanges[start] = _insns.Count;
+            }
         }
     }
 }

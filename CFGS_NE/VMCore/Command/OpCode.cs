@@ -183,5 +183,24 @@
         MERGE_RIGHT,
 
         NEW_NAMESPACE,
+
+        // Slot-based local variable access (Plan A, stage 1b). Operand packs (hops, slotIndex) as
+        // (hops << 16) | idx: walk `hops` parent scopes then index the slot array directly, bypassing the
+        // name hash + scope walk of LOAD_VAR/STORE_VAR. Emitted only for reads/assignments the compiler
+        // resolves within the current function's own scope chain; captures/globals/builtins/receiver
+        // keywords stay name-based, and declarations keep VAR_DECL/CONST_DECL (which already write the
+        // right descriptor slot by name and retain the redeclaration/const checks). Appended at the end so
+        // existing opcode values (and .cfb bytecode) keep their numbering.
+        LOAD_SLOT,
+
+        STORE_SLOT,
+
+        // Slot-based declaration in the current scope (operand = slot index; hops is always 0). Writes the
+        // popped value into the pre-sized descriptor slot directly, keeping the runtime redeclaration check
+        // (the slot is the Undefined sentinel until first declared). Emitted only for a declaration whose
+        // scope has a descriptor slot for the name and that is not in a name-based handler region.
+        VAR_DECL_SLOT,
+
+        CONST_DECL_SLOT,
     }
 }

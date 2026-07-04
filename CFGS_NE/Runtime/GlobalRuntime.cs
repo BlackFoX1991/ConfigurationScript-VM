@@ -81,7 +81,7 @@ namespace CFGS_VM.VMCore
             Env global = _scopes[0];
             lock (global.SyncRoot)
             {
-                if (global.Vars.TryGetValue(name, out Value local))
+                if (global.TryGetLocalValue(name, out Value local))
                 {
                     value = ToHostObject(local);
                     return true;
@@ -110,7 +110,7 @@ namespace CFGS_VM.VMCore
 
             Env global = _scopes[0];
             lock (global.SyncRoot)
-                return global.Vars.ToDictionary(static kv => kv.Key, static kv => ToHostObject(kv.Value), StringComparer.Ordinal);
+                return global.LocalBindings().ToDictionary(static kv => kv.Key, static kv => ToHostObject(kv.Value), StringComparer.Ordinal);
         }
 
         public void SetGlobal(string name, object? value)
@@ -124,10 +124,10 @@ namespace CFGS_VM.VMCore
             Env global = _scopes[0];
             lock (global.SyncRoot)
             {
-                if (global.ConstVars.Contains(name))
+                if (global.IsConstLocal(name))
                     throw new InvalidOperationException($"Global variable '{name}' is const and cannot be changed.");
 
-                global.Vars[name] = ToRuntimeValue(NormalizeHostValue(value));
+                global.DefineValue(name, ToRuntimeValue(NormalizeHostValue(value)));
             }
         }
 
@@ -142,10 +142,10 @@ namespace CFGS_VM.VMCore
             Env global = _scopes[0];
             lock (global.SyncRoot)
             {
-                if (global.ConstVars.Contains(name))
+                if (global.IsConstLocal(name))
                     return false;
 
-                global.Vars[name] = ToRuntimeValue(NormalizeHostValue(value));
+                global.DefineValue(name, ToRuntimeValue(NormalizeHostValue(value)));
                 return true;
             }
         }

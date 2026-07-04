@@ -1458,7 +1458,6 @@ internal static class CfgsAstFormatter
                 AwaitExpr awaitExpr => $"await {FormatExpr(awaitExpr.Inner, precedence)}",
                 MatchExpr matchExpr => FormatMatchExpr(matchExpr, precedence),
                 FuncExpr funcExpr => FormatFunctionExpr(funcExpr),
-                OutExpr outExpr => FormatOutExpr(outExpr),
                 NewExpr newExpr => FormatNewExpr(newExpr),
                 ObjectInitExpr objectInit => $"{FormatExpr(objectInit.Target, precedence)} {{ {string.Join(", ", objectInit.Inits.Select(FormatObjectInitializerEntry))} }}",
                 NativeAssemblyExpr nativeAssembly => $"import native {FormatStringLiteral(nativeAssembly.Path)} as {nativeAssembly.Alias}",
@@ -1531,9 +1530,6 @@ internal static class CfgsAstFormatter
             nested.Append(FormatInlineBlock(funcExpr.Body));
             return nested.ToString();
         }
-
-        private string FormatOutExpr(OutExpr outExpr)
-            => $"out {FormatInlineBlock(outExpr.Body)}";
 
         private string FormatNewExpr(NewExpr newExpr)
         {

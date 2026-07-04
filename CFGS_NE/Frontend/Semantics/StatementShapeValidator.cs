@@ -360,10 +360,6 @@ namespace CFGS_VM.Analytic.Semantics
                     ValidateExpr(getFieldExpr.Target, insideFunction, insideAsyncFunction);
                     return;
 
-                case OutExpr outExpr:
-                    ValidateStatement(outExpr.Body, insideFunction, insideAsyncFunction);
-                    return;
-
                 case ConditionalExpr conditionalExpr:
                     ValidateExpr(conditionalExpr.Condition, insideFunction, insideAsyncFunction);
                     ValidateExpr(conditionalExpr.ThenExpr, insideFunction, insideAsyncFunction);

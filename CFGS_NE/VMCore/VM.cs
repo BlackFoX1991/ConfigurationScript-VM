@@ -1,3 +1,4 @@
+using CFGS_VM.VMCore.Codegen;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
@@ -117,6 +118,12 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private Dictionary<int, FunctionInfo> _functionsByAddress => _state.FunctionsByAddress;
 
+        private IReadOnlyDictionary<int, ScopeDescriptor> _rootDescriptorByAddress
+        {
+            get => _state.RootScopeDescriptors;
+            set => _state.RootScopeDescriptors = value;
+        }
+
         /// <summary>
         /// Gets the call stack.
         /// </summary>
@@ -136,20 +143,11 @@ namespace CFGS_VM.VMCore
         }
 
         private static bool TryGetLocalVarValue(Env env, string name, out Value value)
-        {
             // No lock: all bytecode-path environment access is serialized by VM._executionGate. See Env.
-            if (env.Vars.TryGetValue(name, out Value local))
-            {
-                value = local;
-                return true;
-            }
-
-            value = Value.Null;
-            return false;
-        }
+            => env.TryGetLocalValue(name, out value);
 
         private static void SetLocalVarValue(Env env, string name, Value value)
-            => env.Vars[name] = value;
+            => env.DefineValue(name, value);
 
         /// <summary>
         /// Atomically resolves a variable by walking the current scope chain (then the global scope
@@ -337,7 +335,7 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.PUSH_SCOPE:
                     {
-                        _scopes.Add(new Env(_scopes[^1]));
+                        _scopes.Add(new Env(_scopes[^1], instr.Operand as ScopeDescriptor));
                         break;
                     }
 
@@ -692,9 +690,9 @@ namespace CFGS_VM.VMCore
                         if (TryResolveVarOwnerValue(name, out Env env, out _))
                         {
                             MarkAsyncHazardForEnvAccess(env);
-                            if (env.ConstVars.Contains(name))
+                            if (env.IsConstLocal(name))
                                 throw new VMException($"Runtime error: cannot assign to constant '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                            env.Vars[name] = value;
+                            env.DefineValue(name, value);
                             break;
                         }
 
@@ -702,6 +700,61 @@ namespace CFGS_VM.VMCore
                             throw new VMException($"Runtime error: cannot assign to '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         throw new VMException(UndefinedAssignmentMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    }
+
+                case OpCode.LOAD_SLOT:
+                    {
+                        // Operand packs (hops << 16) | slotIndex. Walk `hops` parent scopes from the
+                        // innermost, then read the slot directly — no name hash, no per-scope probe. The
+                        // compiler only emits this for a reference it proved binds to that slot after its
+                        // declaration, so the slot is never the Undefined temporal-dead-zone sentinel.
+                        int packed = (int)instr.Operand!;
+                        Env env = _scopes[^1];
+                        for (int h = packed >> 16; h > 0; h--)
+                            env = env.Parent!;
+                        _valueStack.Push(env.GetSlotValue(packed & 0xFFFF));
+                        break;
+                    }
+
+                case OpCode.STORE_SLOT:
+                    {
+                        RequireStack(1, instr, "STORE_SLOT");
+                        Value value = _valueStack.Pop();
+                        int packed = (int)instr.Operand!;
+                        int idx = packed & 0xFFFF;
+                        Env env = _scopes[^1];
+                        for (int h = packed >> 16; h > 0; h--)
+                            env = env.Parent!;
+                        if (env.IsSlotConst(idx))
+                            throw new VMException($"Runtime error: cannot assign to constant '{env.SlotName(idx)}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        env.SetSlotValue(idx, value);
+                        break;
+                    }
+
+                case OpCode.VAR_DECL_SLOT:
+                    {
+                        RequireStack(1, instr, "VAR_DECL_SLOT");
+                        Value value = _valueStack.Pop();
+                        int idx = (int)instr.Operand!;
+                        Env scope = _scopes[^1];
+                        // A non-Undefined slot means the name was already declared in this scope activation.
+                        if (!scope.GetSlotValue(idx).IsUndefined)
+                            throw new VMException($"Runtime error: variable '{scope.SlotName(idx)}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        scope.SetSlotValue(idx, value);
+                        break;
+                    }
+
+                case OpCode.CONST_DECL_SLOT:
+                    {
+                        RequireStack(1, instr, "CONST_DECL_SLOT");
+                        Value value = _valueStack.Pop();
+                        int idx = (int)instr.Operand!;
+                        Env scope = _scopes[^1];
+                        if (!scope.GetSlotValue(idx).IsUndefined)
+                            throw new VMException($"Runtime error: variable '{scope.SlotName(idx)}' already declared in this scope", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                        scope.SetSlotValue(idx, value);
+                        scope.SetSlotConst(idx, true);
+                        break;
                     }
 
                 case OpCode.ADD:
@@ -925,6 +978,7 @@ namespace CFGS_VM.VMCore
         public void LoadCompiledScript(CompiledScript script)
         {
             LoadFunctions(script.Functions);
+            _rootDescriptorByAddress = script.RootScopeDescriptors;
             LoadInstructions(script.Instructions);
         }
 
@@ -935,6 +989,7 @@ namespace CFGS_VM.VMCore
             Functions.Clear();
             _functionsByAddress.Clear();
             LoadFunctions(script.Functions);
+            _rootDescriptorByAddress = script.RootScopeDescriptors;
             LoadInstructions(script.Instructions);
         }
 
@@ -1085,6 +1140,11 @@ namespace CFGS_VM.VMCore
             _intrinsics = root._intrinsics;
             _namespaces = root._namespaces;
             _executionGate = root._executionGate;
+            // Share the immutable function-address→call-scope descriptor map so that call scopes built on a
+            // hot-start async child VM (e.g. a nested async call) are pre-sized identically to the root's —
+            // otherwise they would be dynamic and slot opcodes (LOAD_SLOT/STORE_SLOT/VAR_DECL_SLOT) would
+            // index the wrong storage.
+            _rootDescriptorByAddress = root._rootDescriptorByAddress;
         }
 
         private void RegisterInterfaceReflectionBuiltins()

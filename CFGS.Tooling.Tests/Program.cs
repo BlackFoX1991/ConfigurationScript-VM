@@ -1695,6 +1695,7 @@ func probe() {
                 writer.Write("1.0");         // compilerVersion
                 writer.Write(0);             // plugin count
                 writer.Write(0);             // function count
+                writer.Write(0);             // root scope descriptor count
                 writer.Write(1);             // instruction count
                 writer.Write((int)CFGS_VM.VMCore.Command.OpCode.PUSH_NULL); // any valid opcode
                 writer.Write((byte)5);       // OperandKind.Decimal

@@ -17,6 +17,11 @@ namespace CFGS_VM.VMCore.Codegen
 
         public Dictionary<string, FunctionInfo> Functions { get; } = [];
 
+        // Function-body start address → the scope descriptor for that function's call scope (params +
+        // body-top-level locals). Built by the descriptor finalization pass; the runtime pre-sizes each
+        // call Env from it, keyed by the closure/function address.
+        public Dictionary<int, ScopeDescriptor> RootScopeDescriptors { get; } = new();
+
         public Dictionary<ClassDeclStmt, ClassInfo> ClassInfos { get; } = new();
 
         public Dictionary<string, ClassDeclStmt> TopLevelClassDecls { get; } = new(StringComparer.Ordinal);
@@ -43,6 +48,7 @@ namespace CFGS_VM.VMCore.Codegen
         {
             Instructions.Clear();
             Functions.Clear();
+            RootScopeDescriptors.Clear();
             ClassInfos.Clear();
             TopLevelClassDecls.Clear();
             TopLevelInterfaceDecls.Clear();

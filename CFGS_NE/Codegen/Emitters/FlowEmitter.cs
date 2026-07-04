@@ -13,6 +13,7 @@ namespace CFGS_VM.VMCore
     {
         private void EmitPushScope(Node node)
         {
+            _scopePairingStack.Push(_insns.Count);
             _insns.Add(new Instruction(OpCode.PUSH_SCOPE, null, node.Line, node.Col, node.OriginFile));
             _scopeDepth++;
         }
@@ -21,6 +22,11 @@ namespace CFGS_VM.VMCore
         {
             if (_scopeDepth <= 0)
                 throw new CompilerException("internal compiler error: scope underflow while emitting POP_SCOPE", node.Line, node.Col, node.OriginFile);
+
+            // Record the real push/pop pairing before adding the POP_SCOPE. Raw fail-path POP_SCOPEs
+            // (emitted without EmitPopScope) are intentionally not paired.
+            if (_scopePairingStack.Count > 0)
+                _scopePairings[_scopePairingStack.Pop()] = _insns.Count;
 
             _insns.Add(new Instruction(OpCode.POP_SCOPE, null, node.Line, node.Col, node.OriginFile));
             _scopeDepth--;
@@ -549,6 +555,12 @@ namespace CFGS_VM.VMCore
             int endTryPopIdx = _insns.Count;
             _insns.Add(new Instruction(OpCode.TRY_POP, null, ts.Line, ts.Col, ts.OriginFile));
 
+            // The catch/finally handlers run via TRY routing at a scope depth that need not match their
+            // lexical nesting; keep their variable access name-based.
+            int firstHandler = catchStart >= 0 ? catchStart : finallyStart;
+            if (firstHandler >= 0)
+                _nameBasedRanges.Add((firstHandler, endTryPopIdx));
+
             _insns[tryPushIdx] = new Instruction(
                 OpCode.TRY_PUSH,
                 new object[] { catchStart, finallyStart },
@@ -601,6 +613,10 @@ namespace CFGS_VM.VMCore
 
                 int endTryPopIdx = _insns.Count;
                 _insns.Add(new Instruction(OpCode.TRY_POP, null, us.Line, us.Col, us.OriginFile));
+
+                // The dispose runs via TRY routing (also on the return/throw path, where the body's
+                // POP_SCOPEs are skipped), so its resource access must stay name-based.
+                _nameBasedRanges.Add((finallyStart, endTryPopIdx));
 
                 _insns[tryPushIdx] = new Instruction(
                     OpCode.TRY_PUSH,
@@ -664,42 +680,6 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.PUSH_NULL, null, rs.Line, rs.Col, rs.OriginFile));
 
             _insns.Add(new Instruction(OpCode.RET, null, rs.Line, rs.Col, rs.OriginFile));
-        }
-
-        private void CompileOutExpression(OutExpr ox)
-        {
-            List<Stmt> stmts = ox.Body.Statements;
-
-            int lastExprIdx = -1;
-            for (int i = stmts.Count - 1; i >= 0; i--)
-            {
-                if (stmts[i] is ExprStmt)
-                {
-                    lastExprIdx = i;
-                    break;
-                }
-            }
-
-            EmitPushScope(ox);
-
-            for (int i = 0; i < stmts.Count; i++)
-            {
-                if (stmts[i] is ExprStmt es)
-                {
-                    CompileExpr(es.Expression);
-                    if (i != lastExprIdx)
-                        _insns.Add(new Instruction(OpCode.POP, null, es.Line, es.Col, es.OriginFile));
-                }
-                else
-                {
-                    CompileStmt(stmts[i], insideFunction: false);
-                }
-            }
-
-            if (lastExprIdx == -1)
-                _insns.Add(new Instruction(OpCode.PUSH_NULL, null, ox.Line, ox.Col, ox.OriginFile));
-
-            EmitPopScope(ox);
         }
 
         private void CompileConditionalExpression(ConditionalExpr cnd)

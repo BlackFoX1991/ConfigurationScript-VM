@@ -1,3 +1,4 @@
+using CFGS_VM.VMCore.Codegen;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Interop;
@@ -25,6 +26,7 @@ namespace CFGS_VM.VMCore
             ObjectArray = 10,
             RuntimePropertyDescriptor = 11,
             NativeAssemblyReference = 12,
+            ScopeDescriptor = 13,
         }
 
         public static void Save(CompiledScript script, string path)
@@ -56,6 +58,13 @@ namespace CFGS_VM.VMCore
                 writer.Write(function.Parameters.Count);
                 foreach (string parameter in function.Parameters)
                     writer.Write(parameter);
+            }
+
+            writer.Write(script.RootScopeDescriptors.Count);
+            foreach (KeyValuePair<int, ScopeDescriptor> kv in script.RootScopeDescriptors.OrderBy(static x => x.Key))
+            {
+                writer.Write(kv.Key);
+                WriteScopeDescriptor(writer, kv.Value);
             }
 
             writer.Write(script.Instructions.Count);
@@ -111,6 +120,14 @@ namespace CFGS_VM.VMCore
                 functions[key] = new FunctionInfo(parameters, address, minArgs, restParameter, isAsync);
             }
 
+            int rootDescriptorCount = ReadCount(reader);
+            Dictionary<int, ScopeDescriptor> rootScopeDescriptors = new(rootDescriptorCount);
+            for (int i = 0; i < rootDescriptorCount; i++)
+            {
+                int address = reader.ReadInt32();
+                rootScopeDescriptors[address] = ReadScopeDescriptor(reader);
+            }
+
             int instructionCount = ReadCount(reader);
             List<Instruction> instructions = new(instructionCount);
             for (int i = 0; i < instructionCount; i++)
@@ -133,7 +150,8 @@ namespace CFGS_VM.VMCore
                 bytecodeVersion,
                 requiredPlugins,
                 instructions,
-                functions);
+                functions,
+                rootScopeDescriptors);
         }
 
         private static void WriteOperand(BinaryWriter writer, object? operand)
@@ -199,6 +217,10 @@ namespace CFGS_VM.VMCore
                     writer.Write(nativeAssembly.Alias);
                     writer.Write(SanitizePluginReference(nativeAssembly.Path));
                     break;
+                case ScopeDescriptor descriptor:
+                    writer.Write((byte)OperandKind.ScopeDescriptor);
+                    WriteScopeDescriptor(writer, descriptor);
+                    break;
                 default:
                     throw new InvalidDataException($"unsupported CFB operand type '{operand.GetType().FullName}'");
             }
@@ -238,8 +260,25 @@ namespace CFGS_VM.VMCore
                 OperandKind.ObjectArray => ReadObjectArray(reader),
                 OperandKind.RuntimePropertyDescriptor => ReadRuntimePropertyDescriptor(reader),
                 OperandKind.NativeAssemblyReference => new NativeAssemblyReference(reader.ReadString(), reader.ReadString()),
+                OperandKind.ScopeDescriptor => ReadScopeDescriptor(reader),
                 _ => throw new InvalidDataException($"unsupported CFB operand kind '{kind}'")
             };
+        }
+
+        private static void WriteScopeDescriptor(BinaryWriter writer, ScopeDescriptor descriptor)
+        {
+            writer.Write(descriptor.SlotCount);
+            foreach (string slotName in descriptor.SlotNames)
+                writer.Write(slotName);
+        }
+
+        private static ScopeDescriptor ReadScopeDescriptor(BinaryReader reader)
+        {
+            int slotCount = ReadCount(reader);
+            string[] slotNames = new string[slotCount];
+            for (int i = 0; i < slotCount; i++)
+                slotNames[i] = reader.ReadString();
+            return ScopeDescriptor.FromSlotNames(slotNames);
         }
 
         private static decimal ReadDecimal(BinaryReader reader)

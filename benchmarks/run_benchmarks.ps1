@@ -1,4 +1,4 @@
-```<#
+<#
 .SYNOPSIS
     Runs the CFGS benchmark suite and reports how fast the VM executes each workload.
 
@@ -209,6 +209,4 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host 'Net ms = min minus baseline (an estimate of pure VM time; startup excluded).' -ForegroundColor DarkGray
-exit 0```
-
-baust du noch ein, das ein schöner html report generiert wird ?
+exit 0

@@ -1,3 +1,4 @@
+using CFGS_VM.VMCore.Codegen;
 using CFGS_VM.VMCore.Extensions.Core;
 
 namespace CFGS_VM.VMCore
@@ -10,7 +11,10 @@ namespace CFGS_VM.VMCore
         // v4: the auto-main flag was removed from the format (auto-main no longer exists; a script
         // must call main() explicitly or use imperative top-level). Bumped to reject older artifacts
         // that still carried the flag byte.
-        public const int CurrentBytecodeVersion = 4;
+        // v5: scope descriptors (per-block PUSH_SCOPE operands + a function-address→root-descriptor
+        // table) are now serialized so slot-based local access (LOAD_SLOT/STORE_SLOT) round-trips through
+        // .cfb. Bumped to reject older artifacts that lacked descriptors while carrying slot opcodes.
+        public const int CurrentBytecodeVersion = 5;
 
         public string Name { get; }
 
@@ -26,6 +30,13 @@ namespace CFGS_VM.VMCore
 
         public Dictionary<string, FunctionInfo> Functions { get; }
 
+        /// <summary>
+        /// Function-address → call-scope descriptor (params + body-top-level locals). In-memory only: not
+        /// serialized to <c>.cfb</c> (a loaded artifact runs those scopes dynamically). Empty for a script
+        /// loaded from <c>.cfb</c>.
+        /// </summary>
+        public IReadOnlyDictionary<int, ScopeDescriptor> RootScopeDescriptors { get; }
+
         public CompiledScript(
             string name,
             string sourceHash,
@@ -33,7 +44,8 @@ namespace CFGS_VM.VMCore
             int bytecodeVersion,
             IEnumerable<string> requiredPlugins,
             IEnumerable<Instruction> instructions,
-            IDictionary<string, FunctionInfo> functions)
+            IDictionary<string, FunctionInfo> functions,
+            IReadOnlyDictionary<int, ScopeDescriptor>? rootScopeDescriptors = null)
         {
             Name = name;
             SourceHash = sourceHash;
@@ -45,6 +57,7 @@ namespace CFGS_VM.VMCore
                 static kv => kv.Key,
                 static kv => kv.Value,
                 StringComparer.Ordinal);
+            RootScopeDescriptors = rootScopeDescriptors ?? new Dictionary<int, ScopeDescriptor>();
         }
     }
 }

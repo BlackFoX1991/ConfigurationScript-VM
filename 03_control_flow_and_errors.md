@@ -325,4 +325,4 @@ main();
 The next two language areas you usually need after control flow are function calls and pattern matching. These chapters cover them.
 
 - [Functions and Calls](04_functions_and_calls.md)
-- [Match, Destructuring, and Out](05_match_destructuring_and_out.md)
+- [Match and Destructuring](05_match_and_destructuring.md)

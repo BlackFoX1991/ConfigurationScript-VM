@@ -1,0 +1,15 @@
+import "edge_assert.cfs";
+
+edge_begin("204_await");
+
+async func await_passthrough_value() {
+    return await 5;
+}
+edge_eq("await_passthrough", await await_passthrough_value(), 5);
+
+async func await_passthrough_expr() {
+    return await (2 + 3);
+}
+edge_eq("await_passthrough_expr", await await_passthrough_expr(), 5);
+
+edge_finish("204_await");

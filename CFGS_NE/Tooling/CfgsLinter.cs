@@ -859,10 +859,6 @@ internal static class CfgsLinter
                     VisitExpr(a.Inner);
                     break;
 
-                case OutExpr o:
-                    VisitStatement(o.Body);
-                    break;
-
                 case FuncExpr f:
                     VisitFunction("<anonymous>", f.IsAsync, f.Parameters, f.RestParameter, f.ParameterSpecs, f.Body, f.Line, f.Col);
                     break;

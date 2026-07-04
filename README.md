@@ -15,7 +15,7 @@ If you are opening CFGS for the first time, this is the best reading order.
 2. [Language and Data](02_language_and_data.md)
 3. [Control Flow and Errors](03_control_flow_and_errors.md)
 4. [Functions and Calls](04_functions_and_calls.md)
-5. [Match, Destructuring, and Out](05_match_destructuring_and_out.md)
+5. [Match and Destructuring](05_match_and_destructuring.md)
 6. [Classes, Enums, Namespaces, and Inheritance](06_classes_enums_namespaces_and_inheritance.md)
 7. [Modules, Imports, and Exports](07_modules_imports_and_exports.md)
 8. [Async, Await, and Yield](08_async_await_and_yield.md)

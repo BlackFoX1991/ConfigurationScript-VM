@@ -65,6 +65,18 @@ namespace CFGS_VM.VMCore
 
         private Stack<HashSet<string>> _localVarsStack => _emission.LocalVarsStack;
 
+        private Stack<int> _functionStartStack => _emission.FunctionStartStack;
+
+        private Dictionary<int, int> _functionRanges => _emission.FunctionRanges;
+
+        private Dictionary<int, IReadOnlyList<string>> _functionParams => _emission.FunctionParams;
+
+        private Stack<int> _scopePairingStack => _emission.ScopePairingStack;
+
+        private Dictionary<int, int> _scopePairings => _emission.ScopePairings;
+
+        private List<(int Start, int End)> _nameBasedRanges => _emission.NameBasedRanges;
+
         private int _scopeDepth
         {
             get => _emission.ScopeDepth;

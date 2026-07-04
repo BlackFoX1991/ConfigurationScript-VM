@@ -45,11 +45,6 @@ namespace CFGS_VM.Analytic.Core
         /// </summary>
         private bool IsInLoop => _context.IsInLoop;
 
-        /// <summary>
-        /// Gets a value indicating whether IsInOutBlock
-        /// </summary>
-        private bool IsInOutBlock => _context.IsInOutBlock;
-
         private int MaxRecursionDepth => _context.MaxRecursionDepth;
 
         private void Advance()
@@ -86,16 +81,6 @@ namespace CFGS_VM.Analytic.Core
         private void ExitLoopContext()
         {
             _context.ExitLoop();
-        }
-
-        private void EnterOutBlockContext()
-        {
-            _context.EnterOutBlock();
-        }
-
-        private void ExitOutBlockContext()
-        {
-            _context.ExitOutBlock();
         }
 
         private int EnterExpressionRecursion()

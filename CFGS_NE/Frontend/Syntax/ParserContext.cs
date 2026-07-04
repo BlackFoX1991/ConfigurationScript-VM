@@ -14,8 +14,6 @@ namespace CFGS_VM.Analytic.Core
 
         public int LoopDepth { get; private set; }
 
-        public int OutBlockDepth { get; private set; }
-
         public int RecursionDepth { get; private set; }
 
         public bool IsInMultipleVarDeclaration { get; private set; }
@@ -27,8 +25,6 @@ namespace CFGS_VM.Analytic.Core
         public bool IsInAsyncFunction => AsyncFunctionDepth > 0;
 
         public bool IsInLoop => LoopDepth > 0;
-
-        public bool IsInOutBlock => OutBlockDepth > 0;
 
         public ParserContext(int maxRecursionDepth = DefaultMaxRecursionDepth)
         {
@@ -69,16 +65,6 @@ namespace CFGS_VM.Analytic.Core
         public void ExitLoop()
         {
             LoopDepth--;
-        }
-
-        public void EnterOutBlock()
-        {
-            OutBlockDepth++;
-        }
-
-        public void ExitOutBlock()
-        {
-            OutBlockDepth--;
         }
 
         public int EnterRecursion()
