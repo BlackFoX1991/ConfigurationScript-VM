@@ -61,7 +61,7 @@ public class Program
     /// </summary>
     public static bool IsInteractiveDebug { get; private set; } = false;
 
-    public const string Version = "v14.5.0";
+    public const string Version = "v14.5.1";
 
     public static bool AnsiMode = true;
 

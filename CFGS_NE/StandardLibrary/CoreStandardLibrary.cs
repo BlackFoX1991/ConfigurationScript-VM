@@ -122,6 +122,7 @@ namespace CFGS_VM.StandardLibrary
             RegisterDict(intrinsics);
             RegisterException(intrinsics);
             RegisterDateTime(intrinsics);
+            RegisterTimeSpan(intrinsics);
             RegisterTaskNamespace(intrinsics);
             RegisterEncodingNamespace(intrinsics);
             RegisterRegexNamespace(intrinsics);
@@ -1095,17 +1096,58 @@ namespace CFGS_VM.StandardLibrary
                                                     ToList<object>();
             }));
 
-            builtins.Register(new BuiltinDescriptor("DateTime", 0, 0, (args, instr) =>
+            // Date/time entry points. These return real DateTime / TimeSpan values (carried by reference),
+            // so the rich DateTime / TimeSpan intrinsics below are usable on the result. (This replaces the
+            // older Now()/UtcNow()/DateTime() which returned a preformatted string / the default value.)
+            builtins.Register(new BuiltinDescriptor("now", 0, 0, (args, instr) => DateTime.Now));
+            builtins.Register(new BuiltinDescriptor("utcNow", 0, 0, (args, instr) => DateTime.UtcNow));
+            builtins.Register(new BuiltinDescriptor("today", 0, 0, (args, instr) => DateTime.Today));
+
+            builtins.Register(new BuiltinDescriptor("datetime", 3, 7, (args, instr) =>
             {
-                return new DateTime();
+                int year = Convert.ToInt32(args[0], CultureInfo.InvariantCulture);
+                int month = Convert.ToInt32(args[1], CultureInfo.InvariantCulture);
+                int day = Convert.ToInt32(args[2], CultureInfo.InvariantCulture);
+                int hour = args.Count > 3 ? Convert.ToInt32(args[3], CultureInfo.InvariantCulture) : 0;
+                int minute = args.Count > 4 ? Convert.ToInt32(args[4], CultureInfo.InvariantCulture) : 0;
+                int second = args.Count > 5 ? Convert.ToInt32(args[5], CultureInfo.InvariantCulture) : 0;
+                int millisecond = args.Count > 6 ? Convert.ToInt32(args[6], CultureInfo.InvariantCulture) : 0;
+                return new DateTime(year, month, day, hour, minute, second, millisecond);
             }));
-            builtins.Register(new BuiltinDescriptor("Now", 0, 1, (args, instr) =>
+
+            builtins.Register(new BuiltinDescriptor("parseDate", 1, 2, (args, instr) =>
             {
-                return DateTime.Now.ToString(args.Count > 0 ? args[0].ToString() : null);
+                string s = args[0]?.ToString() ?? "";
+                if (args.Count > 1)
+                    return DateTime.ParseExact(s, args[1]?.ToString() ?? "", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
+                return DateTime.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
             }));
-            builtins.Register(new BuiltinDescriptor("UtcNow", 0, 1, (args, instr) =>
+            builtins.Register(new BuiltinDescriptor("tryParseDate", 1, 2, (args, instr) =>
             {
-                return DateTime.UtcNow.ToString(args.Count > 0 ? args[0].ToString() : null);
+                string s = args[0]?.ToString() ?? "";
+                if (args.Count > 1)
+                    return DateTime.TryParseExact(s, args[1]?.ToString() ?? "", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime e) ? e : (object?)null;
+                return DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime p) ? p : (object?)null;
+            }));
+
+            builtins.Register(new BuiltinDescriptor("fromUnixSeconds", 1, 1, (args, instr) =>
+                DateTimeOffset.FromUnixTimeSeconds(Convert.ToInt64(args[0], CultureInfo.InvariantCulture)).UtcDateTime));
+            builtins.Register(new BuiltinDescriptor("fromUnixMilliseconds", 1, 1, (args, instr) =>
+                DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(args[0], CultureInfo.InvariantCulture)).UtcDateTime));
+
+            builtins.Register(new BuiltinDescriptor("daysInMonth", 2, 2, (args, instr) =>
+                DateTime.DaysInMonth(Convert.ToInt32(args[0], CultureInfo.InvariantCulture), Convert.ToInt32(args[1], CultureInfo.InvariantCulture))));
+            builtins.Register(new BuiltinDescriptor("isLeapYear", 1, 1, (args, instr) =>
+                DateTime.IsLeapYear(Convert.ToInt32(args[0], CultureInfo.InvariantCulture))));
+
+            builtins.Register(new BuiltinDescriptor("timespan", 4, 5, (args, instr) =>
+            {
+                int days = Convert.ToInt32(args[0], CultureInfo.InvariantCulture);
+                int hours = Convert.ToInt32(args[1], CultureInfo.InvariantCulture);
+                int minutes = Convert.ToInt32(args[2], CultureInfo.InvariantCulture);
+                int seconds = Convert.ToInt32(args[3], CultureInfo.InvariantCulture);
+                int milliseconds = args.Count > 4 ? Convert.ToInt32(args[4], CultureInfo.InvariantCulture) : 0;
+                return new TimeSpan(days, hours, minutes, seconds, milliseconds);
             }));
 
             builtins.Register(new BuiltinDescriptor("isdigit", 1, 1, (args, instr) =>
@@ -1732,6 +1774,48 @@ namespace CFGS_VM.StandardLibrary
                 return (dt - other).Ticks;
             }));
 
+            // Calendar helpers.
+            intrinsics.Register(T, new IntrinsicDescriptor("isLeapYear", 0, 0, (r, a, i) => DateTime.IsLeapYear(((DateTime)r).Year)));
+            intrinsics.Register(T, new IntrinsicDescriptor("daysInMonth", 0, 0, (r, a, i) => DateTime.DaysInMonth(((DateTime)r).Year, ((DateTime)r).Month)));
+            intrinsics.Register(T, new IntrinsicDescriptor("startOfDay", 0, 0, (r, a, i) => ((DateTime)r).Date));
+            intrinsics.Register(T, new IntrinsicDescriptor("endOfDay", 0, 0, (r, a, i) => ((DateTime)r).Date.AddDays(1).AddTicks(-1)));
+            intrinsics.Register(T, new IntrinsicDescriptor("startOfMonth", 0, 0, (r, a, i) =>
+            {
+                DateTime dt = (DateTime)r;
+                return new DateTime(dt.Year, dt.Month, 1, 0, 0, 0, dt.Kind);
+            }));
+            intrinsics.Register(T, new IntrinsicDescriptor("endOfMonth", 0, 0, (r, a, i) =>
+            {
+                DateTime dt = (DateTime)r;
+                return new DateTime(dt.Year, dt.Month, 1, 0, 0, 0, dt.Kind).AddMonths(1).AddTicks(-1);
+            }));
+
+            // Formatting.
+            intrinsics.Register(T, new IntrinsicDescriptor("iso", 0, 0, (r, a, i) => ((DateTime)r).ToString("s", CultureInfo.InvariantCulture)));
+            intrinsics.Register(T, new IntrinsicDescriptor("monthName", 0, 0, (r, a, i) => ((DateTime)r).ToString("MMMM", CultureInfo.InvariantCulture)));
+            intrinsics.Register(T, new IntrinsicDescriptor("weekdayName", 0, 0, (r, a, i) => ((DateTime)r).ToString("dddd", CultureInfo.InvariantCulture)));
+            intrinsics.Register(T, new IntrinsicDescriptor("format", 1, 1, (r, a, i) => ((DateTime)r).ToString(a[0]?.ToString() ?? "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)));
+
+            // Comparison.
+            intrinsics.Register(T, new IntrinsicDescriptor("isBefore", 1, 1, (r, a, i) => (DateTime)r < ParseDt(a[0])));
+            intrinsics.Register(T, new IntrinsicDescriptor("isAfter", 1, 1, (r, a, i) => (DateTime)r > ParseDt(a[0])));
+            intrinsics.Register(T, new IntrinsicDescriptor("equals", 1, 1, (r, a, i) => (DateTime)r == ParseDt(a[0])));
+            intrinsics.Register(T, new IntrinsicDescriptor("isBetween", 2, 2, (r, a, i) =>
+            {
+                DateTime dt = (DateTime)r;
+                return dt >= ParseDt(a[0]) && dt <= ParseDt(a[1]);
+            }));
+
+            // TimeSpan arithmetic: diff -> TimeSpan; add a TimeSpan -> DateTime; subtract a DateTime -> TimeSpan
+            // or a TimeSpan -> DateTime.
+            intrinsics.Register(T, new IntrinsicDescriptor("diff", 1, 1, (r, a, i) => (DateTime)r - ParseDt(a[0])));
+            intrinsics.Register(T, new IntrinsicDescriptor("add", 1, 1, (r, a, i) => (DateTime)r + CoerceTimeSpan(a[0])));
+            intrinsics.Register(T, new IntrinsicDescriptor("subtract", 1, 1, (r, a, i) =>
+            {
+                DateTime dt = (DateTime)r;
+                return a[0] is TimeSpan ts ? dt - ts : dt - ParseDt(a[0]);
+            }));
+
             intrinsics.Register(typeof(string), new IntrinsicDescriptor("toDateTime", 0, 1, (recv, a, i) =>
             {
                 string s = recv?.ToString() ?? "";
@@ -1757,6 +1841,50 @@ namespace CFGS_VM.StandardLibrary
                 string s = recv?.ToString() ?? "0";
                 long n = Convert.ToInt64(s, CultureInfo.InvariantCulture);
                 return DateTimeOffset.FromUnixTimeMilliseconds(n).LocalDateTime;
+            }));
+        }
+
+        // Coerces an argument to a TimeSpan: an actual TimeSpan is passed through; a string is parsed
+        // (invariant "d.hh:mm:ss" style); anything else yields TimeSpan.Zero. Shared by the DateTime and
+        // TimeSpan intrinsics that take a duration argument.
+        private static TimeSpan CoerceTimeSpan(object? v)
+        {
+            if (v is TimeSpan ts) return ts;
+            if (v is string s && TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out TimeSpan parsed)) return parsed;
+            return TimeSpan.Zero;
+        }
+
+        private static void RegisterTimeSpan(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(TimeSpan);
+
+            // Total magnitude across the whole span (fractional).
+            intrinsics.Register(T, new IntrinsicDescriptor("totalDays", 0, 0, (r, a, i) => ((TimeSpan)r).TotalDays));
+            intrinsics.Register(T, new IntrinsicDescriptor("totalHours", 0, 0, (r, a, i) => ((TimeSpan)r).TotalHours));
+            intrinsics.Register(T, new IntrinsicDescriptor("totalMinutes", 0, 0, (r, a, i) => ((TimeSpan)r).TotalMinutes));
+            intrinsics.Register(T, new IntrinsicDescriptor("totalSeconds", 0, 0, (r, a, i) => ((TimeSpan)r).TotalSeconds));
+            intrinsics.Register(T, new IntrinsicDescriptor("totalMilliseconds", 0, 0, (r, a, i) => ((TimeSpan)r).TotalMilliseconds));
+
+            // Individual components (the whole-number part of each unit).
+            intrinsics.Register(T, new IntrinsicDescriptor("days", 0, 0, (r, a, i) => ((TimeSpan)r).Days));
+            intrinsics.Register(T, new IntrinsicDescriptor("hours", 0, 0, (r, a, i) => ((TimeSpan)r).Hours));
+            intrinsics.Register(T, new IntrinsicDescriptor("minutes", 0, 0, (r, a, i) => ((TimeSpan)r).Minutes));
+            intrinsics.Register(T, new IntrinsicDescriptor("seconds", 0, 0, (r, a, i) => ((TimeSpan)r).Seconds));
+            intrinsics.Register(T, new IntrinsicDescriptor("milliseconds", 0, 0, (r, a, i) => ((TimeSpan)r).Milliseconds));
+            intrinsics.Register(T, new IntrinsicDescriptor("ticks", 0, 0, (r, a, i) => ((TimeSpan)r).Ticks));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("negate", 0, 0, (r, a, i) => ((TimeSpan)r).Negate()));
+            intrinsics.Register(T, new IntrinsicDescriptor("abs", 0, 0, (r, a, i) => ((TimeSpan)r).Duration()));
+            intrinsics.Register(T, new IntrinsicDescriptor("isZero", 0, 0, (r, a, i) => (TimeSpan)r == TimeSpan.Zero));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("add", 1, 1, (r, a, i) => (TimeSpan)r + CoerceTimeSpan(a[0])));
+            intrinsics.Register(T, new IntrinsicDescriptor("subtract", 1, 1, (r, a, i) => (TimeSpan)r - CoerceTimeSpan(a[0])));
+            intrinsics.Register(T, new IntrinsicDescriptor("compareTo", 1, 1, (r, a, i) => ((TimeSpan)r).CompareTo(CoerceTimeSpan(a[0]))));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("toString", 0, 1, (r, a, i) =>
+            {
+                TimeSpan ts = (TimeSpan)r;
+                return a.Count > 0 ? ts.ToString(a[0]?.ToString(), CultureInfo.InvariantCulture) : ts.ToString();
             }));
         }
 
