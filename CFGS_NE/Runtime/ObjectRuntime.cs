@@ -86,7 +86,7 @@ namespace CFGS_VM.VMCore
             if (IsInstanceDestroyed(obj) || IsInstanceDestroying(obj))
                 return false;
 
-            SetRuntimeFlag(obj, "__destroying", true);
+            obj.Destroying = true;
             try
             {
                 if (TryResolveInstanceMemberValueInHierarchy(obj, "destroy", out ClassInstance ownerInst, out StaticInstance? ownerType, out Value memberValue) &&
@@ -121,8 +121,8 @@ namespace CFGS_VM.VMCore
             }
             finally
             {
-                SetRuntimeFlag(obj, "__destroying", false);
-                SetRuntimeFlag(obj, "__destroyed", true);
+                obj.Destroying = false;
+                obj.Destroyed = true;
             }
 
             return true;
@@ -158,13 +158,13 @@ namespace CFGS_VM.VMCore
         /// The IsInstanceDestroyed.
         /// </summary>
         private static bool IsInstanceDestroyed(ClassInstance obj)
-            => TryGetRuntimeFlag(obj, "__destroyed");
+            => obj.Destroyed;
 
         /// <summary>
         /// The IsInstanceDestroying.
         /// </summary>
         private static bool IsInstanceDestroying(ClassInstance obj)
-            => TryGetRuntimeFlag(obj, "__destroying");
+            => obj.Destroying;
 
         /// <summary>
         /// The TryGetRuntimeFlag.
@@ -190,7 +190,7 @@ namespace CFGS_VM.VMCore
         private static bool TryGetInstanceFieldValue(ClassInstance obj, string name, out Value value)
         {
             Value local = Value.Null;
-            bool found = WithMutableLock(obj, () => obj.Fields.TryGetValue(name, out local));
+            bool found = WithMutableLock(obj, () => obj.TryGetField(name, out local));
             value = local;
             return found;
         }
@@ -199,13 +199,13 @@ namespace CFGS_VM.VMCore
         /// Writes an instance field.
         /// </summary>
         private static void SetInstanceFieldValue(ClassInstance obj, string name, Value value)
-            => WithMutableLock(obj, () => obj.Fields[name] = value);
+            => WithMutableLock(obj, () => { obj.SetField(name, value); return value; });
 
         /// <summary>
         /// Returns a snapshot copy of instance fields.
         /// </summary>
         private static List<KeyValuePair<string, object>> SnapshotInstanceFields(ClassInstance obj)
-            => WithMutableLock(obj, () => obj.Fields
+            => WithMutableLock(obj, () => obj.EnumerateFields()
                 .Select(static kv => new KeyValuePair<string, object>(kv.Key, kv.Value.ToObject()!))
                 .ToList());
 
@@ -791,6 +791,20 @@ namespace CFGS_VM.VMCore
                 current = baseInst;
             }
 
+            // Instance methods are stored once on the class (StaticInstance), not copied into each instance.
+            // When no field matched, look for a hoisted instance method (a `this`-first closure) on the class
+            // hierarchy so member/method access still resolves; the caller binds it to the receiver.
+            if (TryGetStaticType(start, out StaticInstance startType) &&
+                TryResolveStaticMemberValueInHierarchy(startType, memberName, out StaticInstance methodOwner, out Value methodValue) &&
+                methodValue.Reference is Closure methodClosure &&
+                methodClosure.Parameters.Count > 0 && methodClosure.Parameters[0] == "this")
+            {
+                ownerInst = start;
+                ownerType = methodOwner;
+                value = methodValue;
+                return true;
+            }
+
             ownerInst = null!;
             ownerType = null;
             value = Value.Null;
@@ -1171,6 +1185,13 @@ namespace CFGS_VM.VMCore
                         if (idxObj is string mname && TryBindIntrinsic(fh, mname, out IntrinsicBound? bound, instr))
                             return bound;
                         throw new VMException($"invalid file member '{idxObj}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    }
+
+                case StringBuilderHandle sbh:
+                    {
+                        if (idxObj is string mname && TryBindIntrinsic(sbh, mname, out IntrinsicBound? bound, instr))
+                            return bound;
+                        throw new VMException($"invalid string-builder member '{idxObj}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }
 
                 case ExceptionObject exo:
@@ -1655,7 +1676,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Handles the INDEX_GET opcode.
         /// </summary>
-        private StepResult HandleIndexGetInstruction(Instruction instr)
+        private StepResult HandleIndexGetInstruction(int ip, Instruction instr)
         {
             if (instr.Operand is string)
                 RequireStack(1, instr, "INDEX_GET");
@@ -1677,6 +1698,29 @@ namespace CFGS_VM.VMCore
                 target = PopRuntimeObject()!;
             }
 
+            // Inline-cache fast path for `instance.field` reads: on a shape hit, index the slot directly and
+            // skip the property/hierarchy/visibility resolution. Live-instance check preserved (a destroyed
+            // instance must still throw via the full path).
+            if (target is ClassInstance cinst && idxObj is string memberKey && IsMemberAccessInstruction(instr))
+            {
+                MemberInlineCache cache = _memberCaches[ip];
+                if (cache.Shape != null && ReferenceEquals(cinst.Shape, cache.Shape) && !cinst.Destroyed)
+                {
+                    PushRuntimeObject(cinst.GetSlotByIndex(cache.Slot).ToObject());
+                    return StepResult.Next;
+                }
+
+                object resolved = GetIndexedValue(target, idxObj, instr);
+
+                // Cache only a plain own-layer field read (name is a slot in this instance's shape). Properties,
+                // methods and inherited fields are not own-shape slots, so they are never cached.
+                if (cinst.Shape != null && cinst.TryGetOwnFieldSlot(memberKey, out int fieldSlot))
+                    _memberCaches[ip] = new MemberInlineCache { Shape = cinst.Shape, Slot = fieldSlot };
+
+                PushRuntimeObject(resolved);
+                return StepResult.Next;
+            }
+
             PushRuntimeObject(GetIndexedValue(target, idxObj, instr));
             return StepResult.Next;
         }
@@ -1684,7 +1728,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Handles the INDEX_SET, INDEX_SET_INTERNAL and INDEX_INIT opcodes.
         /// </summary>
-        private StepResult HandleIndexSetInstruction(Instruction instr)
+        private StepResult HandleIndexSetInstruction(int ip, Instruction instr)
         {
             bool allowReservedRuntimeSlotWrites = instr.Code == OpCode.INDEX_SET_INTERNAL;
             PropertyWriteMode writeMode = instr.Code == OpCode.INDEX_INIT ? PropertyWriteMode.Init : PropertyWriteMode.Normal;
@@ -1706,13 +1750,40 @@ namespace CFGS_VM.VMCore
                 target = current.ToObject()!;
                 SetIndexedValue(ref target, idxObj, value, instr, writeMode, allowReservedRuntimeSlotWrites);
                 SetLocalVarValue(env, nameFromEnv, Value.FromObject(target));
-            }
-            else
-            {
-                target = PopRuntimeObject()!;
-                SetIndexedValue(ref target, idxObj, value, instr, writeMode, allowReservedRuntimeSlotWrites);
+                return StepResult.Next;
             }
 
+            target = PopRuntimeObject()!;
+
+            // Inline-cache fast path for `instance.field = v` writes (and the constructor's INDEX_SET_INTERNAL
+            // field init): on a shape hit, write the slot directly, skipping the property/hierarchy/visibility/
+            // const resolution AND the WithMutableLock (lambda closure + ConditionalWeakTable + lock) that the
+            // full field-set path pays. Symmetric to the read IC in HandleIndexGetInstruction; only plain
+            // own-layer field slots are cached, so a hit is always a correct direct write.
+            if (target is ClassInstance cinst
+                && idxObj is string memberKey
+                && writeMode == PropertyWriteMode.Normal
+                && (allowReservedRuntimeSlotWrites || IsMemberAccessInstruction(instr)))
+            {
+                MemberInlineCache cache = _memberCaches[ip];
+                if (cache.Shape != null && ReferenceEquals(cinst.Shape, cache.Shape) && !cinst.Destroyed)
+                {
+                    cinst.SetSlotByIndex(cache.Slot, Value.FromObject(value));
+                    return StepResult.Next;
+                }
+
+                SetIndexedValue(ref target, idxObj, value, instr, writeMode, allowReservedRuntimeSlotWrites);
+
+                // Cache only after a successful write to a plain own-shape field slot: such a write cannot be a
+                // property (would divert), cannot be const (would throw), passed visibility, and targets this
+                // instance's own layer — so a later same-shape hit is a safe direct slot write.
+                if (cinst.Shape != null && cinst.TryGetOwnFieldSlot(memberKey, out int fieldSlot))
+                    _memberCaches[ip] = new MemberInlineCache { Shape = cinst.Shape, Slot = fieldSlot };
+
+                return StepResult.Next;
+            }
+
+            SetIndexedValue(ref target, idxObj, value, instr, writeMode, allowReservedRuntimeSlotWrites);
             return StepResult.Next;
         }
     }

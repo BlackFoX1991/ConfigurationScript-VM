@@ -1,0 +1,72 @@
+import "edge_assert.cfs";
+
+edge_begin("817_string_builder");
+
+# --- basic append + materialize ---
+func basic() {
+    var b = strbuilder();
+    b.append("Hello");
+    b.append(", ");
+    b.append("world");
+    b.append("!");
+    return b.str();
+}
+edge_eq("builder_basic", basic(), "Hello, world!");
+
+# --- chaining: append returns the builder ---
+edge_eq("builder_chaining", strbuilder().append("a").append("b").append("c").toString(), "abc");
+
+# --- len() intrinsic and len() builtin agree ---
+func lengths() {
+    var b = strbuilder();
+    b.append("abcde");
+    return str(b.len()) + "," + str(len(b));
+}
+edge_eq("builder_len", lengths(), "5,5");
+
+# --- non-string values are stringified like str() ---
+func mixed() {
+    var b = strbuilder();
+    b.append(42); b.append("-"); b.append(3.5); b.append("-"); b.append(true);
+    return b.str();
+}
+edge_eq("builder_stringify_mixed", mixed(), "42-3.5-true");
+
+# --- initial value, clear, and reuse ---
+func clearReuse() {
+    var b = strbuilder("start:");
+    b.append("x");
+    var first = b.str();
+    b.clear();
+    b.append("fresh");
+    return first + "|" + b.str();
+}
+edge_eq("builder_initial_clear_reuse", clearReuse(), "start:x|fresh");
+
+# --- typeof + str()/print use the built text ---
+edge_eq("builder_typeof", typeof(strbuilder()), "StringBuilder");
+edge_eq("builder_str_builtin", str(strbuilder("hi")), "hi");
+
+# --- built in a loop; the materialized result is a normal string usable in further concat ---
+func buildLoop() {
+    var b = strbuilder();
+    var i = 0;
+    while (i < 3) { b.append("ab"); i = i + 1; }
+    var result = b.str();
+    return "<" + result + ">";
+}
+edge_eq("builder_loop_downstream", buildLoop(), "<ababab>");
+
+func buildLoopLen() {
+    var b = strbuilder();
+    var i = 0;
+    while (i < 1000) { b.append("ab"); i = i + 1; }
+    return b.len();
+}
+edge_eq("builder_loop_len", buildLoopLen(), 2000);
+
+# --- an empty builder materializes to "" ---
+edge_eq("builder_empty", strbuilder().str(), "");
+edge_eq("builder_empty_len", len(strbuilder()), 0);
+
+edge_finish("817_string_builder");

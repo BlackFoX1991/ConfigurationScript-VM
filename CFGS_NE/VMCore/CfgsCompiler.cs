@@ -67,7 +67,8 @@ namespace CFGS_VM.VMCore
                 requiredPlugins,
                 bytecode,
                 compiler.Functions,
-                compiler.RootScopeDescriptors);
+                compiler.RootScopeDescriptors,
+                compiler.ClassFieldShapes);
         }
 
         private static string ComputeSourceHash(string source)

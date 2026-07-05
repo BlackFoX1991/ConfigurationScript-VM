@@ -1,0 +1,66 @@
+import "edge_assert.cfs";
+
+edge_begin("814_slot_match_stress");
+
+# --- statement match: a bound variable read in both the guard and the body, plus an
+#     arm-body local; all slotted in the (per-arm) scope ---
+func classify(v) {
+    var result = "";
+    match (v) {
+        case var n if (n > 100): { var doubled = n * 2; result = "big:" + str(doubled); }
+        case var n if (n > 0): { result = "small:" + str(n); }
+        case var n: { result = "nonpos:" + str(n); }
+    }
+    return result;
+}
+edge_eq("match_binding_guard_body", classify(500), "big:1000");
+edge_eq("match_binding_small", classify(5), "small:5");
+edge_eq("match_binding_nonpos", classify(0 - 3), "nonpos:-3");
+
+# --- nested match: inner arm reads both the inner binding and the outer binding ---
+func nestedMatch(pair) {
+    return pair match {
+        [var a, var b]: a match {
+            0: "zero-then-" + str(b),
+            var x: "first:" + str(x) + ",second:" + str(b)
+        },
+        _: "other"
+    };
+}
+edge_eq("nested_match_bindings", nestedMatch([5, 9]), "first:5,second:9");
+edge_eq("nested_match_zero", nestedMatch([0, 7]), "zero-then-7");
+
+# --- destructuring declarations bind slots that are then read/reused ---
+func destructureDecl() {
+    var [a, b, c] = [10, 20, 30];
+    var total = a + b + c;
+    var [x, y] = [total, a];
+    return str(x) + "," + str(y);
+}
+edge_eq("destructure_decl_slots", destructureDecl(), "60,10");
+
+# --- a match arm's bound value is captured by a returned closure (outlives the arm) ---
+func makeGreeter(spec) {
+    return spec match {
+        {"name": var nm}: func() { return "hi " + nm; },
+        _: func() { return "hi stranger"; }
+    };
+}
+func greeterDriver() {
+    var g = makeGreeter({"name": "Ada"});
+    var h = makeGreeter({"kind": "x"});
+    return g() + " / " + h();
+}
+edge_eq("match_closure_captures_binding", greeterDriver(), "hi Ada / hi stranger");
+
+# --- foreach that destructures each element into fresh slot bindings ---
+func foreachDestructure() {
+    var sum = 0;
+    foreach (var [k, v] in [[1, 2], [3, 4], [5, 6]]) {
+        sum = sum + k * v;
+    }
+    return sum;
+}
+edge_eq("foreach_destructure_slots", foreachDestructure(), 44);
+
+edge_finish("814_slot_match_stress");

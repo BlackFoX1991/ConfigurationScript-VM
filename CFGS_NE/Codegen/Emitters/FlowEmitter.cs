@@ -40,6 +40,72 @@ namespace CFGS_VM.VMCore
             return pops;
         }
 
+        // A block that binds no name at its own level needs no runtime scope: skipping its PUSH_SCOPE /
+        // POP_SCOPE removes a per-iteration Env allocation in hot loops (the while/if bodies of tight loops
+        // declare nothing) and lets inner slot accesses resolve one hop shallower. Because the scope is never
+        // emitted, _scopeDepth stays consistent (so break/continue LEAVE pop-counts remain correct) and the
+        // descriptor/slot passes never see it (so hop counts are correct) — no post-hoc fixup is needed.
+        private bool BlockNeedsOwnScope(BlockStmt b)
+        {
+            // Namespace scope blocks publish types through a dedicated scope; always keep it.
+            if (TryGetNamespaceScopePath(b, out _))
+                return true;
+
+            foreach (Stmt sub in b.Statements)
+                if (StatementBindsNameInEnclosingScope(sub))
+                    return true;
+
+            return false;
+        }
+
+        // Conservative whitelist: only statements known NOT to introduce a name into the enclosing block
+        // scope return false. Control-flow constructs bind their loop / catch / using variables in their own
+        // scopes, not here. Anything else (var/const/destructure/func/class/interface/enum/namespace/import
+        // declarations, and unknown node types) keeps the scope.
+        private static bool StatementBindsNameInEnclosingScope(Stmt s)
+        {
+            switch (s)
+            {
+                case ExprStmt:
+                case AssignStmt:
+                case AssignExprStmt:
+                case AssignIndexExprStmt:
+                case CompoundAssignStmt:
+                case DestructureAssignStmt:
+                case SetFieldStmt:
+                case SliceSetStmt:
+                case PushStmt:
+                case DeleteAllStmt:
+                case DeleteExprStmt:
+                case DeleteIndexStmt:
+                case DeleteVarStmt:
+                case ReturnStmt:
+                case BreakStmt:
+                case ContinueStmt:
+                case ThrowStmt:
+                case YieldStmt:
+                case EmptyStmt:
+                case ErrorStmt:
+                case IfStmt:
+                case WhileStmt:
+                case DoWhileStmt:
+                case ForStmt:
+                case ForeachStmt:
+                case MatchStmt:
+                case TryStmt:
+                case UsingStmt:
+                case BlockStmt:
+                    return false;
+
+                // export <decl> binds iff its wrapped declaration does.
+                case ExportStmt ex:
+                    return StatementBindsNameInEnclosingScope(ex.Inner);
+
+                default:
+                    return true;
+            }
+        }
+
         private void CompileBlockStatement(BlockStmt b, bool insideFunction)
         {
             if (insideFunction && b.IsFunctionBody)
@@ -49,7 +115,9 @@ namespace CFGS_VM.VMCore
                 return;
             }
 
-            EmitPushScope(b);
+            bool ownScope = BlockNeedsOwnScope(b);
+            if (ownScope)
+                EmitPushScope(b);
             try
             {
                 if (TryGetNamespaceScopePath(b, out _))
@@ -119,7 +187,8 @@ namespace CFGS_VM.VMCore
             }
             finally
             {
-                EmitPopScope(b);
+                if (ownScope)
+                    EmitPopScope(b);
             }
         }
 

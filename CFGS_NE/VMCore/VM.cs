@@ -84,7 +84,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Gets the raw tagged-value operand stack.
         /// </summary>
-        private Stack<Value> _valueStack => _state.Stack;
+        private ValueStack _valueStack => _state.Stack;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Value ToRuntimeValue(object? value)
@@ -123,6 +123,25 @@ namespace CFGS_VM.VMCore
             get => _state.RootScopeDescriptors;
             set => _state.RootScopeDescriptors = value;
         }
+
+        private IReadOnlyDictionary<string, ScopeDescriptor?> _classShapeByName
+        {
+            get => _state.ClassFieldShapes;
+            set => _state.ClassFieldShapes = value;
+        }
+
+        // Monomorphic inline cache per member-access (INDEX_GET) site: once a `p.field` read resolves to a
+        // plain own-layer field slot, cache (that class's shape identity, slot index). A later read whose
+        // receiver has the same shape skips the whole resolution machinery (property/hierarchy/visibility
+        // walks) and indexes the slot directly. Shapes are immutable, so the cache never needs invalidation;
+        // a shape mismatch simply re-resolves and overwrites the entry. Per-VM, sized to the program.
+        private struct MemberInlineCache
+        {
+            public ScopeDescriptor? Shape;
+            public int Slot;
+        }
+
+        private MemberInlineCache[] _memberCaches = System.Array.Empty<MemberInlineCache>();
 
         /// <summary>
         /// Gets the call stack.
@@ -392,7 +411,10 @@ namespace CFGS_VM.VMCore
                 case OpCode.NEW_OBJECT:
                     {
                         string className = instr.Operand?.ToString() ?? "<anon>";
-                        ClassInstance obj = new(className);
+                        // Pre-size the instance's field storage from the class shape (declared fields go into a
+                        // Value[] instead of the dictionary). An ambiguous/absent shape falls back to the dict.
+                        _classShapeByName.TryGetValue(className, out ScopeDescriptor? shape);
+                        ClassInstance obj = new(className, shape);
                         PushRuntimeObject(obj);
                         break;
                     }
@@ -414,12 +436,12 @@ namespace CFGS_VM.VMCore
                     return HandleSliceSetInstruction(instr);
 
                 case OpCode.INDEX_GET:
-                    return HandleIndexGetInstruction(instr);
+                    return HandleIndexGetInstruction(_ip, instr);
 
                 case OpCode.INDEX_SET:
                 case OpCode.INDEX_SET_INTERNAL:
                 case OpCode.INDEX_INIT:
-                    return HandleIndexSetInstruction(instr);
+                    return HandleIndexSetInstruction(_ip, instr);
 
                 case OpCode.NEW_DICT:
                     return HandleNewDictionaryInstruction(instr);
@@ -890,6 +912,60 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                // --- Superinstructions (see SuperInstructionRewriter). At entry _ip already points at the
+                // folded tail instruction; the fused handler reuses the existing per-op logic and advances
+                // _ip past the tail, so semantics are identical to the unfused run. ---
+
+                case OpCode.LT_JF:
+                    HandleLessThanInstruction(instr);
+                    return FusedBranchOnFalse(ref _ip, _insns);
+
+                case OpCode.LE_JF:
+                    HandleLessThanOrEqualInstruction(instr);
+                    return FusedBranchOnFalse(ref _ip, _insns);
+
+                case OpCode.GT_JF:
+                    HandleGreaterThanInstruction(instr);
+                    return FusedBranchOnFalse(ref _ip, _insns);
+
+                case OpCode.GE_JF:
+                    HandleGreaterThanOrEqualInstruction(instr);
+                    return FusedBranchOnFalse(ref _ip, _insns);
+
+                case OpCode.EQ_JF:
+                    HandleEqualInstruction(instr);
+                    return FusedBranchOnFalse(ref _ip, _insns);
+
+                case OpCode.NEQ_JF:
+                    HandleNotEqualInstruction(instr);
+                    return FusedBranchOnFalse(ref _ip, _insns);
+
+                case OpCode.SLOT_ADD_INT:
+                    return FusedSlotIntBinary(ref _ip, _insns, instr, subtract: false);
+
+                case OpCode.SLOT_SUB_INT:
+                    return FusedSlotIntBinary(ref _ip, _insns, instr, subtract: true);
+
+                case OpCode.INC_SLOT:
+                    return FusedSlotIncrement(ref _ip, _insns, instr, subtract: false);
+
+                case OpCode.DEC_SLOT:
+                    return FusedSlotIncrement(ref _ip, _insns, instr, subtract: true);
+
+                case OpCode.LOAD_SLOT2:
+                    // Fused LOAD_SLOT, LOAD_SLOT: this instruction carries the first slot, the folded
+                    // second LOAD_SLOT (at _ip) carries the second. Push both, then step past the fold.
+                    _valueStack.Push(LoadSlot((int)instr.Operand!));
+                    _valueStack.Push(LoadSlot((int)_insns[_ip].Operand!));
+                    _ip++;
+                    return StepResult.Next;
+
+                case OpCode.ADD_STORE_SLOT:
+                    return FusedBinaryStoreSlot(ref _ip, _insns, instr, subtract: false);
+
+                case OpCode.SUB_STORE_SLOT:
+                    return FusedBinaryStoreSlot(ref _ip, _insns, instr, subtract: true);
+
                 case OpCode.AWAIT:
                     return HandleAwaitInstruction(ref _ip, _insns, instr);
 
@@ -970,15 +1046,167 @@ namespace CFGS_VM.VMCore
             return StepResult.Next;
         }
 
+        /// <summary>
+        /// Completes a fused compare-and-branch (LT_JF/LE_JF/...): the overlaid comparison has already pushed
+        /// its bool result and <paramref name="_ip"/> points at the folded JMP_IF_FALSE. Pop the result and
+        /// either branch to that JMP_IF_FALSE's target or fall through past it — identical to executing the
+        /// comparison and JMP_IF_FALSE separately.
+        /// </summary>
+        private StepResult FusedBranchOnFalse(ref int _ip, List<Instruction> _insns)
+        {
+            Value v = _valueStack.Pop();
+            if (!ToBool(v))
+            {
+                _ip = (int)_insns[_ip].Operand!;
+                return StepResult.Continue;
+            }
+
+            _ip++;
+            return StepResult.Next;
+        }
+
+        /// <summary>
+        /// Executes a fused "local +/- integer constant" run (SLOT_ADD_INT / SLOT_SUB_INT): read the slot
+        /// named by the fused LOAD_SLOT operand, materialize the folded PUSH_INT constant, advance
+        /// <paramref name="_ip"/> past the PUSH_INT and the arithmetic op, then reuse the full ADD/SUB
+        /// coercion path so semantics are unchanged.
+        /// </summary>
+        private StepResult FusedSlotIntBinary(ref int _ip, List<Instruction> _insns, Instruction instr, bool subtract)
+        {
+            Value current = LoadSlot((int)instr.Operand!);
+            int k = _insns[_ip].Operand is int folded ? folded : 0;
+            _ip += 2; // skip the folded PUSH_INT and ADD/SUB
+
+            // Fast path: the common int-counter case computes in registers, skipping the operand round-trip
+            // through the stack and the coercion cascade. Anything else (double/long/char/non-numeric) falls
+            // back to the full ADD/SUB handler so semantics (incl. int->long overflow promotion) are unchanged.
+            if (TryFastIntBinary(current, Value.FromInt(k), subtract, out Value result))
+            {
+                _valueStack.Push(result);
+                return StepResult.Next;
+            }
+
+            _valueStack.Push(current);
+            _valueStack.Push(Value.FromInt(k));
+            return subtract ? HandleSubInstruction(instr) : HandleAddInstruction(instr);
+        }
+
+        /// <summary>
+        /// Executes a fused in-place counter update (INC_SLOT / DEC_SLOT = `x = x +/- k` on the same slot):
+        /// read the slot, combine with the folded PUSH_INT constant, and write the result back (honouring the
+        /// const check), then step past PUSH_INT, the arithmetic op and the STORE_SLOT. Uses the int fast path
+        /// for the common counter case and falls back to the full ADD/SUB coercion otherwise.
+        /// </summary>
+        private StepResult FusedSlotIncrement(ref int _ip, List<Instruction> _insns, Instruction instr, bool subtract)
+        {
+            int packed = (int)instr.Operand!;
+            Value current = LoadSlot(packed);
+            int k = _insns[_ip].Operand is int folded ? folded : 0;
+            _ip += 3; // skip the folded PUSH_INT, ADD/SUB and STORE_SLOT
+
+            if (TryFastIntBinary(current, Value.FromInt(k), subtract, out Value result))
+            {
+                StoreSlot(packed, result, instr);
+                return StepResult.Next;
+            }
+
+            _valueStack.Push(current);
+            _valueStack.Push(Value.FromInt(k));
+            if (subtract)
+                HandleSubInstruction(instr);
+            else
+                HandleAddInstruction(instr);
+            StoreSlot(packed, _valueStack.Pop(), instr);
+            return StepResult.Next;
+        }
+
+        /// <summary>
+        /// Executes a fused accumulate-and-store (ADD_STORE_SLOT / SUB_STORE_SLOT): combine the top two stack
+        /// operands and store the result into the local named by the folded STORE_SLOT (const check honoured).
+        /// Uses the int fast path when both operands are ints, else falls back to the full ADD/SUB handler.
+        /// </summary>
+        private StepResult FusedBinaryStoreSlot(ref int _ip, List<Instruction> _insns, Instruction instr, bool subtract)
+        {
+            int slot = (int)_insns[_ip].Operand!; // STORE_SLOT operand
+            _ip++; // skip the folded STORE_SLOT
+
+            RequireStack(2, instr, subtract ? "SUB_STORE_SLOT" : "ADD_STORE_SLOT");
+            Value right = _valueStack.Pop();
+            Value left = _valueStack.Pop();
+
+            if (TryFastIntBinary(left, right, subtract, out Value result))
+            {
+                StoreSlot(slot, result, instr);
+                return StepResult.Next;
+            }
+
+            _valueStack.Push(left);
+            _valueStack.Push(right);
+            if (subtract)
+                HandleSubInstruction(instr);
+            else
+                HandleAddInstruction(instr);
+            StoreSlot(slot, _valueStack.Pop(), instr);
+            return StepResult.Next;
+        }
+
+        /// <summary>
+        /// Fast path shared by the fused arithmetic slot ops: when both operands are plain ints, add/subtract
+        /// them exactly as <c>AddInt32</c>/<c>SubInt32</c> do (widen to long, then narrow with int-&gt;long
+        /// overflow promotion) without materialising them on the operand stack or running the coercion cascade.
+        /// Returns false for any non-int operand so the caller can defer to the full handler.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static bool TryFastIntBinary(Value a, Value b, bool subtract, out Value result)
+        {
+            if (a.Kind == ValueKind.Int && b.Kind == ValueKind.Int)
+            {
+                long r = subtract ? (long)a.AsInt - b.AsInt : (long)a.AsInt + b.AsInt;
+                result = NarrowInt64Value(r);
+                return true;
+            }
+
+            result = default;
+            return false;
+        }
+
+        /// <summary>Reads a slot value by its packed (hops &lt;&lt; 16) | index operand — shared by fused slot ops.</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private Value LoadSlot(int packed)
+        {
+            Env env = _scopes[^1];
+            for (int h = packed >> 16; h > 0; h--)
+                env = env.Parent!;
+            return env.GetSlotValue(packed & 0xFFFF);
+        }
+
+        /// <summary>Writes a slot value by its packed operand, honouring the const check — shared by fused slot ops.</summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private void StoreSlot(int packed, Value value, Instruction instr)
+        {
+            int idx = packed & 0xFFFF;
+            Env env = _scopes[^1];
+            for (int h = packed >> 16; h > 0; h--)
+                env = env.Parent!;
+            if (env.IsSlotConst(idx))
+                throw new VMException($"Runtime error: cannot assign to constant '{env.SlotName(idx)}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            env.SetSlotValue(idx, value);
+        }
+
         public void LoadInstructions(List<Instruction> inst)
         {
+            // Fuse hot adjacent runs into superinstructions in place (idempotent; keeps instruction indices
+            // stable so jump targets / caches below stay valid). Runs here at load time so .cfb is unaffected.
+            SuperInstructionRewriter.Rewrite(inst);
             _program = inst;
+            _memberCaches = inst.Count > 0 ? new MemberInlineCache[inst.Count] : System.Array.Empty<MemberInlineCache>();
         }
 
         public void LoadCompiledScript(CompiledScript script)
         {
             LoadFunctions(script.Functions);
             _rootDescriptorByAddress = script.RootScopeDescriptors;
+            _classShapeByName = script.ClassFieldShapes;
             LoadInstructions(script.Instructions);
         }
 
@@ -990,6 +1218,7 @@ namespace CFGS_VM.VMCore
             _functionsByAddress.Clear();
             LoadFunctions(script.Functions);
             _rootDescriptorByAddress = script.RootScopeDescriptors;
+            _classShapeByName = script.ClassFieldShapes;
             LoadInstructions(script.Instructions);
         }
 
@@ -1145,6 +1374,7 @@ namespace CFGS_VM.VMCore
             // otherwise they would be dynamic and slot opcodes (LOAD_SLOT/STORE_SLOT/VAR_DECL_SLOT) would
             // index the wrong storage.
             _rootDescriptorByAddress = root._rootDescriptorByAddress;
+            _classShapeByName = root._classShapeByName;
         }
 
         private void RegisterInterfaceReflectionBuiltins()

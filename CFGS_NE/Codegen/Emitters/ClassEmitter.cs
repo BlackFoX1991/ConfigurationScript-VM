@@ -135,8 +135,28 @@ namespace CFGS_VM.VMCore
             _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, accessor.Line, accessor.Col, accessor.OriginFile));
         }
 
+        // Registers the runtime field shape (declared fields + auto-promoted ctor params + property backing
+        // slots) for this class's OWN layer, so instances store fields in a Value[] instead of a dictionary.
+        // A duplicated simple name (NEW_OBJECT keys on it) is marked ambiguous → dictionary fallback.
+        private void RegisterClassFieldShape(ClassDeclStmt cds)
+        {
+            ScopeDescriptorBuilder builder = new();
+            foreach (KeyValuePair<string, Expr?> field in cds.Fields)
+                builder.Declare(field.Key);
+            foreach (string promoted in cds.GetEffectiveConstructorSignature(includeImplicitOuter: cds.IsNested).GetAutoPromotedFieldNames())
+                builder.Declare(promoted);
+            foreach (PropertyDeclStmt property in cds.Properties.Where(p => p.HasAutoStorage))
+                builder.Declare(GetPropertyBackingSlotName(property));
+
+            _context.ClassFieldShapes[cds.Name] = _context.ClassFieldShapes.ContainsKey(cds.Name)
+                ? null
+                : builder.Build();
+        }
+
         private void CompileClassDeclaration(ClassDeclStmt cds)
         {
+            RegisterClassFieldShape(cds);
+
             ReceiverContextKind prevReceiverContext = _receiverContext;
             _receiverContext = ReceiverContextKind.None;
             try
@@ -242,35 +262,10 @@ namespace CFGS_VM.VMCore
                     LeaveFunctionLocals();
                 }
 
-                foreach (FuncDeclStmt func in cds.Methods)
-                {
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, func.Line, func.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.PUSH_STR, func.RuntimeMemberName, func.Line, func.Col, cds.OriginFile));
-
-                    List<string> methodParams = new(func.Parameters);
-                    methodParams.Insert(0, "this");
-
-                    int methodMinArgs = func.MinArgs + 1;
-                    FuncExpr methodFuncExpr = new(methodParams, func.Body, methodMinArgs, func.RestParameter, func.Line, func.Col, cds.OriginFile, func.IsAsync);
-
-                    ClassInfo? prevClass = _currentClass;
-                    ClassDeclStmt? prevClassDecl = _currentClassDecl;
-                    bool prevIsStatic = _currentMethodIsStatic;
-
-                    if (!_classInfos.TryGetValue(cds, out ClassInfo? currentClass))
-                        currentClass = BuildAdHocClassInfo(cds);
-                    _currentClass = currentClass;
-                    _currentClassDecl = cds;
-                    _currentMethodIsStatic = false;
-
-                    CompileExpr(methodFuncExpr);
-
-                    _currentClass = prevClass;
-                    _currentClassDecl = prevClassDecl;
-                    _currentMethodIsStatic = prevIsStatic;
-
-                    _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, func.Line, func.Col, cds.OriginFile));
-                }
+                // Instance methods are hoisted onto the shared class (StaticInstance) once at class-declaration
+                // time — see EmitInstanceMethodsOntoStaticInstance below — instead of being rebuilt into every
+                // instance by this constructor. The instance keeps only its own fields; method access falls
+                // back to the class via __type.
 
                 foreach (PropertyDeclStmt property in cds.Properties)
                 {
@@ -306,6 +301,39 @@ namespace CFGS_VM.VMCore
                 _insns[jmpOverCtorIdx] = new Instruction(OpCode.JMP, _insns.Count, cds.Line, cds.Col, cds.OriginFile);
 
                 _insns.Add(new Instruction(OpCode.NEW_STATIC, cds.Name, cds.Line, cds.Col, cds.OriginFile));
+
+                // Define each instance method ONCE onto the shared class (the StaticInstance on the stack).
+                // At call time p.method() finds it via __type (see the instance-method fallback in
+                // ObjectRuntime); the closure takes `this` as its first parameter, so it is bound per call.
+                foreach (FuncDeclStmt func in cds.Methods)
+                {
+                    _insns.Add(new Instruction(OpCode.DUP, null, func.Line, func.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.PUSH_STR, func.RuntimeMemberName, func.Line, func.Col, cds.OriginFile));
+
+                    List<string> methodParams = new(func.Parameters);
+                    methodParams.Insert(0, "this");
+
+                    int methodMinArgs = func.MinArgs + 1;
+                    FuncExpr methodFuncExpr = new(methodParams, func.Body, methodMinArgs, func.RestParameter, func.Line, func.Col, cds.OriginFile, func.IsAsync);
+
+                    ClassInfo? prevClass = _currentClass;
+                    ClassDeclStmt? prevClassDecl = _currentClassDecl;
+                    bool prevIsStatic = _currentMethodIsStatic;
+
+                    if (!_classInfos.TryGetValue(cds, out ClassInfo? currentClass))
+                        currentClass = BuildAdHocClassInfo(cds);
+                    _currentClass = currentClass;
+                    _currentClassDecl = cds;
+                    _currentMethodIsStatic = false;
+
+                    CompileExpr(methodFuncExpr);
+
+                    _currentClass = prevClass;
+                    _currentClassDecl = prevClassDecl;
+                    _currentMethodIsStatic = prevIsStatic;
+
+                    _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, func.Line, func.Col, cds.OriginFile));
+                }
 
                 List<(string Name, int Code)> instanceVisibilityEntries = EnumerateDeclaredInstanceVisibilityEntries(cds);
                 _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, cds.OriginFile));

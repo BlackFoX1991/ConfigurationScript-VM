@@ -11,7 +11,7 @@ namespace CFGS_VM.VMCore
             /// <summary>
             /// Gets the operand stack.
             /// </summary>
-            public Stack<Value> Stack { get; } = new();
+            public ValueStack Stack { get; } = new();
 
             /// <summary>
             /// Gets the lexical scope chain.
@@ -34,6 +34,13 @@ namespace CFGS_VM.VMCore
             /// </summary>
             public IReadOnlyDictionary<int, ScopeDescriptor> RootScopeDescriptors { get; set; }
                 = new Dictionary<int, ScopeDescriptor>();
+
+            /// <summary>
+            /// Class simple name → instance field shape (null value = ambiguous name → dictionary storage).
+            /// Replaced on each script load; empty for classes without a shape (e.g. from .cfb).
+            /// </summary>
+            public IReadOnlyDictionary<string, ScopeDescriptor?> ClassFieldShapes { get; set; }
+                = new Dictionary<string, ScopeDescriptor?>(StringComparer.Ordinal);
 
             /// <summary>
             /// Gets the call stack.

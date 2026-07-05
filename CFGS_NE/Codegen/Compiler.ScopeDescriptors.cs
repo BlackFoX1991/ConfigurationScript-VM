@@ -59,7 +59,11 @@ namespace CFGS_VM.VMCore
             int j = start;
             while (j < end)
             {
-                if (j != start && _functionRanges.TryGetValue(j, out int functionEnd))
+                // functionEnd > j guards against an empty function body, whose recorded range is zero-length
+                // (start == end, because the range is closed before the synthetic PUSH_NULL/RET is appended).
+                // Such a body has no slot access to resolve, so we skip it and advance normally instead of
+                // looping forever on `j = functionEnd` (which would not advance). See DescribeScope for the twin.
+                if (j != start && _functionRanges.TryGetValue(j, out int functionEnd) && functionEnd > j)
                 {
                     ScopeDescriptor rootDescriptor = _context.RootScopeDescriptors.TryGetValue(j, out ScopeDescriptor? rd)
                         ? rd
@@ -184,7 +188,10 @@ namespace CFGS_VM.VMCore
             {
                 // A function body begins at j (but not when j is this scope's own start — that entry is the
                 // function whose body we are currently describing, detected by the enclosing scope).
-                if (j != start && functionRanges.TryGetValue(j, out int functionEnd))
+                // functionEnd > j: skip a zero-length (empty-body) function range so the walk advances instead
+                // of looping (twin of the guard in ResolveSlotAccess). An empty body declares nothing, so it
+                // needs no root descriptor here.
+                if (j != start && functionRanges.TryGetValue(j, out int functionEnd) && functionEnd > j)
                 {
                     // Build the function-root descriptor: param slots (minus a leading this/type receiver,
                     // which the runtime keeps per-frame, not in a slot) followed by the body's top-level

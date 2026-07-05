@@ -202,5 +202,46 @@
         VAR_DECL_SLOT,
 
         CONST_DECL_SLOT,
+
+        // Superinstructions (peephole fusion, applied at load time by SuperInstructionRewriter). Each fused
+        // opcode OVERLAYS the first instruction of a recognized run: its handler reads the folded operands
+        // from the following (unmodified) slots and advances _ip past them. Instruction indices are never
+        // shifted, so every absolute jump target / handler range / address-keyed map stays valid, and the
+        // folded tail instructions remain in place as a correct fallback if ever entered directly.
+        // Appended at the end so existing opcode numbers (and .cfb bytecode) keep their values.
+
+        // <cmp>, JMP_IF_FALSE  ->  compare and branch-on-false in one dispatch (loop/if backbone).
+        LT_JF,
+
+        LE_JF,
+
+        GT_JF,
+
+        GE_JF,
+
+        EQ_JF,
+
+        NEQ_JF,
+
+        // LOAD_SLOT, PUSH_INT, (ADD|SUB)  ->  local +/- integer constant (i++, n-1, index math).
+        SLOT_ADD_INT,
+
+        SLOT_SUB_INT,
+
+        // --- Superinstructions phase 2 ---
+
+        // LOAD_SLOT x, PUSH_INT k, (ADD|SUB), STORE_SLOT x  (same slot x)  ->  x +/-= k in place
+        // (the canonical loop counter update `i = i + 1` / countdown `i = i - 1`).
+        INC_SLOT,
+
+        DEC_SLOT,
+
+        // LOAD_SLOT, LOAD_SLOT  ->  push two locals in one dispatch (`a + b`, `a < b`).
+        LOAD_SLOT2,
+
+        // (ADD|SUB), STORE_SLOT  ->  combine + store to a local (accumulator `s = s + i`).
+        ADD_STORE_SLOT,
+
+        SUB_STORE_SLOT,
     }
 }

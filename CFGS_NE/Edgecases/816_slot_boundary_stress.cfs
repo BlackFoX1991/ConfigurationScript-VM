@@ -1,0 +1,70 @@
+import "edge_assert.cfs";
+
+edge_begin("816_slot_boundary_stress");
+
+# --- deep block nesting: each level reads the previous (1 hop); innermost reads the
+#     function root local across 10 hops ---
+func deepNesting() {
+    var root = 100;
+    var result = 0;
+    { var l1 = root + 1;
+    { var l2 = l1 + 1;
+    { var l3 = l2 + 1;
+    { var l4 = l3 + 1;
+    { var l5 = l4 + 1;
+    { var l6 = l5 + 1;
+    { var l7 = l6 + 1;
+    { var l8 = l7 + 1;
+    { var l9 = l8 + 1;
+    { var l10 = l9 + 1;
+      result = root + l10;
+    } } } } } } } } } }
+    return result;
+}
+edge_eq("deep_block_hops_10", deepNesting(), 210);
+
+# --- many locals in one scope: forces the slot array to grow past its initial capacity ---
+func manyLocals() {
+    var a01 = 1; var a02 = 2; var a03 = 3; var a04 = 4; var a05 = 5;
+    var a06 = 6; var a07 = 7; var a08 = 8; var a09 = 9; var a10 = 10;
+    var a11 = 11; var a12 = 12; var a13 = 13; var a14 = 14; var a15 = 15;
+    var a16 = 16; var a17 = 17; var a18 = 18; var a19 = 19; var a20 = 20;
+    return a01 + a02 + a03 + a04 + a05 + a06 + a07 + a08 + a09 + a10
+         + a11 + a12 + a13 + a14 + a15 + a16 + a17 + a18 + a19 + a20;
+}
+edge_eq("many_locals_slot_growth", manyLocals(), 210);
+
+# --- many parameters occupy their own slots ---
+func manyParams(p1, p2, p3, p4, p5, p6, p7, p8) {
+    return p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8;
+}
+edge_eq("many_params_slots", manyParams(1, 2, 3, 4, 5, 6, 7, 8), 36);
+
+# --- same-scope redeclaration is still rejected under slot declarations ---
+func redeclThunk() {
+    var z = 1;
+    var z = 2;
+    return z;
+}
+edge_throws("same_scope_redecl_throws", redeclThunk);
+
+# --- assigning to a const slot is still rejected ---
+func constThunk() {
+    const k = 5;
+    k = 6;
+    return k;
+}
+edge_throws("const_reassign_throws", constThunk);
+
+# --- delete removes elements from slot-held collections (by reference) ---
+func deleteSlotted() {
+    var arr = [1, 2, 3, 4, 5];
+    delete arr[0];
+    delete arr[2];
+    var d = {"a": 1, "b": 2, "c": 3};
+    delete d["b"];
+    return str(len(arr)) + "," + str(len(d));
+}
+edge_eq("delete_on_slotted_collections", deleteSlotted(), "3,2");
+
+edge_finish("816_slot_boundary_stress");

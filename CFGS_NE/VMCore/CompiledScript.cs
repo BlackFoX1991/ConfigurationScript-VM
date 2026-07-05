@@ -37,6 +37,12 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public IReadOnlyDictionary<int, ScopeDescriptor> RootScopeDescriptors { get; }
 
+        /// <summary>
+        /// Class simple name → instance field shape (null = ambiguous). In-memory only, not persisted to .cfb;
+        /// a .cfb-loaded class stores its fields in a dictionary (correct, just not pre-sized).
+        /// </summary>
+        public IReadOnlyDictionary<string, ScopeDescriptor?> ClassFieldShapes { get; }
+
         public CompiledScript(
             string name,
             string sourceHash,
@@ -45,7 +51,8 @@ namespace CFGS_VM.VMCore
             IEnumerable<string> requiredPlugins,
             IEnumerable<Instruction> instructions,
             IDictionary<string, FunctionInfo> functions,
-            IReadOnlyDictionary<int, ScopeDescriptor>? rootScopeDescriptors = null)
+            IReadOnlyDictionary<int, ScopeDescriptor>? rootScopeDescriptors = null,
+            IReadOnlyDictionary<string, ScopeDescriptor?>? classFieldShapes = null)
         {
             Name = name;
             SourceHash = sourceHash;
@@ -58,6 +65,7 @@ namespace CFGS_VM.VMCore
                 static kv => kv.Value,
                 StringComparer.Ordinal);
             RootScopeDescriptors = rootScopeDescriptors ?? new Dictionary<int, ScopeDescriptor>();
+            ClassFieldShapes = classFieldShapes ?? new Dictionary<string, ScopeDescriptor?>(StringComparer.Ordinal);
         }
     }
 }

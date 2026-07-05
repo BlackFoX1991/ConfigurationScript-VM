@@ -133,6 +133,16 @@ namespace CFGS_VM.VMCore
                 classInfo.InstanceVisibility[property.Name] = GetPropertyOverallVisibility(property);
             }
 
+            // Constructor parameters auto-promoted to instance fields are members too, so a bare reference
+            // to one inside a method resolves to `this.<name>`. Previously this worked only because methods
+            // were compiled inside the constructor and captured its parameter scope; with methods hoisted
+            // onto the class they must be recognized as members here.
+            foreach (string promoted in decl.GetEffectiveConstructorSignature(includeImplicitOuter: decl.IsNested).GetAutoPromotedFieldNames())
+            {
+                if (classInfo.InstanceMembers.Add(promoted) && !classInfo.InstanceVisibility.ContainsKey(promoted))
+                    classInfo.InstanceVisibility[promoted] = MemberVisibility.Public;
+            }
+
             foreach (KeyValuePair<string, Expr?> field in decl.StaticFields)
             {
                 classInfo.StaticMembers.Add(field.Key);

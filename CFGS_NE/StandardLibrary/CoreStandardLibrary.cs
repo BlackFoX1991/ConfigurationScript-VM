@@ -47,6 +47,7 @@ namespace CFGS_VM.StandardLibrary
             if (t == typeof(char)) return "Char";
             if (t == typeof(List<object>)) return "Array";
             if (t == typeof(Dictionary<string, object>)) return "Dictionary";
+            if (t == typeof(StringBuilderHandle)) return "StringBuilder";
             if (t == typeof(NamespaceBuiltinCallable)) return "BuiltinCallable";
             return t.Name;
         }
@@ -116,6 +117,7 @@ namespace CFGS_VM.StandardLibrary
             RegisterBuiltins(builtins);
             RegisterNamespaces(namespaces);
             RegisterString(intrinsics);
+            RegisterStringBuilder(intrinsics);
             RegisterArray(intrinsics);
             RegisterDict(intrinsics);
             RegisterException(intrinsics);
@@ -873,6 +875,7 @@ namespace CFGS_VM.StandardLibrary
                 if (val is char) return "Char";
                 if (val is List<object>) return "Array";
                 if (val is Dictionary<string, object>) return "Dictionary";
+                if (val is StringBuilderHandle) return "StringBuilder";
                 if (val is NamespaceBuiltinCallable) return "BuiltinCallable";
                 if (val is ClassInstance ci) return ci.ClassName;
                 if (val is StaticInstance si) return si.ClassName;
@@ -886,6 +889,7 @@ namespace CFGS_VM.StandardLibrary
             {
                 object a0 = args[0];
                 if (a0 is string s) return s.Length;
+                if (a0 is StringBuilderHandle sbh) return sbh.Length;
                 if (a0 is List<object> list) return LockMutableRuntime(list, () => list.Count);
                 if (a0 is Dictionary<string, object> dct) return LockMutableRuntime(dct, () => dct.Count);
                 return -1;
@@ -946,6 +950,11 @@ namespace CFGS_VM.StandardLibrary
             builtins.Register(new BuiltinDescriptor("str", 1, 1, (args, instr) =>
             {
                 return VmStringify(args[0]);
+            }));
+
+            builtins.Register(new BuiltinDescriptor("strbuilder", 0, 1, (args, instr) =>
+            {
+                return args.Count == 0 ? new StringBuilderHandle() : new StringBuilderHandle(VmStringify(args[0]));
             }));
             builtins.Register(new BuiltinDescriptor("format", 1, int.MaxValue, (args, instr) =>
             {
@@ -1308,6 +1317,20 @@ namespace CFGS_VM.StandardLibrary
                 char padChar = VmStringArg(a[1]).FirstOrDefault(' ');
                 return s.PadRight(totalWidth, padChar);
             }));
+        }
+
+        private static void RegisterStringBuilder(IIntrinsicRegistry intrinsics)
+        {
+            Type T = typeof(StringBuilderHandle);
+
+            // Appends the stringified value (same rendering as str()) and returns the builder for chaining.
+            intrinsics.Register(T, new IntrinsicDescriptor("append", 1, 1, (recv, a, i) =>
+                ((StringBuilderHandle)recv!).Append(VmStringify(a[0]))));
+
+            intrinsics.Register(T, new IntrinsicDescriptor("str", 0, 0, (recv, a, i) => ((StringBuilderHandle)recv!).Build()));
+            intrinsics.Register(T, new IntrinsicDescriptor("toString", 0, 0, (recv, a, i) => ((StringBuilderHandle)recv!).Build()));
+            intrinsics.Register(T, new IntrinsicDescriptor("len", 0, 0, (recv, a, i) => ((StringBuilderHandle)recv!).Length));
+            intrinsics.Register(T, new IntrinsicDescriptor("clear", 0, 0, (recv, a, i) => ((StringBuilderHandle)recv!).Clear()));
         }
 
         private static void RegisterArray(IIntrinsicRegistry intrinsics)
@@ -1827,7 +1850,7 @@ namespace CFGS_VM.StandardLibrary
                 }
 
                 var result = new Dictionary<string, object>();
-                foreach (var kvp in LockMutableRuntime(inst, () => inst.Fields
+                foreach (var kvp in LockMutableRuntime(inst, () => inst.EnumerateFields()
                     .Select(static kv => new KeyValuePair<string, object?>(kv.Key, kv.Value.ToObject()))
                     .ToList()))
                 {

@@ -1,0 +1,109 @@
+import "edge_assert.cfs";
+
+edge_begin("812_slot_controlflow_stress");
+
+class Res(tag) {
+    var tag = tag;
+    func name() { return this.tag; }
+}
+
+# --- finally reads and mutates a function-root local (name-based in the handler region) ---
+func finallyMutatesLocal() {
+    var log = [];
+    try {
+        log[] = "try";
+    } finally {
+        log[] = "finally";
+    }
+    log[] = "after";
+    return str(log);
+}
+edge_eq("finally_mutates_local", finallyMutatesLocal(), "[try, finally, after]");
+
+# --- return from inside try runs finally first; return value uses a slotted local ---
+func returnRunsFinally(marker) {
+    var x = 7;
+    try {
+        return x + 3;
+    } finally {
+        marker[] = "cleaned";
+    }
+}
+func returnFinallyDriver() {
+    var marker = [];
+    var r = returnRunsFinally(marker);
+    return str(r) + ":" + str(marker);
+}
+edge_eq("return_runs_finally", returnFinallyDriver(), "10:[cleaned]");
+
+# --- nested try/finally, each with its own locals, all unwinding on return ---
+func nestedFinally(log) {
+    try {
+        var a = "A";
+        try {
+            var b = "B";
+            return a + b;
+        } finally {
+            log[] = "inner";
+        }
+    } finally {
+        log[] = "outer";
+    }
+}
+func nestedFinallyDriver() {
+    var log = [];
+    var v = nestedFinally(log);
+    return v + ":" + str(log);
+}
+edge_eq("nested_finally_order", nestedFinallyDriver(), "AB:[inner, outer]");
+
+# --- using: resource binding + body local both slotted; return from using body ---
+func usingReturnFromBody() {
+    using (var r = new Res("conn")) {
+        var greeting = "using:" + r.name();
+        return greeting;
+    }
+}
+edge_eq("using_return_from_body", usingReturnFromBody(), "using:conn");
+
+# --- catch reads the exception + a function-root local; both name-based in the handler ---
+func catchReadsLocal() {
+    var base = "base";
+    try {
+        throw "boom";
+    } catch (e) {
+        return base + ":" + str(e);
+    }
+}
+edge_eq("catch_reads_local", catchReadsLocal(), "base:boom");
+
+# --- try body has slotted locals + a loop; finally still runs on normal exit ---
+func tryBodyLoop() {
+    var sum = 0;
+    var trail = [];
+    try {
+        var i = 0;
+        while (i < 3) { var sq = i * i; sum = sum + sq; i = i + 1; }
+    } finally {
+        trail[] = "done:" + str(sum);
+    }
+    return str(trail);
+}
+edge_eq("try_body_loop_then_finally", tryBodyLoop(), "[done:5]");
+
+# --- defer LIFO (lowers to try/finally); defers run after the return value is computed,
+#     so observe the log after the call returns ---
+func deferLifo(log) {
+    defer log[] = "outer";
+    defer log[] = "inner";
+    log[] = "body";
+    return "ret";
+}
+func deferLifoDriver() {
+    var log = [];
+    var _ = deferLifo(log);
+    return str(log);
+}
+edge_eq("defer_lifo", deferLifoDriver(), "[body, inner, outer]");
+
+edge_finish("812_slot_controlflow_stress");

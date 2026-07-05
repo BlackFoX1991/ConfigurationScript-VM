@@ -22,6 +22,11 @@ namespace CFGS_VM.VMCore.Codegen
         // call Env from it, keyed by the closure/function address.
         public Dictionary<int, ScopeDescriptor> RootScopeDescriptors { get; } = new();
 
+        // Class simple name → the shape (name→slot) of that class's OWN declared instance fields, so an
+        // instance stores its fields in a Value[] instead of a dictionary. A null value marks an ambiguous
+        // (duplicated) simple name, for which the runtime falls back to dictionary storage.
+        public Dictionary<string, ScopeDescriptor?> ClassFieldShapes { get; } = new(StringComparer.Ordinal);
+
         public Dictionary<ClassDeclStmt, ClassInfo> ClassInfos { get; } = new();
 
         public Dictionary<string, ClassDeclStmt> TopLevelClassDecls { get; } = new(StringComparer.Ordinal);
@@ -49,6 +54,7 @@ namespace CFGS_VM.VMCore.Codegen
             Instructions.Clear();
             Functions.Clear();
             RootScopeDescriptors.Clear();
+            ClassFieldShapes.Clear();
             ClassInfos.Clear();
             TopLevelClassDecls.Clear();
             TopLevelInterfaceDecls.Clear();

@@ -30,6 +30,11 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public Dictionary<int, ScopeDescriptor> RootScopeDescriptors => _context.RootScopeDescriptors;
 
+        /// <summary>
+        /// Class simple name → instance field shape (null = ambiguous name; use dictionary storage).
+        /// </summary>
+        public Dictionary<string, ScopeDescriptor?> ClassFieldShapes => _context.ClassFieldShapes;
+
         public List<Instruction> Compile(List<Stmt> program)
         {
             try

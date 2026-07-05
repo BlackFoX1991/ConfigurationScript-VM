@@ -1,0 +1,78 @@
+import "edge_assert.cfs";
+
+edge_begin("811_slot_resolution_stress");
+
+var g_outer = 100;
+
+# --- TDZ: `var g = g + 1` reads the OUTER binding on the RHS, not the inner slot ---
+func shadowTdz() {
+    var g_outer = g_outer + 1;   # RHS resolves to the global (inner slot is in its dead zone)
+    return g_outer;              # inner binding
+}
+edge_eq("tdz_shadow_reads_outer", shadowTdz(), 101);
+edge_eq("tdz_outer_unchanged", g_outer, 100);
+
+# --- deep block hops: read a function-root local across 4 nested block scopes ---
+func deepHops() {
+    var a = 1;
+    { var b = 2;
+      { var c = 3;
+        { var d = 4;
+          { var e = 5;
+            return a + b + c + d + e;
+          } } } }
+}
+edge_eq("deep_block_hops", deepHops(), 15);
+
+# --- write a root local from deep inside nested blocks, reading a param on the way ---
+func paramDeepWrite(p) {
+    var loc = p * 2;
+    var total = 0;
+    { { { total = p + loc; } } }
+    return total;
+}
+edge_eq("param_deep_write", paramDeepWrite(10), 30);
+
+# --- the key safety property: a captured var read BY NAME in a closure and read/written
+#     BY SLOT in the enclosing function must hit the SAME storage ---
+func mixedNameSlotStorage() {
+    var counter = 0;
+    var read = func() { return counter; };   # closure captures `counter` by name
+    counter = counter + 5;                    # enclosing fn mutates via slot
+    var a = read();
+    counter = counter + 3;
+    var b = read();
+    return str(a) + "," + str(b);
+}
+edge_eq("mixed_name_slot_same_storage", mixedNameSlotStorage(), "5,8");
+
+# --- inner-block shadow does not leak to the outer binding after the block ---
+func blockShadow() {
+    var v = "outer";
+    { var v = "inner"; }
+    return v;
+}
+edge_eq("block_shadow_restored", blockShadow(), "outer");
+
+# --- a block-local reads an outer-block local (one hop), both slotted ---
+func siblingBlocks() {
+    var sum = 0;
+    { var x = 10;
+      { var y = x + 5; sum = x + y; } }   # y reads x (1 hop), sum written 2 hops up
+    return sum;
+}
+edge_eq("nested_block_reads_outer_block", siblingBlocks(), 25);
+
+# --- reassignment through slot at depth, observed after the block ---
+func reassignAtDepth() {
+    var acc = 0;
+    var i = 0;
+    while (i < 4) {
+        { var step = i + 1; acc = acc + step; }
+        i = i + 1;
+    }
+    return acc;   # 1+2+3+4
+}
+edge_eq("reassign_slot_at_depth", reassignAtDepth(), 10);
+
+edge_finish("811_slot_resolution_stress");

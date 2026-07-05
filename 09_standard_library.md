@@ -256,6 +256,30 @@ print(text.trim().upper());
 print(text.slice(2, 7));
 ```
 
+## String Builder
+
+Building a string with repeated `s = s + piece` rebuilds the whole string on every step, which is
+quadratic for a growing result. `strbuilder()` returns a mutable accumulator that appends in place
+(amortized linear), then materializes once.
+
+- `strbuilder()` / `strbuilder(initial)` — create a builder, optionally seeded with an initial value.
+- `append(value)` — append the string form of `value` (same rendering as `str()`); returns the builder,
+  so calls chain.
+- `str()` / `toString()` — materialize the accumulated text into a normal string.
+- `len()` — current length (the `len()` builtin also works on a builder).
+- `clear()` — reset to empty; returns the builder.
+
+```cfs
+var b = strbuilder();
+var i = 0;
+while (i < 1000) {
+    b.append("row-").append(str(i)).append("\n");
+    i = i + 1;
+}
+var report = b.str();
+print(len(report));
+```
+
 ## Array Intrinsics
 
 Arrays support these methods.

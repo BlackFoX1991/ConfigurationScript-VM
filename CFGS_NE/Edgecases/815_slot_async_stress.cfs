@@ -1,0 +1,62 @@
+import "edge_assert.cfs";
+
+edge_begin("815_slot_async_stress");
+
+# --- slot locals must retain their values across multiple suspension points ---
+async func multiSuspend() {
+    var a = 1;
+    yield;
+    var b = a + 10;    # a read after the first suspension
+    yield;
+    var c = b + 100;   # b read after the second suspension
+    yield;
+    return a + b + c;
+}
+edge_eq("locals_survive_multi_suspend", await multiSuspend(), 123);
+
+# --- accumulator + counter slots persist across an await inside a loop ---
+async func asyncStep(x) { yield; return x * x; }
+async func asyncLoop(n) {
+    var acc = 0;
+    var i = 1;
+    while (i <= n) {
+        acc = acc + await asyncStep(i);
+        i = i + 1;
+    }
+    return acc;
+}
+edge_eq("async_loop_slots_persist", await asyncLoop(4), 30);
+
+# --- parallel await: each task built from its own loop-local, results reduced ---
+async func doubleIt(x) { yield; return x * 2; }
+async func parallel() {
+    var tasks = [];
+    var i = 0;
+    while (i < 4) { tasks[] = doubleIt(i); i = i + 1; }
+    var results = await tasks;
+    var total = 0;
+    foreach (var r in results) { total = total + r; }
+    return total;
+}
+edge_eq("parallel_await_per_task_local", await parallel(), 12);
+
+# --- an async fn captures an outer local through a sync closure ---
+async func asyncClosureCapture() {
+    var base = 50;
+    var f = func(x) { return base + x; };
+    var r = await (f(5) + f(10));
+    return r;
+}
+edge_eq("async_closure_capture", await asyncClosureCapture(), 115);
+
+# --- nested async: an async fn awaits another, both keeping their own slot locals ---
+async func innerAsync(v) { yield; var w = v + 1; return w * 2; }
+async func outerAsync(base) {
+    var total = 0;
+    var i = 0;
+    while (i < 3) { total = total + await innerAsync(base + i); i = i + 1; }
+    return total;
+}
+edge_eq("nested_async_slots", await outerAsync(1), 18);
+
+edge_finish("815_slot_async_stress");

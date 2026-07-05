@@ -42,9 +42,21 @@ namespace CFGS_VM.VMCore
                 _isDebugging = debugging;
                 int _ip = lastPos;
 
+                // Hoist the program list and its length into locals: the loop reads them on every
+                // instruction and they cannot change within a single run, so this trims a field load
+                // plus a property call off the hottest path in the VM.
+                List<Instruction> program = _program;
+                int count = program.Count;
+
+                // The cancellation token (host MaxExecutionTime / caller timeout) only needs to be observed
+                // periodically: checking it once every 1024 instructions still enforces a timeout within
+                // microseconds while removing a per-instruction volatile read from the hot loop.
+                int cancelCounter = 0;
+
                 while (true)
                 {
-                    ct.ThrowIfCancellationRequested();
+                    if ((cancelCounter++ & 0x3FF) == 0)
+                        ct.ThrowIfCancellationRequested();
 
                     // A well-formed program terminates via HALT; reaching exactly Count is the
                     // expected fall-through / return-to-caller signal (synchronous closure invokes
@@ -52,17 +64,17 @@ namespace CFGS_VM.VMCore
                     // jump-target bug, so surface it as a clean runtime error instead of silently
                     // clamping (which would re-execute the last instruction forever) or indexing
                     // out of bounds.
-                    if (_ip == _program.Count)
+                    if (_ip == count)
                         break;
 
-                    if (_ip < 0 || _ip > _program.Count)
+                    if (_ip < 0 || _ip > count)
                         throw new VMException(
-                            $"Runtime error: instruction pointer {_ip} is out of range [0,{_program.Count}]",
+                            $"Runtime error: instruction pointer {_ip} is out of range [0,{count}]",
                             -1, -1, string.Empty, IsDebugging, DebugStream!);
 
                     try
                     {
-                        Instruction instr = _program[_ip];
+                        Instruction instr = program[_ip];
 
                         // The debug context (stack/scope/callstack depths + instruction) is only needed when
                         // a debugger is attached, which is the rare case. Building it on every instruction
@@ -80,7 +92,7 @@ namespace CFGS_VM.VMCore
                             WriteDebugTrace(_ip);
 
                         _ip++;
-                        StepResult res = HandleInstruction(ref _ip, _program, instr);
+                        StepResult res = HandleInstruction(ref _ip, program, instr);
 
                         if (hasDebugger)
                             Debugger!.AfterInstruction(this, debugContext);

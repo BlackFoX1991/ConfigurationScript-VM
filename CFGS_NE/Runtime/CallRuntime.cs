@@ -302,6 +302,41 @@ namespace CFGS_VM.VMCore
             int total = f.Parameters.Count - piStart;
             int min = Math.Max(0, f.MinArgs - piStart);
 
+            // Fast path for the overwhelmingly common call shape: no rest parameter, every argument passed
+            // positionally (no named/spread markers), and an in-range arg count. This is what a plain call
+            // like fib(n - 1) produces. It binds the args straight into the pre-sized call Env, skipping the
+            // six bookkeeping collections (positional/named/paramIndex/finalArgs/assigned/rest) the general
+            // path allocates. Any non-positional arg or out-of-range count falls through to the full path,
+            // which also produces the precise too-many / insufficient / unknown-named-arg diagnostics.
+            if (string.IsNullOrWhiteSpace(f.RestParameter))
+            {
+                int argCount = rawArgs.Count;
+                if (argCount >= min && argCount <= total)
+                {
+                    bool allPositional = true;
+                    for (int i = 0; i < argCount; i++)
+                    {
+                        Value a = rawArgs[i];
+                        if (a.Kind == ValueKind.Ref && a.Reference is NamedArgument)
+                        {
+                            allPositional = false;
+                            break;
+                        }
+                    }
+
+                    if (allPositional)
+                    {
+                        _rootDescriptorByAddress.TryGetValue(f.Address, out ScopeDescriptor? fastDescriptor);
+                        Env fastEnv = new(f.CapturedEnv, fastDescriptor);
+                        for (int i = 0; i < argCount; i++)
+                            fastEnv.DefineValue(f.Parameters[piStart + i], rawArgs[i]);
+                        for (int i = argCount; i < total; i++)
+                            fastEnv.DefineValue(f.Parameters[piStart + i], Value.Null);
+                        return fastEnv;
+                    }
+                }
+            }
+
             int restIndex = -1;
             if (!string.IsNullOrWhiteSpace(f.RestParameter))
             {

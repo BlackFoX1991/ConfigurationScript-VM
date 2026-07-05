@@ -1,0 +1,84 @@
+import "edge_assert.cfs";
+
+edge_begin("813_slot_closures_stress");
+
+# --- two closures share one captured var; one mutates by name, the enclosing fn mutates by
+#     slot, the other reads by name: all three must see the same storage ---
+func sharedCapture() {
+    var state = 0;
+    var inc = func() { state = state + 1; return state; };
+    var get = func() { return state; };
+    var a = inc();            # 1
+    state = state + 10;       # enclosing writes via slot -> 11
+    var b = get();            # 11
+    var c = inc();            # 12
+    return str(a) + "," + str(b) + "," + str(c) + "," + str(state);
+}
+edge_eq("shared_capture_name_and_slot", sharedCapture(), "1,11,12,12");
+
+# --- nested closures capture at multiple lexical levels (base 2 up, x 1 up) ---
+func nestedCapture() {
+    var base = 100;
+    var makeAdder = func(x) {
+        return func(y) { return base + x + y; };
+    };
+    var add = makeAdder(20);
+    return add(3);
+}
+edge_eq("nested_closure_multilevel_capture", nestedCapture(), 123);
+
+# --- closure returned from a nested block captures a block-local (env survives the pop) ---
+func closureFromBlock() {
+    var fn = null;
+    { var secret = 42; fn = func() { return secret; }; }
+    return fn();
+}
+edge_eq("closure_from_block_scope", closureFromBlock(), 42);
+
+# --- foreach: each closure captures its own per-iteration binding AND reads a root slot ---
+func foreachCaptures() {
+    var mult = 10;
+    var fns = [];
+    foreach (var k in [1, 2, 3]) {
+        fns[] = func() { return k * mult; };
+    }
+    return str(fns[0]()) + "," + str(fns[1]()) + "," + str(fns[2]());
+}
+edge_eq("foreach_per_iter_plus_root_slot", foreachCaptures(), "10,20,30");
+
+# --- C-style for: one shared, mutating counter -> every closure sees the final value ---
+func forSharedCounter() {
+    var fns = [];
+    for (var i = 0; i < 3; i = i + 1) {
+        fns[] = func() { return i; };
+    }
+    return str(fns[0]()) + "," + str(fns[1]()) + "," + str(fns[2]());
+}
+edge_eq("for_shared_counter", forSharedCounter(), "3,3,3");
+
+# --- while: a body-local snapshot is fresh each iteration -> distinct captured values ---
+func whileFreshLocal() {
+    var fns = [];
+    var i = 0;
+    while (i < 3) {
+        var snap = i;
+        fns[] = func() { return snap; };
+        i = i + 1;
+    }
+    return str(fns[0]()) + "," + str(fns[1]()) + "," + str(fns[2]());
+}
+edge_eq("while_fresh_body_local", whileFreshLocal(), "0,1,2");
+
+# --- a returned closure keeps mutating its captured counter across calls ---
+func makeCounter() {
+    var n = 0;
+    return func() { n = n + 1; return n; };
+}
+func counterAcrossCalls() {
+    var c = makeCounter();
+    var d = makeCounter();
+    return str(c()) + str(c()) + str(d()) + str(c()) + str(d());
+}
+edge_eq("independent_counters", counterAcrossCalls(), "12132");
+
+edge_finish("813_slot_closures_stress");
