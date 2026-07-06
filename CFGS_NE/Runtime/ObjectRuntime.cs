@@ -1406,6 +1406,16 @@ namespace CFGS_VM.VMCore
                     {
                         string key = idxObj?.ToString() ?? "";
 
+                        // Enum members are named, not indexable: they are reached with dot access
+                        // (Mode.On), never with bracket access (Mode["On"]) which is only for arrays and
+                        // dictionaries. Reject the bracket form with a clear message instead of resolving it.
+                        // This uniformly covers top-level, namespaced and class-nested enums, since all of
+                        // them resolve to an EnumInstance here.
+                        if (!IsMemberAccessInstruction(instr))
+                            throw new VMException(
+                                $"Runtime error: enum members require dot access (use {en.EnumName}.{key}); bracket access is only for indexable values such as arrays and dictionaries",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
                         if (string.Equals(key, "name", StringComparison.Ordinal))
                         {
                             return new IntrinsicBound(new IntrinsicMethod("name", 0, 1, (recv, args, ins) =>

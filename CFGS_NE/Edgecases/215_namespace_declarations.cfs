@@ -51,7 +51,7 @@ edge_eq("ns_new_class", f.get(), 7);
 edge_eq("ns_static_method", App.Core.Foo.kind(), "Foo");
 edge_eq("ns_func_add", App.Core.add(2, 5), 7);
 edge_eq("ns_func_sub", App.Core.sub(9, 4), 5);
-edge_eq("ns_enum", App.Core.Mode["On"], 1);
+edge_eq("ns_enum", App.Core.Mode.On, 1);
 edge_eq("ns_var", App.Core.seed, 10);
 edge_eq("ns_const", App.Core.mul, 3);
 

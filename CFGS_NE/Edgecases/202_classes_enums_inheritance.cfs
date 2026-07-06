@@ -52,8 +52,12 @@ edge_eq("animal_static_who", Animal.who(), "Animal(1.0)");
 edge_eq("cat_static_who", Cat.who(), "Cat(2.0)");
 edge_eq("cat_static_super_who", Cat.whoBase(), "Animal(1.0)");
 
-edge_eq("enum_level_mid", Level["Mid"], 2);
+edge_eq("enum_level_mid", Level.Mid, 2);
 edge_eq("enum_level_name", Level.name(3), "High");
-edge_eq("class_enum_a", Holder.Mode["A"], 10);
+edge_eq("class_enum_a", Holder.Mode.A, 10);
+
+# enum members are dot-only: bracket access is rejected (they are not indexable values)
+edge_throws("enum_bracket_rejected", func() { return Level["Mid"]; });
+edge_throws("class_enum_bracket_rejected", func() { return Holder.Mode["A"]; });
 
 edge_finish("202_classes_enums_inheritance");

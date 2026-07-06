@@ -89,7 +89,7 @@ edge_eq("nested_outer_capture", in3.total(), 105);
 
 # --- enum value + reverse name lookup ---
 enum Color { Red = 1, Green = 2, Blue = 3 }
-edge_eq("enum_value", Color["Green"], 2);
+edge_eq("enum_value", Color.Green, 2);
 edge_eq("enum_name", Color.name(3), "Blue");
 
 # --- interface + is-check ---

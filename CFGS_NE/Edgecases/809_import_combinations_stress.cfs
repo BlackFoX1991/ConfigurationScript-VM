@@ -13,7 +13,7 @@ var v = new Vector(3, 4);
 edge_eq("imported_class_method", v.magSq(), 25);
 
 # --- imported enum ---
-edge_eq("imported_enum", Status["Err"], 1);
+edge_eq("imported_enum", Status.Err, 1);
 
 # --- namespace import exposes the same exported surface ---
 edge_eq("ns_import_func", Mod["add"](10, 5), 15);
