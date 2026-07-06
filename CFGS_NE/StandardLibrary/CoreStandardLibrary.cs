@@ -1125,9 +1125,13 @@ namespace CFGS_VM.StandardLibrary
             builtins.Register(new BuiltinDescriptor("tryParseDate", 1, 2, (args, instr) =>
             {
                 string s = args[0]?.ToString() ?? "";
-                if (args.Count > 1)
-                    return DateTime.TryParseExact(s, args[1]?.ToString() ?? "", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime e) ? e : (object?)null;
-                return DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime p) ? p : (object?)null;
+                DateTime parsed;
+                bool ok = args.Count > 1
+                    ? DateTime.TryParseExact(s, args[1]?.ToString() ?? "", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out parsed)
+                    : DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out parsed);
+                if (!ok)
+                    return null!; // parse failure maps to the language null
+                return parsed;
             }));
 
             builtins.Register(new BuiltinDescriptor("fromUnixSeconds", 1, 1, (args, instr) =>
