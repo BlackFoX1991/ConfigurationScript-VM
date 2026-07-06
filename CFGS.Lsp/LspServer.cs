@@ -19,6 +19,12 @@ internal sealed class LspServer
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _pendingAnalysisByUri = OperatingSystem.IsWindows()
         ? new(StringComparer.OrdinalIgnoreCase)
         : new(StringComparer.Ordinal);
+    // Second, longer-debounced track that runs the full analysis WITH the codegen pass once the user pauses
+    // typing (or on save). didChange only runs the fast, codegen-free analysis; this catches the deeper
+    // compile diagnostics without paying for a full compile on every keystroke.
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _pendingFullAnalysisByUri = OperatingSystem.IsWindows()
+        ? new(StringComparer.OrdinalIgnoreCase)
+        : new(StringComparer.Ordinal);
     // Threadsicher, weil lese-only Requests (references, rename, codeLens/resolve, ...) jetzt nebenlaeufig
     // zum seriellen Notification-Strom laufen und dabei ueber EnsureDocument in diese Map schreiben koennen.
     private readonly ConcurrentDictionary<string, DocumentState> _documents = OperatingSystem.IsWindows()
@@ -26,6 +32,9 @@ internal sealed class LspServer
         : new(StringComparer.Ordinal);
 
     private static readonly TimeSpan DidChangeAnalysisDebounce = TimeSpan.FromMilliseconds(150);
+    // The full (codegen) analysis waits until typing has paused for this long, so it runs at most once per
+    // burst instead of on every keystroke.
+    private static readonly TimeSpan FullAnalysisIdleDebounce = TimeSpan.FromMilliseconds(700);
     private string? _workspaceRootPath;
     private bool _shutdownRequested;
 
@@ -143,7 +152,14 @@ internal sealed class LspServer
                         {
                             capabilities = new
                             {
-                                textDocumentSync = 2,
+                                // Object form so we can advertise `save`: clients then send didSave, which
+                                // triggers the full (compile) analysis. openClose + incremental change as before.
+                                textDocumentSync = new
+                                {
+                                    openClose = true,
+                                    change = 2,
+                                    save = true
+                                },
                                 definitionProvider = true,
                                 typeDefinitionProvider = true,
                                 implementationProvider = true,
@@ -226,6 +242,10 @@ internal sealed class LspServer
 
                 case "textDocument/didClose":
                     await HandleDidCloseAsync(parameters, cancellationToken);
+                    return true;
+
+                case "textDocument/didSave":
+                    HandleDidSave(parameters, cancellationToken);
                     return true;
 
                 case "textDocument/documentSymbol":
@@ -659,8 +679,9 @@ internal sealed class LspServer
 
         DocumentState state = new(uri, text, version);
         _documents[uri] = state;
-        CancelPendingAnalysis(uri);
-        await AnalyzeAndPublishAsync(state, cancellationToken);
+        CancelAllPendingAnalysis(uri);
+        // Initial diagnostics for a freshly opened file are the full set (including the compile pass).
+        await AnalyzeAndPublishAsync(state, cancellationToken, runCompilePass: true);
     }
 
     private async Task HandleDidChangeAsync(JsonElement parameters, CancellationToken cancellationToken)
@@ -676,13 +697,26 @@ internal sealed class LspServer
         if (parameters.TryGetProperty("contentChanges", out JsonElement contentChanges) && contentChanges.GetArrayLength() > 0)
             state.Text = ApplyContentChanges(state.Text, contentChanges);
 
-        ScheduleAnalyzeAndPublish(state, cancellationToken);
+        // Fast diagnostics right away; the deeper compile check runs once typing pauses.
+        ScheduleFastAnalysis(state, cancellationToken);
+        ScheduleFullAnalysis(state, cancellationToken, FullAnalysisIdleDebounce);
+    }
+
+    private void HandleDidSave(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string uri = GetTextDocumentUri(parameters);
+        if (_documents.TryGetValue(uri, out DocumentState? state))
+        {
+            // Saving is an explicit request for the deep (compile) diagnostics, so run the full analysis
+            // promptly rather than waiting out the idle debounce.
+            ScheduleFullAnalysis(state, cancellationToken, TimeSpan.FromMilliseconds(50));
+        }
     }
 
     private async Task HandleDidCloseAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         string uri = GetTextDocumentUri(parameters);
-        CancelPendingAnalysis(uri);
+        CancelAllPendingAnalysis(uri);
         if (_documents.TryRemove(uri, out DocumentState? state))
         {
             foreach (string publishedUri in state.PublishedDiagnosticUris)
@@ -720,52 +754,70 @@ internal sealed class LspServer
         return string.Empty;
     }
 
-    private async Task AnalyzeAndPublishAsync(DocumentState state, CancellationToken cancellationToken)
-    {
-        string text = state.Text;
+    private static bool IsAlreadyAnalyzed(DocumentState state, string text, bool runCompilePass)
+        => runCompilePass
+            ? string.Equals(text, state.AnalyzedTextWithCompile, StringComparison.Ordinal)
+            : string.Equals(text, state.AnalyzedText, StringComparison.Ordinal);
 
-        // Unveraenderter Text -> es kann sich nichts an den Diagnostics dieser Datei geaendert haben; der
-        // teure Vier-Pass-Neuaufbau (Parse+Import, Symbole, Semantik, Codegen) wird uebersprungen. Andere
-        // offene Dateien loesen ohnehin nur ihre eigene Analyse aus, daher bleibt das Verhalten konsistent.
-        if (state.AnalyzedText is not null && string.Equals(text, state.AnalyzedText, StringComparison.Ordinal))
+    private async Task AnalyzeAndPublishAsync(DocumentState state, CancellationToken cancellationToken, bool runCompilePass)
+    {
+        // Unveraenderter Text (bereits in der benoetigten Tiefe analysiert) -> nichts zu tun. Schneller
+        // Vorab-Check ohne Lock, um Contention im Normalfall zu vermeiden.
+        if (IsAlreadyAnalyzed(state, state.Text, runCompilePass))
             return;
 
-        CfgsAnalysisResult analysis = _analyzer.Analyze(state.Uri, text, GetOpenDocumentSources(), _workspaceRootPath);
-        state.AnalyzedText = text;
-        state.Analysis = analysis;
-        if (IsSuccessfulInteractiveAnalysis(analysis))
-            state.LastSuccessfulAnalysis = analysis;
-
-        // Live-Lint (Style + AST-Regeln) fuer die editierte Datei: laeuft im selben debounced Analyse-Pfad
-        // wie die Compile-/Semantik-Diagnosen, also erscheinen Lint-Hinweise schon beim Tippen und nicht
-        // erst beim Speichern. Der Compile-Pass des Linters wird bewusst ausgelassen, weil die Analyse
-        // oben diese Diagnosen bereits liefert.
-        IReadOnlyList<CfgsDiagnostic> lintDiagnostics = ComputeLintDiagnostics(state.Uri, text);
-
-        HashSet<string> nextUris = analysis.DiagnosticsByUri.Keys.ToHashSet(GetUriComparer());
-        nextUris.Add(state.Uri);
-
-        bool publishedOwnUri = false;
-        foreach ((string uri, List<CfgsDiagnostic> diagnostics) in analysis.DiagnosticsByUri)
+        // Die schnelle (didChange) und die volle (idle/save) Analyse derselben Datei werden serialisiert,
+        // damit sich ihre state-Mutationen und Publishes nicht ueberschneiden.
+        await state.AnalysisLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            if (GetUriComparer().Equals(uri, state.Uri))
+            string text = state.Text;
+            if (IsAlreadyAnalyzed(state, text, runCompilePass))
+                return;
+
+            CfgsAnalysisResult analysis = _analyzer.Analyze(
+                state.Uri, text, GetOpenDocumentSources(), _workspaceRootPath, runCompilePass, cancellationToken);
+            state.AnalyzedText = text;
+            if (runCompilePass)
+                state.AnalyzedTextWithCompile = text;
+            state.Analysis = analysis;
+            if (IsSuccessfulInteractiveAnalysis(analysis))
+                state.LastSuccessfulAnalysis = analysis;
+
+            // Live-Lint (Style + AST-Regeln) fuer die editierte Datei: laeuft im selben debounced Analyse-Pfad
+            // wie die Semantik-Diagnosen, also erscheinen Lint-Hinweise schon beim Tippen. Der Compile-Pass des
+            // Linters wird ausgelassen, weil die Analyse (im vollen Lauf) diese Diagnosen bereits liefert.
+            IReadOnlyList<CfgsDiagnostic> lintDiagnostics = ComputeLintDiagnostics(state.Uri, text);
+
+            HashSet<string> nextUris = analysis.DiagnosticsByUri.Keys.ToHashSet(GetUriComparer());
+            nextUris.Add(state.Uri);
+
+            bool publishedOwnUri = false;
+            foreach ((string uri, List<CfgsDiagnostic> diagnostics) in analysis.DiagnosticsByUri)
             {
-                await PublishDiagnosticsAsync(uri, MergeDiagnostics(diagnostics, lintDiagnostics), cancellationToken);
-                publishedOwnUri = true;
+                if (GetUriComparer().Equals(uri, state.Uri))
+                {
+                    await PublishDiagnosticsAsync(uri, MergeDiagnostics(diagnostics, lintDiagnostics), cancellationToken);
+                    publishedOwnUri = true;
+                }
+                else
+                {
+                    await PublishDiagnosticsAsync(uri, diagnostics, cancellationToken);
+                }
             }
-            else
-            {
-                await PublishDiagnosticsAsync(uri, diagnostics, cancellationToken);
-            }
+
+            if (!publishedOwnUri)
+                await PublishDiagnosticsAsync(state.Uri, lintDiagnostics, cancellationToken);
+
+            foreach (string staleUri in state.PublishedDiagnosticUris.Except(nextUris, GetUriComparer()))
+                await PublishDiagnosticsAsync(staleUri, [], cancellationToken);
+
+            state.PublishedDiagnosticUris = nextUris;
         }
-
-        if (!publishedOwnUri)
-            await PublishDiagnosticsAsync(state.Uri, lintDiagnostics, cancellationToken);
-
-        foreach (string staleUri in state.PublishedDiagnosticUris.Except(nextUris, GetUriComparer()))
-            await PublishDiagnosticsAsync(staleUri, [], cancellationToken);
-
-        state.PublishedDiagnosticUris = nextUris;
+        finally
+        {
+            state.AnalysisLock.Release();
+        }
     }
 
     private static List<CfgsDiagnostic> MergeDiagnostics(
@@ -824,28 +876,41 @@ internal sealed class LspServer
         return new CfgsDiagnostic(range, diagnostic.Message, severity, "cfgs-lint", diagnostic.Code);
     }
 
-    private void ScheduleAnalyzeAndPublish(DocumentState state, CancellationToken cancellationToken)
+    // Fast, codegen-free analysis on every edit (responsive live diagnostics).
+    private void ScheduleFastAnalysis(DocumentState state, CancellationToken cancellationToken)
+        => ScheduleAnalysis(state, cancellationToken, _pendingAnalysisByUri, DidChangeAnalysisDebounce, runCompilePass: false);
+
+    // Full analysis (including the codegen pass) once typing has paused, or on save.
+    private void ScheduleFullAnalysis(DocumentState state, CancellationToken cancellationToken, TimeSpan delay)
+        => ScheduleAnalysis(state, cancellationToken, _pendingFullAnalysisByUri, delay, runCompilePass: true);
+
+    private void ScheduleAnalysis(
+        DocumentState state,
+        CancellationToken cancellationToken,
+        ConcurrentDictionary<string, CancellationTokenSource> track,
+        TimeSpan delay,
+        bool runCompilePass)
     {
-        CancelPendingAnalysis(state.Uri);
+        CancelPending(track, state.Uri);
         CancellationTokenSource pending = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _pendingAnalysisByUri[state.Uri] = pending;
+        track[state.Uri] = pending;
 
         _ = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(DidChangeAnalysisDebounce, pending.Token);
-                await AnalyzeAndPublishAsync(state, pending.Token);
+                await Task.Delay(delay, pending.Token);
+                await AnalyzeAndPublishAsync(state, pending.Token, runCompilePass);
             }
             catch (OperationCanceledException)
             {
             }
             finally
             {
-                if (_pendingAnalysisByUri.TryGetValue(state.Uri, out CancellationTokenSource? current) &&
+                if (track.TryGetValue(state.Uri, out CancellationTokenSource? current) &&
                     ReferenceEquals(current, pending))
                 {
-                    _pendingAnalysisByUri.TryRemove(state.Uri, out _);
+                    track.TryRemove(state.Uri, out _);
                 }
 
                 pending.Dispose();
@@ -853,9 +918,15 @@ internal sealed class LspServer
         }, CancellationToken.None);
     }
 
-    private void CancelPendingAnalysis(string uri)
+    private void CancelAllPendingAnalysis(string uri)
     {
-        if (_pendingAnalysisByUri.TryRemove(uri, out CancellationTokenSource? pending))
+        CancelPending(_pendingAnalysisByUri, uri);
+        CancelPending(_pendingFullAnalysisByUri, uri);
+    }
+
+    private static void CancelPending(ConcurrentDictionary<string, CancellationTokenSource> track, string uri)
+    {
+        if (track.TryRemove(uri, out CancellationTokenSource? pending))
         {
             pending.Cancel();
             pending.Dispose();
@@ -1995,6 +2066,15 @@ internal sealed class LspServer
         // zwei Analyse-Laeufen nicht (z.B. Save ohne Aenderung, redundante didChange-Sequenzen), wird der
         // komplette Re-Build uebersprungen.
         public string? AnalyzedText { get; set; }
+
+        // Text, der zuletzt MIT dem Codegen-Pass (voller Compile) analysiert wurde. Getrennt von
+        // AnalyzedText, weil die schnelle Live-Analyse den Codegen ueberspringt: der Idle-/Save-Lauf soll
+        // denselben Text trotzdem einmal voll pruefen, obwohl die schnelle Analyse ihn schon gesehen hat.
+        public string? AnalyzedTextWithCompile { get; set; }
+
+        // Serialisiert die schnelle (didChange) und die volle (idle/save) Analyse derselben Datei, damit sich
+        // ihre state-Mutationen und Publishes nicht ueberschneiden.
+        public SemaphoreSlim AnalysisLock { get; } = new(1, 1);
     }
 
     private readonly record struct ReferenceKey(string Uri, RangeInfo Range);

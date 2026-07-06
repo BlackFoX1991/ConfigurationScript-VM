@@ -61,7 +61,9 @@ internal static class Program
         AssertTrue(capabilities.GetProperty("hoverProvider").GetBoolean(), "hover provider is not advertised");
         AssertTrue(capabilities.GetProperty("definitionProvider").GetBoolean(), "definition provider is not advertised");
         AssertTrue(capabilities.GetProperty("documentFormattingProvider").GetBoolean(), "formatting provider is not advertised");
-        AssertEqual(2, capabilities.GetProperty("textDocumentSync").GetInt32(), "server must advertise incremental sync");
+        JsonElement textDocumentSync = capabilities.GetProperty("textDocumentSync");
+        AssertEqual(2, textDocumentSync.GetProperty("change").GetInt32(), "server must advertise incremental sync");
+        AssertTrue(textDocumentSync.GetProperty("save").GetBoolean(), "server must advertise save so didSave triggers the full analysis");
         AssertEqual(JsonValueKind.Object, capabilities.GetProperty("completionProvider").ValueKind, "completion provider is missing");
         JsonElement semanticTokens = capabilities.GetProperty("semanticTokensProvider");
         AssertEqual(JsonValueKind.Object, semanticTokens.ValueKind, "semantic tokens provider is missing");

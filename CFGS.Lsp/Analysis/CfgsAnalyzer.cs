@@ -201,7 +201,13 @@ internal sealed class CfgsAnalyzer
             ]
         };
 
-    public CfgsAnalysisResult Analyze(string documentUri, string sourceText, IReadOnlyDictionary<string, string>? openDocumentSources = null, string? workspaceRoot = null)
+    public CfgsAnalysisResult Analyze(
+        string documentUri,
+        string sourceText,
+        IReadOnlyDictionary<string, string>? openDocumentSources = null,
+        string? workspaceRoot = null,
+        bool runCompilePass = true,
+        CancellationToken cancellationToken = default)
     {
         string origin = GetDocumentOrigin(documentUri);
         SourceResolver sources = new(documentUri, origin, sourceText, openDocumentSources);
@@ -219,6 +225,7 @@ internal sealed class CfgsAnalyzer
                 additionalSearchRoots: BuildImportSearchRoots(origin, workspaceRoot),
                 syntaxCache: _moduleSyntaxCache);
             FrontendTolerantBuildResult frontendBuild = frontendPipeline.BuildLoweredAstTolerant(origin, sourceText);
+            cancellationToken.ThrowIfCancellationRequested();
 
             foreach (ParserException diagnostic in frontendBuild.Diagnostics)
             {
@@ -248,6 +255,8 @@ internal sealed class CfgsAnalyzer
                 AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, origin, 1, 1, ex.Message, "CFGS9000");
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             try
             {
                 semanticModel = new CfgsSemanticModelBuilder(documentUri, origin, sourceText, openDocumentSources).Build(ast);
@@ -257,27 +266,42 @@ internal sealed class CfgsAnalyzer
                 AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, origin, 1, 1, ex.Message, "CFGS9000");
             }
 
-            try
+            // The codegen pass exists only to surface compile diagnostics; it is the most expensive part of an
+            // analysis. On live typing it is skipped (runCompilePass == false) so the editor stays responsive,
+            // and it runs on the idle / save pass instead. The interactive features (hover, references,
+            // completion) do not depend on it, so skipping it does not degrade them.
+            if (runCompilePass)
             {
-                Compiler compiler = new(origin);
-                compiler.Compile(ast);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    Compiler compiler = new(origin);
+                    compiler.Compile(ast);
+                }
+                catch (CompilerException ex)
+                {
+                    AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.FileSource, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
+                }
+                catch (LexerException ex)
+                {
+                    AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
+                }
+                catch (ParserException ex)
+                {
+                    AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
+                }
+                catch (Exception ex)
+                {
+                    AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, origin, 1, 1, ex.Message, "CFGS9000");
+                }
             }
-            catch (CompilerException ex)
-            {
-                AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.FileSource, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
-            }
-            catch (LexerException ex)
-            {
-                AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
-            }
-            catch (ParserException ex)
-            {
-                AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, ex.Filename, ex.Line, ex.Column, ex.RawMessage, ex.DiagnosticCode ?? InferDiagnosticCode(ex.Category, ex.RawMessage), ex.SpanLength);
-            }
-            catch (Exception ex)
-            {
-                AddExceptionDiagnostic(diagnosticsByUri, sources, documentUri, origin, 1, 1, ex.Message, "CFGS9000");
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            // A superseding edit cancelled this analysis: propagate so the caller drops it without publishing
+            // a half-built (or stale) diagnostic set.
+            throw;
         }
         catch (Exception ex)
         {

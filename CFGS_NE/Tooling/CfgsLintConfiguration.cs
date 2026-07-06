@@ -30,7 +30,7 @@ internal static class CfgsLintRuleRegistry
         ["CFGS8002"] = new("CFGS8002", CfgsToolDiagnosticSeverity.Warning, true, true),
         ["CFGS8003"] = new("CFGS8003", CfgsToolDiagnosticSeverity.Info, true, true),
         ["CFGS8004"] = new("CFGS8004", CfgsToolDiagnosticSeverity.Warning, true, true),
-        ["CFGS8005"] = new("CFGS8005", CfgsToolDiagnosticSeverity.Warning, true, true),
+        ["CFGS8005"] = new("CFGS8005", CfgsToolDiagnosticSeverity.Warning, false, true),
         ["CFGS8011"] = new("CFGS8011", CfgsToolDiagnosticSeverity.Info, true, true),
         ["CFGS8012"] = new("CFGS8012", CfgsToolDiagnosticSeverity.Warning, true, true),
         ["CFGS8013"] = new("CFGS8013", CfgsToolDiagnosticSeverity.Info, true, true),
