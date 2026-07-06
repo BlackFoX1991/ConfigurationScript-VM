@@ -1,0 +1,81 @@
+import "edge_assert.cfs";
+
+edge_begin("818_datetime_timespan");
+
+func run() {
+    # --- construction + components ---
+    var d = datetime(2024, 2, 29, 13, 45, 30);          # a leap day
+    edge_eq("year", d.year(), 2024);
+    edge_eq("month", d.month(), 2);
+    edge_eq("day", d.day(), 29);
+    edge_eq("hour", d.hour(), 13);
+    edge_eq("minute", d.minute(), 45);
+    edge_eq("second", d.second(), 30);
+
+    # --- formatting ---
+    edge_eq("iso", d.iso(), "2024-02-29T13:45:30");
+    edge_eq("format", d.format("dd.MM.yyyy"), "29.02.2024");
+    edge_eq("monthName", d.monthName(), "February");
+    edge_eq("weekdayName", d.weekdayName(), "Thursday");
+
+    # --- calendar helpers ---
+    edge_true("isLeapYear", d.isLeapYear());
+    edge_eq("daysInMonth", d.daysInMonth(), 29);
+    edge_eq("startOfDay", d.startOfDay().iso(), "2024-02-29T00:00:00");
+    edge_eq("endOfMonth", d.endOfMonth().iso(), "2024-02-29T23:59:59");
+    edge_eq("startOfMonth", d.startOfMonth().iso(), "2024-02-01T00:00:00");
+
+    # --- add / comparison ---
+    var d2 = d.addDays(2);
+    edge_eq("addDays", d2.iso(), "2024-03-02T13:45:30");
+    edge_true("isBefore", d.isBefore(d2));
+    edge_true("isAfter", d2.isAfter(d));
+    edge_true("equals", d.equals(datetime(2024, 2, 29, 13, 45, 30)));
+    edge_true("isBetween", d.isBetween(datetime(2024, 1, 1), d2));
+
+    # --- diff -> TimeSpan ---
+    var span = d2.diff(d);
+    edge_eq("diff type", typeof(span), "TimeSpan");
+    edge_eq("diff days", span.days(), 2);
+    edge_eq("diff hours", span.hours(), 0);
+
+    # --- TimeSpan construction + components ---
+    var t = timespan(1, 2, 30, 0);                       # 1d 2h 30m
+    edge_eq("ts days", t.days(), 1);
+    edge_eq("ts hours", t.hours(), 2);
+    edge_eq("ts minutes", t.minutes(), 30);
+    edge_true("ts totalMinutes", t.totalMinutes() > 1589 && t.totalMinutes() < 1591);
+    edge_true("ts isZero false", t.isZero() == false);
+    edge_true("ts zero", timespan(0, 0, 0, 0).isZero());
+    edge_eq("ts negate", t.negate().days(), -1);
+    edge_eq("ts abs", t.negate().abs().days(), 1);
+
+    # --- DateTime +/- TimeSpan ---
+    edge_eq("dt add ts", d.add(t).iso(), "2024-03-01T16:15:30");
+    edge_eq("dt subtract ts", d.subtract(t).iso(), "2024-02-28T11:15:30");
+    edge_eq("dt subtract dt", d2.subtract(d).days(), 2);   # subtract a DateTime -> TimeSpan
+
+    # --- parsing + builtins ---
+    edge_eq("parseDate", parseDate("2020-06-15").month(), 6);
+    edge_eq("parseDate fmt", parseDate("15.06.2020", "dd.MM.yyyy").day(), 15);
+    edge_true("tryParseDate fail", tryParseDate("not a date") == null);
+    edge_eq("tryParseDate ok", tryParseDate("2020-06-15").year(), 2020);
+    edge_eq("daysInMonth builtin", daysInMonth(2023, 2), 28);
+    edge_true("isLeapYear builtin", isLeapYear(2024));
+    edge_true("isLeapYear builtin false", isLeapYear(2023) == false);
+    edge_eq("fromUnixSeconds", fromUnixSeconds(0).iso(), "1970-01-01T00:00:00");
+    edge_eq("fromUnixMilliseconds", fromUnixMilliseconds(1000).iso(), "1970-01-01T00:00:01");
+
+    # --- unix round trip (946684800 == 2000-01-01 UTC) ---
+    edge_eq("unix roundtrip", fromUnixSeconds(946684800).year(), 2000);
+    edge_eq("toUnixSeconds", datetime(1970, 1, 1).withKind("utc").toUnixSeconds(), 0);
+
+    # --- now/today are live but bounded ---
+    edge_true("now year", now().year() >= 2024);
+    edge_true("today midnight", today().hour() == 0);
+    edge_true("utcNow type", typeof(utcNow()) == "DateTime");
+}
+
+run();
+
+edge_finish("818_datetime_timespan");

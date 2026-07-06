@@ -243,5 +243,9 @@
         ADD_STORE_SLOT,
 
         SUB_STORE_SLOT,
+
+        // Like INDEX_GET, but a missing namespace member yields null instead of raising an "undefined
+        // member" error. Emitted only for the get-or-create probe the namespace lowerer wraps in `?? {}`.
+        INDEX_GET_OPT,
     }
 }

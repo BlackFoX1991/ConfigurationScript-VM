@@ -438,6 +438,9 @@ namespace CFGS_VM.VMCore
                 case OpCode.INDEX_GET:
                     return HandleIndexGetInstruction(_ip, instr);
 
+                case OpCode.INDEX_GET_OPT:
+                    return HandleIndexGetInstruction(_ip, instr, optional: true);
+
                 case OpCode.INDEX_SET:
                 case OpCode.INDEX_SET_INTERNAL:
                 case OpCode.INDEX_INIT:

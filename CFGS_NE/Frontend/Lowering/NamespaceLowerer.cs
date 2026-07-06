@@ -237,9 +237,16 @@ namespace CFGS_VM.Analytic.Lowering
             Expr current = new VarExpr(parts[0], line, col, file);
             for (int i = 1; i < parts.Count; i++)
             {
-                Expr next = new IndexExpr(current, new StringExpr(parts[i], line, col, file), line, col, file, isDotAccess: true);
+                // ns.part = ns.part ?? { new container }. The read on the right of '=' must tolerate a missing
+                // member (that is the whole point of the get-or-create), so it is flagged optional; the write
+                // target and the base carried into the next level are plain accesses.
+                Expr storeTarget = new IndexExpr(current, new StringExpr(parts[i], line, col, file), line, col, file, isDotAccess: true);
+                Expr optionalRead = new IndexExpr(current, new StringExpr(parts[i], line, col, file), line, col, file, isDotAccess: true)
+                {
+                    IsOptionalAccess = true
+                };
                 Expr ensureExpr = new BinaryExpr(
-                    next,
+                    optionalRead,
                     TokenType.QQNull,
                     new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file)
                     {
@@ -250,11 +257,11 @@ namespace CFGS_VM.Analytic.Lowering
                     col,
                     file);
 
-                statements.Add(new AssignExprStmt(next, ensureExpr, line, col, file)
+                statements.Add(new AssignExprStmt(storeTarget, ensureExpr, line, col, file)
                 {
                     IsSyntheticNamespacePath = true
                 });
-                current = next;
+                current = new IndexExpr(current, new StringExpr(parts[i], line, col, file), line, col, file, isDotAccess: true);
             }
 
             return statements;

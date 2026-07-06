@@ -151,9 +151,14 @@ fs.writeAllBytes("demo.bin", bytes);
 
 ### Date and Time
 
-- `DateTime()` returns an empty DateTime object.
-- `Now()` and `Now(format)` return local time as a string.
-- `UtcNow()` and `UtcNow(format)` return UTC time as a string.
+These return real `DateTime` and `TimeSpan` values, so the intrinsics listed further below apply to the result.
+
+- `now()` returns the current local time, `utcNow()` the current UTC time, and `today()` the current date at midnight.
+- `datetime(year, month, day, hour = 0, minute = 0, second = 0, millisecond = 0)` builds a value from components.
+- `parseDate(text, format = optional)` parses a string and raises a runtime error on failure. `tryParseDate(text, format = optional)` returns `null` on failure instead.
+- `fromUnixSeconds(seconds)` and `fromUnixMilliseconds(ms)` build a UTC value from a Unix timestamp.
+- `daysInMonth(year, month)` and `isLeapYear(year)` are calendar helpers.
+- `timespan(days, hours, minutes, seconds, milliseconds = 0)` builds a duration. A duration is also what `dateA.diff(dateB)` returns.
 
 ### Math and Character Checks
 
@@ -386,8 +391,23 @@ DateTime values support these properties and methods.
 - `compareTo(other)`
 - `diffMs(other)`
 - `diffTicks(other)`
+- `isLeapYear()` and `daysInMonth()` report calendar facts about this value.
+- `startOfDay()`, `endOfDay()`, `startOfMonth()`, and `endOfMonth()` snap to a boundary.
+- `iso()` formats as ISO 8601 (`yyyy-MM-ddTHH:mm:ss`). `monthName()` and `weekdayName()` give the invariant full names. `format(pattern)` is an alias of `toString(pattern)`.
+- `isBefore(other)`, `isAfter(other)`, `equals(other)`, and `isBetween(a, b)` compare values.
+- `diff(other)` returns the gap to another date as a `TimeSpan`. `add(span)` returns this value plus a `TimeSpan`. `subtract(x)` returns a `TimeSpan` when `x` is a date, or a `DateTime` when `x` is a `TimeSpan`.
 
 Strings can also be converted into DateTime values through `toDateTime`, `toUnixSeconds`, and `toUnixMilliseconds`.
+
+## TimeSpan Intrinsics
+
+A TimeSpan is a duration, returned by `dateA.diff(dateB)` or built with `timespan(...)`.
+
+- `totalDays()`, `totalHours()`, `totalMinutes()`, `totalSeconds()`, and `totalMilliseconds()` give the whole span as a fractional amount of that unit.
+- `days()`, `hours()`, `minutes()`, `seconds()`, `milliseconds()`, and `ticks()` give the individual components.
+- `negate()`, `abs()`, and `isZero()` transform or test the value.
+- `add(other)`, `subtract(other)`, and `compareTo(other)` combine or order two durations.
+- `toString(format = optional)` formats the value.
 
 ## DirectoryInfo Helpers and Intrinsics
 

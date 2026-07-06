@@ -152,7 +152,9 @@ namespace CFGS_VM.VMCore
 
                     CompileExpr(idx.Target);
                     CompileExpr(idx.Index);
-                    _insns.Add(new Instruction(OpCode.INDEX_GET, IndexAccessOperand(idx), idx.Line, idx.Col, e.OriginFile));
+                    _insns.Add(new Instruction(
+                        idx.IsOptionalAccess ? OpCode.INDEX_GET_OPT : OpCode.INDEX_GET,
+                        IndexAccessOperand(idx), idx.Line, idx.Col, e.OriginFile));
                     break;
 
                 case SliceExpr slice:

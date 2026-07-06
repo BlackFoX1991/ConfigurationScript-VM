@@ -3,7 +3,7 @@ import "edge_assert.cfs";
 edge_begin("242_async_pure_io_parallelism");
 
 func now_ms() {
-    return UtcNow("yyyy-MM-dd HH:mm:ss.fff").toDateTime("yyyy-MM-dd HH:mm:ss.fff").toUnixMilliseconds();
+    return utcNow().toUnixMilliseconds();
 }
 
 async func delayed(timer) {

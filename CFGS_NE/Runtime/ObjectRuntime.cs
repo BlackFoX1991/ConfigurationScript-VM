@@ -1143,7 +1143,7 @@ namespace CFGS_VM.VMCore
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
-        private object GetIndexedValue(object target, object idxObj, Instruction instr)
+        private object GetIndexedValue(object target, object idxObj, Instruction instr, bool optional = false)
         {
             switch (target)
             {
@@ -1223,7 +1223,19 @@ namespace CFGS_VM.VMCore
                         string nsKey = idxObj?.ToString() ?? "";
                         if (ns.Members.TryGetValue(nsKey, out object? nsMember))
                             return nsMember;
-                        return null!;
+
+                        // An optional read (the `?? container` probe the namespace lowerer emits to
+                        // get-or-create nested namespaces) tolerates a missing member and yields null.
+                        if (optional)
+                            return null!;
+
+                        // A plain member access to a missing member is an undefined reference, not a null
+                        // value: report it as such instead of silently returning null (which used to surface
+                        // far away as a confusing "INDEX_GET target is not indexable" once the null was
+                        // indexed or called).
+                        throw new VMException(
+                            $"Runtime error: '{nsKey}' is not a member of namespace '{ns.Name}'",
+                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }
 
                 case Dictionary<string, object> dict:
@@ -1676,7 +1688,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Handles the INDEX_GET opcode.
         /// </summary>
-        private StepResult HandleIndexGetInstruction(int ip, Instruction instr)
+        private StepResult HandleIndexGetInstruction(int ip, Instruction instr, bool optional = false)
         {
             if (instr.Operand is string)
                 RequireStack(1, instr, "INDEX_GET");
@@ -1721,7 +1733,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            PushRuntimeObject(GetIndexedValue(target, idxObj, instr));
+            PushRuntimeObject(GetIndexedValue(target, idxObj, instr, optional));
             return StepResult.Next;
         }
 

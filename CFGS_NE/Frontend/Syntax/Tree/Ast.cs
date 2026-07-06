@@ -309,6 +309,12 @@ namespace CFGS_VM.Analytic.Tree
         public bool IsDotAccess { get; }
 
         /// <summary>
+        /// When set, a missing member yields null instead of raising an "undefined member" error. Used only
+        /// by the namespace lowerer for the get-or-create probe (`ns.part ?? {}`); never set for user code.
+        /// </summary>
+        public bool IsOptionalAccess { get; set; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="IndexExpr"/> class.
         /// </summary>
         /// <param name="t">The t<see cref="Expr?"/></param>

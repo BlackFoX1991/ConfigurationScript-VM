@@ -1,0 +1,30 @@
+import "edge_assert.cfs";
+
+edge_begin("819_namespace_undefined_member");
+
+namespace Modules.Masterdata {
+    class Person(name) {
+        var name = "";
+        func init(name) { this.name = name; }
+        func greet() { return "Hi " + this.name; }
+    }
+
+    func helper() { return 42; }
+}
+
+func run() {
+    # the defined path still works (get-or-create namespace build is intact)
+    var p = new Modules.Masterdata.Person("Bob");
+    edge_eq("defined_class", p.greet(), "Hi Bob");
+    edge_eq("defined_func", Modules.Masterdata.helper(), 42);
+
+    # an undefined member is a clean error, not a silent null / leaked index dump
+    edge_throws("undefined_intermediate", func() { return new Modules.Nonexistent.Person(); });
+    edge_throws("undefined_leaf_class", func() { return new Modules.Masterdata.Ghost(); });
+    edge_throws("undefined_leaf_func", func() { return Modules.Masterdata.missing(); });
+    edge_throws("undefined_read", func() { var x = Modules.Masterdata.nope; return x; });
+}
+
+run();
+
+edge_finish("819_namespace_undefined_member");
