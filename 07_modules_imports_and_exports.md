@@ -16,7 +16,7 @@ Native .NET interop is different from plugin loading: it gives the script an ali
 
 Imports must live in the script header. For imported `.cfs` modules, the rest of the file is declaration-oriented: declarations belong there, but free executable statements such as `main();`, assignment statements, or naked blocks do not.
 
-Module-scope `var` and `const` initializers must not execute code. Use literals, variable references, indexing/member access, collection literals, and pure operators there. Put calls, object construction, `await`, `out`, or function expressions into a function such as `main`.
+Module-scope `var` and `const` initializers must not execute code. Use literals, variable references, indexing/member access, collection literals, and pure operators there. Put calls, object construction, `await`, or function expressions into a function such as `main`.
 
 Clean.
 

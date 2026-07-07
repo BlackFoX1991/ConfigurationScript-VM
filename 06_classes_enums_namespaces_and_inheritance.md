@@ -644,8 +644,8 @@ class User(idValue) : App.Contracts.ITagged {
 }
 
 var user = new User(42);
-print(user is App.Contracts.ITagged); // true
-print(user is App.Contracts.IEntity); // true
+print(user is App.Contracts.ITagged); # true
+print(user is App.Contracts.IEntity); # true
 ```
 
 ## Visibility
@@ -725,8 +725,8 @@ class User(id, name) {
 }
 
 var u = new User(1, "Max");
-u.name = "Moritz";  // ok
-// u.id = 2;        // Runtime error: cannot assign to const field 'id'
+u.name = "Moritz";  # ok
+# u.id = 2;        # Runtime error: cannot assign to const field 'id'
 ```
 
 Const fields can also have an initializer directly in the class body. The `var` keyword is optional when `const` is used.
@@ -749,7 +749,7 @@ class Math() {
 }
 
 print(Math.PI);
-// Math.PI = 0;  // Runtime error: cannot assign to const static field 'PI'
+# Math.PI = 0;  # Runtime error: cannot assign to const static field 'PI'
 ```
 
 ### Visibility and Const
@@ -934,11 +934,11 @@ class Truck() : Car(), IVehicle {
 }
 
 var c = new Car();
-print(c is Car);      // true
-print(c is Thing);    // true (Car inherits from Thing)
+print(c is Car);      # true
+print(c is Thing);    # true (Car inherits from Thing)
 
 var t = new Truck();
-print(t is IVehicle); // true
+print(t is IVehicle); # true
 ```
 
 The check also works transitively across interface inheritance and class inheritance.
@@ -974,18 +974,18 @@ class ShowDog(name) : Dog(name) {
 }
 
 var d = new ShowDog("Milo");
-print(d is ShowDog); // true
-print(d is Dog);     // true
-print(d is Creature); // true
-print(d is IPet);    // true
-print(d is IAnimal); // true
+print(d is ShowDog); # true
+print(d is Dog);     # true
+print(d is Creature); # true
+print(d is IPet);    # true
+print(d is IAnimal); # true
 ```
 
 If the left side is not a class instance or the right side is not a class or interface type, `is` returns `false` without throwing an error.
 
 ```cfs
-print("hello" is Car);  // false
-print(42 is Car);        // false
+print("hello" is Car);  # false
+print(42 is Car);        # false
 ```
 
 ## Reserved Names

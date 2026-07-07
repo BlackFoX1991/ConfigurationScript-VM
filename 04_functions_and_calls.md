@@ -197,7 +197,7 @@ func order_from_destructure([sx] = [7], sy = sx) {
 
 ## Return and Scope
 
-`return` is only allowed inside functions. Inside `out` blocks, `return` is explicitly forbidden because `out` is already an expression form of its own.
+`return` is only allowed inside functions.
 
 ## Typical Entry Patterns
 
