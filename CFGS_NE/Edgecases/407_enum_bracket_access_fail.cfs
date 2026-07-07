@@ -1,0 +1,7 @@
+enum Level {
+    Low = 1,
+    Mid = 2,
+    High = 3
+}
+
+var x = Level["Mid"];

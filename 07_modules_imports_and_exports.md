@@ -103,10 +103,10 @@ After that you access exports through the namespace alias.
 
 ```cfs
 Tools["add_base"](5)
-Tools["Flag"]["On"]
+Tools["Flag"].On
 ```
 
-Dot access also works in many cases. The bracket form is still especially explicit and robust.
+Dot access also works in many cases. The bracket form is still especially explicit and robust. Enum members are the exception: they are always reached with dot access (`Tools["Flag"].On`), never with brackets, because an enum is not an indexable value.
 
 ## File Resolution
 

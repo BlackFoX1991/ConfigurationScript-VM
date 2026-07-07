@@ -190,10 +190,14 @@ func unusedFunc(){
         CfgsLintResult result = CfgsLinter.LintFile(file, new CfgsLintOptions(), global::Program.Version);
         string[] codes = result.Diagnostics.Select(static d => d.Code).OrderBy(static c => c, StringComparer.Ordinal).ToArray();
 
-        AssertContains(codes, "CFGS8001", "trailing whitespace diagnostic missing");
+        AssertFalse(codes.Contains("CFGS8001", StringComparer.Ordinal), "recommended preset must not enable CFGS8001 trailing whitespace");
         AssertContains(codes, "CFGS8011", "unused local diagnostic missing");
         AssertContains(codes, "CFGS8012", "unreachable statement diagnostic missing");
         AssertContains(codes, "CFGS8013", "unused top-level function diagnostic missing");
+
+        CfgsLintResult strict = CfgsLinter.LintFile(file, new CfgsLintOptions { Preset = CfgsLintPreset.Strict }, global::Program.Version);
+        string[] strictCodes = strict.Diagnostics.Select(static d => d.Code).Distinct(StringComparer.Ordinal).ToArray();
+        AssertContains(strictCodes, "CFGS8001", "strict preset must enable CFGS8001 trailing whitespace");
     }
 
     private static void FormatterKeepsUnaryOperatorsTight()

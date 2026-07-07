@@ -28,4 +28,4 @@ Build an installable package from this folder with:
 npm run package
 ```
 
-The generated package is `cfgs-vscode-0.7.0.vsix`.
+The generated package is `cfgs-vscode-0.8.3.vsix`.

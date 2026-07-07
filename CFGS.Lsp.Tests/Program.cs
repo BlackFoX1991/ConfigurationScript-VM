@@ -85,9 +85,9 @@ internal static class Program
     {
         using LspTestClient client = LspTestClient.StartInitialized(liveLint: true);
         string uri = CreateDocumentUri("live_lint_on.cfs");
-        // Trailing whitespace after the first statement is a style lint; the script itself compiles
+        // More than two consecutive blank lines is a style lint (CFGS8004); the script itself compiles
         // cleanly, so any diagnostic that appears must come from the live linter.
-        client.DidOpen(uri, "var greeting = \"hi\"; \nprint(greeting);\n");
+        client.DidOpen(uri, "print(\"hi\");\n\n\n\nprint(\"bye\");\n");
 
         JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
         AssertTrue(CountLintDiagnostics(diagnostics) > 0, "expected a cfgs-lint diagnostic when live lint is enabled");
@@ -97,7 +97,7 @@ internal static class Program
     {
         using LspTestClient client = LspTestClient.StartInitialized();
         string uri = CreateDocumentUri("live_lint_off.cfs");
-        client.DidOpen(uri, "var greeting = \"hi\"; \nprint(greeting);\n");
+        client.DidOpen(uri, "print(\"hi\");\n\n\n\nprint(\"bye\");\n");
 
         JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
         AssertEqual(0, CountLintDiagnostics(diagnostics), "expected no cfgs-lint diagnostics when live lint is disabled");

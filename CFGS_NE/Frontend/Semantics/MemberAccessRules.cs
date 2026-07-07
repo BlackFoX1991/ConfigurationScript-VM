@@ -80,6 +80,29 @@ namespace CFGS_VM.Analytic.Semantics
             return true;
         }
 
+        public bool TryResolveKnownEnumFromExpr(Compiler compiler, Expr expr, ISet<string> currentLocals, out EnumDeclStmt decl)
+        {
+            decl = null!;
+
+            if (TryExtractQualifiedPath(expr, out string qualifiedPath))
+            {
+                int rootSep = qualifiedPath.IndexOf('.');
+                string root = rootSep >= 0 ? qualifiedPath[..rootSep] : qualifiedPath;
+                if (!currentLocals.Contains(root) && compiler.Context.QualifiedEnumDecls.TryGetValue(qualifiedPath, out decl!))
+                    return true;
+            }
+
+            if (expr is VarExpr variableExpr)
+            {
+                if (currentLocals.Contains(variableExpr.Name))
+                    return false;
+
+                return compiler.Context.TopLevelEnumDecls.TryGetValue(variableExpr.Name, out decl!);
+            }
+
+            return false;
+        }
+
         public (HashSet<string> InstanceMembers, HashSet<string> StaticMembers) GetOrBuildClassMemberSets(Compiler compiler, ClassDeclStmt decl)
         {
             if (compiler.Context.ClassMemberSetCache.TryGetValue(decl, out (HashSet<string> InstanceMembers, HashSet<string> StaticMembers) cached))

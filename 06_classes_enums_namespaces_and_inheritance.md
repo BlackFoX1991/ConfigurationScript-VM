@@ -804,14 +804,14 @@ class Point(x, y) {
 }
 ```
 
-Access works through indexing or qualified access.
+Access an enum member with dot access.
 
 ```cfs
-Mode["Safe"]
-Point.Kind["B"]
+Mode.Safe
+Point.Kind.B
 ```
 
-In many cases dot access also works because dot access is internally resolved as named member lookup.
+Enum members are named, not indexable, so they are reached only with dot access. Bracket access such as `Mode["Safe"]` is a runtime error, the same rule that applies to class static members.
 
 ## Namespaces
 

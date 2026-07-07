@@ -37,6 +37,10 @@ namespace CFGS_VM.VMCore.Codegen
 
         public Dictionary<string, InterfaceDeclStmt> QualifiedInterfaceDecls { get; } = new(StringComparer.Ordinal);
 
+        public Dictionary<string, EnumDeclStmt> TopLevelEnumDecls { get; } = new(StringComparer.Ordinal);
+
+        public Dictionary<string, EnumDeclStmt> QualifiedEnumDecls { get; } = new(StringComparer.Ordinal);
+
         public Dictionary<ClassDeclStmt, string> ClassQualifiedPaths { get; } = new();
 
         public Dictionary<InterfaceDeclStmt, string> InterfaceQualifiedPaths { get; } = new();
@@ -60,6 +64,8 @@ namespace CFGS_VM.VMCore.Codegen
             TopLevelInterfaceDecls.Clear();
             QualifiedClassDecls.Clear();
             QualifiedInterfaceDecls.Clear();
+            TopLevelEnumDecls.Clear();
+            QualifiedEnumDecls.Clear();
             ClassQualifiedPaths.Clear();
             InterfaceQualifiedPaths.Clear();
             InterfaceContractCache.Clear();

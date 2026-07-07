@@ -1,0 +1,8 @@
+class Holder() {
+    enum Mode {
+        A = 10,
+        B = 11
+    }
+}
+
+var x = Holder.Mode["A"];

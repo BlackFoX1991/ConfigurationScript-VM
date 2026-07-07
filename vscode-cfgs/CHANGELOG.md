@@ -18,7 +18,11 @@
 ### Fixed
 - Reference CodeLens no longer appears twice over symbols that share a source range (for example a class and its primary constructor).
 
-## Unreleased
+## 0.8.3 - 2026-07-07
+
+### Changed
+- Updated the bundled CFGS language server to the current compiler. Enum members are now dot only: bracket access such as `Mode["On"]` is reported in the editor at compile time as error CFGS2003, with the squiggle placed on the bracket expression. This covers top level, namespaced, and class nested enums.
+- The trailing whitespace style lint (CFGS8001) is now off in the recommended preset, so it no longer shows up by default while typing. It stays available in the strict preset, alongside the missing final newline lint (CFGS8005).
 
 ### Fixed
 - Updated the TextMate grammar to recognize CFGS interpolated strings (`$"..."`), verbatim strings (`@"..."`), and combined verbatim interpolated prefixes (`$@"..."`, `@$"..."`).

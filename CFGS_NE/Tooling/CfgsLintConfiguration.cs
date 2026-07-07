@@ -26,7 +26,7 @@ internal static class CfgsLintRuleRegistry
 {
     private static readonly Dictionary<string, CfgsLintRuleDefinition> Definitions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["CFGS8001"] = new("CFGS8001", CfgsToolDiagnosticSeverity.Warning, true, true),
+        ["CFGS8001"] = new("CFGS8001", CfgsToolDiagnosticSeverity.Warning, false, true),
         ["CFGS8002"] = new("CFGS8002", CfgsToolDiagnosticSeverity.Warning, true, true),
         ["CFGS8003"] = new("CFGS8003", CfgsToolDiagnosticSeverity.Info, true, true),
         ["CFGS8004"] = new("CFGS8004", CfgsToolDiagnosticSeverity.Warning, true, true),

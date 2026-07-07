@@ -106,11 +106,11 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS4001`: import resolution error.
 - `CFGS5000`: CFB or bytecode artifact error.
 - `CFGS8000`: tooling input error.
-- `CFGS8001`: trailing whitespace.
+- `CFGS8001`: trailing whitespace. Strict preset only; off in the recommended preset.
 - `CFGS8002`: tab indentation warning.
 - `CFGS8003`: line length warning.
 - `CFGS8004`: excessive blank lines.
-- `CFGS8005`: missing final newline.
+- `CFGS8005`: missing final newline. Strict preset only; off in the recommended preset.
 - `CFGS8011`: unused local variable or parameter.
 - `CFGS8012`: unreachable statement after terminating control flow.
 - `CFGS8013`: top-level function is never called in the same file.
@@ -119,9 +119,9 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS8016`: imported binding is never used.
 - `CFGS8017`: empty control-flow block.
 - `CFGS8018`: suspicious equality comparison with an always-known outcome.
-- `CFGS8019`: constant condition.
+- `CFGS8019`: constant condition. Strict preset only; off in the recommended preset.
 - `CFGS8020`: unreachable statement after guaranteed terminating control flow.
-- `CFGS8021`: magic number.
+- `CFGS8021`: magic number. Strict preset only; off in the recommended preset.
 - `CFGS9000`: host or system error.
 
 ## Lint Mode
@@ -137,7 +137,7 @@ dotnet run --project CFGS_NE -- -lint .\src --fix
 Text output uses this shape.
 
 ```text
-script.cfs:3:18: warning CFGS8001: trailing whitespace
+script.cfs:6:1: warning CFGS8004: more than two consecutive blank lines
 [LINT] files=1, errors=0, warnings=1, info=0
 ```
 
@@ -146,12 +146,12 @@ JSON output uses a compact diagnostic array.
 ```json
 [
   {
-    "code": "CFGS8001",
+    "code": "CFGS8004",
     "severity": "warning",
-    "message": "trailing whitespace",
+    "message": "more than two consecutive blank lines",
     "source": "script.cfs",
-    "line": 3,
-    "column": 18,
+    "line": 6,
+    "column": 1,
     "spanLength": 1
   }
 ]

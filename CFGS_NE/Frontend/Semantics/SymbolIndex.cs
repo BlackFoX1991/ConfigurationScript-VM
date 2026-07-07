@@ -47,10 +47,15 @@ namespace CFGS_VM.Analytic.Semantics
                     context.TopLevelInterfaceDecls[interfaceDecl.Name] = interfaceDecl;
                     RegisterQualifiedInterfaceDecl(context, interfaceDecl, interfaceDecl.Name);
                 }
+                else if (stmt is EnumDeclStmt enumDecl)
+                {
+                    context.TopLevelEnumDecls[enumDecl.Name] = enumDecl;
+                }
                 else if (stmt is BlockStmt block && Compiler.TryGetNamespaceScopePath(block, out string namespacePath))
                 {
                     RegisterNamespaceScopeClasses(context, block, namespacePath);
                     RegisterNamespaceScopeInterfaces(context, block, namespacePath);
+                    RegisterNamespaceScopeEnums(context, block, namespacePath);
                 }
             }
 
@@ -93,6 +98,9 @@ namespace CFGS_VM.Analytic.Semantics
 
             context.ClassQualifiedPaths[decl] = qualifiedPath;
 
+            foreach (EnumDeclStmt nestedEnum in decl.Enums)
+                context.QualifiedEnumDecls[$"{qualifiedPath}.{nestedEnum.Name}"] = nestedEnum;
+
             foreach (ClassDeclStmt nested in decl.NestedClasses)
                 RegisterQualifiedClassDecl(context, nested, $"{qualifiedPath}.{nested.Name}");
         }
@@ -131,6 +139,17 @@ namespace CFGS_VM.Analytic.Semantics
                     continue;
 
                 RegisterQualifiedInterfaceDecl(context, interfaceDecl, $"{namespacePath}.{interfaceDecl.Name}");
+            }
+        }
+
+        private static void RegisterNamespaceScopeEnums(CompilationContext context, BlockStmt namespaceScope, string namespacePath)
+        {
+            foreach (Stmt stmt in namespaceScope.Statements)
+            {
+                if (stmt is not EnumDeclStmt enumDecl)
+                    continue;
+
+                context.QualifiedEnumDecls[$"{namespacePath}.{enumDecl.Name}"] = enumDecl;
             }
         }
     }

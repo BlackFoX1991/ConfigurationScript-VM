@@ -846,6 +846,16 @@ namespace CFGS_VM.Analytic.Semantics
                 }
 
                 if (indexExpr.Target != null &&
+                    _memberAccessRules.TryResolveKnownEnumFromExpr(_compiler, indexExpr.Target, CurrentLocals, out EnumDeclStmt enumDecl))
+                {
+                    throw new CompilerException(
+                        $"enum members require dot access (use {enumDecl.Name}.{memberName}); bracket access is for indexable values such as arrays and dictionaries",
+                        indexExpr.Line,
+                        indexExpr.Col,
+                        indexExpr.OriginFile);
+                }
+
+                if (indexExpr.Target != null &&
                     _memberAccessRules.TryResolveKnownClassDeclFromExpr(_compiler, indexExpr.Target, CurrentLocals, out _))
                 {
                     throw new CompilerException(
