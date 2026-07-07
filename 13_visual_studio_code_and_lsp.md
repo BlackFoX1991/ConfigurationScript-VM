@@ -100,7 +100,7 @@ npm run package
 The package is written to:
 
 ```text
-vscode-cfgs/cfgs-vscode-0.5.0.vsix
+vscode-cfgs/cfgs-vscode-0.8.3.vsix
 ```
 
 The packaged extension includes the built CFGS language server under `extension/server` when `dist/Debug/net10.0/CFGS.Lsp.dll` exists before packaging. It can then start directly after installation as long as `dotnet` is available on the machine.
@@ -114,6 +114,7 @@ The extension exposes these settings if you want to launch the server differentl
 - `cfgs.server.cwd`
 - `cfgs.cli.command`
 - `cfgs.cli.args`
+- `cfgs.lint.live`
 - `cfgs.lint.onSave`
 - `cfgs.lint.fixOnSave`
 

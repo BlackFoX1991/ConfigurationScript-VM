@@ -376,7 +376,7 @@ Enum declarations define named integer-like values.
 
 Duplicate enum values or invalid enum shapes MUST fail according to enum validation rules.
 
-Enum members are accessed through dot syntax.
+Enum members are accessed through dot syntax. Bracket access such as `Mode["Safe"]` MUST fail, because an enum is not an indexable value. For a statically known enum this MUST be reported at compile time.
 
 Assigning to enum members MUST fail.
 

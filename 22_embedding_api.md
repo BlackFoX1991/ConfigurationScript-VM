@@ -559,6 +559,19 @@ Engine-level configuration is copied into each new script instance:
 - permission settings
 - working directory defaults
 
+## Running a Script as a Windows Service
+
+Besides in-process embedding, CFGS can host a script as a long-running Windows service. This mode is not a public embedding type you construct. It is driven by the CLI and implemented by the internal `CfgsServiceHost` in `CFGS_VM.Hosting`. The Service Control Manager (SCM) launches the process with `-as_service`, the VM dispatch loop and the script's `main` observe the stop request cooperatively through a cancellation token, and lifecycle events plus unhandled script errors are written to the Windows Event Log under the source `CFGS`, because a service has no console.
+
+```powershell
+cfgs.exe -install_service MyJob -script C:\jobs\job.cfs
+sc start MyJob
+sc stop MyJob
+cfgs.exe -uninstall_service MyJob
+```
+
+A service script is normally a `main` that loops until the stop signal arrives. Installing and uninstalling need an elevated command prompt, and the whole feature is Windows only. This service mode runs through the CLI execution path rather than a host-configured `CfgsScriptEngine`, so it uses the CLI runtime policy and not the fail-closed embedding permissions described above. For the full command list and flags such as `-display`, `-desc`, and `-startup`, see [Getting Started and Running Scripts](01_getting_started_and_running.md).
+
 ## Recommended Host Patterns
 
 ### Library-style embedding

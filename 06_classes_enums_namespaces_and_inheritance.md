@@ -128,7 +128,7 @@ class Meter(v) {
 
 The important receiver here is `type`. It is available in class methods and points at the current type. It works in instance methods and static methods.
 
-Static class members use dot access, for example `Meter.make(10)`. Bracket access such as `Meter["make"]` is dictionary or index access and is not a class member lookup. Constructors are invoked with `new Meter(...)`; they are not exposed as a `"new"` static member.
+Static class members use dot access, for example `Meter.make(10)`. Bracket access on a statically known class such as `Meter["make"]` is a compile error, because class members are not indexable; bracket access stays reserved for real dictionary and index lookups. Constructors are invoked with `new Meter(...)`; they are not exposed as a `"new"` static member.
 
 ## Creating Instances
 
@@ -811,7 +811,7 @@ Mode.Safe
 Point.Kind.B
 ```
 
-Enum members are named, not indexable, so they are reached only with dot access. Bracket access such as `Mode["Safe"]` is a runtime error, the same rule that applies to class static members.
+Enum members are named, not indexable, so they are reached only with dot access. Bracket access such as `Mode["Safe"]` is a compile error (CFGS2003) reported at the access site in the editor, the same rule that applies to class static members. This holds for top level enums, enums declared in a namespace, and class nested enums such as `Point.Kind`.
 
 ## Namespaces
 

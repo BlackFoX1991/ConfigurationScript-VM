@@ -164,7 +164,7 @@ These return real `DateTime` and `TimeSpan` values, so the intrinsics listed fur
 
 - `math.abs(x)`, `math.floor(x)`, `math.ceil(x)`, `math.round(x, digits = optional)`, `math.min(a, b)`, and `math.max(a, b)` provide basic numeric helpers.
 - `math.sqrt(x)`, `math.pow(base, exp)`, `math.log(x, base = optional)`, `math.log10(x)`, `math.sin(x)`, `math.cos(x)`, and `math.tan(x)` provide scientific helpers.
-- `math.sign(x)`, `math.trunc(x)`, `math.rand(seed, min, max)`, `math.pi()`, and `math.e()` provide sign, truncation, random, and constant helpers.
+- `math.sign(x)`, `math.trunc(x)`, `math.rand(seed, min, max)`, `math.pi()`, and `math.e()` provide sign, truncation, random, and constant helpers. The constants are also available uppercase as `math.PI` and `math.E`.
 - `isdigit(x)`, `isletter(x)`, `isalnum(x)`, `isspace(x)` check character classes.
 
 ### Regular Expressions

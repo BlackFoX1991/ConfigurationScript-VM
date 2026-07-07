@@ -103,6 +103,13 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS3002`: index operation error.
 - `CFGS3003`: value is not indexable.
 - `CFGS3004`: argument or call-shape error.
+- `CFGS3006`: arithmetic overflow; numeric value outside the target type range.
+- `CFGS3007`: division by zero.
+- `CFGS3008`: invalid cast or conversion.
+- `CFGS3009`: invalid numeric format.
+- `CFGS3010`: dictionary key not found.
+- `CFGS3011`: numeric operation error.
+- `CFGS3012`: null reference.
 - `CFGS4001`: import resolution error.
 - `CFGS5000`: CFB or bytecode artifact error.
 - `CFGS8000`: tooling input error.
@@ -123,6 +130,7 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS8020`: unreachable statement after guaranteed terminating control flow.
 - `CFGS8021`: magic number. Strict preset only; off in the recommended preset.
 - `CFGS9000`: host or system error.
+- `CFGS9100`: operation canceled.
 
 ## Lint Mode
 
