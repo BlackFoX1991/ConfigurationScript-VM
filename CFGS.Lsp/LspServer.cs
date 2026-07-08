@@ -11,6 +11,9 @@ internal sealed class LspServer
 {
     private static readonly Regex MissingImportPathRegex = new("^import path not found '(?<path>[^']+)'", RegexOptions.Compiled);
     private static readonly Regex MissingExportRegex = new("^Could not find export '(?<name>[^']+)' in import '(?<path>[^']+)'$", RegexOptions.Compiled);
+    // Erfasst den Pfad-String eines Import-Statements (bare/named/default), damit bei einer Aenderung an
+    // einer importierten Datei genau die offenen Dateien neu analysiert werden, die sie importieren.
+    private static readonly Regex ImportPathLineRegex = new(@"^\s*import\b[^""]*""(?<path>[^""]+)""", RegexOptions.Compiled);
     private readonly CfgsAnalyzer _analyzer;
     private readonly Stream _input;
     private readonly Stream _output;
@@ -37,6 +40,12 @@ internal sealed class LspServer
     private static readonly TimeSpan FullAnalysisIdleDebounce = TimeSpan.FromMilliseconds(700);
     private string? _workspaceRootPath;
     private bool _shutdownRequested;
+    // Wird beim initialize aus den Client-Faehigkeiten gelesen: unterstuetzt der Client die dynamische
+    // Registrierung von Datei-Watchern, registriert der Server nach "initialized" einen **/*.cfs-Watcher,
+    // damit didChangeWatchedFiles auch fuer nicht offene, importierte Dateien eintrifft.
+    private bool _supportsDynamicWatchedFiles;
+    // Fortlaufende id fuer server-initiierte Requests (z.B. client/registerCapability).
+    private int _nextServerRequestId;
 
     // Live-Lint (Style + AST-Regeln beim Tippen) ist per Client-Option schaltbar und standardmaessig aus,
     // damit Tools/Tests, die die Option nicht senden, nur Compile-/Semantik-Diagnosen sehen. Die VS-Code-
@@ -146,6 +155,7 @@ internal sealed class LspServer
                 case "initialize":
                     _workspaceRootPath = TryGetWorkspaceRootPath(parameters);
                     _liveLintEnabled = TryGetLiveLintOption(parameters);
+                    _supportsDynamicWatchedFiles = TryGetDynamicWatchedFilesSupport(parameters);
                     if (hasId)
                     {
                         await SendResponseAsync(idElement, new
@@ -220,6 +230,7 @@ internal sealed class LspServer
                     return true;
 
                 case "initialized":
+                    await RegisterFileWatchersAsync(cancellationToken);
                     return true;
 
                 case "shutdown":
@@ -635,6 +646,10 @@ internal sealed class LspServer
                     }
                     return true;
 
+                case "workspace/didChangeWatchedFiles":
+                    HandleDidChangeWatchedFiles(parameters, cancellationToken);
+                    return true;
+
                 default:
                     if (hasId)
                         await SendErrorResponseAsync(idElement, -32601, $"Method not found: {method}", cancellationToken);
@@ -682,6 +697,12 @@ internal sealed class LspServer
         CancelAllPendingAnalysis(uri);
         // Initial diagnostics for a freshly opened file are the full set (including the compile pass).
         await AnalyzeAndPublishAsync(state, cancellationToken, runCompilePass: true);
+
+        // Opening a file makes its (possibly unsaved) buffer the authoritative source for anyone importing
+        // it, so open importers may now resolve differently: refresh them.
+        string? openedPath = TryGetLocalPath(uri);
+        if (openedPath is not null)
+            ReanalyzeImportersOf(openedPath, uri, cancellationToken);
     }
 
     private async Task HandleDidChangeAsync(JsonElement parameters, CancellationToken cancellationToken)
@@ -711,6 +732,12 @@ internal sealed class LspServer
             // promptly rather than waiting out the idle debounce.
             ScheduleFullAnalysis(state, cancellationToken, TimeSpan.FromMilliseconds(50));
         }
+
+        // Saving a file changes what everyone importing it sees on disk. Refresh the open importers so a
+        // "import path not found" / "unknown namespace" no longer lingers after the imported file is fixed.
+        string? savedPath = TryGetLocalPath(uri);
+        if (savedPath is not null)
+            ReanalyzeImportersOf(savedPath, uri, cancellationToken);
     }
 
     private async Task HandleDidCloseAsync(JsonElement parameters, CancellationToken cancellationToken)
@@ -726,6 +753,161 @@ internal sealed class LspServer
         {
             await PublishDiagnosticsAsync(uri, [], cancellationToken);
         }
+
+        // Closing a file drops its buffer overlay; open importers now resolve it from disk instead, which
+        // can change their diagnostics.
+        string? closedPath = TryGetLocalPath(uri);
+        if (closedPath is not null)
+            ReanalyzeImportersOf(closedPath, uri, cancellationToken);
+    }
+
+    private void HandleDidChangeWatchedFiles(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        if (parameters.ValueKind != JsonValueKind.Object ||
+            !parameters.TryGetProperty("changes", out JsonElement changes) ||
+            changes.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (JsonElement change in changes.EnumerateArray())
+        {
+            string? changedUri = change.TryGetProperty("uri", out JsonElement uriElement) ? uriElement.GetString() : null;
+            string? changedPath = changedUri is null ? null : TryGetLocalPath(changedUri);
+            if (changedPath is not null)
+                ReanalyzeImportersOf(changedPath, changedUri, cancellationToken);
+        }
+    }
+
+    // Wenn sich eine Datei aendert (Save, externe Aenderung, oeffnen/schliessen), stimmen die Diagnosen der
+    // offenen Dateien, die sie importieren, nicht mehr - der LSP-Analyzer bekommt Aenderungen an anderen
+    // Dateien sonst nicht mit. Hier werden genau diese Importeure erneut (voll) analysiert.
+    private void ReanalyzeImportersOf(string changedFullPath, string? excludeUri, CancellationToken cancellationToken)
+    {
+        foreach (DocumentState importer in GetOpenDocumentsImporting(changedFullPath, excludeUri))
+        {
+            // Der Text des Importeurs selbst ist unveraendert, sein Ergebnis aber nicht. Deshalb den
+            // Text-Kurzschluss in AnalyzeAndPublishAsync invalidieren, damit die volle Analyse wirklich neu
+            // laeuft und die (Compile-)Diagnosen neu veroeffentlicht werden.
+            InvalidateAnalysisCache(importer);
+            ScheduleFullAnalysis(importer, cancellationToken, TimeSpan.FromMilliseconds(50));
+        }
+    }
+
+    private IEnumerable<DocumentState> GetOpenDocumentsImporting(string changedFullPath, string? excludeUri)
+    {
+        string normalizedChanged;
+        try
+        {
+            normalizedChanged = Path.GetFullPath(changedFullPath);
+        }
+        catch
+        {
+            yield break;
+        }
+
+        foreach (DocumentState state in _documents.Values)
+        {
+            if (excludeUri is not null && GetUriComparer().Equals(state.Uri, excludeUri))
+                continue;
+
+            if (DocumentImportsPath(state, normalizedChanged))
+                yield return state;
+        }
+    }
+
+    private static bool DocumentImportsPath(DocumentState state, string changedFullPath)
+    {
+        string? importerPath = TryGetLocalPath(state.Uri);
+        if (importerPath is null)
+            return false;
+
+        string? importerDirectory = Path.GetDirectoryName(importerPath);
+        if (string.IsNullOrEmpty(importerDirectory))
+            return false;
+
+        StringComparison pathComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        foreach (string line in state.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        {
+            Match match = ImportPathLineRegex.Match(line);
+            if (!match.Success)
+                continue;
+
+            string rawPath = match.Groups["path"].Value;
+            if (string.IsNullOrWhiteSpace(rawPath) ||
+                rawPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                rawPath.Contains("://", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string candidate = Path.IsPathFullyQualified(rawPath)
+                ? rawPath
+                : Path.Combine(importerDirectory, rawPath.Replace('/', Path.DirectorySeparatorChar));
+
+            string resolved;
+            try
+            {
+                resolved = Path.GetFullPath(candidate);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (string.Equals(resolved, changedFullPath, pathComparison))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static void InvalidateAnalysisCache(DocumentState state)
+    {
+        state.AnalyzedText = null;
+        state.AnalyzedTextWithCompile = null;
+    }
+
+    private async Task RegisterFileWatchersAsync(CancellationToken cancellationToken)
+    {
+        if (!_supportsDynamicWatchedFiles)
+            return;
+
+        // Ohne Datei-Watcher erfaehrt der Server nie von Aenderungen an importierten Dateien, die NICHT im
+        // Editor offen sind - dann bleibt z.B. "import path not found" stehen, obwohl die Zieldatei laengst
+        // angelegt wurde. Diese dynamische Registrierung laesst den Client didChangeWatchedFiles fuer alle
+        // *.cfs schicken.
+        await SendRequestAsync("client/registerCapability", new
+        {
+            registrations = new[]
+            {
+                new
+                {
+                    id = "cfgs-watched-files",
+                    method = "workspace/didChangeWatchedFiles",
+                    registerOptions = new
+                    {
+                        watchers = new[]
+                        {
+                            new { globPattern = "**/*.cfs" }
+                        }
+                    }
+                }
+            }
+        }, cancellationToken);
+    }
+
+    private static bool TryGetDynamicWatchedFilesSupport(JsonElement parameters)
+    {
+        return parameters.ValueKind == JsonValueKind.Object &&
+               parameters.TryGetProperty("capabilities", out JsonElement capabilities) &&
+               capabilities.TryGetProperty("workspace", out JsonElement workspace) &&
+               workspace.TryGetProperty("didChangeWatchedFiles", out JsonElement watchedFiles) &&
+               watchedFiles.TryGetProperty("dynamicRegistration", out JsonElement dynamicRegistration) &&
+               dynamicRegistration.ValueKind == JsonValueKind.True;
     }
 
     private DocumentState EnsureDocument(string uri)
@@ -1663,6 +1845,18 @@ internal sealed class LspServer
         => SendPayloadAsync(new
         {
             jsonrpc = "2.0",
+            method,
+            @params = parameters
+        }, cancellationToken);
+
+    // Server-initiierter Request (z.B. client/registerCapability). Die Antwort des Clients traegt nur eine
+    // id und kein "method" und wird von HandleMessageAsync gefahrlos ignoriert - wir muessen sie nicht
+    // abwarten.
+    private Task SendRequestAsync(string method, object? parameters, CancellationToken cancellationToken)
+        => SendPayloadAsync(new
+        {
+            jsonrpc = "2.0",
+            id = Interlocked.Increment(ref _nextServerRequestId),
             method,
             @params = parameters
         }, cancellationToken);

@@ -270,7 +270,13 @@ internal sealed class CfgsAnalyzer
             // analysis. On live typing it is skipped (runCompilePass == false) so the editor stays responsive,
             // and it runs on the idle / save pass instead. The interactive features (hover, references,
             // completion) do not depend on it, so skipping it does not degrade them.
-            if (runCompilePass)
+            //
+            // It also only runs when the frontend (parse + import resolution) produced no diagnostics: if an
+            // import failed to resolve (missing/empty imported file, unknown namespace, ...), the raw
+            // import-syntax statements survive in the AST and the compiler would choke on them with a
+            // confusing secondary "unknown statement type BareImportSyntaxStmt". The real cause is already
+            // reported as a frontend diagnostic, so the codegen pass would only stack noise on top of it.
+            if (runCompilePass && frontendBuild.Diagnostics.Count == 0)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
