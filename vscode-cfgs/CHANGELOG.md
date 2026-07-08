@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.8.4 - 2026-07-08
+
+### Fixed
+- The language server no longer stops responding after unexpected input. A single malformed protocol message or an edge case inside a request handler previously terminated the whole server process, so diagnostics and references silently disappeared until a restart. Message handling is now isolated per request, and any unexpected error is written to the "CFGS Language Server" output channel instead of killing the server.
+- Duplicate reference CodeLens labels over file scoped namespaces. A namespace such as `namespace App.Model;` whose root segment was not already introduced by an earlier import produced a second overlapping "N references" label on the namespace line. Only one lens per declaration is emitted now.
+- Reference CodeLens deduplication now collapses any lenses that begin at the same source position, keeping the widest range, so overlapping labels cannot stack regardless of their origin.
+
+### Changed
+- Imported files are now re watched: when a file changes on disk (saved, created, or changed outside the editor), open files that import it are re analyzed automatically. A stale "import path not found" no longer lingers after the imported file is created or fixed.
+- A failed import no longer produces a confusing secondary "unknown statement type" compile diagnostic on top of the real cause (the missing path or unknown namespace).
+
 ## 0.8.2 - 2026-07-04
 
 ### Changed

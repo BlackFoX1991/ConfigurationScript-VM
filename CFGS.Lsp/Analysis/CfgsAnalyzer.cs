@@ -796,24 +796,30 @@ internal sealed class CfgsAnalyzer
         foreach (CfgsSymbol symbol in result.DocumentSymbols)
             CollectCodeLenses(result, symbol, lenses);
 
-        // Mehrere Symbole koennen dieselbe Selektions-Range teilen (z.B. eine Klasse und ihr
-        // Primaerkonstruktor oder eine explizite Interface-Implementierung). Ohne Deduplizierung erhielte
-        // dieselbe Quellstelle zwei "N references"-Lenses uebereinander. Pro Range genau eine Lens.
-        HashSet<(int, int, int, int)> seen = [];
-        List<CfgsCodeLens> deduped = new(lenses.Count);
+        // Mehrere Symbole koennen an derselben Quellstelle ansetzen (z.B. eine Klasse und ihr
+        // Primaerkonstruktor, eine explizite Interface-Implementierung, oder eine dotted-namespace-Wurzel und
+        // ihr voller Pfad `A` vs `A.B`, die beide auf der namespace-Zeile beginnen). Solche Lenses wuerden
+        // sonst als mehrere "N references"-Labels uebereinander erscheinen. Deshalb pro START-Position (Zeile +
+        // Spalte) genau EINE Lens behalten - und zwar die mit der breitesten Range (der voll qualifizierte
+        // Bezeichner), damit resolve den passendsten Treffer zaehlt.
+        Dictionary<(int Line, int Character), CfgsCodeLens> byStart = new();
         foreach (CfgsCodeLens lens in lenses)
         {
-            (int, int, int, int) key = (
-                lens.Range.Start.Line,
-                lens.Range.Start.Character,
-                lens.Range.End.Line,
-                lens.Range.End.Character);
-            if (seen.Add(key))
-                deduped.Add(lens);
+            (int, int) key = (lens.Range.Start.Line, lens.Range.Start.Character);
+            if (!byStart.TryGetValue(key, out CfgsCodeLens? existing) || RangeWidth(lens.Range) > RangeWidth(existing.Range))
+                byStart[key] = lens;
         }
 
-        return deduped;
+        return byStart.Values
+            .OrderBy(static lens => lens.Range.Start.Line)
+            .ThenBy(static lens => lens.Range.Start.Character)
+            .ToList();
     }
+
+    private static int RangeWidth(RangeInfo range)
+        => range.End.Line != range.Start.Line
+            ? int.MaxValue
+            : range.End.Character - range.Start.Character;
 
     public IReadOnlyList<CfgsDocumentLink> GetDocumentLinks(CfgsAnalysisResult result)
     {
@@ -2695,8 +2701,14 @@ internal sealed class CfgsAnalyzer
         }
 
         private bool IsSyntheticNamespaceRoot(VarDecl decl)
-            => decl.Value is DictExpr &&
-               _syntheticNamespaceRoots.Contains((decl.Line, decl.Col, decl.Name));
+            // Primaer die vom NamespaceLowerer gesetzte AST-Markierung nutzen: der synthetische Wurzel-VarDecl
+            // (z.B. "Modules" fuer `namespace Modules.Types;`) wird VOR dem Namespace-Block emittiert, also ist
+            // die positionsbasierte Menge beim ersten Sehen noch leer. Ohne die Flag-Pruefung wuerde die Wurzel
+            // als eigenes Symbol durchrutschen und ein zweites, ueberlappendes "N references"-CodeLens auf der
+            // namespace-Zeile erzeugen (nur wenn kein vorheriger Import die Wurzel bereits deklariert hat).
+            => decl.IsSyntheticNamespaceRoot ||
+               (decl.Value is DictExpr &&
+                _syntheticNamespaceRoots.Contains((decl.Line, decl.Col, decl.Name)));
 
         private bool TryCreateNamespaceSymbol(BlockStmt block, out CfgsSymbol? namespaceSymbol)
         {

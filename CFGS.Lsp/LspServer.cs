@@ -63,33 +63,78 @@ internal sealed class LspServer
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            string? json = await ReadMessageAsync(cancellationToken);
+            string? json;
+            try
+            {
+                json = await ReadMessageAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                // Ein Lesefehler bedeutet einen desynchronisierten/kaputten Eingabestrom - daraus laesst sich
+                // die Frame-Grenze nicht mehr sicher wiederherstellen, also sauber beenden statt endlos auf
+                // Muell zu laufen.
+                await TryLogAsync($"[CFGS-LSP] input stream error, shutting down: {ex.Message}");
+                break;
+            }
+
             if (json is null)
                 break;
 
-            string method;
-            bool hasId;
-            using (JsonDocument peek = JsonDocument.Parse(json))
+            // Eine einzelne fehlerhafte oder unerwartete Nachricht (kaputtes JSON, ein Sonderfall in einem
+            // Handler) darf NIE den gesamten Server beenden. Frueher lief RunAsync ungeschuetzt: eine Ausnahme
+            // hier riss den Prozess mit und der Nutzer sah "der LSP ist tot" (keine Diagnosen/Referenzen mehr).
+            // Der Frame wurde bereits vollstaendig gelesen, daher ist der Strom weiter synchron und wir koennen
+            // mit der naechsten Nachricht fortfahren.
+            try
             {
-                method = peek.RootElement.TryGetProperty("method", out JsonElement m) ? m.GetString() ?? string.Empty : string.Empty;
-                hasId = peek.RootElement.TryGetProperty("id", out _);
-            }
+                string method;
+                bool hasId;
+                using (JsonDocument peek = JsonDocument.Parse(json))
+                {
+                    method = peek.RootElement.TryGetProperty("method", out JsonElement m) ? m.GetString() ?? string.Empty : string.Empty;
+                    hasId = peek.RootElement.TryGetProperty("id", out _);
+                }
 
-            // Reihenfolge-kritische Nachrichten (alle Notifications inkl. didChange, plus der
-            // initialize/shutdown-Handshake) werden weiterhin seriell verarbeitet, damit Textzustand und
-            // Lebenszyklus konsistent bleiben. Alle uebrigen id-Requests sind lesend und potenziell
-            // workspace-weit (references, rename, codeLens/resolve, workspace/symbol, callHierarchy); sie
-            // laufen nebenlaeufig, damit ein langsamer Scan nicht die nachfolgenden Nachrichten blockiert.
-            if (MustHandleInline(method, hasId))
-            {
-                using JsonDocument document = JsonDocument.Parse(json);
-                if (!await HandleMessageAsync(document.RootElement, cancellationToken))
-                    break;
+                // Reihenfolge-kritische Nachrichten (alle Notifications inkl. didChange, plus der
+                // initialize/shutdown-Handshake) werden weiterhin seriell verarbeitet, damit Textzustand und
+                // Lebenszyklus konsistent bleiben. Alle uebrigen id-Requests sind lesend und potenziell
+                // workspace-weit (references, rename, codeLens/resolve, workspace/symbol, callHierarchy); sie
+                // laufen nebenlaeufig, damit ein langsamer Scan nicht die nachfolgenden Nachrichten blockiert.
+                if (MustHandleInline(method, hasId))
+                {
+                    using JsonDocument document = JsonDocument.Parse(json);
+                    if (!await HandleMessageAsync(document.RootElement, cancellationToken))
+                        break;
+                }
+                else
+                {
+                    DispatchRequestInBackground(json, cancellationToken);
+                }
             }
-            else
+            catch (OperationCanceledException)
             {
-                DispatchRequestInBackground(json, cancellationToken);
+                break;
             }
+            catch (Exception ex)
+            {
+                await TryLogAsync($"[CFGS-LSP] error handling message, continuing: {ex.Message}");
+            }
+        }
+    }
+
+    private static async Task TryLogAsync(string message)
+    {
+        try
+        {
+            await Console.Error.WriteLineAsync(message);
+        }
+        catch
+        {
+            // Wenn selbst stderr nicht mehr geht, gibt es keinen sinnvollen Ausweg mehr.
         }
     }
 
@@ -1087,6 +1132,13 @@ internal sealed class LspServer
             catch (OperationCanceledException)
             {
             }
+            catch (Exception ex)
+            {
+                // Eine gescheiterte Analyse darf weder den Prozess mitreissen noch stumm verschwinden (sonst
+                // "hoeren" die Diagnosen fuer diese Datei einfach auf). Loggen und weitermachen; der naechste
+                // Tastendruck stoesst eine neue Analyse an.
+                await TryLogAsync($"[CFGS-LSP] analysis failed for {state.Uri}: {ex.Message}");
+            }
             finally
             {
                 if (track.TryGetValue(state.Uri, out CancellationTokenSource? current) &&
@@ -1771,8 +1823,11 @@ internal sealed class LspServer
 
             string name = line[..separator];
             string value = line[(separator + 1)..].Trim();
-            if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
-                contentLength = int.Parse(value, CultureInfo.InvariantCulture);
+            if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) &&
+                int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedLength))
+            {
+                contentLength = parsedLength;
+            }
         }
 
         if (contentLength < 0)
