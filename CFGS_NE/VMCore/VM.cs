@@ -544,6 +544,17 @@ namespace CFGS_VM.VMCore
                 case OpCode.ARRAY_DELETE_ELEM_ALL:
                     return HandleArrayDeleteElementAllInstruction(instr);
 
+                case OpCode.IS_ARG_UNSET:
+                    {
+                        // Default-parameter prologue guard: true iff the named parameter slot still holds
+                        // the Unset omitted-argument sentinel (caller supplied no value). Reads the raw slot
+                        // via the current scope so it is not fooled by the null coercion ordinary reads apply.
+                        string paramName = (string)instr.Operand!;
+                        bool unset = _scopes.Count > 0 && _scopes[^1].IsArgUnset(paramName);
+                        _valueStack.Push(Value.FromBool(unset));
+                        break;
+                    }
+
                 case OpCode.LOAD_VAR:
                     {
                         if (instr.Operand is null) break;
@@ -1384,6 +1395,7 @@ namespace CFGS_VM.VMCore
         {
             RegisterCoreBuiltinIfMissing(new BuiltinDescriptor("interfaces", 1, 1, (args, instr) => GetInterfaceList(args[0])));
             RegisterCoreBuiltinIfMissing(new BuiltinDescriptor("implements", 2, 2, (args, instr) => ImplementsRuntimeType(args[0], args[1])));
+            RegisterCoreBuiltinIfMissing(new BuiltinDescriptor("implements_shape", 2, 2, (args, instr) => ImplementsShapeRuntimeType(args[0], args[1])));
             RegisterCoreBuiltinIfMissing(new BuiltinDescriptor("interfaceof", 1, 1, (args, instr) => GetInterfaceMetadata(args[0])));
             RegisterCoreBuiltinIfMissing(new BuiltinDescriptor("interface_call", 3, 4, (args, instr) => InterfaceCall(args, instr)!));
         }
@@ -1437,6 +1449,34 @@ namespace CFGS_VM.VMCore
             if (target is not StaticInstance targetType)
                 return false;
 
+            // Nominal check, identical to `value is target`: an interface target matches only a declared
+            // implementation (direct, inherited base class, or inherited interface). Structural matching is
+            // exposed separately through the implements_shape builtin.
+            if (value is ClassInstance instance && TryGetStaticType(instance, out StaticInstance instanceType))
+            {
+                return IsInterfaceType(targetType)
+                    ? ImplementsInterface(instanceType, targetType)
+                    : IsSameOrDerivedStaticType(instanceType, targetType);
+            }
+
+            if (value is StaticInstance staticType)
+            {
+                return IsInterfaceType(targetType)
+                    ? ImplementsInterface(staticType, targetType)
+                    : IsSameOrDerivedStaticType(staticType, targetType);
+            }
+
+            return false;
+        }
+
+        private bool ImplementsShapeRuntimeType(object? value, object? target)
+        {
+            if (target is not StaticInstance targetType)
+                return false;
+
+            // Structural (shape) check: an interface target matches when the value either declares the
+            // interface nominally or exposes compatible public members, so a nominal implementer is always a
+            // shape match too. This is the opt-in, permissive counterpart to the nominal `is`/implements.
             if (value is ClassInstance instance && TryGetStaticType(instance, out StaticInstance instanceType))
             {
                 return IsInterfaceType(targetType)

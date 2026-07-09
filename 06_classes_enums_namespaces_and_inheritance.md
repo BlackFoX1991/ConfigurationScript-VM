@@ -4,23 +4,46 @@
 
 A class in CFGS has a name, a constructor signature in the header, and a body that can contain fields, properties, methods, static members, enums, and even nested classes.
 
+Each simple parameter in the class header is automatically promoted to an instance field of the same name, initialized from the constructor argument. The common "hold these values" class therefore needs no field declarations and no `init`:
+
 ```cfs
 class Point(x, y) {
-    var x = 0;
-    var y = 0;
-
-    func init(x, y) {
-        this.x = x;
-        this.y = y;
-    }
-
     func sum() {
         return this.x + this.y;
     }
 }
+
+var p = new Point(3, 4);
+print(p.x);        # 3
+print(p.sum());    # 7
 ```
 
-The parameters in the class header define the constructor surface. The actual initialization usually happens in `init`.
+Here `x` and `y` become instance fields with no boilerplate. Add an explicit `init` only when construction needs logic beyond storing the arguments.
+
+### Primary Constructor and Field Promotion
+
+The header-parameter promotion rules are:
+
+- A simple parameter, with or without a default, becomes a public instance field of the same name.
+- The rest parameter (`*name`) is promoted too; its field holds the collected array.
+- A destructured parameter (`{a, b}` or `[a, b]`) is not promoted. Its bindings are still in scope inside field initializers, property initializers, and the base constructor call, so capture them into an explicit field if you want them stored.
+- Declaring `init` does not disable promotion. The parameters are promoted first, then `init` runs with the same arguments, so it can layer extra work on top.
+- If you also declare a field with the same name, the parameter value wins, because it is assigned after the field initializer runs.
+
+```cfs
+class Account(owner, balance = 0) {
+    var history = [];
+
+    func init(owner, balance = 0) {
+        this.history[] = "opened with " + str(balance);
+    }
+}
+
+var a = new Account("bob");
+print(a.owner);     # bob   (promoted)
+print(a.balance);   # 0     (promoted, default applied)
+print(a.history);   # ["opened with 0"]
+```
 
 ## Instance Fields and Static Fields
 
@@ -432,7 +455,7 @@ Interface checks are not limited to the method name. The compiler also validates
 
 ```cfs
 interface ILogger {
-    func write(level, message = "", ...tags);
+    func write(level, message = "", *tags);
 }
 
 interface IDataSource {
@@ -440,7 +463,7 @@ interface IDataSource {
 }
 
 class ConsoleLogger() : ILogger {
-    func write(level, message = "", ...tags) {
+    func write(level, message = "", *tags) {
         print(level + ": " + message);
         print(tags);
     }
@@ -512,7 +535,13 @@ Default methods may use `this` when they are instance methods. Static default me
 
 ### Interface Reflection and Structural Checks
 
-`interfaces(value)` returns the nominal interfaces attached to a class instance or type. `implements(value, iface)` performs the same runtime assignability check as `value is iface`. For interfaces, that includes nominal implementations and structural matches. `interfaceof(iface)` returns metadata for an interface declaration, including bases, methods, properties, and indexers. `interface_call(obj, iface, name, args)` invokes an explicit interface method first and falls back to a normal method with the same name.
+`interfaces(value)` returns the nominal interfaces attached to a class instance or type.
+
+`implements(value, iface)` performs the same runtime check as `value is iface`, and both are **nominal**: an interface target matches only when the class declares it, directly or through a base class or interface inheritance. A class that merely has the right members is not a match.
+
+`implements_shape(value, iface)` is the opt-in **structural** check. It returns true when the value satisfies the interface either nominally or by exposing compatible public members, so a nominal implementer is always a shape match too. Use it when you deliberately want duck-typed interface satisfaction.
+
+`interfaceof(iface)` returns metadata for an interface declaration, including bases, methods, properties, and indexers. `interface_call(obj, iface, name, args)` invokes an explicit interface method first and falls back to a normal method with the same name; its target must implement the interface nominally.
 
 ```cfs
 class StructuralName() {
@@ -521,8 +550,9 @@ class StructuralName() {
 }
 
 var item = new StructuralName();
-print(item is INamed);
-print(implements(item, INamed));
+print(item is INamed);              # false: StructuralName does not declare INamed
+print(implements(item, INamed));    # false: implements() is nominal, same as `is`
+print(implements_shape(item, INamed)); # true: the shape matches
 print(interfaceof(INamed)["methods"]);
 ```
 
@@ -987,6 +1017,8 @@ If the left side is not a class instance or the right side is not a class or int
 print("hello" is Car);  # false
 print(42 is Car);        # false
 ```
+
+For interface targets, `is` is a nominal check: it matches only a declared implementation, walking base classes and inherited interfaces, never a class that merely has compatible members. For a structural, duck-typed check use the `implements_shape(value, iface)` builtin instead (see [Interface Reflection and Structural Checks](#interface-reflection-and-structural-checks)).
 
 ## Reserved Names
 

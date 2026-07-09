@@ -80,6 +80,7 @@ internal sealed class CfgsAnalyzer
         new("getcAsync", 3, "builtin: getcAsync()"),
         new("interfaces", 3, "builtin: interfaces(value)"),
         new("implements", 3, "builtin: implements(value, interfaceType)"),
+        new("implements_shape", 3, "builtin: implements_shape(value, interfaceType)"),
         new("interfaceof", 3, "builtin: interfaceof(interfaceType)"),
         new("interface_call", 3, "builtin: interface_call(value, interfaceType, methodName, args = [])")
     ];

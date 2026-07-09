@@ -1,0 +1,60 @@
+import "edge_assert.cfs";
+
+edge_begin("229_primary_constructor_field_promotion");
+
+# Pure sugar: simple header params are promoted to instance fields, no var and no init needed.
+class Point(x, y) {
+    func sum() {
+        return this.x + this.y;
+    }
+}
+
+var p = new Point(3, 4);
+edge_eq("promote_x", p.x, 3);
+edge_eq("promote_y", p.y, 4);
+edge_eq("promote_method_reads_fields", p.sum(), 7);
+
+# Header params with defaults are promoted, and the default is applied when omitted.
+class Named(name, age = 0) {
+    func label() { return this.name + ":" + str(this.age); }
+}
+
+edge_eq("promote_default_omitted", new Named("bob").age, 0);
+edge_eq("promote_default_supplied", new Named("amy", 30).age, 30);
+edge_eq("promote_default_label", new Named("amy", 30).label(), "amy:30");
+
+# The rest parameter is promoted; its field holds the collected array.
+class Bag(first, *rest) {
+    func total() { return this.first + len(this.rest); }
+}
+
+var b = new Bag(10, 1, 2, 3);
+edge_eq("promote_rest_first", b.first, 10);
+edge_eq("promote_rest_len", len(b.rest), 3);
+edge_eq("promote_rest_elem", b.rest[1], 2);
+edge_eq("promote_rest_method", b.total(), 13);
+
+# An explicit field with the same name as a header param: the parameter value wins.
+class Explicit(x) {
+    var x = 99;
+    func get() { return this.x; }
+}
+
+edge_eq("explicit_field_param_wins", new Explicit(5).x, 5);
+edge_eq("explicit_field_param_wins_method", new Explicit(5).get(), 5);
+
+# init coexists with promotion: params are promoted first, then init layers extra work.
+class Account(owner, balance = 0) {
+    var history = [];
+
+    func init(owner, balance = 0) {
+        this.history[] = "opened with " + str(balance);
+    }
+}
+
+var a = new Account("bob");
+edge_eq("init_coexist_promoted_owner", a.owner, "bob");
+edge_eq("init_coexist_promoted_balance", a.balance, 0);
+edge_eq("init_coexist_init_ran", a.history[0], "opened with 0");
+
+edge_finish("229_primary_constructor_field_promotion");

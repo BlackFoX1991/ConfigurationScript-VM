@@ -265,15 +265,27 @@ namespace CFGS_VM.Analytic.Core
             int col = _current.Column;
             string file = _current.Filename;
 
-            Eat(TokenType.LBrace);
-            List<Stmt> stmts = ParseBlockStatementsUntilRBrace();
+            // Bound block nesting against runaway recursion (deeply nested `{ { { ... } } }`) using the same
+            // shared depth budget as expression nesting, so a pathological input produces a clean parse
+            // error rather than an uncatchable StackOverflowException that would hard-crash the process.
+            if (EnterExpressionRecursion() > MaxRecursionDepth)
+                throw new ParserException($"Maximum nesting depth ({MaxRecursionDepth}) exceeded", _current.Line, _current.Column, _current.Filename);
+            try
+            {
+                Eat(TokenType.LBrace);
+                List<Stmt> stmts = ParseBlockStatementsUntilRBrace();
 
-            if (_current.Type == TokenType.RBrace)
-                Eat(TokenType.RBrace);
-            else if (!IsTolerant)
-                Eat(TokenType.RBrace);
+                if (_current.Type == TokenType.RBrace)
+                    Eat(TokenType.RBrace);
+                else if (!IsTolerant)
+                    Eat(TokenType.RBrace);
 
-            return StampNode(new BlockStmt(stmts, line, col, file), startTokenIndex);
+                return StampNode(new BlockStmt(stmts, line, col, file), startTokenIndex);
+            }
+            finally
+            {
+                ExitExpressionRecursion();
+            }
         }
 
         private IfStmt ParseIf()

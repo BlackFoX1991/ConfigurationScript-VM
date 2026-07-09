@@ -30,7 +30,20 @@ namespace CFGS_VM.Analytic.Core
                     Expr? guard = ParseOptionalMatchGuard();
                     Eat(TokenType.Colon);
                     BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
-                    cases.Add(new CaseClause(pattern, guard, body, pattern.Line, pattern.Col, pattern.OriginFile));
+
+                    // An unguarded `case _:` is the catch-all default, identical to `default:` and to an
+                    // unguarded `_` arm in a match expression: it is order-independent and there may be at
+                    // most one per match. A guarded `case _ if (...):` stays an ordinary positional arm.
+                    if (pattern is WildcardMatchPattern && guard is null)
+                    {
+                        if (defaultCase is not null)
+                            throw new ParserException("multiple default case not allowed", pattern.Line, pattern.Col, pattern.OriginFile);
+                        defaultCase = body;
+                    }
+                    else
+                    {
+                        cases.Add(new CaseClause(pattern, guard, body, pattern.Line, pattern.Col, pattern.OriginFile));
+                    }
                 }
                 else if (_current.Type == TokenType.Default)
                 {
@@ -47,6 +60,23 @@ namespace CFGS_VM.Analytic.Core
         }
 
         private MatchPattern ParseMatchPattern()
+        {
+            // Bound nested pattern recursion (`[[[ ... ]]]`, `{a: {b: ...}}`) with the same shared depth
+            // budget as expressions and blocks, so a pathological pattern fails with a clean parse error
+            // instead of an uncatchable StackOverflowException.
+            if (EnterExpressionRecursion() > MaxRecursionDepth)
+                throw new ParserException($"Maximum nesting depth ({MaxRecursionDepth}) exceeded", _current.Line, _current.Column, _current.Filename);
+            try
+            {
+                return ParseMatchPatternCore();
+            }
+            finally
+            {
+                ExitExpressionRecursion();
+            }
+        }
+
+        private MatchPattern ParseMatchPatternCore()
         {
             if (_current.Type == TokenType.Ident && (_current.Value?.ToString() ?? "") == "_")
             {

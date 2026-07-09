@@ -14,7 +14,10 @@ namespace CFGS_VM.VMCore
         // v5: scope descriptors (per-block PUSH_SCOPE operands + a function-address→root-descriptor
         // table) are now serialized so slot-based local access (LOAD_SLOT/STORE_SLOT) round-trips through
         // .cfb. Bumped to reject older artifacts that lacked descriptors while carrying slot opcodes.
-        public const int CurrentBytecodeVersion = 5;
+        // v6: default parameters now lower to an IS_ARG_UNSET presence guard instead of `param == null`,
+        // so an explicitly passed null no longer triggers the default; only an omitted argument does.
+        // Bumped to reject older artifacts whose prologue still carries the null-based default semantics.
+        public const int CurrentBytecodeVersion = 6;
 
         public string Name { get; }
 

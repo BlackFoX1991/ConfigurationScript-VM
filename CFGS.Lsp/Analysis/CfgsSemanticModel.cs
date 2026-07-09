@@ -1988,6 +1988,7 @@ internal sealed class CfgsSemanticModelBuilder
         return target.Name switch
         {
             "implements" when callExpr.Args.Count >= 2 => 1,
+            "implements_shape" when callExpr.Args.Count >= 2 => 1,
             "interface_call" when callExpr.Args.Count >= 2 => 1,
             _ => null
         };

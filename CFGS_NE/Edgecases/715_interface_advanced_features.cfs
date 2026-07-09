@@ -70,8 +70,13 @@ func main() {
     edge_eq("interface_index_get_set", bag["id"], 42);
 
     var structural = new StructuralThing();
-    edge_true("structural_interface_is", structural is INamed);
-    edge_true("implements_builtin", implements(structural, INamed));
+    # `is` and implements() are nominal: a merely shape-compatible class is not a match.
+    edge_eq("structural_is_nominal_false", structural is INamed, false);
+    edge_eq("structural_implements_nominal_false", implements(structural, INamed), false);
+    # implements_shape() is the opt-in structural check and accepts the compatible shape.
+    edge_true("structural_implements_shape", implements_shape(structural, INamed));
+    # A nominal implementer also satisfies the shape check.
+    edge_true("nominal_also_implements_shape", implements_shape(named, INamed));
     edge_eq("interfaces_builtin_nominal_count", len(interfaces(named)), 1);
 
     var meta = interfaceof(INamed);

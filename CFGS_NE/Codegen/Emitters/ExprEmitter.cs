@@ -385,6 +385,10 @@ namespace CFGS_VM.VMCore
                     CompileMatchExpression(me);
                     break;
 
+                case ArgUnsetTestExpr au:
+                    _insns.Add(new Instruction(OpCode.IS_ARG_UNSET, au.ParameterName, au.Line, au.Col, au.OriginFile));
+                    break;
+
                 default:
                     throw new CompilerException($"unknown expr type {e?.GetType().Name}", e?.Line ?? -1, e?.Col ?? -1, e?.OriginFile ?? "");
             }

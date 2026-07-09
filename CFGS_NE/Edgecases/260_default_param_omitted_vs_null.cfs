@@ -1,0 +1,68 @@
+import "edge_assert.cfs";
+
+edge_begin("260_default_param_omitted_vs_null");
+
+# A default applies only when the argument is omitted. An explicitly passed null is a
+# real value and is kept, so the default does not fire for it.
+func opt(x = 42) {
+    return x;
+}
+
+edge_eq("omitted_uses_default", opt(), 42);
+edge_eq("explicit_null_kept", opt(null), null);
+edge_eq("explicit_value_kept", opt(7), 7);
+
+# The same rule applies to a named argument passed as null.
+func opt2(a, b = 99) {
+    return b;
+}
+
+edge_eq("named_omitted_default", opt2(1), 99);
+edge_eq("named_null_kept", opt2(1, b: null), null);
+
+# A default that refers to an earlier parameter still resolves when omitted, and is skipped
+# when an explicit null is supplied.
+func dep(a, b = a * 2) {
+    return b;
+}
+
+edge_eq("dep_omitted", dep(5), 10);
+edge_eq("dep_explicit_null", dep(5, null), null);
+
+# Methods follow the same rule.
+class Box() {
+    func val(v = 3) {
+        return v;
+    }
+}
+
+var box = new Box();
+edge_eq("method_omitted", box.val(), 3);
+edge_eq("method_null_kept", box.val(null), null);
+
+# Constructors (class header plus init) follow the same rule.
+class Conn(host, port = 8080) {
+    var host = "";
+    var port = 0;
+
+    func init(host, port = 8080) {
+        this.host = host;
+        this.port = port;
+    }
+}
+
+var c1 = new Conn("db");
+edge_eq("ctor_omitted", c1.port, 8080);
+
+var c2 = new Conn("db", null);
+edge_eq("ctor_null_kept", c2.port, null);
+
+# Function expressions (closures) follow the same rule.
+var fexpr = func(n = 5) {
+    return n;
+};
+
+edge_eq("closure_omitted", fexpr(), 5);
+edge_eq("closure_null_kept", fexpr(null), null);
+
+edge_finish("260_default_param_omitted_vs_null");

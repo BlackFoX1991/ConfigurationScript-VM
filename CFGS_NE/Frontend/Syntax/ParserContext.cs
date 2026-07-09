@@ -2,7 +2,14 @@ namespace CFGS_VM.Analytic.Core
 {
     internal sealed class ParserContext
     {
-        public const int DefaultMaxRecursionDepth = 256;
+        // Shared budget for every unbounded recursive-descent path (expression, block, and pattern
+        // nesting). It must stay comfortably below the point at which the runtime call stack overflows,
+        // because a StackOverflowException is uncatchable in .NET and hard-crashes the whole process
+        // (including the language server), bypassing every try/catch. A Debug build overflows at roughly
+        // 210 nested levels on the default 1 MB stack, so this leaves generous headroom while still
+        // allowing far deeper nesting than any real source needs; beyond it the parser reports a clean
+        // "maximum nesting depth exceeded" diagnostic instead of dying.
+        public const int DefaultMaxRecursionDepth = 128;
 
         public int MaxRecursionDepth { get; }
 

@@ -102,15 +102,17 @@ Before the await, `trace` is already `SC`. The start is hot, not fully lazy.
 
 CFGS also does not serialize shared mutable state for you. If multiple hot-started tasks read the same mutable value before they later `await` or `yield`, their later writes can overwrite each other, just like ordinary C# async code.
 
-The runtime now allows those continuations to resume in parallel as well. Core mutable CFGS runtime objects such as arrays, dictionaries, instance fields, and static fields are protected against structural corruption, but compound read-modify-write logic is still not atomic. `x = x + 1` can still lose updates unless you coordinate it yourself.
+The runtime does not run two bytecode segments at the same time. At any instant at most one execution context is running bytecode, while genuine I/O awaits run outside that boundary. Awaiting an array of hot-started calls still overlaps their I/O, but their bytecode resumes one segment at a time. Because of that, core mutable CFGS runtime objects such as arrays, dictionaries, instance fields, and static fields cannot be structurally corrupted by concurrent async calls.
 
-If you need strict ordering, serialize it explicitly in your CFGS code.
+What is still not atomic is a read-modify-write across a suspension point. Another async call may observe or change a shared value between your read and your write, so `x = x + 1` around an `await` or `yield` can still lose updates unless you coordinate it yourself.
+
+If you need strict ordering, serialize it explicitly in your CFGS code, for example by not suspending between the read and the write.
 
 ## Common Pitfall: `delay` Takes a Value, Not a Callback
 
 `task().delay(ms, value)` waits and then returns `value`. The second argument is evaluated immediately when the call is made.
 
-If you want a side effect to happen after the wait, do not pass it as the value argument (it is evaluated immediately) — place it after the `await`.
+If you want a side effect to happen after the wait, do not pass it as the value argument, because it is evaluated immediately. Place it after the `await`.
 
 ```cfs
 async func correct(timer) {

@@ -330,8 +330,10 @@ namespace CFGS_VM.VMCore
                         Env fastEnv = new(f.CapturedEnv, fastDescriptor);
                         for (int i = 0; i < argCount; i++)
                             fastEnv.DefineValue(f.Parameters[piStart + i], rawArgs[i]);
+                        // Omitted optional parameters get the Unset sentinel (not Null) so the default-
+                        // parameter prologue can tell an omitted argument apart from an explicit null.
                         for (int i = argCount; i < total; i++)
-                            fastEnv.DefineValue(f.Parameters[piStart + i], Value.Null);
+                            fastEnv.DefineValue(f.Parameters[piStart + i], Value.Unset);
                         return fastEnv;
                     }
                 }
@@ -449,7 +451,9 @@ namespace CFGS_VM.VMCore
                             instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }
 
-                    finalArgs[i] = Value.Null;
+                    // Omitted optional parameter: the Unset sentinel lets the default-parameter prologue
+                    // distinguish it from an explicitly passed null.
+                    finalArgs[i] = Value.Unset;
                 }
             }
 

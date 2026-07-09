@@ -99,14 +99,14 @@ This is the shorthand form for importing exactly one exported symbol by name. It
 import * as Tools from "tools.cfs";
 ```
 
-After that you access exports through the namespace alias.
+After that you access exports through the namespace alias, using dot member syntax.
 
 ```cfs
-Tools["add_base"](5)
-Tools["Flag"].On
+Tools.add_base(5)
+Tools.Flag.On
 ```
 
-Dot access also works in many cases. The bracket form is still especially explicit and robust. Enum members are the exception: they are always reached with dot access (`Tools["Flag"].On`), never with brackets, because an enum is not an indexable value.
+The alias is a namespace value, so it is accessed exclusively through dot access, exactly like a declared namespace such as `App.Core`. Bracket access on the alias (`Tools["add_base"]`) is a runtime error, because a namespace is not an indexable value. Enum members reached through the alias follow the same rule: `Tools.Flag.On`.
 
 ## File Resolution
 
@@ -123,9 +123,10 @@ This applies to both `.cfs` and `.dll`.
 
 The process `PATH` environment variable is not consulted for CFGS imports.
 
-Package restore lets scripts import restored plugins by DLL file name.
+Package restore lets scripts import restored plugins by their bare DLL file name. The resolver finds them in the nearest `.cfgs/plugins` directory, so you do not spell out a build path.
 
 ```cfs
+import "CFGS.Web.Http.dll";
 ```
 
 For the manifest and lockfile workflow, see [Package and Dependency Management](20_package_dependency_management.md).

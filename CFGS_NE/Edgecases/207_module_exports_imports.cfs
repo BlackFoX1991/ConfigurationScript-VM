@@ -11,11 +11,11 @@ var b1 = new Box(7);
 edge_eq("named_class", b1.get(), 7);
 edge_eq("named_enum", Mode.B, 2);
 
-edge_eq("star_const", Lib["nanswer"], 7);
-edge_eq("star_func", Lib["triple"](6), 18);
+edge_eq("star_const", Lib.nanswer, 7);
+edge_eq("star_func", Lib.triple(6), 18);
 
-var b2 = Lib["Crate"](9);
+var b2 = Lib.Crate(9);
 edge_eq("star_class", b2.get(), 9);
-edge_eq("star_enum", Lib["Flag"].On, 1);
+edge_eq("star_enum", Lib.Flag.On, 1);
 
 edge_finish("207_module_exports_imports");

@@ -247,5 +247,12 @@
         // Like INDEX_GET, but a missing namespace member yields null instead of raising an "undefined
         // member" error. Emitted only for the get-or-create probe the namespace lowerer wraps in `?? {}`.
         INDEX_GET_OPT,
+
+        // Default-parameter presence test. Operand = parameter name. Pushes true when that parameter's
+        // slot still holds the Unset omitted-argument sentinel (i.e. the caller supplied no value), false
+        // otherwise. Emitted only for the `if (<param> is unset) <param> = <default>` prologue the
+        // ParamLowerer generates, so an explicitly passed null no longer triggers the default. Appended at
+        // the end so existing opcode numbers (and .cfb bytecode) keep their values.
+        IS_ARG_UNSET,
     }
 }

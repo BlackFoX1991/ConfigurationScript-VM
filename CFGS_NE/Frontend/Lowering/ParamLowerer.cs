@@ -1,6 +1,5 @@
 using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.Analytic.Tree;
-using CFGS_VM.Analytic.Tokens;
 
 namespace CFGS_VM.Analytic.Lowering
 {
@@ -256,13 +255,10 @@ namespace CFGS_VM.Analytic.Lowering
 
                 if (parameter.DefaultValue is not null)
                 {
-                    Expr condition = new BinaryExpr(
-                        new VarExpr(parameter.Name, parameter.Line, parameter.Col, parameter.File),
-                        TokenType.Eq,
-                        new NullExpr(parameter.Line, parameter.Col, parameter.File),
-                        parameter.Line,
-                        parameter.Col,
-                        parameter.File);
+                    // Apply the default only when the argument was omitted, not when the caller passed an
+                    // explicit null. The presence test reads the Unset sentinel that BuildCallEnv leaves in
+                    // an omitted optional-parameter slot; a supplied null is an ordinary value and keeps it.
+                    Expr condition = new ArgUnsetTestExpr(parameter.Name, parameter.Line, parameter.Col, parameter.File);
 
                     BlockStmt thenBlock = new(
                         new List<Stmt>

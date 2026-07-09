@@ -138,7 +138,9 @@ namespace CFGS_VM.VMCore.Extensions.Core
                     // keep walking, so an inner TDZ slot does not shadow an outer real binding.
                     if (!local.IsUndefined)
                     {
-                        value = local;
+                        // An Unset slot is an omitted optional parameter: a present binding that reads as
+                        // null everywhere except the IS_ARG_UNSET default-parameter guard.
+                        value = local.IsUnset ? Value.Null : local;
                         return true;
                     }
                 }
@@ -160,8 +162,37 @@ namespace CFGS_VM.VMCore.Extensions.Core
             return false;
         }
 
-        /// <summary>Direct slot read (LOAD_SLOT). The caller has already walked to the owning scope.</summary>
-        public Value GetSlotValue(int index) => _slots[index];
+        /// <summary>
+        /// Direct slot read (LOAD_SLOT). The caller has already walked to the owning scope. An Unset slot
+        /// (an omitted optional parameter, only reachable transiently from a forward-referencing default
+        /// expression) reads as null; only the IS_ARG_UNSET guard sees the raw sentinel.
+        /// </summary>
+        public Value GetSlotValue(int index)
+        {
+            Value slot = _slots[index];
+            return slot.IsUnset ? Value.Null : slot;
+        }
+
+        /// <summary>
+        /// Raw presence test for the default-parameter prologue (IS_ARG_UNSET): true only when the nearest
+        /// binding of <paramref name="name"/> is the <see cref="Value.Unset"/> omitted-argument sentinel.
+        /// Bypasses the null coercion that every ordinary read applies, and skips Undefined TDZ slots the
+        /// same way normal resolution does.
+        /// </summary>
+        public bool IsArgUnset(string name)
+        {
+            for (Env? env = this; env != null; env = env.Parent)
+            {
+                if (env.TryIndexOf(name, out int idx))
+                {
+                    Value local = env._slots[idx];
+                    if (!local.IsUndefined)
+                        return local.IsUnset;
+                }
+            }
+
+            return false;
+        }
 
         /// <summary>Direct slot write (STORE_SLOT). The caller has already walked to the owning scope.</summary>
         public void SetSlotValue(int index, Value value) => _slots[index] = value;
@@ -192,7 +223,8 @@ namespace CFGS_VM.VMCore.Extensions.Core
                 Value local = _slots[idx];
                 if (!local.IsUndefined)
                 {
-                    value = local;
+                    // An Unset slot is an omitted optional parameter: reads as null outside the guard.
+                    value = local.IsUnset ? Value.Null : local;
                     return true;
                 }
             }

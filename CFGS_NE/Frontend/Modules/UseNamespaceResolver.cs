@@ -1246,7 +1246,9 @@ namespace CFGS_VM.Analytic.Modules
 
             if (rewrittenTarget is VarExpr builtinVar)
             {
-                if (string.Equals(builtinVar.Name, "implements", StringComparison.Ordinal) && rewrittenArgs.Count >= 2)
+                if ((string.Equals(builtinVar.Name, "implements", StringComparison.Ordinal)
+                        || string.Equals(builtinVar.Name, "implements_shape", StringComparison.Ordinal))
+                    && rewrittenArgs.Count >= 2)
                 {
                     rewrittenArgs[1] = RewriteTypeExpression(
                         callExpr.Args[1],

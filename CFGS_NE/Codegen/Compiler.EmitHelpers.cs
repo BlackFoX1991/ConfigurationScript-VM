@@ -26,8 +26,11 @@ namespace CFGS_VM.VMCore
             _insns.Add(new Instruction(OpCode.LOAD_VAR, parts[0], node.Line, node.Col, node.OriginFile));
             for (int i = 1; i < parts.Length; i++)
             {
+                // A qualified type path traverses namespace values, which require dot access (member
+                // access), so emit INDEX_GET as dot access rather than bracket. This keeps the compiler's
+                // own namespace traversal on the dot-only path that user code must also use.
                 _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], node.Line, node.Col, node.OriginFile));
-                _insns.Add(new Instruction(OpCode.INDEX_GET, null, node.Line, node.Col, node.OriginFile));
+                _insns.Add(new Instruction(OpCode.INDEX_GET, true, node.Line, node.Col, node.OriginFile));
             }
         }
 

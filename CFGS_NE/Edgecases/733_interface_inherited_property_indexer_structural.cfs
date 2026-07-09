@@ -66,10 +66,16 @@ var shape = new Shape();
 shape["b"] = 2;
 shape.value = 21;
 
-edge_true("structural_readable", shape is IReadable);
-edge_true("structural_readwrite", shape is IReadWrite);
-edge_true("structural_implements_named", implements(shape, INamed));
-edge_eq("structural_default_method_local", shape.label(), "n:shape");
+# `is` and implements() are nominal: Shape does not declare these interfaces, so they are false.
+edge_eq("structural_is_readable_nominal_false", shape is IReadable, false);
+edge_eq("structural_is_readwrite_nominal_false", shape is IReadWrite, false);
+edge_eq("structural_implements_named_nominal_false", implements(shape, INamed), false);
+# implements_shape() is the opt-in structural check and accepts Shape by its compatible members.
+edge_true("structural_readable_shape", implements_shape(shape, IReadable));
+edge_true("structural_readwrite_shape", implements_shape(shape, IReadWrite));
+edge_true("structural_implements_shape_named", implements_shape(shape, INamed));
+# Member access, indexers, and Shape's own methods are unaffected by the interface check.
+edge_eq("structural_own_method_local", shape.label(), "n:shape");
 edge_eq("structural_indexer_get", shape["b"], 2);
 edge_eq("structural_property_set", shape.value, 21);
 

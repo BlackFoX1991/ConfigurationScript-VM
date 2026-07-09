@@ -32,7 +32,12 @@ edge_eq("nominal_interface_call_base_default", interface_call(nominal, INamed, "
 edge_eq("nominal_interface_call_derived_default", interface_call(nominal, ITagged, "label"), "name:box");
 
 var structural = new StructuralBox();
-edge_true("structural_is_named", structural is INamed);
-edge_eq("structural_interface_call_local_method", interface_call(structural, INamed, "label"), "local:shape");
+# `is` is nominal: a shape-compatible class that does not declare the interface is not a match.
+edge_eq("structural_is_nominal_false", structural is INamed, false);
+edge_true("structural_implements_shape", implements_shape(structural, INamed));
+# interface_call is nominal-gated, so a structural-only value is rejected.
+edge_throws("structural_interface_call_requires_nominal", func() {
+    return interface_call(structural, INamed, "label");
+});
 
 edge_finish("746_interface_call_default_methods");

@@ -26,6 +26,19 @@ func describe(v) {
 
 A `match` statement uses `case` for regular arms and `default` for the fallback.
 
+### `case _` as the fallback
+
+The wildcard pattern `_` is also valid in a `case` arm, so the same pattern vocabulary works in both the statement and the expression form. An unguarded `case _:` is exactly the fallback, identical to `default:`.
+
+```cfs
+match (v) {
+    case 1: { result = "one"; }
+    case _: { result = "other"; }   # same as writing default: { ... }
+}
+```
+
+Like `default:`, an unguarded `case _:` is order-independent: it runs only when no other case matches, regardless of where it appears. A match statement has at most one fallback, so combining an unguarded `case _:` with a `default:` arm (or writing two of either) is rejected. A guarded `case _ if (...):` is an ordinary positional arm, not the fallback.
+
 ## Match as an Expression
 
 As an expression, `match` becomes especially compact.

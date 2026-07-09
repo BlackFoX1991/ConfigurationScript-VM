@@ -1,0 +1,49 @@
+import "edge_assert.cfs";
+
+edge_begin("261_match_statement_wildcard_default");
+
+# In a match statement, an unguarded `case _:` is the catch-all default, exactly like `default:`
+# and like an unguarded `_` arm in a match expression.
+func classify(v) {
+    var r = "?";
+    match (v) {
+        case 1: { r = "one"; }
+        case _: { r = "other"; }
+    }
+    return r;
+}
+
+edge_eq("wildcard_matches_named_case", classify(1), "one");
+edge_eq("wildcard_fallback_number", classify(2), "other");
+edge_eq("wildcard_fallback_string", classify("x"), "other");
+
+# The catch-all is order-independent: it runs only when no other case matches, no matter where it
+# is written, matching the unguarded `_` arm of a match expression.
+func order_independent(v) {
+    var r = "?";
+    match (v) {
+        case _: { r = "fallback"; }
+        case 42: { r = "answer"; }
+    }
+    return r;
+}
+
+edge_eq("wildcard_before_case_still_matches_case", order_independent(42), "answer");
+edge_eq("wildcard_before_case_fallback", order_independent(0), "fallback");
+
+# A guarded `case _ if (...):` is an ordinary positional arm, not the default.
+func guarded(v) {
+    var r = "none";
+    match (v) {
+        case _ if (v > 10): { r = "big"; }
+        case 2: { r = "two"; }
+        default: { r = "small"; }
+    }
+    return r;
+}
+
+edge_eq("guarded_wildcard_arm", guarded(50), "big");
+edge_eq("guarded_wildcard_case", guarded(2), "two");
+edge_eq("guarded_wildcard_default", guarded(3), "small");
+
+edge_finish("261_match_statement_wildcard_default");

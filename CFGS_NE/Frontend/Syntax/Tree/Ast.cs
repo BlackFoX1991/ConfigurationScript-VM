@@ -196,6 +196,18 @@ namespace CFGS_VM.Analytic.Tree
         public string Name = n;
     }
 
+    /// <summary>
+    /// Compiler-synthesized default-parameter presence test. Produced only by the ParamLowerer prologue as
+    /// the condition of <c>if (&lt;param&gt; is unset) &lt;param&gt; = &lt;default&gt;</c>; it compiles to the
+    /// IS_ARG_UNSET opcode, which is true when the parameter was omitted by the caller (its slot still holds
+    /// the Unset sentinel) and false when a value, including an explicit null, was supplied. Never produced
+    /// by the parser, so it only ever appears in the lowered tree the code emitter consumes.
+    /// </summary>
+    public sealed class ArgUnsetTestExpr(string parameterName, int line, int col, string fname) : Expr(line, col, fname)
+    {
+        public string ParameterName = parameterName;
+    }
+
     public class BinaryExpr : Expr
     {
         public Expr Left;

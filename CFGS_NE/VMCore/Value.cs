@@ -41,7 +41,17 @@ namespace CFGS_VM.VMCore
         /// a scope's slots are allocated up front from a <c>ScopeDescriptor</c>. Never a script-visible
         /// value; it must not escape to the operand stack or the host boundary.
         /// </summary>
-        Undefined
+        Undefined,
+
+        /// <summary>
+        /// The "argument was not supplied" sentinel used to fill an omitted optional parameter slot at
+        /// call time. Unlike <see cref="Undefined"/> it is a <em>present</em> binding (name resolution
+        /// reads it in place rather than walking outward), which lets a default-parameter prologue tell
+        /// "omitted" apart from an explicitly passed <c>null</c>. Only the <c>IS_ARG_UNSET</c> guard ever
+        /// observes it directly; every ordinary read coerces it to <see cref="Null"/>, so it behaves as
+        /// <c>null</c> everywhere else and never becomes a script-visible value.
+        /// </summary>
+        Unset
     }
 
     /// <summary>
@@ -72,6 +82,12 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public static readonly Value Undefined = new(ValueKind.Undefined, 0, null);
 
+        /// <summary>
+        /// The "argument was not supplied" sentinel for an omitted optional parameter. See
+        /// <see cref="ValueKind.Unset"/>.
+        /// </summary>
+        public static readonly Value Unset = new(ValueKind.Unset, 0, null);
+
         /// <summary>Gets the storage discriminator.</summary>
         public ValueKind Kind => _kind;
 
@@ -79,6 +95,9 @@ namespace CFGS_VM.VMCore
 
         /// <summary>True for the <see cref="Undefined"/> scope-slot sentinel.</summary>
         public bool IsUndefined => _kind == ValueKind.Undefined;
+
+        /// <summary>True for the <see cref="Unset"/> omitted-argument sentinel.</summary>
+        public bool IsUnset => _kind == ValueKind.Unset;
 
         public bool IsReference => _kind == ValueKind.Ref;
 

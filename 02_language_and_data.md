@@ -78,6 +78,52 @@ Supported escape sequences include these.
 - `\u263A`
 - `\x41`
 
+### Interpolated Strings
+
+A string prefixed with `$` supports interpolation. Inside it, `{expr}` embeds the value of an expression.
+
+```cfs
+var name = "cfgs";
+print($"hello {name}");      # hello cfgs
+print($"sum={1 + 2}");       # sum=3
+```
+
+A literal brace is written by doubling it.
+
+```cfs
+print($"{{{name}}}");         # {cfgs}
+```
+
+Non-string values use the same textual form that `print` produces.
+
+```cfs
+var dict = {"a": 1};
+print($"dict={dict}");        # dict={"a": 1}
+```
+
+An interpolation hole may carry an alignment and a format specifier as `{expr,align:format}`, following .NET composite formatting. Because a bare `:` begins the format specifier, a conditional expression inside a hole must be wrapped in parentheses.
+
+```cfs
+print($"pick={(true ? "x" : "y")}");   # pick=x
+# $"{true ? 1 : 2}"  -> error: the conditional must be parenthesized
+```
+
+### Verbatim Strings
+
+A string prefixed with `@` is verbatim. Backslashes are literal, and a doubled quote `""` produces a single quote.
+
+```cfs
+var path = @"C:\temp\folder\file.txt";
+var quoted = @"say ""hi""";           # say "hi"
+```
+
+The two prefixes combine as `$@"..."` or `@$"..."`, giving an interpolated verbatim string.
+
+```cfs
+var name = "cfgs";
+print($@"C:\{name}\logs");            # C:\cfgs\logs
+```
+
 ### Chars
 
 Char literals use single quotes.
@@ -227,6 +273,18 @@ Data is accessed through brackets. Dot access on a dictionary is reserved for it
 ```cfs
 print(cfg["host"]);   # data access
 ```
+
+### Reading a Missing Key
+
+Reading a key that is not present returns `null` instead of raising an error. This is what makes the `??` fallback pattern work.
+
+```cfs
+var cfg = {"host": "localhost"};
+print(cfg["port"]);         # null
+print(cfg["port"] ?? 80);   # 80
+```
+
+Deleting a key behaves differently. `delete cfg["missing"]` on an absent key raises a runtime error.
 
 ### Merging
 

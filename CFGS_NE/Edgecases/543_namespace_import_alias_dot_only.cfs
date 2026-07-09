@@ -1,0 +1,21 @@
+import * as Lib from "_imports/mod_exports_ns.cfs";
+import "edge_assert.cfs";
+
+edge_begin("543_namespace_import_alias_dot_only");
+
+# A namespace import alias is accessed exclusively through dot member syntax, exactly like a
+# declared namespace. Dot access resolves functions, constants, and enums.
+edge_eq("dot_const", Lib.nanswer, 7);
+edge_eq("dot_func", Lib.triple(6), 18);
+edge_eq("dot_enum", Lib.Flag.On, 1);
+
+# Bracket access on the alias is a runtime error, both for reads and writes, because a namespace
+# is not an indexable value.
+edge_throws("bracket_read_rejected", func() {
+    return Lib["nanswer"];
+});
+edge_throws("bracket_write_rejected", func() {
+    Lib["injected"] = 1;
+});
+
+edge_finish("543_namespace_import_alias_dot_only");

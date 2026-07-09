@@ -60,7 +60,7 @@ var b = new B.Same(22);
 edge_eq("same_name_ns_a", a.get(), 11);
 edge_eq("same_name_ns_b", b.get(), 22);
 
-edge_eq("import_ns_kept", Lib["triple"](4), 12);
+edge_eq("import_ns_kept", Lib.triple(4), 12);
 edge_eq("declared_ns_local", LocalLib.local(5), 6);
 
 edge_throws("ns_no_global_class", func() { return Foo; });

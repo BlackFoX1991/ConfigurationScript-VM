@@ -1726,8 +1726,11 @@ namespace CFGS_VM.VMCore
             bool found = false;
             if (TryGetStaticType(ci, out StaticInstance instType))
             {
+                // `is` is a nominal check: an interface target matches only when the class declares it
+                // (directly, through a base class, or through interface inheritance). A value that merely
+                // has a compatible shape is not an `is` match; use the implements_shape builtin for that.
                 found = IsInterfaceType(target)
-                    ? ImplementsInterface(instType, target) || StructurallyImplementsInterface(ci, instType, target)
+                    ? ImplementsInterface(instType, target)
                     : IsSameOrDerivedStaticType(instType, target);
             }
             _valueStack.Push(Value.FromBool(found));

@@ -45,6 +45,8 @@ The lexer recognizes these token families:
 
 Numeric literals may be written in decimal, hexadecimal (`0x`), binary (`0b`), or octal (`0o`) form, with optional `_` digit separators. Non-decimal literals are interpreted as unsigned magnitudes and promote to `BigInteger` when they exceed 64 bits; they never carry a two's-complement sign.
 
+String literals may be plain (`"..."`), verbatim (`@"..."`, where backslashes are literal and `""` denotes a single quote), interpolated (`$"..."`, where `{expr}` embeds an expression and `{{`/`}}` denote literal braces), or both (`$@"..."` and `@$"..."`). An interpolation hole MAY carry a `,alignment` and a `:format` specifier following .NET composite formatting. Because `:` begins the format specifier, a conditional expression inside an interpolation hole MUST be parenthesized.
+
 Operators are matched with longest-match precedence. In particular the three-character merge operators `<<<` and `>>>` are recognized before the two-character shift operators `<<` and `>>`.
 
 Whitespace separates tokens where needed and otherwise has no semantic meaning, except inside string and character literals.
@@ -201,11 +203,13 @@ Array indexes are zero-based. Out-of-range indexes MUST fail.
 
 Dictionary data is accessed with bracket indexing and requires a string-compatible key. Any non-empty string is a valid data key; intrinsic method names are NOT reserved, because dictionary data and dictionary methods are separated by syntax (see Dot Member Access). Dot access on a dictionary resolves an intrinsic method only and MUST NOT read or write a data key.
 
+Reading a dictionary key that is absent MUST return `null` rather than fail, which is what makes the `??` fallback idiom work. Deleting an absent key MUST fail with a runtime error.
+
 Slicing is supported for arrays and strings, and dictionary slice behavior is defined by the runtime collection rules.
 
 Push syntax appends to arrays or writes supported collection targets. Invalid push targets MUST fail.
 
-`delete` removes variables, indexes, slices, or object members only where the target form allows deletion.
+`delete` clears the entire array or dictionary named by a bare variable, removes an element by index, removes a range by slice, or removes a dictionary entry by bracket key, only where the target form allows deletion. It does not unbind the variable itself, and a dictionary entry MUST be removed through bracket access rather than dot access.
 
 Bracket access is collection/index access. It MUST NOT be treated as class member access.
 
@@ -256,7 +260,7 @@ Named arguments MUST match parameters unless the callee explicitly supports a re
 
 Duplicate named arguments MUST fail.
 
-Default parameters are applied when an argument is omitted or when the lowered function initialization rule selects the default.
+Default parameters are applied when the corresponding argument is omitted at the call site. An explicitly passed `null` is a supplied value and MUST NOT trigger the default. The two cases are distinguished by parameter presence, not by comparing the parameter to `null`, so a caller can pass `null` as a meaningful argument to an optional parameter.
 
 Rest parameters collect remaining positional arguments into an array and MUST appear last.
 
@@ -272,7 +276,9 @@ A class declaration defines a static class object and a runtime instance shape.
 
 Instances are created with `new ClassName(...)`.
 
-If a class defines an `init` method, object construction calls `init` after allocating the instance. Constructor parameters and `init` parameters MUST follow the class constructor rules documented for classes.
+Each simple parameter in the class header (including the rest parameter) MUST be promoted to a public instance field of the same name, initialized from the corresponding constructor argument. A destructured header parameter MUST NOT be promoted, though its bindings remain available to field initializers, property initializers, and the base constructor call. Promotion happens before any explicit field initializer of the same name, so where both exist the parameter value is the one observed after construction.
+
+If a class defines an `init` method, object construction calls `init` after allocating the instance and after header-parameter promotion. Constructor parameters and `init` parameters MUST follow the class constructor rules documented for classes.
 
 Instance members belong to instances. Static members belong to the static class object.
 
@@ -362,9 +368,9 @@ Interface indexer contracts use `index get(...)` and `index set(...)`. Implement
 
 Explicit interface method implementations use an interface-qualified method declaration such as `func IFace.member(...) { ... }`. Implementations MUST satisfy the same signature and visibility rules as normal interface methods. `interface_call(value, interfaceType, methodName, args)` MUST prefer explicit implementations before falling back to normal methods.
 
-Runtime interface checks MUST accept nominal implementations. For interface targets, runtime checks MAY also accept structural implementations when the value exposes compatible public members.
+The `is` operator and the `implements` builtin are nominal for interface targets: they MUST accept a declared implementation (direct, through a base class, or through interface inheritance) and MUST NOT accept a value that merely exposes compatible members. Structural, shape-based satisfaction MUST be requested explicitly through the `implements_shape` builtin, which accepts both nominal implementations and values whose public members match the interface. `interface_call` MUST gate on the same nominal check as `is`.
 
-The builtins `interfaces(value)`, `implements(value, interfaceType)`, `interfaceof(interfaceType)`, and `interface_call(value, interfaceType, methodName, args)` expose interface reflection and dispatch support.
+The builtins `interfaces(value)`, `implements(value, interfaceType)`, `implements_shape(value, interfaceType)`, `interfaceof(interfaceType)`, and `interface_call(value, interfaceType, methodName, args)` expose interface reflection and dispatch support. `implements` is nominal (equivalent to `value is interfaceType`); `implements_shape` additionally accepts structural matches.
 
 Interfaces MUST NOT extend classes.
 
@@ -413,6 +419,8 @@ File-scoped namespace declarations MUST appear where the header rules allow them
 Imports are header-oriented. Imports in invalid positions MUST fail.
 
 CFGS supports source imports, module imports, named imports, alias imports, namespace imports, URL imports, DLL plugin imports, and native .NET imports where enabled by the host.
+
+A namespace import alias (`import * as Alias from ...`) introduces a namespace value. Its members MUST be accessed through dot member syntax (`Alias.member`), and bracket access on the alias MUST fail, the same rule that applies to declared namespaces.
 
 Import resolution searches documented locations in order:
 
@@ -523,9 +531,9 @@ CLI diagnostics SHOULD preserve the original category and message while prefixin
 
 The first matching arm is selected.
 
-Default arms match when no earlier arm matches.
+Default arms match when no earlier arm matches. The default is expressed by `default:` in a statement and by an unguarded `_` arm in an expression. An unguarded wildcard `case _:` in a statement is equivalent to `default:`: it is a default arm, not a positional arm, and is order-independent. A guarded wildcard (`_ if (...)`) is an ordinary arm in either form.
 
-Multiple defaults in the same match construct MUST fail.
+Multiple defaults in the same match construct MUST fail. This includes combining `default:` with an unguarded `case _:`, and any repetition of the unguarded wildcard default.
 
 Pattern variable bindings introduce names in the arm scope.
 

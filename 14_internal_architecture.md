@@ -108,7 +108,7 @@ The productive compiler now uses a lightweight `BoundProgram` handoff between sy
   - Namespace bodies are wrapped in a scoped `BlockStmt` with a synthetic namespace temp such as `__ns_scope_*`.
   - Parser-only namespace import alias nodes such as `NamespaceImportAliasStmt` and `ImportAliasDeclStmt` are rewritten into ordinary alias declarations and indexed assignments. Native namespace roots registered by the host or plugins are resolved later through the namespace registry, not by parser side effects.
 - `ParamLowerer` rewrites function sugar into ordinary statements inside function bodies.
-  - Default parameters become `if (param == null) param = <default>` style initialization statements at the start of the body.
+  - Default parameters become `if (<param> is unset) param = <default>` style initialization statements at the start of the body. The guard compiles to the `IS_ARG_UNSET` opcode, which tests whether the call left the parameter slot holding the `Unset` omitted-argument sentinel, so an explicitly passed `null` is kept and does not trigger the default.
   - Destructure parameters become explicit `DestructureDeclStmt` nodes against the synthetic parameter variable.
   - After lowering, function declarations and function expressions keep plain parameter lists and preserve `ParameterSpecs` metadata for downstream validation and tooling.
 

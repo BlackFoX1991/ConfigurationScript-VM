@@ -1217,9 +1217,15 @@ namespace CFGS_VM.VMCore
 
                 case NamespaceInstance ns:
                     {
-                        // Namespaces are a distinct type with no data/method ambiguity, so member
-                        // access is resolved for both dot and bracket forms. (The dictionary
-                        // bracket-only-for-data rule applies to user dictionaries, not namespaces.)
+                        // Namespace members require dot access (Ns.member). A namespace is not an indexable
+                        // value, so bracket access is rejected here at runtime, matching the compile-time rule
+                        // for statically known namespace paths. The internal get-or-create probe and every
+                        // qualified access the lowerer emits use dot access, so they are unaffected.
+                        if (!IsMemberAccessInstruction(instr))
+                            throw new VMException(
+                                $"Runtime error: namespace '{ns.Name}' members require dot access; use {ns.Name}.{idxObj} instead of {ns.Name}[\"{idxObj}\"]",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
                         string nsKey = idxObj?.ToString() ?? "";
                         if (ns.Members.TryGetValue(nsKey, out object? nsMember))
                             return nsMember;
@@ -1474,8 +1480,14 @@ namespace CFGS_VM.VMCore
 
                 case NamespaceInstance ns:
                     {
-                        // Namespace members are written by the synthetic namespace lowering (and may be
-                        // addressed by either dot or bracket form); there is no data/method ambiguity.
+                        // Namespace members are written through dot access, both by the synthetic namespace
+                        // lowering and by any user assignment. Bracket access is rejected so a namespace value
+                        // stays dot-only, mirroring the read path and the compile-time namespace rule.
+                        if (!IsMemberAccessInstruction(instr))
+                            throw new VMException(
+                                $"Runtime error: namespace '{ns.Name}' members require dot access; use {ns.Name}.{idxObj} = ... instead of {ns.Name}[\"{idxObj}\"] = ...",
+                                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
                         string nsKey = idxObj?.ToString() ?? string.Empty;
                         if (nsKey.Length == 0)
                             throw new VMException("Runtime error: namespace member name cannot be empty", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);

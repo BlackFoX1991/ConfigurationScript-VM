@@ -522,13 +522,10 @@ namespace CFGS_VM.VMCore
 
                 if (parameter.DefaultValue is not null)
                 {
-                    Expr condition = new BinaryExpr(
-                        new VarExpr(parameter.Name, parameter.Line, parameter.Col, parameter.File),
-                        TokenType.Eq,
-                        new NullExpr(parameter.Line, parameter.Col, parameter.File),
-                        parameter.Line,
-                        parameter.Col,
-                        parameter.File);
+                    // Mirror the ParamLowerer prologue: apply the default only when the constructor argument
+                    // was omitted, not when an explicit null was passed. The presence test reads the Unset
+                    // sentinel that BuildCallEnv leaves in an omitted optional-parameter slot.
+                    Expr condition = new ArgUnsetTestExpr(parameter.Name, parameter.Line, parameter.Col, parameter.File);
 
                     BlockStmt thenBlock = new(
                         new List<Stmt>

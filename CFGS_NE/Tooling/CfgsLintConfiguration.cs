@@ -41,7 +41,8 @@ internal static class CfgsLintRuleRegistry
         ["CFGS8018"] = new("CFGS8018", CfgsToolDiagnosticSeverity.Warning, true, true),
         ["CFGS8019"] = new("CFGS8019", CfgsToolDiagnosticSeverity.Warning, false, true),
         ["CFGS8020"] = new("CFGS8020", CfgsToolDiagnosticSeverity.Warning, true, true),
-        ["CFGS8021"] = new("CFGS8021", CfgsToolDiagnosticSeverity.Warning, false, true)
+        ["CFGS8021"] = new("CFGS8021", CfgsToolDiagnosticSeverity.Warning, false, true),
+        ["CFGS8022"] = new("CFGS8022", CfgsToolDiagnosticSeverity.Warning, true, true)
     };
 
     public static bool ContainsRule(string code)

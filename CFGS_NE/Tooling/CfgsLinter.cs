@@ -810,6 +810,7 @@ internal static class CfgsLinter
                     else
                         VisitExpr(b.Right);
                     MaybeReportSuspiciousEquality(b);
+                    MaybeReportCharArithmetic(b);
                     break;
 
                 case UnaryExpr u:
@@ -1067,6 +1068,7 @@ internal static class CfgsLinter
             return target.Name switch
             {
                 "implements" when callExpr.Args.Count >= 2 => 1,
+                "implements_shape" when callExpr.Args.Count >= 2 => 1,
                 "interface_call" when callExpr.Args.Count >= 2 => 1,
                 _ => null
             };
@@ -1298,6 +1300,33 @@ internal static class CfgsLinter
 
             if (TryEvaluateEqualityComparison(binary.Left, binary.Right, binary.Op, out bool result))
                 Add("CFGS8018", $"comparison is always {ToBooleanLiteral(result)}", binary);
+        }
+
+        private void MaybeReportCharArithmetic(BinaryExpr binary)
+        {
+            // Flag only genuine numeric coercions: arithmetic and bitwise operators. Subtraction is
+            // excluded because `'9' - '0'` and `c - 'a'` are the idiomatic offset/digit patterns, and
+            // comparison, equality, and logical operators are deliberate char ordering, not surprises.
+            if (binary.Op is not (
+                TokenType.Plus or TokenType.Star or TokenType.Slash or TokenType.Modulo or TokenType.Expo or
+                TokenType.bAnd or TokenType.bOr or TokenType.bXor or TokenType.bShiftL or TokenType.bShiftR))
+                return;
+
+            bool leftChar = binary.Left is CharExpr;
+            bool rightChar = binary.Right is CharExpr;
+            if (!leftChar && !rightChar)
+                return;
+
+            // Require both operands to be char/number literals so the report never misfires on a char
+            // literal combined with a runtime value (for example `'>' + line`, which is concatenation).
+            if (binary.Left is not (CharExpr or NumberExpr) || binary.Right is not (CharExpr or NumberExpr))
+                return;
+
+            char sample = (leftChar ? (CharExpr)binary.Left : (CharExpr)binary.Right).Value;
+            Add(
+                "CFGS8022",
+                $"char literal '{sample}' coerces to its code point ({(int)sample}) in this arithmetic; write int('{sample}') to make the numeric intent explicit, or use string concatenation for text",
+                binary);
         }
 
         private void MaybeReportConstantCondition(Expr condition)

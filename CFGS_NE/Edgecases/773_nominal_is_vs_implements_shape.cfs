@@ -1,0 +1,55 @@
+import "edge_assert.cfs";
+
+edge_begin("773_nominal_is_vs_implements_shape");
+
+interface IShape {
+    func area();
+}
+
+# Nominal implementer: declares IShape in its header.
+class Circle() : IShape {
+    func area() {
+        return 3;
+    }
+}
+
+# Structural look-alike: the same public members, but no interface declaration.
+class Rect() {
+    func area() {
+        return 4;
+    }
+}
+
+# Unrelated: missing the required member entirely.
+class Blob() {
+    func size() {
+        return 5;
+    }
+}
+
+var circle = new Circle();
+var rect = new Rect();
+var blob = new Blob();
+
+# `is` is a nominal check: only a declared implementation matches.
+edge_true("nominal_is", circle is IShape);
+edge_eq("structural_is_false", rect is IShape, false);
+edge_eq("unrelated_is_false", blob is IShape, false);
+
+# implements() mirrors `is` exactly (also nominal).
+edge_true("nominal_implements", implements(circle, IShape));
+edge_eq("structural_implements_false", implements(rect, IShape), false);
+
+# implements_shape() is the opt-in structural check: a declared implementer and a shape-
+# compatible look-alike both pass, while a value missing the members does not.
+edge_true("nominal_implements_shape", implements_shape(circle, IShape));
+edge_true("structural_implements_shape", implements_shape(rect, IShape));
+edge_eq("unrelated_implements_shape_false", implements_shape(blob, IShape), false);
+
+# interface_call is nominal-gated: a structural-only value is rejected.
+edge_eq("nominal_interface_call", interface_call(circle, IShape, "area"), 3);
+edge_throws("structural_interface_call_throws", func() {
+    return interface_call(rect, IShape, "area");
+});
+
+edge_finish("773_nominal_is_vs_implements_shape");
