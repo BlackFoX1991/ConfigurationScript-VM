@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.8.5 - 2026-07-10
+
+### Fixed
+- The language server no longer crashes on deeply nested source. A file with a very deep chain of nested parentheses, brackets, or blocks previously overflowed the parser's call stack, which terminated the whole server process (all diagnostics, hovers, and references disappeared until a restart). The parser now reports a clean "maximum nesting depth exceeded" diagnostic instead.
+
+### Changed
+- Updated the bundled CFGS language server to the current compiler. Editor diagnostics now reflect several language refinements: interface checks with `is` and the `implements` builtin are nominal (a new `implements_shape` builtin covers structural matches and is offered in completion); a namespace import alias (`import * as X`) is accessed with dot syntax only; an unguarded `case _:` acts as the match default; and an explicitly passed `null` no longer triggers a parameter default.
+
+### Added
+- New lint diagnostic CFGS8022 flags a char literal used in arithmetic or a bitwise operation, where it silently coerces to its Unicode code point (for example `'a' + 'b'`). It reports only literal operands, so it never fires on string concatenation, on a char combined with a variable, or on subtraction and comparisons.
+
 ## 0.8.4 - 2026-07-08
 
 ### Fixed
