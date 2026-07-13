@@ -2,9 +2,14 @@
 
 ## 0.8.6 - 2026-07-13
 
+### Changed
+- The entry script's top level is fully imperative in the updated language server: control flow (`if`, loops, `match`, `try`), `throw`, `using`, `delete`, and bare `await` statements are now valid directly at the top level of a directly executed script, so the editor no longer reports "invalid top-level statement" for them. Imported modules and namespace bodies stay declaration-only. Context-bound forms keep their diagnostics (`return`/`yield` need a function, `break`/`continue` need a loop, `defer` needs a block).
+
 ### Fixed
-- The language server no longer freezes while typing on momentarily broken code. A parse attempt that failed on a token the error recovery did not step over (a stray `}`, or a keyword that is invalid at exactly that position, such as a top level `if` or an `export` inside a function body) retried the identical parse forever. The server then spun at full CPU with growing memory, and diagnostics, hovers, and live lint stopped updating until a restart. Since an extra or missing brace is a normal intermediate state during editing, this could trigger on almost every editing session. Error recovery now always makes progress, and a regression test covers the previously hanging inputs.
+- The language server no longer freezes while typing on momentarily broken code. A parse attempt that failed on a token the error recovery did not step over (a stray `}`, or a keyword that is invalid at exactly that position, such as an `export` inside a function body) retried the identical parse forever. The server then spun at full CPU with growing memory, and diagnostics, hovers, and live lint stopped updating until a restart. Since an extra or missing brace is a normal intermediate state during editing, this could trigger on almost every editing session. Error recovery now always makes progress, and a regression test covers the previously hanging inputs.
 - Statement error recovery itself can no longer abort the resilient parse: skipping garbage tokens now bypasses the reserved identifier validation, which previously could throw from inside the recovery path.
+- Lint rule CFGS8013 (function is never called in this file) no longer flags functions whose calls appear before their declaration; forward calls are legal because declarations are hoisted.
+- Lint rule CFGS8014 (async function does not await anything) no longer flags async functions whose only suspension point is `yield`, since `yield` requires an async function.
 
 ## 0.8.5 - 2026-07-10
 

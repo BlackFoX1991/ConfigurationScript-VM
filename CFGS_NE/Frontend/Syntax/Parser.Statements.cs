@@ -219,12 +219,13 @@ namespace CFGS_VM.Analytic.Core
                     _current.Line, _current.Column, _current.Filename);
             }
 
-            if (TryParseCommonStatement(out Stmt stmt))
-                return stmt;
-
-            throw new ParserException(
-                $"invalid top-level statement {_current.Type}",
-                _current.Line, _current.Column, _current.Filename);
+            // The entry script's top level is fully imperative: control flow, loops, try/catch,
+            // using, throw, and expression statements are allowed directly, exactly as inside a
+            // function body. Context-bound forms keep their guards (return/yield need a function,
+            // break/continue need a loop, await needs an async function, defer needs a block).
+            // Imported modules (TopLevelMode.Module) and namespace bodies stay declaration-only
+            // so imports remain side-effect free and idempotent.
+            return ParseStatementInMemberScope();
         }
 
         /// <summary>

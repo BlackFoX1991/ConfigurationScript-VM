@@ -18,7 +18,11 @@ Across several lines.
 
 ## Top Level Rules
 
-At top level these forms are the declaration-oriented set used by imported modules and namespace bodies.
+CFGS distinguishes two top level contexts.
+
+The top level of a directly executed script is fully imperative. Besides declarations (`func`, `class`, `interface`, `enum`, `namespace`, `var`, `const`) it accepts control flow (`if`, `for`, `foreach`, `while`, `do`, `match`), exception handling (`try`, `throw`, `using`), `delete`, `await`, and free executable statements such as `main();` or `x = 1;`. Context-bound forms keep their guards: `return` and `yield` need a function, `break` and `continue` need a loop, and `defer` needs a block.
+
+Imported modules and namespace bodies are declaration-oriented and accept only this set:
 
 - Empty statements with `;`
 - `import`
@@ -27,11 +31,10 @@ At top level these forms are the declaration-oriented set used by imported modul
 - `var` and `const`
 - `func` and `async func`
 - `class` and `enum`
-Direct control flow statements such as `if`, `for`, `foreach`, `while`, `match`, `try`, `throw`, `break`, `continue`, and `delete` are not allowed at declaration-oriented top level. Free executable statements such as `main();` or `x = 1;` are also rejected there.
 
-In imported modules and namespace bodies, `var` and `const` initializers are also restricted to non-executing expressions: literals, variable references, indexing/member access, collection literals, and pure operators. Calls, object construction, `await`, and function expressions belong inside functions.
+Control flow and free executable statements are rejected there, and `var` and `const` initializers are restricted to non-executing expressions: literals, variable references, indexing/member access, collection literals, and pure operators. Calls, object construction, `await`, and function expressions belong inside functions. This keeps imports side-effect free and idempotent.
 
-Directly executed root scripts still accept the older script-style top level for compatibility. There is no auto-main: a script must call `main()` explicitly (or run imperative top-level code). Defining `main` without calling it does nothing.
+There is no auto-main: a script runs its top level statements once; a `main` function is executed only if the script calls it explicitly. Defining `main` without calling it does nothing.
 
 ## Literals
 

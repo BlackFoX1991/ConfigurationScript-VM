@@ -1,0 +1,119 @@
+import "edge_assert.cfs";
+
+edge_begin("544_top_level_control_flow");
+
+# The entry script's top level is fully imperative: control flow runs directly,
+# without a wrapper function. Imported modules and namespace bodies stay
+# declaration-only (see 515/516).
+
+# if / else if / else
+var branch = "";
+if (1 > 2) {
+    branch = "then";
+} else if (2 > 3) {
+    branch = "elseif";
+} else {
+    branch = "else";
+}
+edge_eq("if_else_chain", branch, "else");
+
+# while with break and continue
+var evenSum = 0;
+var n = 0;
+while (true) {
+    n = n + 1;
+    if (n > 10) {
+        break;
+    }
+    if (n % 2 == 1) {
+        continue;
+    }
+    evenSum = evenSum + n;
+}
+edge_eq("while_break_continue", evenSum, 30);
+
+# classic for
+var forTotal = 0;
+for (var i = 0; i < 5; i++) {
+    forTotal = forTotal + i;
+}
+edge_eq("for_loop", forTotal, 10);
+
+# foreach with destructuring over a dict
+var labels = [];
+foreach (var v in [10, 20, 30]) {
+    labels[] = v / 10;
+}
+edge_eq("foreach_collect", str(labels), str([1, 2, 3]));
+
+# do-while
+var doCount = 0;
+do {
+    doCount = doCount + 1;
+} while (doCount < 3);
+edge_eq("do_while", doCount, 3);
+
+# match statement
+var kind = "";
+match (7) {
+    case 1: { kind = "one"; }
+    case 7: { kind = "seven"; }
+    case _: { kind = "other"; }
+}
+edge_eq("match_stmt", kind, "seven");
+
+# try / catch / finally with throw
+var caught = "";
+var finallyRan = false;
+try {
+    throw "boom";
+} catch (e) {
+    caught = str(e);
+} finally {
+    finallyRan = true;
+}
+edge_eq("try_catch", caught, "boom");
+edge_eq("finally_ran", finallyRan, true);
+
+# block scoping: an inner declaration must not leak, the surrounding binding stays visible
+var surrounding = 1;
+if (true) {
+    var inner = 41;
+    surrounding = surrounding + inner;
+}
+edge_eq("block_scope_outer", surrounding, 42);
+
+# top-level control flow can call functions declared later (hoisted declarations)
+var viaCall = 0;
+if (true) {
+    viaCall = double(21);
+}
+func double(x) {
+    return x * 2;
+}
+edge_eq("call_in_toplevel_if", viaCall, 42);
+
+# nested control flow
+var grid = 0;
+foreach (var row in [1, 2]) {
+    for (var c = 0; c < 2; c++) {
+        if ((row + c) % 2 == 0) {
+            grid = grid + 1;
+        }
+    }
+}
+edge_eq("nested_control_flow", grid, 2);
+
+# bare top-level await (entry script only; modules stay declarative)
+async func answer() {
+    yield;
+    return 42;
+}
+var awaited = 0;
+if (true) {
+    awaited = await answer();
+}
+await answer();
+edge_eq("toplevel_await_in_if", awaited, 42);
+
+edge_finish("544_top_level_control_flow");

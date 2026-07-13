@@ -61,7 +61,7 @@ Keywords are reserved by the language and MUST NOT be used as ordinary identifie
 
 A CFGS program is a sequence of top-level statements and declarations.
 
-Directly executed root scripts MAY contain compatibility-style executable top-level statements. Imported modules and namespace bodies are declaration-oriented and MUST reject free imperative statements that belong inside functions or methods.
+The top level of a directly executed root script is fully imperative: it MAY contain any statement form that is valid inside a function body, including control flow (`if`, `while`, `do`, `for`, `foreach`, `match`), exception handling (`try`, `throw`, `using`), `delete`, `await` expressions, and free executable statements. Context-bound forms keep their constraints: `return` and `yield` require an enclosing function, `break` and `continue` require an enclosing loop, and `defer` requires an enclosing block. Imported modules and namespace bodies are declaration-oriented and MUST reject free imperative statements that belong inside functions or methods.
 
 Top-level declaration forms include:
 

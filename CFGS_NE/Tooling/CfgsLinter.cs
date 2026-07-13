@@ -771,14 +771,19 @@ internal static class CfgsLinter
                     break;
 
                 case VarExpr v:
-                    if (!Use(v.Name) && _functions.ContainsKey(v.Name))
+                    // Record the name unconditionally: the function may be declared LATER in the
+                    // file (declarations are hoisted, so forward references are legal). Gating on
+                    // _functions here made every forward reference a CFGS8013 false positive.
+                    // Finish() only consults these sets for known functions, so extra names are free.
+                    if (!Use(v.Name))
                         _referencedNames.Add(v.Name);
                     break;
 
                 case CallExpr c:
                     if (c.Target is VarExpr target)
                     {
-                        if (!Use(target.Name) && _functions.ContainsKey(target.Name))
+                        // Same as VarExpr above: track forward calls to functions declared later.
+                        if (!Use(target.Name))
                             _calledFunctions.Add(target.Name);
                     }
                     else
@@ -1098,7 +1103,9 @@ internal static class CfgsLinter
 
         private bool ContainsAwait(Node node)
         {
-            if (node is AwaitExpr)
+            // yield is a suspension point that REQUIRES an async function, so an async function
+            // whose only suspension is a yield must not be flagged as "does not await anything".
+            if (node is AwaitExpr or YieldStmt)
                 return true;
             if (node is FuncDeclStmt or FuncExpr)
                 return false;

@@ -2,7 +2,7 @@
 
 ## Core Idea
 
-CFGS keeps declaration and execution flow fairly separate. Anything that looks like actual program flow belongs inside functions or methods.
+Control flow runs anywhere code runs: inside functions and methods, and directly at the top level of the entry script. Only imported modules and namespace bodies keep declaration and execution separate, so importing a file never runs program flow.
 
 ## `if` and `else`
 
@@ -281,23 +281,26 @@ try {
 }
 ```
 
-## What Does Not Work at Top Level
+## Control Flow at Top Level
 
-The following forms are not allowed at top level.
+The top level of a directly executed script is fully imperative: `if`, `while`, `for`, `foreach`, `do`, `match`, `try`/`catch`/`finally`, `using`, `throw`, `delete`, and expression statements all run directly, exactly as inside a function body.
 
-- `if (...) { ... }`
-- `while (...) { ... }`
-- `for (...) { ... }`
-- `foreach (...) { ... }`
-- `match (...) { ... }`
-- `try { ... }`
-- `using (...) { ... }`
-- `throw ...;`
-- `delete ...;`
-- `break;`
-- `continue;`
+```cfs
+var mode = "fast";
+if (mode == "fast") {
+    print("skipping warmup");
+} else {
+    warmup();
+}
+```
 
-The standard solution is always the same. Put the logic into `main()` and call it at the end.
+Context-bound forms keep their usual rules everywhere, including at top level:
+
+- `return` and `yield` need an enclosing function.
+- `break` and `continue` need an enclosing loop (a top level loop counts).
+- `defer` needs an enclosing `{ ... }` block.
+
+Imported modules and namespace bodies are declaration-oriented and reject imperative statements; see [Modules, Imports and Exports](07_modules_imports_and_exports.md). If logic must run when a module is used, export a function and call it from the entry script.
 
 ## Combined Example
 

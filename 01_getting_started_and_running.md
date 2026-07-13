@@ -212,19 +212,16 @@ func main() {
 
 ## Top Level Behavior in Short
 
-Top level code in CFGS now has two practical modes. Directly executed scripts stay compatibility-friendly, but imported `.cfs` modules and namespace bodies are declaration-oriented. In those declaration-oriented contexts, imports and declarations belong at top level, while control flow and free executable statements belong inside functions or methods.
-
-That usually leads to a simple pattern like this.
+Top level code in CFGS has two modes. The top level of a directly executed script is fully imperative: declarations, control flow (`if`, loops, `match`, `try`), `await`, and free executable statements all run directly.
 
 ```cfs
-
-func main() {
-    if (true) {
-        print("all good");
-    }
+if (true) {
+    print("all good");
 }
 ```
 
-There is no auto-main. A script runs its imperative top-level statements; to run a `main` function, call it explicitly with `main();` (or `var _ = await main();` for an async `main`). Defining `main` without calling it does nothing.
+Imported `.cfs` modules and namespace bodies are declaration-oriented: imports and declarations belong at their top level, while control flow and free executable statements belong inside functions or methods. This keeps importing a module side-effect free.
 
-If you want to understand why certain constructs are not allowed at top level, continue with [Language and Data](02_language_and_data.md) and [Control Flow and Errors](03_control_flow_and_errors.md).
+There is no auto-main. A script runs its top-level statements once; to run a `main` function, call it explicitly with `main();` (or `await main();` for an async `main`). Defining `main` without calling it does nothing.
+
+For the exact rules, continue with [Language and Data](02_language_and_data.md) and [Control Flow and Errors](03_control_flow_and_errors.md).

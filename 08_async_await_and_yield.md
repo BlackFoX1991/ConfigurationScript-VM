@@ -156,18 +156,16 @@ func bad() {
 }
 ```
 
-At top level, a bare `await` statement is also invalid. In directly executed scripts, an embedded await inside a top-level declaration is still valid for backward compatibility. Imported `.cfs` modules do not allow top-level `await`; put that logic into `async func main()` or another async function instead.
-
-Clean.
-
-```cfs
-var _ = await main();
-```
-
-Not clean.
+At the top level of a directly executed script, `await` is allowed both inside expressions and as a bare statement. Imported `.cfs` modules do not allow top-level `await`; put that logic into `async func main()` or another async function instead.
 
 ```cfs
 await main();
+```
+
+Binding the result works the same way when the value is needed.
+
+```cfs
+var result = await main();
 ```
 
 ## Async Errors
