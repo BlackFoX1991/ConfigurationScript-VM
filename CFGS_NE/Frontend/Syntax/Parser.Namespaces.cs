@@ -151,6 +151,7 @@ namespace CFGS_VM.Analytic.Core
                 List<Stmt> fileScopedBodyStatements = new();
                 while (_current.Type != TokenType.EOF)
                 {
+                    int attemptIndex = _cursor.CurrentIndex;
                     try
                     {
                         Stmt bodyStmt = ParseNamespaceBodyStatement();
@@ -161,7 +162,7 @@ namespace CFGS_VM.Analytic.Core
                         AddErrorStatement(fileScopedBodyStatements, ex);
                         if (_current.Type is TokenType.Export or TokenType.Import or TokenType.Use or TokenType.Namespace)
                             Advance();
-                        RecoverAfterStatementError();
+                        RecoverAfterStatementError(attemptIndex);
                     }
                 }
 
@@ -198,6 +199,7 @@ namespace CFGS_VM.Analytic.Core
                     break;
                 }
 
+                int attemptIndex = _cursor.CurrentIndex;
                 try
                 {
                     Stmt bodyStmt = ParseNamespaceBodyStatement();
@@ -208,7 +210,7 @@ namespace CFGS_VM.Analytic.Core
                     AddErrorStatement(bodyStmts, ex);
                     if (_current.Type is TokenType.Export or TokenType.Import or TokenType.Use or TokenType.Namespace)
                         Advance();
-                    RecoverAfterStatementError(TokenType.RBrace);
+                    RecoverAfterStatementError(attemptIndex, TokenType.RBrace);
                 }
             }
 

@@ -10,6 +10,7 @@ namespace CFGS_VM.Analytic.Core
         {
             while (_current.Type == TokenType.Import)
             {
+                int attemptIndex = _cursor.CurrentIndex;
                 try
                 {
                     ParseImportHeader(stmts);
@@ -17,7 +18,7 @@ namespace CFGS_VM.Analytic.Core
                 catch (Exception ex) when (ex is ParserException or LexerException)
                 {
                     AddErrorStatement(stmts, ex);
-                    RecoverAfterStatementError();
+                    RecoverAfterStatementError(attemptIndex);
                 }
             }
         }
@@ -26,6 +27,7 @@ namespace CFGS_VM.Analytic.Core
         {
             while (_current.Type == TokenType.Use)
             {
+                int attemptIndex = _cursor.CurrentIndex;
                 try
                 {
                     ParseUseHeader(stmts);
@@ -33,13 +35,14 @@ namespace CFGS_VM.Analytic.Core
                 catch (Exception ex) when (ex is ParserException or LexerException)
                 {
                     AddErrorStatement(stmts, ex);
-                    RecoverAfterStatementError();
+                    RecoverAfterStatementError(attemptIndex);
                 }
             }
         }
 
         private void TryParseTopLevelStatement(List<Stmt> stmts, bool allowFileScopedNamespace)
         {
+            int attemptIndex = _cursor.CurrentIndex;
             try
             {
                 if (_current.Type == TokenType.Import)
@@ -73,7 +76,7 @@ namespace CFGS_VM.Analytic.Core
                 AddErrorStatement(stmts, ex);
                 if (_current.Type is TokenType.Import or TokenType.Use)
                     Advance();
-                RecoverAfterStatementError();
+                RecoverAfterStatementError(attemptIndex);
             }
         }
 
@@ -126,13 +129,31 @@ namespace CFGS_VM.Analytic.Core
             }
         }
 
+        /// <summary>
+        /// Statement-level panic recovery with a progress guarantee for the tolerant parse loops.
+        /// After resynchronizing, when the failed parse attempt consumed no token AND recovery stopped
+        /// on that very token (a stray closer like <c>}</c>, or a boundary keyword such as a top-level
+        /// <c>if</c>/<c>export</c> that is invalid at exactly this position), the enclosing loop would
+        /// retry the identical parse forever, appending one error statement per spin. Skipping the stuck
+        /// token trades one extra follow-up diagnostic for guaranteed termination.
+        /// </summary>
+        /// <param name="cursorIndexBeforeAttempt">The <c>_cursor.CurrentIndex</c> captured before the parse attempt.</param>
+        /// <param name="closingToken">An optional closing token the caller's loop terminates on.</param>
+        private void RecoverAfterStatementError(int cursorIndexBeforeAttempt, TokenType? closingToken = null)
+        {
+            RecoverAfterStatementError(closingToken);
+
+            if (_current.Type != TokenType.EOF && _cursor.CurrentIndex == cursorIndexBeforeAttempt)
+                _cursor.Advance();
+        }
+
         private void RecoverAfterStatementError(TokenType? closingToken = null)
         {
             while (_current.Type != TokenType.EOF)
             {
                 if (_current.Type == TokenType.Semi)
                 {
-                    Advance();
+                    _cursor.Advance();
                     return;
                 }
 
@@ -145,7 +166,10 @@ namespace CFGS_VM.Analytic.Core
                 if (IsHardStatementBoundary(_current.Type))
                     return;
 
-                Advance();
+                // Raw cursor advance: the validating Advance() throws on reserved identifiers, and
+                // recovery runs inside catch handlers where a second throw would escape the tolerant
+                // parse entirely. Skipping garbage must never fail.
+                _cursor.Advance();
             }
         }
 

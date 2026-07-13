@@ -34,9 +34,9 @@ namespace CFGS_VM.VMCore
         public Dictionary<string, FunctionInfo> Functions { get; }
 
         /// <summary>
-        /// Function-address → call-scope descriptor (params + body-top-level locals). In-memory only: not
-        /// serialized to <c>.cfb</c> (a loaded artifact runs those scopes dynamically). Empty for a script
-        /// loaded from <c>.cfb</c>.
+        /// Function-address → call-scope descriptor (params + body-top-level locals). Serialized to
+        /// <c>.cfb</c> since bytecode v5 (alongside the per-block PUSH_SCOPE descriptor operands), so
+        /// slot-based local access round-trips through compiled artifacts.
         /// </summary>
         public IReadOnlyDictionary<int, ScopeDescriptor> RootScopeDescriptors { get; }
 

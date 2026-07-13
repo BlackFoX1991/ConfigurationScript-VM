@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.8.6 - 2026-07-13
+
+### Fixed
+- The language server no longer freezes while typing on momentarily broken code. A parse attempt that failed on a token the error recovery did not step over (a stray `}`, or a keyword that is invalid at exactly that position, such as a top level `if` or an `export` inside a function body) retried the identical parse forever. The server then spun at full CPU with growing memory, and diagnostics, hovers, and live lint stopped updating until a restart. Since an extra or missing brace is a normal intermediate state during editing, this could trigger on almost every editing session. Error recovery now always makes progress, and a regression test covers the previously hanging inputs.
+- Statement error recovery itself can no longer abort the resilient parse: skipping garbage tokens now bypasses the reserved identifier validation, which previously could throw from inside the recovery path.
+
 ## 0.8.5 - 2026-07-10
 
 ### Fixed

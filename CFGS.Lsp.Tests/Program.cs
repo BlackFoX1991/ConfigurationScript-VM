@@ -26,6 +26,7 @@ internal static class Program
             HoverPrefersTypeSymbolsInTypeContextExpressions,
             AnalyzerKeepsSymbolsAliveAcrossMidFunctionSyntaxErrors,
             AnalyzerReportsMultipleSyntaxDiagnostics,
+            TolerantParseTerminatesOnStrayAndMisplacedTokens,
             DocumentSymbolsUseLastGoodAnalysisAfterCatastrophicLexerFailure,
             HoverUsesLastGoodAnalysisAfterCatastrophicLexerFailure,
             ReferencesUseLastGoodAnalysisAfterCatastrophicLexerFailure,
@@ -472,6 +473,41 @@ func demo() {
         client.DidOpen(uri, source);
         JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
         AssertTrue(diagnostics.GetArrayLength() >= 2, "expected multiple syntax diagnostics, not only the first failure");
+    }
+
+    private static void TolerantParseTerminatesOnStrayAndMisplacedTokens()
+    {
+        // Regression guard for the tolerant-parse livelock: a parse attempt that consumed no token
+        // and failed on a token the panic recovery does not step over (a stray '}', or a boundary
+        // keyword that is invalid at exactly that position, like a top-level 'if' in script mode)
+        // used to retry the identical parse forever. Every editor keystroke that momentarily
+        // unbalances braces hit this, freezing analysis and live lint.
+        string[] pathologicalSources =
+        [
+            "}",
+            "var x = 1;\n}\n",
+            "func f() { return 1; }\n}\n",
+            "if (x) {",
+            "match (x) {",
+            "else {}",
+            "export }",
+            "func f() { export }",
+            "namespace A { if (1) {} }",
+            "import \"x\";\n}\n"
+        ];
+
+        foreach (string source in pathologicalSources)
+        {
+            Task<int> parse = Task.Run(() =>
+            {
+                Lexer lexer = new("livelock.cfs", source);
+                CFGS_VM.Analytic.Core.Parser parser = new(lexer, CFGS_VM.Analytic.Core.Parser.TopLevelMode.Script, tolerant: true);
+                return parser.ParseTolerant().Diagnostics.Count;
+            });
+
+            AssertTrue(parse.Wait(TimeSpan.FromSeconds(10)), $"tolerant parse did not terminate for source: {source.Replace("\n", "\\n")}");
+            AssertTrue(parse.Result > 0, $"expected at least one diagnostic for source: {source.Replace("\n", "\\n")}");
+        }
     }
 
     private static void DocumentSymbolsUseLastGoodAnalysisAfterCatastrophicLexerFailure()

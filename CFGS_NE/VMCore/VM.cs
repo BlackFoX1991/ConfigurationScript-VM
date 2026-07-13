@@ -1213,7 +1213,11 @@ namespace CFGS_VM.VMCore
             // stable so jump targets / caches below stay valid). Runs here at load time so .cfb is unaffected.
             SuperInstructionRewriter.Rewrite(inst);
             _program = inst;
-            _memberCaches = inst.Count > 0 ? new MemberInlineCache[inst.Count] : System.Array.Empty<MemberInlineCache>();
+            // Sized Count+1: the IC sites (HandleIndexGetInstruction/HandleIndexSetInstruction) key the
+            // cache by the already-incremented ip, so an INDEX_GET/INDEX_SET as the final instruction
+            // indexes Count. The emitter always follows those ops today, but the extra slot keeps the
+            // cache safe for any instruction stream a host loads.
+            _memberCaches = inst.Count > 0 ? new MemberInlineCache[inst.Count + 1] : System.Array.Empty<MemberInlineCache>();
         }
 
         public void LoadCompiledScript(CompiledScript script)

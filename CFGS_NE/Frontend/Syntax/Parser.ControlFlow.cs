@@ -131,6 +131,7 @@ namespace CFGS_VM.Analytic.Core
                     break;
                 }
 
+                int attemptIndex = _cursor.CurrentIndex;
                 try
                 {
                     if (IsUsingScopeDeclarationStart)
@@ -150,7 +151,7 @@ namespace CFGS_VM.Analytic.Core
                 catch (Exception ex) when (IsTolerant && ex is ParserException or LexerException)
                 {
                     AddErrorStatement(stmts, ex);
-                    RecoverAfterStatementError(TokenType.RBrace);
+                    RecoverAfterStatementError(attemptIndex, TokenType.RBrace);
                 }
             }
 

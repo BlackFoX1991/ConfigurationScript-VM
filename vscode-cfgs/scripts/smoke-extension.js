@@ -22,7 +22,9 @@ function assertFile(relativePath) {
 
 const manifest = readJson('package.json');
 assert(manifest.name === 'cfgs-vscode', 'unexpected extension name');
-assert(manifest.version === '0.7.0', 'unexpected extension version');
+// Check the shape, not a pinned number: the pinned '0.7.0' went stale on every release
+// and made this smoke test fail for six versions straight.
+assert(/^\d+\.\d+\.\d+$/.test(manifest.version), 'unexpected extension version format');
 assert(manifest.main === './extension.js', 'unexpected extension entry point');
 
 const extensionSource = fs.readFileSync(assertFile('extension.js'), 'utf8');
