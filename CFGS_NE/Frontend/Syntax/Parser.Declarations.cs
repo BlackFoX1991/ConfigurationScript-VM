@@ -247,8 +247,11 @@ namespace CFGS_VM.Analytic.Core
                 else
                 {
                     EnterFunctionContext(isAsync: false);
-                    body = ParseBlock();
-                    ExitFunctionContext(isAsync: false);
+                    // try/finally so a throw from the accessor body still runs ExitFunctionContext();
+                    // otherwise a leaked FunctionDepth/FunctionOrClassDepth survives tolerant-parse
+                    // recovery and skews return/yield/await and statement-shape validation afterwards.
+                    try { body = ParseBlock(); }
+                    finally { ExitFunctionContext(isAsync: false); }
                     isAuto = false;
                 }
 

@@ -77,7 +77,14 @@ namespace CFGS_VM.Analytic.Core
         {
             int startTokenIndex = MarkNodeStart();
             if (EnterExpressionRecursion() > MaxRecursionDepth)
+            {
+                // Balance the increment before throwing: the guard fires BEFORE the try/finally below, so
+                // its finally never runs for this frame. Leaving the increment leaks one recursion count
+                // that persists across statement-level error recovery in tolerant (LSP) parsing and would
+                // eventually flag valid, shallow code as "maximum nesting depth exceeded".
+                ExitExpressionRecursion();
                 throw new ParserException($"Maximum nesting depth ({MaxRecursionDepth}) exceeded", _current.Line, _current.Column, _lexer.FileName);
+            }
             try { return StampNode(Conditional(), startTokenIndex); }
             finally { ExitExpressionRecursion(); }
         }

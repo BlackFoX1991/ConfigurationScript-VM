@@ -270,7 +270,13 @@ namespace CFGS_VM.Analytic.Core
             // shared depth budget as expression nesting, so a pathological input produces a clean parse
             // error rather than an uncatchable StackOverflowException that would hard-crash the process.
             if (EnterExpressionRecursion() > MaxRecursionDepth)
+            {
+                // Balance the increment before throwing (the guard fires before the try/finally below, so
+                // its finally never runs for this frame). Otherwise the leaked count persists across
+                // tolerant-parse error recovery and later flags valid code as over-nested.
+                ExitExpressionRecursion();
                 throw new ParserException($"Maximum nesting depth ({MaxRecursionDepth}) exceeded", _current.Line, _current.Column, _current.Filename);
+            }
             try
             {
                 Eat(TokenType.LBrace);
@@ -328,8 +334,12 @@ namespace CFGS_VM.Analytic.Core
             Expr cond = Expr();
             Eat(TokenType.RParen);
             EnterLoopContext();
-            BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
-            ExitLoopContext();
+            // try/finally so a throw from a malformed loop body still runs ExitLoopContext(). Otherwise the
+            // leaked LoopDepth survives tolerant-parse recovery and IsInLoop stays true, silently accepting
+            // an invalid top-level break/continue that follows.
+            BlockStmt body;
+            try { body = ParseEmbeddedBlockOrSingleStatement(); }
+            finally { ExitLoopContext(); }
             return new WhileStmt(cond, body, line, col, file);
         }
 
@@ -340,8 +350,10 @@ namespace CFGS_VM.Analytic.Core
             string file = _current.Filename;
             Eat(TokenType.Do);
             EnterLoopContext();
-            BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
-            ExitLoopContext();
+            // try/finally so a throw from a malformed loop body still runs ExitLoopContext() (see ParseWhile).
+            BlockStmt body;
+            try { body = ParseEmbeddedBlockOrSingleStatement(); }
+            finally { ExitLoopContext(); }
             Eat(TokenType.While);
             Eat(TokenType.LParen);
             Expr cond = Expr();
@@ -423,8 +435,10 @@ namespace CFGS_VM.Analytic.Core
 
             Eat(TokenType.RParen);
             EnterLoopContext();
-            Stmt body = ParseEmbeddedBlockOrSingleStatement();
-            ExitLoopContext();
+            // try/finally so a throw from a malformed loop body still runs ExitLoopContext() (see ParseWhile).
+            Stmt body;
+            try { body = ParseEmbeddedBlockOrSingleStatement(); }
+            finally { ExitLoopContext(); }
             return new ForeachStmt(name, targetPattern, declare, iterable, useIndexValuePair, body, line, col, file);
         }
 
@@ -487,8 +501,10 @@ namespace CFGS_VM.Analytic.Core
 
             Eat(TokenType.RParen);
             EnterLoopContext();
-            BlockStmt body = ParseEmbeddedBlockOrSingleStatement();
-            ExitLoopContext();
+            // try/finally so a throw from a malformed loop body still runs ExitLoopContext() (see ParseWhile).
+            BlockStmt body;
+            try { body = ParseEmbeddedBlockOrSingleStatement(); }
+            finally { ExitLoopContext(); }
             return new ForStmt(init, cond, inc, body, line, col, file);
         }
 

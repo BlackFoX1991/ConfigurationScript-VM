@@ -74,6 +74,23 @@ namespace CFGS_VM.Analytic.Core
             LoopDepth--;
         }
 
+        /// <summary>
+        /// Restores the "outside any nesting" invariant: at a top-level statement boundary every nesting
+        /// depth must be zero. The tolerant (LSP) parser calls this before each top-level statement so that
+        /// a depth counter leaked by a throw mid-statement (e.g. an unbalanced Enter/Exit on a malformed
+        /// class body) cannot survive error recovery and skew a later statement's diagnostics. A no-op when
+        /// nothing leaked. It is deliberately NOT called in the non-tolerant parse, which aborts on the
+        /// first error and so cannot accumulate anything.
+        /// </summary>
+        public void ResetNestingDepths()
+        {
+            FunctionOrClassDepth = 0;
+            FunctionDepth = 0;
+            AsyncFunctionDepth = 0;
+            LoopDepth = 0;
+            RecursionDepth = 0;
+        }
+
         public int EnterRecursion()
         {
             return ++RecursionDepth;

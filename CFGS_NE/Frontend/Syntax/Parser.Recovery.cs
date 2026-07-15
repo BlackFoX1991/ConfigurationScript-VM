@@ -42,6 +42,13 @@ namespace CFGS_VM.Analytic.Core
 
         private void TryParseTopLevelStatement(List<Stmt> stmts, bool allowFileScopedNamespace)
         {
+            // A top-level statement boundary is by definition outside any loop, function, class or nested
+            // expression, so every nesting depth must be zero here. Restore that invariant first: it clears
+            // any counter a preceding statement leaked before its guard threw (see ParserContext.
+            // ResetNestingDepths) so recovered errors cannot cascade into false diagnostics on later,
+            // well-formed statements.
+            ResetNestingDepths();
+
             int attemptIndex = _cursor.CurrentIndex;
             try
             {

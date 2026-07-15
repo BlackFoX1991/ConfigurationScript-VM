@@ -65,7 +65,13 @@ namespace CFGS_VM.Analytic.Core
             // budget as expressions and blocks, so a pathological pattern fails with a clean parse error
             // instead of an uncatchable StackOverflowException.
             if (EnterExpressionRecursion() > MaxRecursionDepth)
+            {
+                // Balance the increment before throwing (the guard fires before the try/finally below, so
+                // its finally never runs for this frame). Otherwise the leaked count persists across
+                // tolerant-parse error recovery and later flags valid code as over-nested.
+                ExitExpressionRecursion();
                 throw new ParserException($"Maximum nesting depth ({MaxRecursionDepth}) exceeded", _current.Line, _current.Column, _current.Filename);
+            }
             try
             {
                 return ParseMatchPatternCore();

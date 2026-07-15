@@ -83,6 +83,11 @@ namespace CFGS_VM.Analytic.Core
             _context.ExitLoop();
         }
 
+        private void ResetNestingDepths()
+        {
+            _context.ResetNestingDepths();
+        }
+
         private int EnterExpressionRecursion()
         {
             return _context.EnterRecursion();
