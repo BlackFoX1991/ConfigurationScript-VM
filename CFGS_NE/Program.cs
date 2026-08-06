@@ -55,7 +55,7 @@ public class Program
     /// Gets a value indicating whether IsDebug
     /// </summary>
     public static bool IsDebug { get; private set; } = false;
-
+    
     /// <summary>
     /// Gets a value indicating whether the interactive VM debugger is enabled.
     /// </summary>
