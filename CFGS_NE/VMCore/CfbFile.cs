@@ -101,7 +101,7 @@ namespace CFGS_VM.VMCore
             int pluginCount = ReadCount(reader);
             List<string> requiredPlugins = new(pluginCount);
             for (int i = 0; i < pluginCount; i++)
-                requiredPlugins.Add(reader.ReadString());
+                requiredPlugins.Add(ReadPluginReference(reader));
 
             int functionCount = ReadCount(reader);
             Dictionary<string, FunctionInfo> functions = new(StringComparer.Ordinal);
@@ -322,6 +322,32 @@ namespace CFGS_VM.VMCore
         {
             string fileName = Path.GetFileName(plugin);
             return string.IsNullOrWhiteSpace(fileName) ? plugin : fileName;
+        }
+
+        /// <summary>
+        /// Reads a plugin reference and reduces it to a bare file name, mirroring what <see cref="Save"/>
+        /// already does on the way out. Sanitizing only on write left an asymmetry: a hand-crafted or
+        /// tampered artifact could name an absolute or UNC path, and both loaders
+        /// (<c>CfgsScriptEngine.LoadCfb</c> and the CLI's compiled-file runner) resolve a fully qualified
+        /// reference verbatim. That bypasses the package lock-file hash check, which only covers artifacts
+        /// under <c>&lt;root&gt;/.cfgs/plugins</c>, and turns "run sandboxed bytecode" into "load arbitrary
+        /// native code". A reference that carries no file-name part at all can never name a plugin, so it
+        /// is rejected outright rather than passed through.
+        /// </summary>
+        private static string ReadPluginReference(BinaryReader reader)
+        {
+            string raw = reader.ReadString();
+            string fileName = SanitizePluginReference(raw);
+
+            if (Path.IsPathRooted(fileName) ||
+                fileName.Contains(Path.DirectorySeparatorChar) ||
+                fileName.Contains(Path.AltDirectorySeparatorChar))
+            {
+                throw new InvalidDataException(
+                    $"corrupt CFB file: plugin reference '{raw}' does not name a plugin file");
+            }
+
+            return fileName;
         }
 
         private static string SanitizeSourceName(string sourceName)

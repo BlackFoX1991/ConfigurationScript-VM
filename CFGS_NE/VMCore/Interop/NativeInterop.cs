@@ -34,6 +34,13 @@ namespace CFGS_VM.VMCore.Interop
         public static ClrAssemblyHandle LoadAssembly(NativeAssemblyReference reference, string? baseDirectory = null)
         {
             string path = ResolveAssemblyPath(reference.Path, baseDirectory);
+
+            // Same lock-file check the plugin loader applies (PluginLoader.LoadDll). `import native` had
+            // no integrity check at all, so an assembly installed into a package's plugin directory could
+            // be swapped after `restore` without anyone noticing. A no-op for assemblies outside a package
+            // directory, so loading from an arbitrary path keeps working as before.
+            CFGS_VM.Packaging.CfgsPackageManager.VerifyLockedPluginArtifact(path);
+
             Assembly assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
             return new ClrAssemblyHandle(reference.Alias, path, assembly);
         }

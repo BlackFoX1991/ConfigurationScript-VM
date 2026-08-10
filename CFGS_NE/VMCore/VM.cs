@@ -34,7 +34,6 @@ namespace CFGS_VM.VMCore
         public static int DEBUG_BUFFER = 100;
 
         private static readonly AsyncLocal<VM?> CurrentVmSlot = new();
-        private static readonly AsyncLocal<bool?> AllowFileIoOverrideSlot = new();
 
         public static VM? CurrentVm
         {
@@ -204,34 +203,22 @@ namespace CFGS_VM.VMCore
         private static bool IsReceiverName(string s) => s == "this" || s == "type";
 
         /// <summary>
-        /// Gets or sets a value indicating whether AllowFileIO
+        /// Allows standard-library and plugin file-system operations for this VM.
+        /// <para>
+        /// This used to be a static <c>AsyncLocal</c> with a push/pop scope, which made it the only
+        /// ambient capability while <see cref="AllowNativeInterop"/>, <see cref="AllowPluginLoading"/> and
+        /// <see cref="RestrictFileIoToWorkspace"/> were VM-scoped. The effective permission then depended
+        /// on where the ExecutionContext happened to be captured rather than on the VM the code runs in,
+        /// which is the wrong anchor once a fire-and-forget async child outlives the host call that opened
+        /// the scope. It is now an ordinary instance property, inherited by hot-start child VMs like the
+        /// other capabilities. Plugins read it through <see cref="CurrentVm"/>.
+        /// </para>
+        /// <para>
+        /// Defaults to <c>true</c> so the CLI (which constructs a bare <see cref="VM"/>) keeps working;
+        /// embedding hosts get the fail-closed default from <c>CfgsScriptPermissions.AllowFileIO</c>.
+        /// </para>
         /// </summary>
-        public static bool AllowFileIO
-        {
-            get => AllowFileIoOverrideSlot.Value ?? true;
-            set => AllowFileIoOverrideSlot.Value = value;
-        }
-
-        public static IDisposable PushAllowFileIOScope(bool allowFileIO)
-        {
-            bool? previous = AllowFileIoOverrideSlot.Value;
-            AllowFileIoOverrideSlot.Value = allowFileIO;
-            return new AllowFileIOScope(previous);
-        }
-
-        private sealed class AllowFileIOScope(bool? previous) : IDisposable
-        {
-            private bool _disposed;
-
-            public void Dispose()
-            {
-                if (_disposed)
-                    return;
-
-                _disposed = true;
-                AllowFileIoOverrideSlot.Value = previous;
-            }
-        }
+        public bool AllowFileIO { get; set; } = true;
 
         public bool AllowNativeInterop { get; set; } = true;
 
@@ -239,9 +226,10 @@ namespace CFGS_VM.VMCore
 
         /// <summary>
         /// When enabled, <see cref="ResolveWorkspacePath"/> rejects any path that resolves outside
-        /// <see cref="WorkingDirectory"/> (whether via an absolute path or <c>..</c> traversal),
-        /// jailing standard-library file operations to the workspace. Opt-in and disabled by
-        /// default so trusted hosts (e.g. the CLI) keep unrestricted absolute-path access.
+        /// <see cref="WorkingDirectory"/> (whether via an absolute path, <c>..</c> traversal, or a
+        /// symlink/junction pointing out of the workspace), jailing standard-library file operations to
+        /// the workspace. Opt-in and disabled by default so trusted hosts (e.g. the CLI) keep
+        /// unrestricted absolute-path access.
         /// </summary>
         public bool RestrictFileIoToWorkspace { get; set; } = false;
 
@@ -1322,15 +1310,18 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Throws if <paramref name="resolvedFullPath"/> is not contained within
         /// <see cref="WorkingDirectory"/>. Used to enforce <see cref="RestrictFileIoToWorkspace"/>.
+        /// Both sides are resolved through any symlink/junction chain first, so a link placed inside the
+        /// workspace cannot be used to reach outside it.
         /// </summary>
         private void EnsureWithinWorkspace(string resolvedFullPath)
         {
-            string root = Path.GetFullPath(WorkingDirectory);
+            string root = ResolveFinalPhysicalPath(WorkingDirectory);
+            string target = ResolveFinalPhysicalPath(resolvedFullPath);
 
             // GetRelativePath uses the platform's path comparison (case-insensitive on Windows). A
             // contained path yields a relative subpath; an escape yields a "..\" prefix or, on a
             // different volume, a rooted result.
-            string relative = Path.GetRelativePath(root, resolvedFullPath);
+            string relative = Path.GetRelativePath(root, target);
             bool escapes = Path.IsPathRooted(relative)
                 || relative == ".."
                 || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
@@ -1340,6 +1331,61 @@ namespace CFGS_VM.VMCore
                 throw new VMException(
                     $"Runtime error: path '{resolvedFullPath}' escapes the workspace '{root}' (RestrictFileIoToWorkspace=true)",
                     -1, -1, string.Empty, IsDebugging, DebugStream!);
+        }
+
+        /// <summary>
+        /// Resolves a path through any symlink/junction chain, component by component.
+        /// <para>
+        /// A purely lexical containment check is not enough for a jail: a link created inside the
+        /// workspace that points outside it passes <see cref="Path.GetRelativePath"/> unnoticed. .NET has
+        /// no realpath, and <c>ResolveLinkTarget</c> only reports a link when the entry ITSELF is one, so
+        /// resolving just the full path would still miss an intermediate symlinked directory
+        /// (<c>&lt;ws&gt;/link/sub/file.txt</c>). Walking every component closes both gaps.
+        /// </para>
+        /// <para>
+        /// Trailing components that do not exist yet are simply appended, so writing a new file is still
+        /// checked against the real location of its parent directory. Only reachable when
+        /// <see cref="RestrictFileIoToWorkspace"/> is enabled (opt-in, off by default), so the ordinary
+        /// file-IO path pays nothing for the extra probes.
+        /// </para>
+        /// </summary>
+        private static string ResolveFinalPhysicalPath(string path)
+        {
+            string full = Path.GetFullPath(path);
+            string? pathRoot = Path.GetPathRoot(full);
+            if (string.IsNullOrEmpty(pathRoot))
+                return full;
+
+            string[] segments = full[pathRoot.Length..].Split(
+                [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                StringSplitOptions.RemoveEmptyEntries);
+
+            string resolved = pathRoot;
+            foreach (string segment in segments)
+            {
+                resolved = Path.Combine(resolved, segment);
+
+                try
+                {
+                    FileSystemInfo? linkTarget =
+                        Directory.Exists(resolved) ? Directory.ResolveLinkTarget(resolved, returnFinalTarget: true)
+                        : File.Exists(resolved) ? File.ResolveLinkTarget(resolved, returnFinalTarget: true)
+                        : null;
+
+                    if (linkTarget is not null)
+                        resolved = Path.GetFullPath(linkTarget.FullName);
+                }
+                catch (IOException)
+                {
+                    // Broken chain, cycle, or a filesystem that cannot report link targets: keep the
+                    // lexical component. The containment check below still runs on what we have.
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+
+            return resolved;
         }
 
         /// <summary>

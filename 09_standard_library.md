@@ -583,7 +583,7 @@ try {
 
 ## Security Relevant Switches
 
-File I O can be disabled globally. The standard library checks `AllowFileIO` internally for that. When file operations are disabled, affected builtins and intrinsics fail with a runtime exception.
+File I O can be disabled per VM. The standard library checks `AllowFileIO` internally for that. When file operations are disabled, affected builtins and intrinsics fail with a runtime exception. The permission belongs to the VM running the script, so two scripts hosted in the same process can be granted different file access, and a hot started async call inherits the permission of the VM that started it.
 
 ## Practical Starter Recipes
 

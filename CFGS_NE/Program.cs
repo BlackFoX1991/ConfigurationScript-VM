@@ -1765,34 +1765,31 @@ public class Program
             WriteDebugLog(vm, workingDirectory);
     }
 
+    /// <summary>
+    /// Resolves a <c>.cfb</c> plugin reference for the CLI's compiled-file runner. The reference arrives
+    /// already reduced to a bare file name (<c>CfbFile.ReadPluginReference</c>); expansion is applied
+    /// because a reference may legitimately be written with an environment variable, and the file name is
+    /// taken again afterwards because expansion can reintroduce a path (<c>"%TEMP%evil.dll"</c> expands to
+    /// an absolute one). Search order stays package plugin directories first, so a locked, hash-verified
+    /// artifact wins over a loose copy.
+    /// </summary>
     private static string ResolveCompiledPluginPath(string pluginReference, string? workingDirectory)
     {
-        string plugin = Environment.ExpandEnvironmentVariables(pluginReference.Trim());
-        if (Path.IsPathFullyQualified(plugin))
-            return plugin;
-
-        bool hasDirectoryPart =
-            plugin.Contains(Path.DirectorySeparatorChar) ||
-            plugin.Contains(Path.AltDirectorySeparatorChar);
+        string plugin = Path.GetFileName(Environment.ExpandEnvironmentVariables(pluginReference.Trim()));
+        if (string.IsNullOrWhiteSpace(plugin))
+            throw new InvalidDataException($"plugin reference '{pluginReference}' does not name a plugin file");
 
         string baseDirectory = workingDirectory ?? Environment.CurrentDirectory;
-        List<string> candidates = hasDirectoryPart
-            ? [
-                Path.Combine(baseDirectory, plugin),
-                Path.Combine(AppContext.BaseDirectory, plugin)
-              ]
-            : [
-                Path.Combine(baseDirectory, "plugins", plugin),
-                Path.Combine(AppContext.BaseDirectory, "plugins", plugin),
-                Path.Combine(baseDirectory, plugin),
-                Path.Combine(AppContext.BaseDirectory, plugin)
-              ];
+        List<string> candidates =
+        [
+            Path.Combine(baseDirectory, "plugins", plugin),
+            Path.Combine(AppContext.BaseDirectory, "plugins", plugin),
+            Path.Combine(baseDirectory, plugin),
+            Path.Combine(AppContext.BaseDirectory, plugin)
+        ];
 
-        if (!hasDirectoryPart)
-        {
-            foreach (string packagePluginDirectory in GetPackagePluginDirectories(baseDirectory))
-                candidates.Insert(0, Path.Combine(packagePluginDirectory, plugin));
-        }
+        foreach (string packagePluginDirectory in GetPackagePluginDirectories(baseDirectory))
+            candidates.Insert(0, Path.Combine(packagePluginDirectory, plugin));
 
         foreach (string candidate in candidates)
         {
@@ -1801,7 +1798,7 @@ public class Program
                 return fullCandidate;
         }
 
-        return Path.GetFullPath(Path.Combine(baseDirectory, hasDirectoryPart ? plugin : Path.Combine("plugins", plugin)));
+        return Path.GetFullPath(Path.Combine(baseDirectory, "plugins", plugin));
     }
 
     private static IEnumerable<string> GetPackagePluginDirectories(string startDirectory)

@@ -44,10 +44,11 @@ internal static class Program
             CliLintHonorsToolingLintConfig,
             ImportResolutionIncludesApplicationPluginsDirectory,
         RuntimeImportResolutionMatchesToolingAncestorRoots,
-            HostingFileIoPermissionScopeAppliesToInvocations,
+            HostingFileIoPermissionIsPerVm,
             HostingDefaultsDenyFileIo,
             RunAsyncRunsTopLevelOnceAndNeverAutoInvokesMain,
             WorkspaceJailRejectsEscapingPaths,
+            WorkspaceJailRejectsSymlinkEscape,
             HostingSerializesConcurrentInvocations,
             AsyncHotStartInheritsVmPolicy,
             AsyncHotStartInheritsWorkspaceJail,
@@ -56,8 +57,10 @@ internal static class Program
             PluginLoadRejectsMismatchedPackageLockHash,
             HostingPreservesStructuredDiagnosticCode,
             CfbLoaderRejectsCorruptElementCounts,
+            CfbLoaderReducesPluginReferencesToFileNames,
             NativeInteropConvertsClosuresBigIntegersAndCollections,
             NativeInteropGuardsCyclicConversion,
+            NativeInteropMemberAccessHonoursRevokedPermission,
             NativeInteropStressRoundTrips,
             CfbRoundTripsSurrogateCharOperand,
             CfbRejectsCorruptDecimalOperand,
@@ -988,16 +991,13 @@ func read() {
         }
     }
 
-    private static void HostingFileIoPermissionScopeAppliesToInvocations()
+    /// <summary>
+    /// Compiles a script whose only job is to report the file I/O permission the running VM sees.
+    /// The probe reads it the same way plugins do, through <see cref="VM.CurrentVm"/>.
+    /// </summary>
+    private static CfgsScript CompileFileIoProbe(CfgsScriptEngine engine)
     {
-        CfgsScriptEngine engine = new()
-        {
-            WorkingDirectory = Environment.CurrentDirectory,
-            CompilerVersion = global::Program.Version
-        };
-        engine.Permissions.AllowFileIO = false;
-
-        CfgsScript script = engine.CompileSource("<host-permissions>", """
+        CfgsScript script = engine.CompileSource("<file-io-probe>", """
 func is_file_allowed() {
     return probeAllowFileIO();
 }
@@ -1006,13 +1006,50 @@ func is_file_allowed() {
             "probeAllowFileIO",
             0,
             0,
-            (args, instr) => VM.AllowFileIO));
+            (args, instr) => VM.CurrentVm?.AllowFileIO ?? true));
 
-        script.RunAsync().GetAwaiter().GetResult();
-        bool allowedDuringInvoke = script.InvokeAsync<bool>("is_file_allowed").GetAwaiter().GetResult();
+        return script;
+    }
 
-        AssertFalse(allowedDuringInvoke, "host InvokeAsync did not apply the configured file I/O permission scope");
-        AssertTrue(VM.AllowFileIO, "host InvokeAsync did not restore the outer VM file I/O scope");
+    private static void HostingFileIoPermissionIsPerVm()
+    {
+        // AllowFileIO used to be a static AsyncLocal pushed around every host call, so the effective
+        // permission depended on where the ExecutionContext was captured. It is now a VM-scoped property,
+        // which means two scripts with different permissions must be fully independent of each other and
+        // of the order in which they run.
+        CfgsScriptEngine deniedEngine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+        deniedEngine.Permissions.AllowFileIO = false;
+
+        CfgsScriptEngine grantedEngine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+        grantedEngine.Permissions.AllowFileIO = true;
+
+        CfgsScript denied = CompileFileIoProbe(deniedEngine);
+        CfgsScript granted = CompileFileIoProbe(grantedEngine);
+
+        denied.RunAsync().GetAwaiter().GetResult();
+        granted.RunAsync().GetAwaiter().GetResult();
+
+        AssertFalse(
+            denied.InvokeAsync<bool>("is_file_allowed").GetAwaiter().GetResult(),
+            "a script created with AllowFileIO=false must observe file I/O as denied");
+        AssertTrue(
+            granted.InvokeAsync<bool>("is_file_allowed").GetAwaiter().GetResult(),
+            "a script created with AllowFileIO=true must observe file I/O as allowed");
+
+        // Interleave: neither run may overwrite the other's permission.
+        AssertFalse(
+            denied.InvokeAsync<bool>("is_file_allowed").GetAwaiter().GetResult(),
+            "the denied script's permission changed after the granted script ran");
+        AssertTrue(granted.Runtime.AllowFileIO, "the granted VM's permission must survive other runs");
+        AssertFalse(denied.Runtime.AllowFileIO, "the denied VM's permission must survive other runs");
     }
 
     private static void HostingDefaultsDenyFileIo()
@@ -1028,16 +1065,7 @@ func is_file_allowed() {
         AssertFalse(engine.Permissions.AllowNativeInterop, "AllowNativeInterop must default to false");
         AssertFalse(engine.Permissions.AllowPluginLoading, "AllowPluginLoading must default to false");
 
-        CfgsScript script = engine.CompileSource("<defaults>", """
-func is_file_allowed() {
-    return probeAllowFileIO();
-}
-""");
-        script.Runtime.Builtins.Register(new BuiltinDescriptor(
-            "probeAllowFileIO",
-            0,
-            0,
-            (args, instr) => VM.AllowFileIO));
+        CfgsScript script = CompileFileIoProbe(engine);
 
         script.RunAsync().GetAwaiter().GetResult();
         bool allowed = script.InvokeAsync<bool>("is_file_allowed").GetAwaiter().GetResult();
@@ -1123,6 +1151,86 @@ func resolve(path) {
         }
 
         AssertTrue(rejected, "a path escaping the workspace must be rejected when RestrictFileIoToWorkspace is enabled");
+    }
+
+    private static void WorkspaceJailRejectsSymlinkEscape()
+    {
+        // A purely lexical containment check passes a symlink that lives inside the workspace but points
+        // outside it. The link is placed as an INTERMEDIATE component here, because ResolveLinkTarget only
+        // reports a link when the entry itself is one: resolving just the full path would miss this.
+        string testRoot = Path.Combine(Path.GetTempPath(), "cfgs-jail-symlink", Guid.NewGuid().ToString("N"));
+        string workspace = Path.Combine(testRoot, "workspace");
+        string outside = Path.Combine(testRoot, "outside");
+        Directory.CreateDirectory(workspace);
+        Directory.CreateDirectory(Path.Combine(outside, "sub"));
+        File.WriteAllText(Path.Combine(outside, "sub", "secret.txt"), "secret");
+
+        string link = Path.Combine(workspace, "link");
+        try
+        {
+            Directory.CreateSymbolicLink(link, outside);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+        {
+            // Windows needs Developer Mode or elevation to create symlinks. Skip rather than fail.
+            Console.WriteLine("SKIP WorkspaceJailRejectsSymlinkEscape (cannot create symlinks here)");
+            Directory.Delete(testRoot, recursive: true);
+            return;
+        }
+
+        try
+        {
+            CfgsScriptEngine engine = new()
+            {
+                WorkingDirectory = workspace,
+                CompilerVersion = global::Program.Version
+            };
+            engine.Permissions.AllowFileIO = true;
+            engine.Permissions.RestrictFileIoToWorkspace = true;
+
+            CfgsScript script = engine.CompileSource("<jail-symlink>", """
+func resolve(path) {
+    return resolveWorkspaceHost(path);
+}
+""");
+            script.Runtime.Builtins.Register(new BuiltinDescriptor(
+                "resolveWorkspaceHost",
+                1,
+                1,
+                (args, instr) =>
+                {
+                    VM vm = VM.CurrentVm ?? throw new InvalidOperationException("missing current VM");
+                    return vm.ResolveWorkspacePath(args[0]?.ToString() ?? string.Empty);
+                }));
+
+            script.RunAsync().GetAwaiter().GetResult();
+
+            bool rejected = false;
+            try
+            {
+                script.InvokeAsync<string>("resolve", "link/sub/secret.txt").GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (ex.ToString().Contains("workspace", StringComparison.OrdinalIgnoreCase))
+            {
+                rejected = true;
+            }
+
+            AssertTrue(rejected, "a symlink pointing out of the workspace must be rejected");
+
+            // A genuine in-workspace path must keep working after the link resolution was added.
+            string inside = script.InvokeAsync<string>("resolve", "real/file.bin").GetAwaiter().GetResult() ?? "";
+            AssertTrue(inside.Length > 0, "a contained path must still resolve when the jail is enabled");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(testRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
     }
 
     private static void HostingSerializesConcurrentInvocations()
@@ -1526,6 +1634,71 @@ func writeInWorkspace(path) {
         }
     }
 
+    private static void CfbLoaderReducesPluginReferencesToFileNames()
+    {
+        // CfbFile.Save reduces every plugin reference to its bare file name, but Load used to read it
+        // back verbatim. Both consumers (CfgsScriptEngine.LoadCfb and the CLI's compiled-file runner)
+        // resolved a fully qualified reference as-is, so a hand-crafted artifact could pull a DLL from
+        // any absolute or UNC location, past the package lock-file hash check that only covers
+        // <root>/.cfgs/plugins. Load must reduce the reference itself.
+        string path = Path.Combine(Path.GetTempPath(), $"cfgs_cfb_plugin_{Guid.NewGuid():N}.cfb");
+        try
+        {
+            WriteMinimalCfb(path, @"C:\attacker\payload.dll");
+            CompiledScript loaded = CfbFile.Load(path);
+            AssertTrue(loaded.RequiredPlugins.Count == 1, "expected exactly one required plugin");
+            AssertTrue(
+                loaded.RequiredPlugins[0] == "payload.dll",
+                $"absolute plugin reference must be reduced to its file name, got '{loaded.RequiredPlugins[0]}'");
+
+            WriteMinimalCfb(path, @"\\attacker\share\payload.dll");
+            loaded = CfbFile.Load(path);
+            AssertTrue(
+                loaded.RequiredPlugins[0] == "payload.dll",
+                $"UNC plugin reference must be reduced to its file name, got '{loaded.RequiredPlugins[0]}'");
+
+            // A reference that carries no file-name part can never name a plugin and must be rejected
+            // rather than passed through to the loader.
+            WriteMinimalCfb(path, @"C:\attacker\");
+            bool threw = false;
+            try
+            {
+                _ = CfbFile.Load(path);
+            }
+            catch (InvalidDataException)
+            {
+                threw = true;
+            }
+
+            AssertTrue(threw, "a plugin reference without a file name must be rejected");
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// Writes a structurally valid, otherwise empty .cfb carrying exactly one plugin reference.
+    /// </summary>
+    private static void WriteMinimalCfb(string path, string pluginReference)
+    {
+        using FileStream fs = File.Create(path);
+        using BinaryWriter writer = new(fs, System.Text.Encoding.UTF8, leaveOpen: false);
+
+        writer.Write(System.Text.Encoding.ASCII.GetBytes("CFB1"));
+        writer.Write(CompiledScript.CurrentBytecodeVersion);
+        writer.Write("test");        // name
+        writer.Write(string.Empty);  // sourceHash
+        writer.Write("1.0");         // compilerVersion
+        writer.Write(1);             // plugin count
+        writer.Write(pluginReference);
+        writer.Write(0);             // function count
+        writer.Write(0);             // root scope descriptor count
+        writer.Write(0);             // instruction count
+    }
+
     private static void NativeInteropConvertsClosuresBigIntegersAndCollections()
     {
         string fixtureAssembly = typeof(NativeFixture).Assembly.Location;
@@ -1574,6 +1747,51 @@ func joinArray() {
         // B5: a CFGS array flowing into a native List<string> parameter.
         string joined = script.InvokeAsync<string>("joinArray").GetAwaiter().GetResult() ?? "";
         AssertEqual("a,b,c", joined, "CFGS array did not convert to a native List<T> parameter (B5)");
+    }
+
+    private static void NativeInteropMemberAccessHonoursRevokedPermission()
+    {
+        // AllowNativeInterop was checked only where a CLR handle is created and where one is called;
+        // reads and writes on an existing handle ran ungated. Revoking the permission on a live VM must
+        // stop member access too, not just calls.
+        string fixtureAssembly = typeof(NativeFixture).Assembly.Location;
+
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            NativeAssemblyBaseDirectory = Path.GetDirectoryName(fixtureAssembly)!,
+            CompilerVersion = global::Program.Version
+        };
+        engine.Permissions.AllowNativeInterop = true;
+
+        CfgsScript script = engine.CompileSource("<native-revoke>", $$"""
+import native "{{Path.GetFileName(fixtureAssembly)}}" as Fx;
+
+func touchNative() {
+    var t = Fx.NativeFixture;
+    return "reached";
+}
+""");
+
+        script.RunAsync().GetAwaiter().GetResult();
+        AssertEqual(
+            "reached",
+            script.InvokeAsync<string>("touchNative").GetAwaiter().GetResult() ?? "",
+            "native member access must work while the permission is granted");
+
+        script.Runtime.AllowNativeInterop = false;
+
+        bool rejected = false;
+        try
+        {
+            script.InvokeAsync<string>("touchNative").GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex.ToString().Contains("native .NET interop is disabled", StringComparison.Ordinal))
+        {
+            rejected = true;
+        }
+
+        AssertTrue(rejected, "native member access must be rejected once AllowNativeInterop is revoked");
     }
 
     private static void NativeInteropGuardsCyclicConversion()

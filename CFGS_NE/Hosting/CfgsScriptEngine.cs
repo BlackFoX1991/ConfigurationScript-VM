@@ -140,6 +140,7 @@ namespace CFGS_VM.Hosting
                 NativeAssemblyBaseDirectory = string.IsNullOrWhiteSpace(NativeAssemblyBaseDirectory)
                     ? workingDirectory
                     : Path.GetFullPath(NativeAssemblyBaseDirectory),
+                AllowFileIO = Permissions.AllowFileIO,
                 AllowNativeInterop = Permissions.AllowNativeInterop,
                 AllowPluginLoading = Permissions.AllowPluginLoading,
                 RestrictFileIoToWorkspace = Permissions.RestrictFileIoToWorkspace
@@ -160,11 +161,19 @@ namespace CFGS_VM.Hosting
                 vm.SetGlobal(name, service);
         }
 
+        /// <summary>
+        /// Resolves a <c>.cfb</c> plugin reference against the script directory. The reference arrives
+        /// already reduced to a bare file name (<c>CfbFile.ReadPluginReference</c>); expansion is applied
+        /// because a reference may legitimately be written with an environment variable, and the file name
+        /// is taken again afterwards because expansion can reintroduce a path (<c>"%TEMP%evil.dll"</c>
+        /// expands to an absolute one). A compiled artifact must never be able to point the loader at a
+        /// location it chose itself, so no fully qualified reference is passed through.
+        /// </summary>
         private static string ResolvePluginPath(string pluginReference, string workingDirectory)
         {
-            string plugin = Environment.ExpandEnvironmentVariables(pluginReference.Trim());
-            if (Path.IsPathFullyQualified(plugin))
-                return plugin;
+            string plugin = Path.GetFileName(Environment.ExpandEnvironmentVariables(pluginReference.Trim()));
+            if (string.IsNullOrWhiteSpace(plugin))
+                throw new InvalidDataException($"plugin reference '{pluginReference}' does not name a plugin file");
 
             return Path.GetFullPath(Path.Combine(workingDirectory, plugin));
         }

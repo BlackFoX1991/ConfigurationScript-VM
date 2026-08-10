@@ -20,12 +20,15 @@ namespace CFGS.IO
     public sealed class CFGS_IO : IVmPlugin
     {
         /// <summary>
-        /// Process-wide opt-out for file I/O. Combined with the VM-scoped ambient flag so an
-        /// embedding host can deny I/O per run; both must allow it.
+        /// Process-wide opt-out for file I/O. Combined with the running VM's own
+        /// <see cref="VM.AllowFileIO"/> so an embedding host can deny I/O per VM; both must allow it.
         /// </summary>
         public static bool AllowFileIO { get; set; } = true;
 
-        private static bool IsFileIoAllowed => AllowFileIO && VM.AllowFileIO;
+        // VM.AllowFileIO used to be a static AsyncLocal; it is now a VM-scoped property reached through
+        // VM.CurrentVm, the same way this plugin already resolves WorkingDirectory and workspace paths.
+        // No current VM means we are not running script bytecode, which matches the old getter's default.
+        private static bool IsFileIoAllowed => AllowFileIO && (VM.CurrentVm?.AllowFileIO ?? true);
 
         public void Register(IBuiltinRegistry builtins, IIntrinsicRegistry intrinsics, INamespaceRegistry namespaces)
         {

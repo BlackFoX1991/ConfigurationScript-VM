@@ -720,7 +720,9 @@ public sealed class CFGS_PDF : IVmPlugin
 
     private static void EnsureFileIo(Instruction instr)
     {
-        if (!AllowFileIO || !VM.AllowFileIO)
+        // VM.AllowFileIO is VM-scoped and reached through VM.CurrentVm (it used to be a static
+        // AsyncLocal). No current VM means we are not running script bytecode, matching the old default.
+        if (!AllowFileIO || !(VM.CurrentVm?.AllowFileIO ?? true))
             throw Error(instr, "file I/O is disabled (AllowFileIO=false)");
     }
 

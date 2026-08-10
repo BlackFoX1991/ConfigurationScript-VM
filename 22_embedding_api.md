@@ -418,7 +418,7 @@ engine.Permissions.MaxExecutionTime = TimeSpan.FromSeconds(5);
 | `AllowPluginLoading` | `false` | Allows plugin DLL loading through host and script plugin paths |
 | `AllowNativeInterop` | `false` | Allows `import native` and native CLR member access |
 | `AllowFileIO` | `false` | Allows file-system operations exposed through runtime/plugin APIs |
-| `RestrictFileIoToWorkspace` | `false` | Jails resolved file paths to the VM working directory |
+| `RestrictFileIoToWorkspace` | `false` | Jails resolved file paths to the VM working directory, including paths that leave it through a symlink or junction |
 | `MaxExecutionTime` | unset | Cancels host-run and host-invoked script execution after the configured timeout |
 
 ### Important notes

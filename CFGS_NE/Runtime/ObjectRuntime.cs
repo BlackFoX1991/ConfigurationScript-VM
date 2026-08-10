@@ -245,6 +245,25 @@ namespace CFGS_VM.VMCore
         private static bool IsMemberAccessInstruction(Instruction instr)
             => instr.Operand is bool memberAccess && memberAccess;
 
+        /// <summary>
+        /// Guards a native .NET interop operation on an existing CLR handle.
+        /// <para>
+        /// The permission was previously checked only where a handle is created (<c>PUSH_CONST</c> of a
+        /// native assembly reference) and where one is called. Reads and writes on an existing handle ran
+        /// ungated. A script cannot obtain a handle without the permission, so this is defense in depth
+        /// rather than a reachable hole, but <see cref="AllowNativeInterop"/> is a public settable
+        /// property: a host that revokes it mid-run, or that hands a handle to a differently configured
+        /// VM, must not keep member access alive.
+        /// </para>
+        /// </summary>
+        private void EnsureNativeInteropAllowed(Instruction instr)
+        {
+            if (!AllowNativeInterop)
+                throw new VMException(
+                    "Runtime error: native .NET interop is disabled for this VM.",
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+        }
+
         private const int VisibilityPublic = 0;
 
         private const int VisibilityPrivate = 1;
@@ -1270,6 +1289,8 @@ namespace CFGS_VM.VMCore
 
                 case ClrAssemblyHandle or ClrNamespaceHandle or ClrTypeHandle or ClrObjectHandle or ClrEventHandle:
                     {
+                        EnsureNativeInteropAllowed(instr);
+
                         try
                         {
                             if (!IsMemberAccessInstruction(instr))
@@ -1514,6 +1535,8 @@ namespace CFGS_VM.VMCore
 
                 case ClrTypeHandle or ClrObjectHandle:
                     {
+                        EnsureNativeInteropAllowed(instr);
+
                         try
                         {
                             if (!IsMemberAccessInstruction(instr))

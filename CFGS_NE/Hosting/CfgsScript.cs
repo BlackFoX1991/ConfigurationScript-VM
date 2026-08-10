@@ -35,7 +35,6 @@ namespace CFGS_VM.Hosting
                 await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
                 try
                 {
-                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
                     await RunCoreAsync(effectiveToken).ConfigureAwait(false);
                 }
                 finally
@@ -71,7 +70,6 @@ namespace CFGS_VM.Hosting
                 await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
                 try
                 {
-                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
                     return await InvokeCoreAsync(functionName, args, effectiveToken).ConfigureAwait(false);
                 }
                 finally
@@ -110,7 +108,6 @@ namespace CFGS_VM.Hosting
                 await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
                 try
                 {
-                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
                     Task<object?> call = _vm.NewAsync(className, args, OriginFile, effectiveToken);
                     return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
                 }
@@ -132,7 +129,6 @@ namespace CFGS_VM.Hosting
                 _operationGate.Wait();
                 try
                 {
-                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
                     return _vm.GetMember(target, memberName, OriginFile);
                 }
                 finally
@@ -156,7 +152,6 @@ namespace CFGS_VM.Hosting
                 _operationGate.Wait();
                 try
                 {
-                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
                     _vm.SetMember(target, memberName, value, OriginFile);
                 }
                 finally
@@ -181,7 +176,6 @@ namespace CFGS_VM.Hosting
                 await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
                 try
                 {
-                    using IDisposable fileIoScope = VM.PushAllowFileIOScope(_permissions.AllowFileIO);
                     Task<object?> call = _vm.InvokeMemberAsync(target, memberName, args, OriginFile, effectiveToken);
                     return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
                 }

@@ -156,6 +156,7 @@ namespace CFGS_VM.VMCore
             // werden. Die Gate serialisiert die Bytecode-Segmente ueber den gesamten hot-gestarteten Baum.
             VM child = new(this)
             {
+                AllowFileIO = AllowFileIO,
                 AllowNativeInterop = AllowNativeInterop,
                 AllowPluginLoading = AllowPluginLoading,
                 EntryScriptPath = EntryScriptPath,

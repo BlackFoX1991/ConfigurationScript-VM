@@ -275,22 +275,20 @@ namespace CFGS.Web.Http
             return written;
         }
 
+        /// <summary>
+        /// Process-wide opt-out for file I/O, matching the sibling plugins (CFGS.IO, CFGS.Pdf, CFGS.Xml).
+        /// Combined with the running VM's own <see cref="VM.AllowFileIO"/>; both must allow it.
+        /// </summary>
+        public static bool AllowFileIO { get; set; } = true;
+
         private static void EnsureFileIo(Instruction instr)
         {
-            bool allowFile = VM.AllowFileIO;
-            try
-            {
-                Type? t = Type.GetType("CFGS.IO.CFGS_IO, CFGS.IO");
-                if (t != null)
-                {
-                    System.Reflection.PropertyInfo? p = t.GetProperty("AllowFileIO", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                    if (p != null && p.PropertyType == typeof(bool))
-                        allowFile = (bool)(p.GetValue(null) ?? allowFile);
-                }
-            }
-            catch { }
-
-            if (!allowFile)
+            // This used to read the host decision and then OVERWRITE it with CFGS.IO's own opt-out flag
+            // via reflection ("allowFile = (bool)(p.GetValue(null) ?? allowFile)"). Since that flag
+            // defaults to true, a host running with AllowFileIO=false silently regained file access as
+            // soon as CFGS.IO was loaded. The gate now mirrors the sibling plugins: this plugin's own
+            // switch AND the running VM's permission, with no cross-plugin reflection.
+            if (!AllowFileIO || !(VM.CurrentVm?.AllowFileIO ?? true))
                 throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
         }
 
