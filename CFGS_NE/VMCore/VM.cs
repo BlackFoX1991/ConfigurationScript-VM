@@ -46,7 +46,11 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private Stack<TryHandler> _tryHandlers => _state.TryHandlers;
 
-        private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef, StaticInstance? AccessType, bool IsAsync);
+        // No IsAsync flag: an async call never becomes an ordinary frame. TryStartHotAsyncCall diverts
+        // every async closure into a hot-start child VM and its trampoline, and the paths that push a
+        // frame are reached only after that returned false (i.e. the closure is not async). The flag was
+        // therefore always false and the FinalizeAsyncResult branch it guarded was unreachable.
+        private record CallFrame(int ReturnIp, int BaseScopeDepth, object? ThisRef, StaticInstance? AccessType);
 
         private sealed class ScriptExceptionSignal(Value payload, Instruction instr) : Exception
         {

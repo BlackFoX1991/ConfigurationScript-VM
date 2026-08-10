@@ -77,7 +77,7 @@ namespace CFGS_VM.VMCore
                     _tryHandlers.Pop();
 
                 _ip = fr.ReturnIp;
-                PushRuntimeObject(WrapReturnForFrame(fr, retVal));
+                PushRuntimeObject(retVal);
                 return StepResult.Continue;
             }
 

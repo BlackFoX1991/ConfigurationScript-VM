@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Collections.Generic;
 using System.Linq;
 using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.Analytic.Tree;
@@ -723,8 +722,11 @@ namespace CFGS_VM.VMCore
 
         private void CompileContinueStatement(Node node)
         {
+            // CompilerException, not VMException: this fires during codegen, and the rest of the compiler
+            // reports through CompilerException. Using a runtime exception type here made the CLI and the
+            // language server categorize these two diagnostics differently from every other compile error.
             if (_continueLists.Count == 0)
-                throw new VMException("Compile error: 'continue' outside of loop.", node.Line, node.Col, node.OriginFile, false, null!);
+                throw new CompilerException("'continue' outside of loop", node.Line, node.Col, node.OriginFile);
 
             int leaveIdx = _insns.Count;
             _insns.Add(new Instruction(OpCode.LEAVE, null, node.Line, node.Col, node.OriginFile));
@@ -734,7 +736,7 @@ namespace CFGS_VM.VMCore
         private void CompileBreakStatement(Node node)
         {
             if (_breakLists.Count == 0)
-                throw new VMException("Compile error: 'break' outside of loop.", node.Line, node.Col, node.OriginFile, false, null!);
+                throw new CompilerException("'break' outside of loop", node.Line, node.Col, node.OriginFile);
 
             int leaveIdx = _insns.Count;
             _insns.Add(new Instruction(OpCode.LEAVE, null, node.Line, node.Col, node.OriginFile));

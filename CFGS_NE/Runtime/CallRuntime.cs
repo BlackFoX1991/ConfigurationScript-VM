@@ -168,7 +168,7 @@ namespace CFGS_VM.VMCore
             int callerScopeDepth = _scopes.Count;
             int callerFrameDepth = _callStack.Count;
             _scopes.Add(callEnv);
-            _callStack.Push(new CallFrame(_program.Count, callerScopeDepth, receiver, accessType, false));
+            _callStack.Push(new CallFrame(_program.Count, callerScopeDepth, receiver, accessType));
 
             _nativeInvokeDepth++;
             try
@@ -194,14 +194,6 @@ namespace CFGS_VM.VMCore
                 while (_scopes.Count > callerScopeDepth)
                     _scopes.RemoveAt(_scopes.Count - 1);
             }
-        }
-
-        private static object? WrapReturnForFrame(CallFrame frame, object? retVal)
-        {
-            if (!frame.IsAsync)
-                return retVal;
-
-            return FinalizeAsyncResult(retVal);
         }
 
         private VM CreateHotStartChildVm()
@@ -238,7 +230,7 @@ namespace CFGS_VM.VMCore
             _callStack.Clear();
             _scopes.Clear();
             _scopes.Add(callEnv);
-            _callStack.Push(new CallFrame(_program.Count, _scopes.Count, receiver, accessType, false));
+            _callStack.Push(new CallFrame(_program.Count, _scopes.Count, receiver, accessType));
         }
 
         private object? ConsumeHotStartResult()
@@ -532,26 +524,19 @@ namespace CFGS_VM.VMCore
 
         /// <summary>
         /// Handles the CALL opcode.
+        /// <para>
+        /// No emitter produces CALL; the only instance in the codebase is a synthetic diagnostic operand
+        /// built by <see cref="InvokeGlobalFunctionAsyncValue"/>, which is never executed. The builtin
+        /// branch that used to live here was therefore unreachable, and it was also wrong: it popped
+        /// exactly <c>ArityMin</c> operands no matter how many the call site had pushed, so a variadic
+        /// builtin would have received the wrong arguments and left the rest on the stack. Builtin calls
+        /// go through CALL_INDIRECT, which checks the full arity range.
+        /// </para>
         /// </summary>
         private StepResult HandleCallInstruction(ref int _ip, Instruction instr)
         {
             if (instr.Operand is string funcName)
             {
-                if (TryGetBuiltin(funcName, out BuiltinDescriptor desc))
-                {
-                    List<Value> args = new();
-                    for (int i = desc.ArityMin - 1; i >= 0; i--)
-                    {
-                        if (_valueStack.Count == 0)
-                            throw new VMException($"Runtime error: insufficient args for {funcName}()", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                        args.Insert(0, _valueStack.Pop());
-                    }
-
-                    object? ret = InvokeBuiltinForCall(desc, args, instr);
-                    PushRuntimeObject(ret);
-                    return StepResult.Next;
-                }
-
                 if (!Functions.TryGetValue(funcName, out FunctionInfo? func))
                     throw new VMException($"Runtime error: unknown function {funcName}", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
@@ -810,207 +795,19 @@ namespace CFGS_VM.VMCore
 
                 int callerDepth = _scopes.Count;
                 _scopes.Add(callEnv);
-                _callStack.Push(new CallFrame(_ip, callerDepth, receiver, accessType, f.IsAsync));
+                _callStack.Push(new CallFrame(_ip, callerDepth, receiver, accessType));
                 _ip = f.Address;
                 return StepResult.Continue;
             }
 
-            if (_valueStack.Count == 0)
-                throw new VMException("Runtime error: missing callee for CALL_INDIRECT", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-            object calleeNoOperand = GetCallableTarget(_valueStack.Pop(), instr);
-            Closure fNoOperand;
-            object? receiverNoOperand = null;
-            StaticInstance? accessTypeNoOperand = null;
-
-            if (calleeNoOperand is IntrinsicBound ib)
-            {
-                int need = ib.Method.ArityMin;
-                List<Value> argsB = new();
-                for (int i = 0; i < need; i++)
-                {
-                    if (_valueStack.Count == 0)
-                        throw new VMException("Runtime error: insufficient args for intrinsic call",
-                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    argsB.Add(_valueStack.Pop());
-                }
-
-                object? result = InvokeIntrinsicForCall(ib.Method, ib.Receiver, argsB, instr);
-                PushRuntimeObject(result);
-                return StepResult.Continue;
-            }
-            else if (calleeNoOperand is BuiltinCallable bc2)
-            {
-                if (!TryGetBuiltin(bc2.Name, out BuiltinDescriptor desc))
-                    throw new VMException($"Runtime error: unknown builtin '{bc2.Name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-                int need = desc.ArityMin;
-                List<Value> argsB = new();
-                for (int i = 0; i < need; i++)
-                {
-                    if (_valueStack.Count == 0)
-                        throw new VMException("Runtime error: insufficient args for builtin call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    argsB.Add(_valueStack.Pop());
-                }
-                argsB.Reverse();
-
-                object? result = InvokeBuiltinForCall(desc, argsB, instr);
-                PushRuntimeObject(result);
-                return StepResult.Continue;
-            }
-            else if (calleeNoOperand is NamespaceBuiltinCallable nbc2)
-            {
-                BuiltinDescriptor desc = nbc2.Descriptor;
-                int need = desc.ArityMin;
-                List<Value> argsB = new();
-                for (int i = 0; i < need; i++)
-                {
-                    if (_valueStack.Count == 0)
-                        throw new VMException("Runtime error: insufficient args for builtin call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    argsB.Add(_valueStack.Pop());
-                }
-                argsB.Reverse();
-
-                object? result = InvokeBuiltinForCall(desc, argsB, instr);
-                PushRuntimeObject(result);
-                return StepResult.Continue;
-            }
-            else if (calleeNoOperand is BoundMethod bm2)
-            {
-                fNoOperand = bm2.Function;
-                receiverNoOperand = bm2.Receiver;
-                accessTypeNoOperand = bm2.DeclaringType;
-                if (accessTypeNoOperand == null)
-                {
-                    if (receiverNoOperand is StaticInstance rst)
-                        accessTypeNoOperand = rst;
-                    else if (receiverNoOperand is ClassInstance rinst && TryGetStaticType(rinst, out StaticInstance rst2))
-                        accessTypeNoOperand = rst2;
-                }
-            }
-            else if (calleeNoOperand is BoundType bt2)
-            {
-                object ctorVal = GetIndexedValue(bt2.Type, "new", AsInternalMemberAccess(instr));
-                if (ctorVal is BoundMethod ctorBound)
-                {
-                    fNoOperand = ctorBound.Function;
-                    receiverNoOperand = ctorBound.Receiver;
-                    accessTypeNoOperand = ctorBound.DeclaringType ?? bt2.Type;
-                }
-                else if (ctorVal is Closure ctorClos)
-                {
-                    fNoOperand = ctorClos;
-                    receiverNoOperand = bt2.Type;
-                    accessTypeNoOperand = bt2.Type;
-                }
-                else
-                {
-                    throw new VMException("Runtime error: nested type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                }
-
-                int total = fNoOperand.Parameters.Count;
-
-                List<Value> argsTmp = new();
-                for (int i = 0; i < total - 1; i++)
-                {
-                    if (_valueStack.Count == 0)
-                        throw new VMException("Runtime error: insufficient args for constructor call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    argsTmp.Add(_valueStack.Pop());
-                }
-                argsTmp.Reverse();
-                argsTmp.Insert(0, ToRuntimeValue(bt2.Outer));
-
-                int piStart2 = (fNoOperand.Parameters.Count > 0 && IsReceiverName(fNoOperand.Parameters[0])) ? 1 : 0;
-                int expected2 = fNoOperand.Parameters.Count - piStart2;
-
-                if (argsTmp.Count != expected2)
-                    throw new VMException(
-                        $"Runtime error: argument count mismatch (expected {expected2}, got {argsTmp.Count})",
-                        instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-                if (TryStartHotAsyncCall(fNoOperand, argsTmp, receiverNoOperand, accessTypeNoOperand, instr, out Task<object?> hotTask2))
-                {
-                    PushRuntimeObject(hotTask2);
-                    return StepResult.Continue;
-                }
-
-                Env callEnv2 = BuildCallEnv(fNoOperand, argsTmp, instr);
-                int callerDepth2 = _scopes.Count;
-                _scopes.Add(callEnv2);
-                _callStack.Push(new CallFrame(_ip, callerDepth2, receiverNoOperand, accessTypeNoOperand, fNoOperand.IsAsync));
-                _ip = fNoOperand.Address;
-                return StepResult.Continue;
-            }
-            else if (calleeNoOperand is Closure clos2)
-            {
-                fNoOperand = clos2;
-
-                if (fNoOperand.Parameters.Count > 0 && IsReceiverName(fNoOperand.Parameters[0]))
-                {
-                    if (_valueStack.Count == 0)
-                        throw new VMException(
-                            $"Runtime error: missing '{fNoOperand.Parameters[0]}' for method call.",
-                            instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                    receiverNoOperand = _valueStack.Pop().ToObject();
-
-                    if (receiverNoOperand is StaticInstance rst)
-                        accessTypeNoOperand = rst;
-                    else if (receiverNoOperand is ClassInstance rinst && TryGetStaticType(rinst, out StaticInstance rst2))
-                        accessTypeNoOperand = rst2;
-                }
-            }
-            else if (calleeNoOperand is StaticInstance st2)
-            {
-                object ctorVal = GetIndexedValue(st2, "new", AsInternalMemberAccess(instr));
-                if (ctorVal is BoundMethod ctorBound)
-                {
-                    fNoOperand = ctorBound.Function;
-                    receiverNoOperand = ctorBound.Receiver;
-                    accessTypeNoOperand = ctorBound.DeclaringType ?? st2;
-                }
-                else if (ctorVal is Closure ctorClos)
-                {
-                    fNoOperand = ctorClos;
-                    receiverNoOperand = st2;
-                    accessTypeNoOperand = st2;
-                }
-                else
-                {
-                    throw new VMException("Runtime error: type has no constructor 'new'.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                }
-            }
-            else
-            {
-                throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-            }
-
-            int piStart = (fNoOperand.Parameters.Count > 0 && IsReceiverName(fNoOperand.Parameters[0])) ? 1 : 0;
-            int expected = fNoOperand.Parameters.Count - piStart;
-
-            List<Value> argsList2 = new();
-            for (int pi = fNoOperand.Parameters.Count - 1; pi >= piStart; pi--)
-            {
-                if (_valueStack.Count == 0)
-                    throw new VMException("Runtime error: insufficient args for call", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-                argsList2.Insert(0, _valueStack.Pop());
-            }
-
-            if (argsList2.Count != expected)
-                throw new VMException(
-                    $"Runtime error: argument count mismatch (expected {expected}, got {argsList2.Count})",
-                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
-
-            if (TryStartHotAsyncCall(fNoOperand, argsList2, receiverNoOperand, accessTypeNoOperand, instr, out Task<object?> hotTaskNoOperand))
-            {
-                PushRuntimeObject(hotTaskNoOperand);
-                return StepResult.Continue;
-            }
-
-            Env callEnvNoOperand = BuildCallEnv(fNoOperand, argsList2, instr);
-            _scopes.Add(callEnvNoOperand);
-            _callStack.Push(new CallFrame(_ip, _scopes.Count - 1, receiverNoOperand, accessTypeNoOperand, fNoOperand.IsAsync));
-            _ip = fNoOperand.Address;
-            return StepResult.Continue;
+            // Every emitter passes the argument count as an int operand (CallEmitter, ClassEmitter,
+            // ExprEmitter). The operand-less form used to carry its own ~200-line implementation that no
+            // compiled program could reach, and which popped a fixed arity regardless of how many values
+            // the call site had actually pushed. It is gone: a stream that still uses the form (only
+            // hand-written bytecode can) now fails cleanly instead of binding the wrong arguments.
+            throw new VMException(
+                "Runtime error: CALL_INDIRECT requires an argument-count operand",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
         /// <summary>
@@ -1055,7 +852,7 @@ namespace CFGS_VM.VMCore
                 _tryHandlers.Pop();
 
             _ip = fr.ReturnIp;
-            PushRuntimeObject(WrapReturnForFrame(fr, retVal));
+            PushRuntimeObject(retVal);
             return StepResult.Continue;
         }
     }
