@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.8.8 - 2026-08-10
+
+### Changed
+- Updated the bundled CFGS language server and CLI to v17.0.1. This closes the remaining half of a loading gap in compiled `.cfb` artifacts: v17.0.0 stopped such an artifact from pointing the plugin loader at an arbitrary absolute or UNC path, but a native assembly reference inside the bytecode could still do so. Both are now reduced to a bare file name when the artifact is read. Editor behaviour is unchanged; this affects the runtime that the lint and format commands invoke.
+
 ## 0.8.7 - 2026-08-10
 
 ### Fixed
