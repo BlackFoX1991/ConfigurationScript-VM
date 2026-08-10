@@ -259,7 +259,11 @@ namespace CFGS_VM.VMCore
                 OperandKind.Boolean => reader.ReadBoolean(),
                 OperandKind.ObjectArray => ReadObjectArray(reader),
                 OperandKind.RuntimePropertyDescriptor => ReadRuntimePropertyDescriptor(reader),
-                OperandKind.NativeAssemblyReference => new NativeAssemblyReference(reader.ReadString(), reader.ReadString()),
+                // Alias first, then the path through the same reduction Save applies. Reading the path raw
+                // reopened the very hole the plugin-reference check closes: PUSH_CONST hands the reference
+                // to NativeInterop.LoadAssembly, and ResolveAssemblyPath returns a fully qualified path
+                // verbatim, so a hand-crafted artifact could load a DLL from any absolute or UNC location.
+                OperandKind.NativeAssemblyReference => new NativeAssemblyReference(reader.ReadString(), ReadPluginReference(reader)),
                 OperandKind.ScopeDescriptor => ReadScopeDescriptor(reader),
                 _ => throw new InvalidDataException($"unsupported CFB operand kind '{kind}'")
             };
@@ -325,14 +329,15 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// Reads a plugin reference and reduces it to a bare file name, mirroring what <see cref="Save"/>
-        /// already does on the way out. Sanitizing only on write left an asymmetry: a hand-crafted or
-        /// tampered artifact could name an absolute or UNC path, and both loaders
-        /// (<c>CfgsScriptEngine.LoadCfb</c> and the CLI's compiled-file runner) resolve a fully qualified
-        /// reference verbatim. That bypasses the package lock-file hash check, which only covers artifacts
-        /// under <c>&lt;root&gt;/.cfgs/plugins</c>, and turns "run sandboxed bytecode" into "load arbitrary
-        /// native code". A reference that carries no file-name part at all can never name a plugin, so it
-        /// is rejected outright rather than passed through.
+        /// Reads a DLL reference (a required plugin, or the path of a native assembly operand) and reduces
+        /// it to a bare file name, mirroring what <see cref="Save"/> already does on the way out.
+        /// Sanitizing only on write left an asymmetry: a hand-crafted or tampered artifact could name an
+        /// absolute or UNC path, and every consumer resolves a fully qualified reference verbatim
+        /// (<c>CfgsScriptEngine.LoadCfb</c>, the CLI's compiled-file runner, and
+        /// <c>NativeInterop.ResolveAssemblyPath</c>). That bypasses the package lock-file hash check, which
+        /// only covers artifacts under <c>&lt;root&gt;/.cfgs/plugins</c>, and turns "run sandboxed bytecode"
+        /// into "load arbitrary native code". A reference that carries no file-name part at all can never
+        /// name a DLL, so it is rejected outright rather than passed through.
         /// </summary>
         private static string ReadPluginReference(BinaryReader reader)
         {

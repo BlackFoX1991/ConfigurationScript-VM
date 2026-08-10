@@ -1881,12 +1881,52 @@ func stillWorks() {
             }
 
             AssertTrue(threw, "a plugin reference without a file name must be rejected");
+
+            // The same asymmetry existed for native assembly operands: Save reduces the path, Load read it
+            // back raw, and NativeInterop.ResolveAssemblyPath returns a fully qualified path verbatim.
+            WriteMinimalCfbWithNativeReference(path, @"C:\attacker\payload.dll");
+            loaded = CfbFile.Load(path);
+            AssertTrue(loaded.Instructions.Count == 1, "expected exactly one instruction");
+            CFGS_VM.VMCore.Interop.NativeAssemblyReference? nativeRef =
+                loaded.Instructions[0].Operand as CFGS_VM.VMCore.Interop.NativeAssemblyReference;
+            AssertTrue(nativeRef is not null, "expected a native assembly reference operand");
+            AssertTrue(
+                nativeRef!.Path == "payload.dll",
+                $"absolute native assembly path must be reduced to its file name, got '{nativeRef.Path}'");
+            AssertEqual("Fx", nativeRef.Alias, "the alias must survive the reduction unchanged");
         }
         finally
         {
             if (File.Exists(path))
                 File.Delete(path);
         }
+    }
+
+    /// <summary>
+    /// Writes a structurally valid .cfb whose single instruction carries a native assembly reference.
+    /// </summary>
+    private static void WriteMinimalCfbWithNativeReference(string path, string assemblyPath)
+    {
+        using FileStream fs = File.Create(path);
+        using BinaryWriter writer = new(fs, System.Text.Encoding.UTF8, leaveOpen: false);
+
+        writer.Write(System.Text.Encoding.ASCII.GetBytes("CFB1"));
+        writer.Write(CompiledScript.CurrentBytecodeVersion);
+        writer.Write("test");        // name
+        writer.Write(string.Empty);  // sourceHash
+        writer.Write("1.0");         // compilerVersion
+        writer.Write(0);             // plugin count
+        writer.Write(0);             // function count
+        writer.Write(0);             // root scope descriptor count
+        writer.Write(1);             // instruction count
+
+        writer.Write((int)OpCode.PUSH_CONST);
+        writer.Write((byte)12);      // OperandKind.NativeAssemblyReference
+        writer.Write("Fx");          // alias
+        writer.Write(assemblyPath);  // path
+        writer.Write(1);             // line
+        writer.Write(1);             // col
+        writer.Write("test");        // origin file
     }
 
     /// <summary>
