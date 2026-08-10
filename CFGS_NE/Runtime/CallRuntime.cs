@@ -32,6 +32,43 @@ namespace CFGS_VM.VMCore
                     instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
+        /// <summary>
+        /// Upper bound on nested <em>native</em> re-entries into the interpreter.
+        /// <para>
+        /// Ordinary CFGS calls are iterative and bounded by <see cref="MaxCallDepth"/>, which guards the
+        /// heap call stack. A builtin or intrinsic that invokes a script callback (a map/filter/sort
+        /// callback, <c>interface_call</c>, a native delegate) takes a different route: it calls
+        /// <see cref="InvokeClosureSyncValue"/>, which re-enters <c>RunUntilAwaitOrHalt</c> on the real CLR
+        /// stack. That path had no limit at all, so deep enough callback nesting overflowed the CLR stack.
+        /// A <c>StackOverflowException</c> cannot be caught in .NET and takes the whole process down with
+        /// it, including a hosting language server, bypassing every try/catch on both sides.
+        /// </para>
+        /// <para>
+        /// The limit therefore has to stop well short of the real stack, the same reasoning as
+        /// <c>ParserContext.DefaultMaxRecursionDepth</c> on the parser side. Measured on the default 1 MB
+        /// stack with a minimal callback (<c>[1].map(func(x){ return deep(n-1); })</c>): Release survives
+        /// ~110 levels and dies between 110 and 120, Debug dies between 80 and 100. A level costs one
+        /// RunUntilAwaitOrHalt frame plus the intrinsic's own frames, and a callback doing real work costs
+        /// more than the probe did, so the budget is set at roughly half the Debug figure. That is still
+        /// far deeper callback nesting than real code uses, and the failure is now a catchable runtime
+        /// error instead of a process kill.
+        /// </para>
+        /// </summary>
+        private const int MaxNativeInvokeDepth = 48;
+
+        private int _nativeInvokeDepth;
+
+        /// <summary>
+        /// Throws a runtime error when native callback re-entry has reached <see cref="MaxNativeInvokeDepth"/>.
+        /// </summary>
+        private void EnsureNativeInvokeDepthWithinLimit(Instruction instr)
+        {
+            if (_nativeInvokeDepth >= MaxNativeInvokeDepth)
+                throw new VMException(
+                    $"Runtime error: maximum native callback nesting ({MaxNativeInvokeDepth}) exceeded (possible infinite recursion through a callback)",
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+        }
+
         private static List<Value> ToRuntimeArgs(IEnumerable<object?> args)
             => args.Select(static arg => ToRuntimeValue(arg)).ToList();
 
@@ -125,17 +162,38 @@ namespace CFGS_VM.VMCore
             }
 
             EnsureCallDepthWithinLimit(instr);
+            EnsureNativeInvokeDepthWithinLimit(instr);
+
             Env callEnv = BuildCallEnv(closure, args, instr);
-            int callerDepth = _scopes.Count;
+            int callerScopeDepth = _scopes.Count;
+            int callerFrameDepth = _callStack.Count;
             _scopes.Add(callEnv);
-            _callStack.Push(new CallFrame(_program.Count, callerDepth, receiver, accessType, false));
+            _callStack.Push(new CallFrame(_program.Count, callerScopeDepth, receiver, accessType, false));
 
-            RunStopReason reason = RunUntilAwaitOrHalt(false, closure.Address, _callStack.Count, ct);
+            _nativeInvokeDepth++;
+            try
+            {
+                RunStopReason reason = RunUntilAwaitOrHalt(false, closure.Address, _callStack.Count, ct);
 
-            if (reason == RunStopReason.AwaitPending)
-                throw new VMException("Runtime error: callback function must not use await.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                if (reason == RunStopReason.AwaitPending)
+                    throw new VMException("Runtime error: callback function must not use await.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
-            return _valueStack.Count > 0 ? _valueStack.Pop() : Value.Null;
+                return _valueStack.Count > 0 ? _valueStack.Pop() : Value.Null;
+            }
+            finally
+            {
+                _nativeInvokeDepth--;
+
+                // A normal return already unwound both stacks through RET, so these loops are no-ops on
+                // the happy path. They matter when the callback throws: the only cleanup used to come from
+                // RouteExceptionToTryHandlers, which never runs if an intrinsic swallows the exception (or
+                // if we bail out on AwaitPending above). The pushed scope and call frame would then survive
+                // the call and corrupt every later name resolution on this VM.
+                while (_callStack.Count > callerFrameDepth)
+                    _callStack.Pop();
+                while (_scopes.Count > callerScopeDepth)
+                    _scopes.RemoveAt(_scopes.Count - 1);
+            }
         }
 
         private static object? WrapReturnForFrame(CallFrame frame, object? retVal)

@@ -48,6 +48,17 @@ namespace CFGS_VM.VMCore.Extensions.Core
         // descriptor's slot count into the grown region of _slots.
         private Dictionary<string, int>? _overflow;
 
+        // Overflow slot indices released by RemoveLocal, handed back out by EnsureSlot. Without reuse a
+        // remove-then-redefine cycle appended a fresh slot every single time and never reclaimed the old
+        // one. The REPL does exactly that on every evaluation: LoadReplCompiledScript removes all function
+        // bindings from the global scope before the new program redefines them, so the global slot array
+        // grew by one entry per function per evaluation and never shrank.
+        //
+        // Only overflow indices are ever recycled. Descriptor slots keep their identity (the compiler
+        // emits LOAD_SLOT/STORE_SLOT against them), and a descriptor name is not removable from the shared
+        // map anyway, so no slot a slot opcode can reach is ever reassigned to a different name.
+        private List<int>? _freeOverflowSlots;
+
         // Slot storage. For a descriptor scope the first SlotCount slots are pre-filled with Value.Undefined
         // (the "declared but not yet assigned" sentinel) so name resolution skips them until their VAR_DECL
         // runs — reproducing temporal-dead-zone / shadowing semantics. _count is the high-water mark of
@@ -114,14 +125,24 @@ namespace CFGS_VM.VMCore.Extensions.Core
 
             _overflow ??= new Dictionary<string, int>(StringComparer.Ordinal);
 
-            if (_count == _slots.Length)
+            int idx;
+            if (_freeOverflowSlots is { Count: > 0 } free)
             {
-                int newCapacity = _count == 0 ? 4 : _count * 2;
-                System.Array.Resize(ref _slots, newCapacity);
-                System.Array.Resize(ref _isConst, newCapacity);
+                idx = free[^1];
+                free.RemoveAt(free.Count - 1);
+            }
+            else
+            {
+                if (_count == _slots.Length)
+                {
+                    int newCapacity = _count == 0 ? 4 : _count * 2;
+                    System.Array.Resize(ref _slots, newCapacity);
+                    System.Array.Resize(ref _isConst, newCapacity);
+                }
+
+                idx = _count++;
             }
 
-            int idx = _count++;
             _overflow[name] = idx;
             _isConst[idx] = false;
             return idx;
@@ -283,10 +304,12 @@ namespace CFGS_VM.VMCore.Extensions.Core
             if (!TryIndexOf(name, out int idx))
                 return false;
 
-            // Drop an overflow binding outright; a descriptor name can't be removed from the shared map, so
-            // mark its slot Undefined to make it invisible to resolution (and redefinable). Either way the
-            // reference is released for GC.
-            _overflow?.Remove(name);
+            // Drop an overflow binding outright and release its slot for reuse; a descriptor name can't be
+            // removed from the shared map, so mark its slot Undefined to make it invisible to resolution
+            // (and redefinable). Either way the reference is released for GC.
+            if (_overflow is not null && _overflow.Remove(name))
+                (_freeOverflowSlots ??= []).Add(idx);
+
             _slots[idx] = Value.Undefined;
             _isConst[idx] = false;
             return true;

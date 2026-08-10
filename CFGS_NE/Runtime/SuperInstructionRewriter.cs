@@ -14,8 +14,9 @@ namespace CFGS_VM.VMCore
     /// instructions stay in place as a correct fallback should control ever land on them directly.
     ///
     /// Runs at load time (not at serialization time) so the .cfb format is unaffected and both freshly
-    /// compiled and .cfb-loaded programs benefit. The pass is idempotent (a fused head is no longer a raw
-    /// fusion head, so a second run is a no-op).
+    /// compiled and .cfb-loaded programs benefit. The pass is idempotent: a fused head is no longer a raw
+    /// fusion head, and the loop skips the folded tail that head owns (see FoldedTailLength), so a second
+    /// run cannot re-fuse part of an existing fold.
     /// </summary>
     internal static class SuperInstructionRewriter
     {
@@ -25,6 +26,21 @@ namespace CFGS_VM.VMCore
             for (int i = 0; i < n; i++)
             {
                 OpCode head = program[i].Code;
+
+                // A head fused by an earlier run owns the instructions behind it, so skip them. Without
+                // this the pass was NOT idempotent despite the claim above: the first run stepped over a
+                // fold via "i += 3", a second run walked into that tail and re-fused part of it (the
+                // ADD/STORE_SLOT pair behind an INC_SLOT became ADD_STORE_SLOT). The fused handler skips
+                // the tail at runtime so nothing changed observably, but the documented guarantee that a
+                // folded tail stays a valid fallback if control ever lands on it directly was gone. This
+                // matters because a second run really happens: hot-starting an async call re-loaded the
+                // same instruction list the parent VM was executing.
+                int foldedTail = FoldedTailLength(head);
+                if (foldedTail > 0)
+                {
+                    i += foldedTail;
+                    continue;
+                }
 
                 if (head == OpCode.LOAD_SLOT)
                 {
@@ -101,6 +117,23 @@ namespace CFGS_VM.VMCore
                 }
             }
         }
+
+        /// <summary>
+        /// Number of folded tail instructions an already-fused head owns. Mirrors the instruction-pointer
+        /// advance of the matching handler in <c>VM.HandleInstruction</c>, so the two must stay in step:
+        /// INC_SLOT/DEC_SLOT skip PUSH_INT, ADD/SUB and STORE_SLOT; SLOT_ADD_INT/SLOT_SUB_INT skip
+        /// PUSH_INT and ADD/SUB; the remaining fused forms own a single trailing instruction.
+        /// </summary>
+        private static int FoldedTailLength(OpCode code)
+            => code switch
+            {
+                OpCode.INC_SLOT or OpCode.DEC_SLOT => 3,
+                OpCode.SLOT_ADD_INT or OpCode.SLOT_SUB_INT => 2,
+                OpCode.LOAD_SLOT2 => 1,
+                OpCode.ADD_STORE_SLOT or OpCode.SUB_STORE_SLOT => 1,
+                OpCode.LT_JF or OpCode.LE_JF or OpCode.GT_JF or OpCode.GE_JF or OpCode.EQ_JF or OpCode.NEQ_JF => 1,
+                _ => 0,
+            };
 
         /// <summary>Returns a copy of <paramref name="original"/> with a new opcode, preserving operand and source location.</summary>
         private static Instruction Retag(Instruction original, OpCode code)

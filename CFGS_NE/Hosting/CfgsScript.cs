@@ -326,14 +326,23 @@ namespace CFGS_VM.Hosting
             return cts;
         }
 
+        /// <summary>
+        /// Awaits <paramref name="task"/>, giving up as soon as <paramref name="cancellationToken"/> fires.
+        /// <para>
+        /// This used to race the task against <c>Task.Delay(Timeout.InfiniteTimeSpan, token)</c>. When the
+        /// real task won, that delay was never cancelled, so its registration stayed alive on the token's
+        /// source. With no <c>MaxExecutionTime</c> configured the token is the caller's own, often
+        /// process-lifetime, token, so every <c>RunAsync</c> / <c>InvokeAsync</c> / <c>NewAsync</c> left a
+        /// registration behind and the list grew without bound. <c>WaitAsync</c> does the same job and
+        /// cleans up after itself.
+        /// </para>
+        /// </summary>
         private static async Task<T> WaitWithCancellation<T>(Task<T> task, CancellationToken cancellationToken)
         {
             if (!cancellationToken.CanBeCanceled)
                 return await task.ConfigureAwait(false);
 
-            Task completed = await Task.WhenAny(task, Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-            return await ((Task<T>)completed).ConfigureAwait(false);
+            return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 }

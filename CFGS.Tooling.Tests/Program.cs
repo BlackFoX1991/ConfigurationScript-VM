@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Text.Json;
 using CFGS_VM.Hosting;
 using CFGS_VM.VMCore;
+using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Plugin;
 using CFGS_VM.Tooling;
 
@@ -58,6 +60,10 @@ internal static class Program
             HostingPreservesStructuredDiagnosticCode,
             CfbLoaderRejectsCorruptElementCounts,
             CfbLoaderReducesPluginReferencesToFileNames,
+            SuperInstructionRewriteIsIdempotent,
+            EnvReusesRemovedOverflowSlots,
+            DeepNativeCallbackNestingIsCatchable,
+            SwallowedCallbackExceptionRestoresInvokeDepth,
             NativeInteropConvertsClosuresBigIntegersAndCollections,
             NativeInteropGuardsCyclicConversion,
             NativeInteropMemberAccessHonoursRevokedPermission,
@@ -1632,6 +1638,210 @@ func writeInWorkspace(path) {
             if (File.Exists(path))
                 File.Delete(path);
         }
+    }
+
+    private static void EnvReusesRemovedOverflowSlots()
+    {
+        // RemoveLocal dropped the name from the overflow map but orphaned its slot index, so a
+        // remove-then-redefine cycle appended a fresh slot every time. The REPL does exactly that on every
+        // evaluation (LoadReplCompiledScript removes all function bindings before the new program
+        // redefines them), so the global scope's slot array grew without bound. White-box on _slots
+        // because the growth is the whole point of the fix and nothing public exposes it.
+        Env env = new(null);
+        System.Reflection.FieldInfo slots = typeof(Env).GetField(
+            "_slots",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+        for (int cycle = 0; cycle < 50; cycle++)
+        {
+            env.DefineConstValue("fnA", Value.FromInt(cycle));
+            env.DefineValue("fnB", Value.FromInt(cycle));
+            AssertTrue(env.IsConstLocal("fnA"), "const flag must be set on definition");
+
+            AssertTrue(env.RemoveLocal("fnA"), "removing an existing binding must report success");
+            AssertTrue(env.RemoveLocal("fnB"), "removing an existing binding must report success");
+        }
+
+        int capacity = ((Value[])slots.GetValue(env)!).Length;
+        AssertTrue(
+            capacity <= 8,
+            $"removed overflow slots must be recycled; the slot array grew to {capacity} over 50 cycles");
+
+        // A recycled slot must not carry anything over from its previous tenant.
+        env.DefineValue("fnA", Value.FromInt(7));
+        AssertFalse(env.IsConstLocal("fnA"), "a recycled slot must not keep the previous binding's const flag");
+        AssertTrue(
+            env.TryGetLocalValue("fnA", out Value recycled) && recycled.AsInt == 7,
+            "a recycled slot must hold the newly defined value");
+        AssertFalse(env.TryGetLocalValue("fnB", out _), "a removed binding must stay invisible to resolution");
+    }
+
+    private static void SuperInstructionRewriteIsIdempotent()
+    {
+        // The pass documents that a second run is a no-op, and hot-starting an async call relied on it:
+        // CreateHotStartChildVm loads the SAME instruction list the parent VM is executing, so every async
+        // call re-ran the rewriter over live bytecode. It was not idempotent. Run 1 stepped over a fold
+        // via "i += 3"; run 2 walked into that tail and re-fused the ADD/STORE_SLOT pair behind an
+        // INC_SLOT into ADD_STORE_SLOT, destroying the guarantee that a folded tail remains a valid
+        // fallback if control ever lands on it directly.
+        System.Reflection.MethodInfo rewrite = typeof(VM).Assembly
+            .GetType("CFGS_VM.VMCore.SuperInstructionRewriter", throwOnError: true)!
+            .GetMethod("Rewrite", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!;
+
+        (string Label, List<Instruction> Program)[] samples =
+        [
+            // x = x + 1 -> INC_SLOT owning PUSH_INT, ADD and STORE_SLOT
+            ("x = x + 1", [
+                new Instruction(OpCode.LOAD_SLOT, 7),
+                new Instruction(OpCode.PUSH_INT, 1),
+                new Instruction(OpCode.ADD, null),
+                new Instruction(OpCode.STORE_SLOT, 7),
+                new Instruction(OpCode.HALT, null)
+            ]),
+            // y = x + 1 (different slots) -> SLOT_ADD_INT plus a STORE_SLOT that stays separate
+            ("y = x + 1", [
+                new Instruction(OpCode.LOAD_SLOT, 7),
+                new Instruction(OpCode.PUSH_INT, 1),
+                new Instruction(OpCode.ADD, null),
+                new Instruction(OpCode.STORE_SLOT, 9),
+                new Instruction(OpCode.HALT, null)
+            ]),
+            // a < b then branch -> LOAD_SLOT2 and LT_JF
+            ("a < b branch", [
+                new Instruction(OpCode.LOAD_SLOT, 1),
+                new Instruction(OpCode.LOAD_SLOT, 2),
+                new Instruction(OpCode.LT, null),
+                new Instruction(OpCode.JMP_IF_FALSE, 99),
+                new Instruction(OpCode.HALT, null)
+            ])
+        ];
+
+        foreach ((string label, List<Instruction> program) in samples)
+        {
+            rewrite.Invoke(null, [program]);
+            string afterFirst = string.Join(",", program.Select(static i => i.Code.ToString()));
+
+            rewrite.Invoke(null, [program]);
+            string afterSecond = string.Join(",", program.Select(static i => i.Code.ToString()));
+
+            rewrite.Invoke(null, [program]);
+            string afterThird = string.Join(",", program.Select(static i => i.Code.ToString()));
+
+            AssertEqual(afterFirst, afterSecond, $"rewriting '{label}' a second time must be a no-op");
+            AssertEqual(afterFirst, afterThird, $"rewriting '{label}' a third time must be a no-op");
+        }
+    }
+
+    private static void DeepNativeCallbackNestingIsCatchable()
+    {
+        // Nesting script callbacks through a native intrinsic (here list.map) re-enters the interpreter on
+        // the real CLR stack, a path MaxCallDepth does not cover because that only bounds the heap call
+        // stack. It had no limit at all: measured on the default 1 MB stack, the process died with
+        // STACK_OVERFLOW (0xC00000FD) at roughly 120 levels in Release and 100 in Debug. A
+        // StackOverflowException cannot be caught in .NET, so this killed the whole host process,
+        // including a language server. It must surface as an ordinary catchable runtime error instead.
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<deep-callback>", """
+func deep(n) {
+    if (n <= 0) { return 0; }
+    var r = [1].map(func(x) { return deep(n - 1) + 1; });
+    return r[0];
+}
+
+func shallow() {
+    return deep(20);
+}
+
+func runawayReal() {
+    try {
+        return "no error raised: " + deep(5000);
+    } catch (e) {
+        return e.message();
+    }
+}
+""");
+
+        script.RunAsync().GetAwaiter().GetResult();
+
+        AssertEqual(
+            20,
+            script.InvokeAsync<int>("shallow").GetAwaiter().GetResult(),
+            "callback nesting well below the limit must keep working");
+
+        string message = script.InvokeAsync<string>("runawayReal").GetAwaiter().GetResult() ?? "";
+        AssertTrue(
+            message.Contains("maximum native callback nesting", StringComparison.Ordinal),
+            $"runaway callback nesting must raise a catchable runtime error, got '{message}'");
+    }
+
+    private static void SwallowedCallbackExceptionRestoresInvokeDepth()
+    {
+        // InvokeClosureSyncValue pushed a scope and a call frame and left the unwinding to
+        // RouteExceptionToTryHandlers. A native builtin that catches the callback's exception itself never
+        // reaches that routing, so the pushed state survived the call. The cleanup now lives in a finally.
+        // The native-invoke counter is decremented in that same finally, which makes the fix directly
+        // observable: if the finally did not run, the counter would stay elevated and the nesting guard
+        // would falsely trip after a few dozen swallowed exceptions.
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        CfgsScript script = engine.CompileSource("<swallowed-callback>", """
+func boom() {
+    throw "callback failed";
+}
+
+func hammer(times) {
+    var i = 0;
+    while (i < times) {
+        callAndSwallow(boom);
+        i = i + 1;
+    }
+    return "survived";
+}
+
+func stillWorks() {
+    return [1, 2, 3].map(func(x) { return x * 2; });
+}
+""");
+
+        script.Runtime.Builtins.Register(new BuiltinDescriptor(
+            "callAndSwallow",
+            1,
+            1,
+            (args, instr) =>
+            {
+                VM vm = VM.CurrentVm ?? throw new InvalidOperationException("missing current VM");
+                try
+                {
+                    return vm.InvokeClosureSync((Closure)args[0], new List<object>(), instr) ?? "";
+                }
+                catch (Exception)
+                {
+                    return "swallowed";
+                }
+            }));
+
+        script.RunAsync().GetAwaiter().GetResult();
+
+        // Far more iterations than MaxNativeInvokeDepth: a leaked counter would trip the guard long
+        // before this returns.
+        AssertEqual(
+            "survived",
+            script.InvokeAsync<string>("hammer", 500).GetAwaiter().GetResult() ?? "",
+            "swallowed callback exceptions must not accumulate native-invoke depth");
+
+        // And the VM must still be usable afterwards, i.e. no scope or call frame was left behind.
+        List<object>? doubled = script.InvokeAsync<List<object>>("stillWorks").GetAwaiter().GetResult();
+        AssertTrue(doubled is { Count: 3 }, "the VM must still evaluate normally after swallowed callback errors");
+        AssertEqual(6, Convert.ToInt32(doubled![2]), "callback results are wrong after swallowed errors");
     }
 
     private static void CfbLoaderReducesPluginReferencesToFileNames()
