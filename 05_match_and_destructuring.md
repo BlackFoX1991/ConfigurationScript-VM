@@ -160,16 +160,29 @@ func normalize(msg) {
     var header = msg["headers"]["Content-Type"] ?? "text/plain";
 
     return msg match {
-        {"kind": "pair", "left": var x, "right": var y} if (x == y): {
-            "same:" + str(x + y);
-        },
-        {"kind": "pair", "left": var x, "right": var y}: {
-            "diff:" + str(x - y);
-        },
-        _: {
-            "fallback:" + header;
-        }
+        {"kind": "pair", "left": var x, "right": var y} if (x == y): "same:" + str(x + y),
+        {"kind": "pair", "left": var x, "right": var y}: "diff:" + str(x - y),
+        _: "fallback:" + header
     };
+}
+```
+
+Note the difference between the two `match` forms. The expression form used above takes an expression after each colon. The statement form takes a block per `case` arm.
+
+```cfs
+func describe(msg) {
+    var out = "";
+
+    match (msg) {
+        case {"kind": "pair", "left": var x, "right": var y}: {
+            out = "pair:" + str(x + y);
+        }
+        case _: {
+            out = "other";
+        }
+    }
+
+    return out;
 }
 ```
 

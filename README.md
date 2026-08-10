@@ -66,10 +66,11 @@ The following topics are covered completely across the English documentation set
 ## Smallest Useful Example
 
 ```cfs
-
 func main() {
     print("Hello from CFGS");
 }
+
+main();
 ```
 
 If you want to jump straight into the plugin topics, use these three pages.

@@ -2,16 +2,19 @@
 
 ## Loading It
 
-The standard library is loaded the same way as a plugin through a DLL import.
+The non-IO standard library is built into the runtime and registered automatically, so scripts do not import it. Its builtins and intrinsics are available globally from the first line.
+
+File-system access is deliberately not part of it. The `file` and `fs` namespaces live in the `CFGS.IO` plugin and need an explicit import. An embedding host must additionally grant `AllowPluginLoading`, and `AllowFileIO` for the operations themselves.
 
 ```cfs
+import "dist/Debug/net10.0/CFGS.IO.dll";
 ```
-
-After that, its builtins and intrinsics are available globally.
 
 ## Builtins and Native Namespaces at a Glance
 
-The standard library exposes ordinary global builtins such as `print`, `len`, `typeof`, and `task`. It also exposes native CFGS namespaces such as `encoding`, `console`, `fs`, `file`, `math`, `regex`, `json`, and `eventlog`.
+The standard library exposes ordinary global builtins such as `print`, `len`, `typeof`, and `task`. It also exposes these native CFGS namespaces: `console`, `encoding`, `math`, `regex`, `json`, and `eventlog`. Each of them is additionally registered under a `std.` prefix, so `math.floor` and `std.math.floor` are the same function.
+
+The `file` and `fs` namespaces are not part of this set. They come from the `CFGS.IO` plugin shown above.
 
 Native namespace roots are accessed directly with dot syntax. They are not factory functions.
 

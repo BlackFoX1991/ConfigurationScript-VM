@@ -26,7 +26,7 @@ You can build the full repository through the solution.
 dotnet build CFGS_VM.sln
 ```
 
-The plugins and the standard library are built as normal .NET assemblies. The sample scripts typically import their DLLs from `dist/Debug/net10.0`.
+The standard library is compiled into `CFGS_VM` itself, so there is no separate assembly to import. The plugins are built as normal .NET assemblies, and the sample scripts typically import their DLLs from `dist/Debug/net10.0`.
 
 ## Running a Script
 
@@ -201,13 +201,14 @@ The `.cfb` format stores bytecode, function metadata, source hash, compiler vers
 
 ## The Smallest Reasonable Starting Point
 
-In most practical scripts you start by importing the standard library.
+The standard library needs no import, so a working script can be this short.
 
 ```cfs
-
 func main() {
     print("CFGS is running");
 }
+
+main();
 ```
 
 ## Top Level Behavior in Short

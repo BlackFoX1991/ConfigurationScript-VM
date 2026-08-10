@@ -70,7 +70,9 @@ dotnet run --project CFGS_NE -- restore
 ```
 
 The lockfile records plugin name, version, source, installed path, SHA-256 hash, and dependency-copy mode.
-When a DLL listed in `cfgs.lock.json` is loaded from `.cfgs/plugins`, CFGS verifies the installed artifact hash before loading it. A mismatch fails fast and should be fixed by running restore again from the trusted source.
+When a DLL listed in `cfgs.lock.json` is loaded from `.cfgs/plugins`, CFGS verifies the installed artifact hash before loading it. This applies to plugin imports and to `import native` alike. A mismatch fails fast and should be fixed by running restore again from the trusted source.
+
+DLL references stored in a `.cfb` artifact are reduced to bare file names, both when the artifact is written and when it is read back. A compiled artifact can therefore name which DLL it needs, but it cannot direct the loader at a path of its own choosing.
 
 ## Listing
 

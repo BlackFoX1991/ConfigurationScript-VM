@@ -425,7 +425,7 @@ engine.Permissions.MaxExecutionTime = TimeSpan.FromSeconds(5);
 
 - The non-I/O standard library is built into the runtime
 - File-system APIs live in the `CFGS.IO` plugin, so hosts that need file I/O must also enable plugin loading
-- When `RestrictFileIoToWorkspace` is enabled, paths escaping the workspace via absolute paths or `..` traversal are rejected
+- When `RestrictFileIoToWorkspace` is enabled, paths escaping the workspace are rejected, whether through an absolute path, `..` traversal, or a symlink or junction that points out of the workspace
 - Async host invocations inherit the same security policy, including workspace jailing
 - `MaxExecutionTime` is cooperative: it can stop VM execution, but it cannot forcibly break a blocking native/plugin CLR call
 

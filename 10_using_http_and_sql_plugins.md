@@ -2,7 +2,7 @@
 
 ## Core Idea
 
-The official extra plugins are loaded through DLL imports just like the standard library.
+The official extra plugins are loaded through DLL imports. Unlike the non-IO standard library, which is built into the runtime, they must be imported explicitly.
 
 ```cfs
 import "dist/Debug/net10.0/CFGS.Web.Http.dll";

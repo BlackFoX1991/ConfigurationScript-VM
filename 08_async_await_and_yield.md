@@ -212,7 +212,6 @@ Many standard-library builtins and plugin namespace members return tasks directl
 ## Typical `main` Pattern
 
 ```cfs
-
 async func main() {
     var t = task();
     return await t.delay(10, "done");

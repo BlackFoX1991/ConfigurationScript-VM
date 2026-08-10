@@ -69,10 +69,11 @@ The main CFGS executable can also forward into LSP mode:
 .\dist\Debug\net10.0\CFGS_VM.exe -lsp
 ```
 
-For release builds produced by `build_release.bat`, the same switch works with the shipped `plugins\CFGS.Lsp.dll`:
+The same switch works for a release build:
 
 ```powershell
-.\dist_release\CFGS_VM.exe -lsp
+dotnet build CFGS_VM.sln -c Release
+.\dist\Release\net10.0\CFGS_VM.exe -lsp
 ```
 
 ## Use the VS Code Extension
