@@ -24,7 +24,13 @@ namespace CFGS_VM.VMCore.Extensions.Core
 
         public bool HasPendingReturn;
 
-        public object? PendingReturnValue;
+        /// <summary>
+        /// The value of a <c>return</c> that is parked while a <c>finally</c> block runs. Typed as
+        /// <see cref="Value"/> rather than <see cref="object"/> so parking it does not box: RET carries a
+        /// tagged value, and going through object here would have re-introduced the allocation the tagged
+        /// representation exists to avoid.
+        /// </summary>
+        public Value PendingReturnValue;
 
         public bool HasPendingLeave;
 
@@ -50,7 +56,7 @@ namespace CFGS_VM.VMCore.Extensions.Core
 
             InFinally = false;
             HasPendingReturn = false;
-            PendingReturnValue = null;
+            PendingReturnValue = Value.Null;
 
             HasPendingLeave = false;
             PendingLeaveTargetIp = -1;

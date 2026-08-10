@@ -42,7 +42,7 @@ namespace CFGS_VM.VMCore
 
             if (h.HasPendingReturn)
             {
-                object? retVal = h.PendingReturnValue;
+                Value retVal = h.PendingReturnValue;
                 _tryHandlers.Pop();
 
                 TryHandler? outerWithFinally = null;
@@ -77,7 +77,7 @@ namespace CFGS_VM.VMCore
                     _tryHandlers.Pop();
 
                 _ip = fr.ReturnIp;
-                PushRuntimeObject(retVal);
+                _valueStack.Push(retVal);
                 return StepResult.Continue;
             }
 

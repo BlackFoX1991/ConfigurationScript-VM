@@ -1212,6 +1212,33 @@ namespace CFGS_VM.VMCore
             _memberCaches = inst.Count > 0 ? new MemberInlineCache[inst.Count + 1] : System.Array.Empty<MemberInlineCache>();
         }
 
+        /// <summary>
+        /// Adopts a root VM's already-prepared program state by reference, for a hot-started async child.
+        /// <para>
+        /// This replaces a <see cref="LoadInstructions"/> + <see cref="LoadFunctions"/> pair that ran on
+        /// every single async call. LoadInstructions re-ran the superinstruction pass over the very list
+        /// the parent VM was executing, and allocated a fresh member-inline-cache array sized to the whole
+        /// program (16 bytes per instruction, so hundreds of KB for a large script, per call).
+        /// LoadFunctions rebuilt both function dictionaries. None of it produced anything the root did not
+        /// already have.
+        /// </para>
+        /// <para>
+        /// Sharing the inline cache across the tree is safe: entries are keyed by instruction index and
+        /// validated on read against the receiver's shape identity (see HandleIndexGetInstruction), shapes
+        /// are immutable, and the child already shares the class-shape table through the child
+        /// constructor. An entry written elsewhere in the tree therefore either matches, and is correct,
+        /// or misses and is re-resolved. This does rely on <see cref="_executionGate"/> serializing all
+        /// bytecode execution: a cache entry is a multi-word struct, so concurrent writers could tear it.
+        /// </para>
+        /// </summary>
+        private void AdoptProgramFrom(VM root)
+        {
+            _program = root._program;
+            _memberCaches = root._memberCaches;
+            _state.Functions = root._state.Functions;
+            _state.FunctionsByAddress = root._state.FunctionsByAddress;
+        }
+
         public void LoadCompiledScript(CompiledScript script)
         {
             LoadFunctions(script.Functions);

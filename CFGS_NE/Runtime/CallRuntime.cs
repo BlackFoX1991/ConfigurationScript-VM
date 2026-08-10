@@ -214,8 +214,9 @@ namespace CFGS_VM.VMCore
                 NativeAssemblyBaseDirectory = NativeAssemblyBaseDirectory,
                 RestrictFileIoToWorkspace = RestrictFileIoToWorkspace
             };
-            child.LoadInstructions(_program);
-            child.LoadFunctions(Functions);
+            // Program, inline caches and function tables are taken over by reference rather than rebuilt.
+            // See VM.AdoptProgramFrom for why that is safe and what it used to cost per async call.
+            child.AdoptProgramFrom(this);
 
             return child;
         }
@@ -815,7 +816,11 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private StepResult HandleReturnInstruction(ref int _ip, Instruction instr)
         {
-            object? retVal = _valueStack.Count > 0 ? _valueStack.Pop() : null;
+            // Keep this a Value. The old form was `object? retVal = ... ? _valueStack.Pop() : null`, whose
+            // ternary is target-typed to object, so every single function return boxed the tagged value.
+            // That is the hottest path in the VM and exactly the allocation Value (and its box cache)
+            // exists to avoid.
+            Value retVal = _valueStack.Count > 0 ? _valueStack.Pop() : Value.Null;
 
             TryHandler? nextFinally = null;
             foreach (TryHandler th in _tryHandlers)
@@ -852,7 +857,7 @@ namespace CFGS_VM.VMCore
                 _tryHandlers.Pop();
 
             _ip = fr.ReturnIp;
-            PushRuntimeObject(retVal);
+            _valueStack.Push(retVal);
             return StepResult.Continue;
         }
     }

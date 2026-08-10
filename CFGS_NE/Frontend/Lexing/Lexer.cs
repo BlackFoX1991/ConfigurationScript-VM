@@ -113,7 +113,11 @@ public class Lexer
     /// </summary>
     /// <param name="name">The name<see cref="string"/></param>
     /// <param name="text">The text<see cref="string"/></param>
-    public Lexer(string name, string text, int initialLine = 1, int initialColumn = 1)
+    /// <param name="initialPos">
+    /// Index in <paramref name="text"/> to start lexing at. Lets a sub-lexer share the full source text
+    /// instead of receiving a copy of the remainder; token offsets are then absolute into that text.
+    /// </param>
+    public Lexer(string name, string text, int initialLine = 1, int initialColumn = 1, int initialPos = 0)
     {
         FileName = name;
         _line = initialLine;
@@ -121,6 +125,8 @@ public class Lexer
         _tokLine = initialLine;
         _tokCol = initialColumn;
         _text = text;
+        _pos = initialPos;
+        _tokPos = initialPos;
     }
 
     /// <summary>
@@ -321,7 +327,12 @@ public class Lexer
         int exprCol = _col;
         int exprStart = _pos;
 
-        Lexer fragmentLexer = new(FileName, _text.Substring(_pos), _line, _col);
+        // Share the source text and start at the hole instead of copying the remainder. The old
+        // `_text.Substring(_pos)` copied everything after the hole for EVERY interpolation hole, so a file
+        // with many holes cost O(length * holes). That is paid on every keystroke in the language server,
+        // which re-lexes the whole document. Token offsets from this sub-lexer are now absolute into
+        // _text, which is what the arithmetic below relies on.
+        Lexer fragmentLexer = new(FileName, _text, _line, _col, _pos);
         int parenDepth = 0;
         int bracketDepth = 0;
         int braceDepth = 0;
@@ -373,7 +384,7 @@ public class Lexer
                         }
 
                         formatOffset = token.StartOffset;
-                        int formatStartPos = exprStart + formatOffset.Value + 1;
+                        int formatStartPos = formatOffset.Value + 1;
                         int closingBracePos = formatStartPos;
                         while (closingBracePos < _text.Length && _text[closingBracePos] != '}')
                         {
@@ -399,7 +410,7 @@ public class Lexer
                         }
 
                         int exprEndOffset = alignmentOffset ?? formatOffset.Value;
-                        string exprText = _text.Substring(exprStart, exprEndOffset).Trim();
+                        string exprText = _text.Substring(exprStart, exprEndOffset - exprStart).Trim();
                         if (string.IsNullOrWhiteSpace(exprText))
                             throw new LexerException("empty interpolation expression", exprLine, exprCol, FileName);
 
@@ -407,7 +418,7 @@ public class Lexer
                         if (alignmentOffset.HasValue)
                         {
                             string alignmentText = _text
-                                .Substring(exprStart + alignmentOffset.Value + 1, formatOffset.Value - alignmentOffset.Value - 1)
+                                .Substring(alignmentOffset.Value + 1, formatOffset.Value - alignmentOffset.Value - 1)
                                 .Trim();
                             if (!int.TryParse(alignmentText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedAlignment))
                             {
@@ -433,7 +444,7 @@ public class Lexer
                     if (isTopLevel)
                     {
                         int exprEndOffset = alignmentOffset ?? formatOffset ?? token.StartOffset;
-                        string exprText = _text.Substring(exprStart, exprEndOffset).Trim();
+                        string exprText = _text.Substring(exprStart, exprEndOffset - exprStart).Trim();
                         if (string.IsNullOrWhiteSpace(exprText))
                             throw new LexerException("empty interpolation expression", exprLine, exprCol, FileName);
 
@@ -442,7 +453,7 @@ public class Lexer
                         {
                             int alignmentEndOffset = formatOffset ?? token.StartOffset;
                             string alignmentText = _text
-                                .Substring(exprStart + alignmentOffset.Value + 1, alignmentEndOffset - alignmentOffset.Value - 1)
+                                .Substring(alignmentOffset.Value + 1, alignmentEndOffset - alignmentOffset.Value - 1)
                                 .Trim();
                             if (!int.TryParse(alignmentText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedAlignment))
                             {
@@ -460,11 +471,13 @@ public class Lexer
                         if (formatOffset.HasValue)
                         {
                             format = _text.Substring(
-                                exprStart + formatOffset.Value + 1,
+                                formatOffset.Value + 1,
                                 token.StartOffset - formatOffset.Value - 1);
                         }
 
-                        SyncPos(token.EndOffset);
+                        // token.EndOffset is absolute now, and SyncPos advances relative to _pos, which is
+                        // still sitting at exprStart.
+                        SyncPos(token.EndOffset - exprStart);
                         return new InterpolatedStringExpressionTokenPart(exprText, exprLine, exprCol, alignment, format);
                     }
 

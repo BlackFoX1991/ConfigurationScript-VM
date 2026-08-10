@@ -19,14 +19,17 @@ namespace CFGS_VM.VMCore
             public List<Env> Scopes { get; } = new() { new Env(null) };
 
             /// <summary>
-            /// Gets the function table.
+            /// Gets or sets the function table. Settable so a hot-started async child VM can share the
+            /// root's table by reference (see <c>VM.AdoptProgramFrom</c>) instead of rebuilding it on
+            /// every async call; the table is not mutated after a script is loaded.
             /// </summary>
-            public Dictionary<string, FunctionInfo> Functions { get; } = [];
+            public Dictionary<string, FunctionInfo> Functions { get; set; } = [];
 
             /// <summary>
-            /// Gets the address-based function lookup.
+            /// Gets or sets the address-based function lookup. Shared with hot-start children for the same
+            /// reason as <see cref="Functions"/>.
             /// </summary>
-            public Dictionary<int, FunctionInfo> FunctionsByAddress { get; } = new();
+            public Dictionary<int, FunctionInfo> FunctionsByAddress { get; set; } = new();
 
             /// <summary>
             /// Gets or sets the function-address → call-scope descriptor map used to pre-size call Envs.
