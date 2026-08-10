@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.8.7 - 2026-08-10
+
+### Fixed
+- Analysis of files containing many interpolated strings is markedly faster, which shows up as quicker diagnostics while typing. For every `{...}` hole the lexer copied the entire remainder of the file, so the cost grew with file size multiplied by hole count, and the whole document is re-lexed on every keystroke. Measured on a 156 KB file with 4000 holes, a full check went from 610 ms to 204 ms.
+
+### Changed
+- Updated the bundled CFGS language server and CLI to v17.0.0. Besides the change above this release hardens the runtime that the lint and format commands invoke: compiled `.cfb` artifacts can no longer point the plugin loader at an arbitrary absolute or UNC path, the workspace jail now also catches paths that leave the workspace through a symlink or junction, and deeply nested script callbacks report a normal runtime error instead of terminating the process.
+- Note for anyone building their own CFGS plugins against the VM assembly: v17.0.0 removes the static `VM.AllowFileIO` property and `VM.PushAllowFileIOScope`. File I/O permission is now a per-VM property, read through `VM.CurrentVm?.AllowFileIO`.
+
 ## 0.8.6 - 2026-07-13
 
 ### Changed
