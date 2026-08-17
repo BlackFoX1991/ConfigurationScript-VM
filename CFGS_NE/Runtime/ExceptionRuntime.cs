@@ -266,7 +266,9 @@ namespace CFGS_VM.VMCore
             int col = ex.Column >= 0 ? ex.Column : current.Col;
             string? file = !string.IsNullOrWhiteSpace(ex.FileSource) ? ex.FileSource : current.OriginFile;
 
-            return new VMException(ex.RawMessage, line, col, file, IsDebugging, DebugStream!, stack);
+            // Carry the diagnostic code across the rebuild. Dropping it here silently demoted every
+            // explicitly coded runtime error to the inferred CFGS3000 by the time it reached the CLI.
+            return new VMException(ex.RawMessage, line, col, file, IsDebugging, DebugStream!, stack, ex.DiagnosticCode);
         }
 
         private string BuildStackString(List<Instruction> insns, Instruction current)

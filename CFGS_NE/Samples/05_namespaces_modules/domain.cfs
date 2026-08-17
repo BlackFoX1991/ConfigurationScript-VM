@@ -16,7 +16,7 @@ namespace Samples.Shop.Domain {
     class Product(sku, name, kind): IDescribed {
         property sku { get; private set; } = "";
         property name { get; private set; } = "";
-        property kind { get; private set; } = StockKind["Physical"];
+        property kind { get; private set; } = StockKind.Physical;
 
         func init(sku, name, kind) {
             this.sku = sku;

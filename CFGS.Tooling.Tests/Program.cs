@@ -71,7 +71,7 @@ internal static class Program
             CfbRoundTripsSurrogateCharOperand,
             CfbRejectsCorruptDecimalOperand,
             JsonSerializesBigIntegerAsNumber,
-            LoopClosureCaptureMatchesCSharp,
+            LoopClosureCaptureIsPerIteration,
             ForeachDestructuringAndBreakContinueStillWork,
             CompoundAndIncrementEvaluateLValueOnce,
             NullConcatenatesAsNull,
@@ -79,6 +79,7 @@ internal static class Program
             SliceAssignmentRequiresMatchingLength,
             SortAndIndexOfUseNumericComparison,
             MinMaxHandleMixedNumericKinds,
+            RuntimeDiagnosticCodesSurviveToTheHost,
             LambdaCapturesEnclosingReceiverLikeCSharp
         ];
 
@@ -2204,10 +2205,13 @@ func probe() {
         AssertEqual("1267650600228229401496703205376", json, "BigInteger must serialize as a bare JSON number (J1)");
     }
 
-    private static void LoopClosureCaptureMatchesCSharp()
+    private static void LoopClosureCaptureIsPerIteration()
     {
-        // S1: foreach gives a fresh per-iteration binding (closures see the iteration value), while a
-        // C-style for keeps one shared, mutating counter (closures see the final value) — exactly C#.
+        // Both loop forms give the loop variable a fresh binding per iteration, so a closure created
+        // in the body captures that iteration's value. This deliberately diverges from C#, where a
+        // C-style for keeps one shared mutating counter: having the two loop forms disagree was a
+        // trap, and per-iteration is what the surrounding language (fresh bindings in foreach,
+        // block-scoped locals) already implies.
         CfgsScriptEngine engine = new()
         {
             WorkingDirectory = Environment.CurrentDirectory,
@@ -2235,10 +2239,47 @@ func forCapture() {
         script.RunAsync().GetAwaiter().GetResult();
 
         string foreachResult = script.InvokeAsync<string>("foreachCapture").GetAwaiter().GetResult() ?? "";
-        AssertEqual("1,2,3", foreachResult, "foreach must give each iteration a fresh binding (C# semantics, S1)");
+        AssertEqual("1,2,3", foreachResult, "foreach must give each iteration a fresh binding");
 
         string forResult = script.InvokeAsync<string>("forCapture").GetAwaiter().GetResult() ?? "";
-        AssertEqual("3,3,3", forResult, "C-style for must keep one shared mutating counter (C# semantics)");
+        AssertEqual("0,1,2", forResult, "C-style for must give each iteration a fresh binding too");
+    }
+
+    private static void RuntimeDiagnosticCodesSurviveToTheHost()
+    {
+        // The VM guards these conditions itself instead of letting the CLR raise, so each throw site
+        // has to carry its code explicitly. Nothing pinned that before, and the code was in fact
+        // being dropped when the language stack trace was attached, silently reporting CFGS3000.
+        (string source, string expectedCode)[] cases =
+        [
+            ("var x = 7 / 0;", "CFGS3007"),
+            ("var x = 7 % 0;", "CFGS3007"),
+            ("var x = null + 5;", "CFGS3012"),
+            ("var x = missingName;", "CFGS3001"),
+            ("var a = [1]; var x = a[9];", "CFGS3002"),
+        ];
+
+        foreach ((string source, string expectedCode) in cases)
+        {
+            CfgsScriptEngine engine = new()
+            {
+                WorkingDirectory = Environment.CurrentDirectory,
+                CompilerVersion = global::Program.Version
+            };
+
+            string actualCode;
+            try
+            {
+                engine.CompileSource("<diagnostic-code>", source).RunAsync().GetAwaiter().GetResult();
+                actualCode = "<no error>";
+            }
+            catch (CfgsScriptException ex)
+            {
+                actualCode = ex.Code ?? "<null>";
+            }
+
+            AssertEqual(expectedCode, actualCode, $"unexpected diagnostic code for: {source}");
+        }
     }
 
     private static void LambdaCapturesEnclosingReceiverLikeCSharp()
@@ -2566,7 +2607,7 @@ func indexOfPlain() {
             "sort must order mixed int/double numerically (C5)");
         AssertEqual("[1, 2, 3]", script.InvokeAsync<string>("sortPureInt").GetAwaiter().GetResult() ?? "",
             "pure-int sort regressed (C5)");
-        AssertEqual("[apple, banana, cherry]", script.InvokeAsync<string>("sortStrings").GetAwaiter().GetResult() ?? "",
+        AssertEqual("[\"apple\", \"banana\", \"cherry\"]", script.InvokeAsync<string>("sortStrings").GetAwaiter().GetResult() ?? "",
             "string sort regressed (C5)");
         AssertEqual("0,true", script.InvokeAsync<string>("indexOfCrossKind").GetAwaiter().GetResult() ?? "",
             "indexOf/includes must use numeric equality across CLR kinds (C6)");

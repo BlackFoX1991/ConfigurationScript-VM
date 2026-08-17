@@ -1,0 +1,47 @@
+import "edge_assert.cfs";
+
+# Two gaps in the type surface: decimal was reachable only through a converter that had already
+# lost precision to a double, and `is` worked for classes but not for the built-in types that
+# `typeof` names. Both are closed here, and camelCase aliases cover the four snake_case
+# intrinsics that were the only ones not following the library's own convention.
+
+edge_begin("753_decimal_literals_and_primitive_is");
+
+# --- decimal literals ---
+edge_eq("decimal_suffix_lowercase", typeof(1.5m), "Decimal");
+edge_eq("decimal_suffix_uppercase", typeof(1.5M), "Decimal");
+edge_eq("decimal_is_exact", str(0.1m + 0.2m), "0.3");
+edge_eq("double_is_not_exact", str(0.1 + 0.2), "0.30000000000000004");
+edge_eq("decimal_integer_literal", typeof(100m), "Decimal");
+edge_eq("plain_literal_stays_double", typeof(1.5), "Double");
+
+# --- `is` against built-in type names ---
+edge_eq("is_int", 1 is Int, true);
+edge_eq("is_not_int", "a" is Int, false);
+edge_eq("is_string", "a" is String, true);
+edge_eq("is_double", 1.5 is Double, true);
+edge_eq("is_decimal", 1.5m is Decimal, true);
+edge_eq("is_char", 'c' is Char, true);
+edge_eq("is_boolean", true is Boolean, true);
+edge_eq("is_array", [1] is Array, true);
+edge_eq("is_dictionary", {"a": 1} is Dictionary, true);
+edge_eq("is_null", null is Null, true);
+edge_eq("is_long", 2147483647 + 1 is Long, true);
+edge_eq("is_bigint", 9223372036854775807 + 1 is BigInt, true);
+
+# `is` and `typeof` are the same judgement, by construction.
+edge_eq("is_agrees_with_typeof", (typeof(1) == "Int") == (1 is Int), true);
+
+# A declared type of the same name wins; that lives in 754 because a class declaration is
+# hoisted over the whole file and would change the meaning of every check above.
+
+# --- camelCase aliases share one implementation with the snake_case names ---
+edge_eq("array_insertAt", str([1, 2].insertAt(0, 9)), str([1, 2].insert_at(0, 9)));
+edge_eq("array_removeRange", str([1, 2, 3, 4].removeRange(1, 3)), str([1, 2, 3, 4].remove_range(1, 3)));
+edge_eq("array_replaceRange", str([1, 2, 3].replaceRange(1, 2, [8])), str([1, 2, 3].replace_range(1, 2, [8])));
+edge_eq("string_insertAt", "abc".insertAt(1, "X"), "abc".insert_at(1, "X"));
+edge_eq("string_removeRange", "abcdef".removeRange(1, 3), "abcdef".remove_range(1, 3));
+edge_eq("string_replaceRange", "abcdef".replaceRange(1, 3, "ZZ"), "abcdef".replace_range(1, 3, "ZZ"));
+edge_eq("dict_getOr", {"a": 1}.getOr("b", 42), {"a": 1}.get_or("b", 42));
+
+edge_finish("753_decimal_literals_and_primitive_is");

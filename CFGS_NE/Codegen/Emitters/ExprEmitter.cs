@@ -16,6 +16,19 @@ namespace CFGS_VM.VMCore
 {
     public partial class Compiler
     {
+        /// <summary>
+        /// Type names the `is` operator accepts on its right-hand side even though they name no
+        /// declared class. These are exactly the names `typeof` reports for the built-in kinds, so
+        /// `typeof(x) == "Int"` and `x is Int` agree.
+        /// </summary>
+        private static readonly HashSet<string> PrimitiveTypeNames = new(StringComparer.Ordinal)
+        {
+            "Null", "Boolean", "Int", "Long", "BigInt", "Double", "Float", "Decimal",
+            "String", "Char", "Array", "Dictionary", "Enum", "Exception", "StringBuilder",
+        };
+
+        private static bool IsPrimitiveTypeName(string name) => PrimitiveTypeNames.Contains(name);
+
         private static string EscapeInterpolatedFormatSegment(string text)
             => text.Replace("{", "{{", StringComparison.Ordinal).Replace("}", "}}", StringComparison.Ordinal);
 
@@ -248,6 +261,20 @@ namespace CFGS_VM.VMCore
                             CompileExpr(b.Right);
 
                             _insns[jmpEnd] = new Instruction(OpCode.JMP, _insns.Count, b.Line, b.Col, b.OriginFile);
+                            break;
+                        }
+
+                        // `x is Int`: the right-hand side names a primitive type, which has no class
+                        // object for IS_TYPE to compare against. A declared class or interface of the
+                        // same name wins, so user types are never shadowed by this.
+                        if (b.Op == TokenType.Is
+                            && b.Right is VarExpr typeName
+                            && IsPrimitiveTypeName(typeName.Name)
+                            && !_topLevelClassDecls.ContainsKey(typeName.Name)
+                            && !_topLevelInterfaceDecls.ContainsKey(typeName.Name))
+                        {
+                            CompileExpr(b.Left);
+                            _insns.Add(new Instruction(OpCode.IS_PRIMITIVE_TYPE, typeName.Name, b.Line, b.Col, b.OriginFile));
                             break;
                         }
 

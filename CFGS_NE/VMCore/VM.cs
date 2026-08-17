@@ -833,6 +833,9 @@ namespace CFGS_VM.VMCore
                 case OpCode.IS_TYPE:
                     return HandleIsTypeInstruction(instr);
 
+                case OpCode.IS_PRIMITIVE_TYPE:
+                    return HandleIsPrimitiveTypeInstruction(instr);
+
                 case OpCode.LT:
                     return HandleLessThanInstruction(instr);
 

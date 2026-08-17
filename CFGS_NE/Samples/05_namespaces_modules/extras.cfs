@@ -1,6 +1,6 @@
 
 # This file is imported with `import * as Extras` in app.cfs.
-# The import result is a dictionary-like module object.
+# The alias is a namespace value, so its members are reached with dot access.
 
 export const multiplierName = "sample-multiplier";
 

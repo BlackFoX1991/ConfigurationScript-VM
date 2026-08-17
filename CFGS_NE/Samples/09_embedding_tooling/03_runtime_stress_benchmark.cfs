@@ -13,7 +13,7 @@ func ensure(label, condition) {
 }
 
 func unix_ms_now() {
-    return UtcNow("yyyy-MM-dd HH:mm:ss.fff").toDateTime("yyyy-MM-dd HH:mm:ss.fff").toUnixMilliseconds();
+    return utcNow().toUnixMilliseconds();
 }
 
 func warmup_iterations(iterations) {

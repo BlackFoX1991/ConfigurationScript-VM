@@ -46,15 +46,26 @@ func foreachCaptures() {
 }
 edge_eq("foreach_per_iter_plus_root_slot", foreachCaptures(), "10,20,30");
 
-# --- C-style for: one shared, mutating counter -> every closure sees the final value ---
-func forSharedCounter() {
+# --- C-style for: a fresh per-iteration binding too -> each closure keeps its own value ---
+func forPerIterationCounter() {
     var fns = [];
     for (var i = 0; i < 3; i = i + 1) {
         fns[] = func() { return i; };
     }
     return str(fns[0]()) + "," + str(fns[1]()) + "," + str(fns[2]());
 }
-edge_eq("for_shared_counter", forSharedCounter(), "3,3,3");
+edge_eq("for_per_iteration_counter", forPerIterationCounter(), "0,1,2");
+
+# --- the loop variable is still one logical variable: the body can advance it ---
+func forBodyAdvancesCounter() {
+    var seen = [];
+    for (var i = 0; i < 6; i = i + 1) {
+        seen[] = i;
+        if (i == 1) { i = i + 2; }
+    }
+    return seen.join(",");
+}
+edge_eq("for_body_advances_counter", forBodyAdvancesCounter(), "0,1,4,5");
 
 # --- while: a body-local snapshot is fresh each iteration -> distinct captured values ---
 func whileFreshLocal() {

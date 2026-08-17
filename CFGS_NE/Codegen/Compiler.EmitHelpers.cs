@@ -90,6 +90,8 @@ namespace CFGS_VM.VMCore
             TokenType.Gt => OpCode.GT,
             TokenType.Le => OpCode.LE,
             TokenType.Ge => OpCode.GE,
+            // note: `is` against a primitive type name is emitted as IS_PRIMITIVE_TYPE in ExprEmitter
+            // before this mapping is consulted.
             TokenType.Is => OpCode.IS_TYPE,
             TokenType.AndAnd => OpCode.AND,
             TokenType.OrOr => OpCode.OR,

@@ -761,6 +761,18 @@ public class Lexer
                 object val;
                 CultureInfo ci = CultureInfo.InvariantCulture;
 
+                // An `m` / `M` suffix selects decimal. It is the only way to write one: the double
+                // branch below parses effectively every input, so the decimal fallback there is
+                // unreachable, and a value that needs decimal (money in a configuration) would have
+                // gone through a double and lost precision before any conversion could help.
+                if ((Current == 'm' || Current == 'M') && !char.IsLetterOrDigit(Peek) && Peek != '_')
+                {
+                    SyncPos();
+                    if (!decimal.TryParse(num, NumberStyles.Float, ci, out decimal suffixed))
+                        throw new LexerException($"invalid decimal literal '{num}m'", startLine, startCol, FileName);
+                    return MakeToken(TokenType.Number, suffixed);
+                }
+
                 if (isFloat || num.Contains("e") || num.Contains("E") || num.Contains("."))
                 {
                     if (double.TryParse(num, NumberStyles.Float, ci, out double d)) val = d;

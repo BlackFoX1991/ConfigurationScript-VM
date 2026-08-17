@@ -16,7 +16,27 @@ If you want the codebase-level structure behind that implementation, continue wi
 - `CFGS.Microsoft.SQL` contains SQL support.
 - The root `*.md` files contain the current English documentation set.
 - `CFGS_NE/Edgecases` is the executable regression companion for real language usage.
+- `CFGS_NE/Samples` contains the runnable example scripts referenced by this documentation set.
 - `14_internal_architecture.md` documents the productive parser, compiler, VM, and LSP architecture.
+
+## Running the Test Suites
+
+The repository has four suites, and `dotnet test` covers none of them: both test projects
+are console runners rather than test-SDK projects, so that command discovers nothing and
+exits successfully. Use the entry point instead.
+
+```powershell
+pwsh scripts/run-all-tests.ps1
+```
+
+It builds the solution and then runs the tooling tests, the LSP tests, the edge case
+programs, and the documentation samples, failing if any suite reports a failure or fails
+to report at all. Individual suites can be skipped with `-SkipEdgecases` and
+`-SkipSamples`, and an existing build reused with `-SkipBuild`.
+
+The sample suite executes every script under `CFGS_NE/Samples` rather than only compiling
+it, because some mistakes (bracket access on a namespace alias, a renamed builtin) surface
+only at runtime.
 
 ## Building the Project
 

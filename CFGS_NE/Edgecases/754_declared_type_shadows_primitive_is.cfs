@@ -1,0 +1,30 @@
+import "edge_assert.cfs";
+
+# A class or interface named like a built-in type takes precedence on the right-hand side of
+# `is`, so adding the primitive-name form cannot change what existing user code means.
+# Separate from 753 because a class declaration is hoisted over the whole file.
+
+edge_begin("754_declared_type_shadows_primitive_is");
+
+class Int() { }
+class Box() { }
+
+interface String {
+    func label();
+}
+
+class Labelled: String {
+    func label() { return "l"; }
+}
+
+edge_eq("declared_class_wins", new Int() is Int, true);
+edge_eq("declared_class_excludes_primitive", 1 is Int, false);
+
+edge_eq("declared_interface_wins", new Labelled() is String, true);
+edge_eq("declared_interface_excludes_primitive", "a" is String, false);
+
+# Names that are not declared keep the built-in meaning in the same file.
+edge_eq("undeclared_name_stays_primitive", 1.5 is Double, true);
+edge_eq("unrelated_class_unaffected", new Box() is Box, true);
+
+edge_finish("754_declared_type_shadows_primitive_is");

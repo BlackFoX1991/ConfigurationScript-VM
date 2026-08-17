@@ -1,3 +1,4 @@
+using CFGS_VM.StandardLibrary;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
@@ -228,17 +229,20 @@ namespace CFGS_VM.VMCore
 
         private VMException CreateIndexException(object target, object idxObj, Instruction instr)
         {
-            string tid = target?.GetType().FullName ?? "null";
-            string tval; try { tval = target?.ToString() ?? "null"; } catch { tval = "<ToString() failed>"; }
+            // Report the script's own vocabulary. This message used to name the bytecode opcode
+            // (INDEX_GET) and CLR types (System.String), neither of which a script author can act on.
+            string tid = CoreStandardLibrary.RuntimeTypeName(target);
+            string tval; try { tval = target?.ToString() ?? "null"; } catch { tval = "<not printable>"; }
 
-            string iid = idxObj?.GetType().FullName ?? "null";
-            string ival; try { ival = idxObj?.ToString() ?? "null"; } catch { ival = "<ToString() failed>"; }
+            string iid = CoreStandardLibrary.RuntimeTypeName(idxObj);
+            string ival; try { ival = idxObj?.ToString() ?? "null"; } catch { ival = "<not printable>"; }
 
             return new VMException(
-                "Runtime error: INDEX_GET target is not indexable.\n" +
+                "Runtime error: value is not indexable.\n" +
                 $"  target type: {tid}\n  target value: {tval}\n" +
                 $"  index type: {iid}\n  index value: {ival}",
-                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!,
+                diagnosticCode: "CFGS3003"
             );
         }
 

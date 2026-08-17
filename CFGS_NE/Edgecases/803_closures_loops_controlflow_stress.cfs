@@ -21,7 +21,7 @@ edge_eq("foreach_capture_this_0", b0(), "item-1");
 edge_eq("foreach_capture_this_1", b1(), "item-2");
 edge_eq("foreach_capture_this_2", b2(), "item-3");
 
-# --- C-style for: shared mutating counter (3,3,3) even with this-capture ---
+# --- C-style for: per-iteration counter, and the receiver is still captured ---
 class Builder() {
     var tag = "T";
     func makeAll() {
@@ -35,10 +35,10 @@ class Builder() {
 var bz = (new Builder()).makeAll();
 var z0 = bz[0];
 var z2 = bz[2];
-edge_eq("for_shared_counter_0", z0(), "T3");
-edge_eq("for_shared_counter_2", z2(), "T3");
+edge_eq("for_per_iteration_counter_0", z0(), "T0");
+edge_eq("for_per_iteration_counter_2", z2(), "T2");
 
-# --- but a body-local declared inside the for IS fresh per iteration ---
+# --- a body-local declared inside the for is fresh per iteration as well ---
 func forBodyLocalCapture() {
     var fns = [];
     for (var i = 0; i < 3; i = i + 1) {

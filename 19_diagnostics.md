@@ -103,13 +103,16 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS3002`: index operation error.
 - `CFGS3003`: value is not indexable.
 - `CFGS3004`: argument or call-shape error.
-- `CFGS3006`: arithmetic overflow; numeric value outside the target type range.
-- `CFGS3007`: division by zero.
+- `CFGS3005`: reserved and currently unused.
+- `CFGS3006`: arithmetic overflow; numeric value outside the target type range. Ordinary
+  script arithmetic widens instead of overflowing, so this reports a host call or an
+  explicit conversion such as `byte(300)`.
+- `CFGS3007`: division by zero, for both `/` and `%`.
 - `CFGS3008`: invalid cast or conversion.
 - `CFGS3009`: invalid numeric format.
 - `CFGS3010`: dictionary key not found.
-- `CFGS3011`: numeric operation error.
-- `CFGS3012`: null reference.
+- `CFGS3011`: numeric operation error, such as an arithmetic operator on a non-numeric value.
+- `CFGS3012`: null reference, including a `null` operand in an arithmetic or bitwise operator.
 - `CFGS4001`: import resolution error.
 - `CFGS5000`: CFB or bytecode artifact error.
 - `CFGS8000`: tooling input error.

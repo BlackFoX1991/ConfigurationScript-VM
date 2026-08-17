@@ -1,0 +1,36 @@
+import "edge_assert.cfs";
+
+# Text inside a collection is quoted and escaped, so the rendered form is unambiguous.
+# A value rendered on its own stays raw. Without the distinction, {"a": "1"} and {"a": 1}
+# print identically and ["x, y"] is indistinguishable from two elements.
+
+edge_begin("752_collection_rendering_is_unambiguous");
+
+edge_eq("top_level_string_is_raw", str("hello"), "hello");
+edge_eq("top_level_char_is_raw", str('a'), "a");
+
+edge_eq("string_value_is_quoted", str({"a": "1"}), "{\"a\": \"1\"}");
+edge_eq("number_value_is_bare", str({"a": 1}), "{\"a\": 1}");
+edge_eq("separator_is_unambiguous", str(["x, y", "z"]), "[\"x, y\", \"z\"]");
+edge_eq("char_and_string_differ", str(['a', "a"]), "['a', \"a\"]");
+
+edge_eq("nested_collections", str([1, [2, "a"], {"k": "v"}]), "[1, [2, \"a\"], {\"k\": \"v\"}]");
+
+# Escapes keep the output readable back as source-like text.
+edge_eq("quote_is_escaped", str({"k": "va\"l"}), "{\"k\": \"va\\\"l\"}");
+edge_eq("newline_is_escaped", str(["a\nb"]), "[\"a\\nb\"]");
+edge_eq("tab_is_escaped", str(["a\tb"]), "[\"a\\tb\"]");
+edge_eq("backslash_is_escaped", str(["a\\b"]), "[\"a\\\\b\"]");
+edge_eq("key_is_escaped", str({"k\"q": 1}), "{\"k\\\"q\": 1}");
+
+# Every text-producing path shares the one renderer.
+var d = {"a": "1"};
+edge_eq("print_path_matches_str", "" + d, str(d));
+edge_eq("interpolation_matches_str", $"{d}", str(d));
+edge_eq("format_matches_str", format("{0}", d), str(d));
+edge_eq("join_matches_str", [d].join("|"), str(d));
+
+# Rendering is not JSON: json.stringify stays the machine-readable form.
+edge_eq("json_is_separate", json.stringify(d, false), "{\"a\":\"1\"}");
+
+edge_finish("752_collection_rendering_is_unambiguous");

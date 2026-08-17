@@ -58,8 +58,18 @@ CFGS supports several number formats.
 - Hexadecimal. `0xFF`
 - Binary. `0b1010`
 - Octal. `0o755`
+- Decimal. `1.5m` or `1.5M`
 
 Depending on size and shape, values are represented internally as `int`, `long`, `double`, `decimal`, or `BigInteger`.
+
+A fractional literal is a `double` unless you append `m` or `M`, which makes it a `decimal`.
+Use it wherever binary floating point would be wrong, such as money in a configuration.
+
+```cfs
+print(0.1 + 0.2);        # 0.30000000000000004
+print(0.1m + 0.2m);      # 0.3
+print(typeof(1.5m));     # Decimal
+```
 
 Hexadecimal, binary, and octal literals are read as unsigned magnitudes. A literal that exceeds 64 bits promotes to `BigInteger` instead of wrapping, so `0xFFFFFFFFFFFFFFFF`, `0b1111111111111111111111111111111111111111111111111111111111111111`, and `0o1777777777777777777777` all denote the same positive value, not `-1`.
 
@@ -103,6 +113,26 @@ Non-string values use the same textual form that `print` produces.
 var dict = {"a": 1};
 print($"dict={dict}");        # dict={"a": 1}
 ```
+
+### How Values Are Printed
+
+A value printed on its own comes out raw, but text inside an array or dictionary is quoted
+and escaped. Without that, a stored `"1"` would be indistinguishable from a stored `1`, and a
+value containing a comma would look like two entries.
+
+```cfs
+print("hello");             # hello        no quotes at the top level
+print({"a": "1"});          # {"a": "1"}
+print({"a": 1});            # {"a": 1}
+print(["x, y", "z"]);       # ["x, y", "z"]   two elements, not three
+print(['a', "a"]);          # ['a', "a"]      char and string stay distinct
+```
+
+Dictionary keys print in alphabetical order, so two dictionaries with the same contents always
+look the same. That is a property of printing only: `keys()` and the merge operators keep the
+insertion order.
+
+This form is meant for reading. For machine-readable output use `json.stringify`.
 
 An interpolation hole may carry an alignment and a format specifier as `{expr,align:format}`, following .NET composite formatting. Because a bare `:` begins the format specifier, a conditional expression inside a hole must be wrapped in parentheses.
 
@@ -194,7 +224,7 @@ CFGS covers the usual operator families.
 
 - Arithmetic. `+`, `-`, `*`, `/`, `%`, `**`
 - Comparison. `==`, `!=`, `<`, `>`, `<=`, `>=`
-- Type checking. `value is ClassName`
+- Type checking. `value is ClassName`, `value is InterfaceName`, `value is Int`
 - Logic. `!`, `&&`, `||`
 - Null coalescing. `??`
 - Ternary. `condition ? then : else`
@@ -204,6 +234,57 @@ CFGS covers the usual operator families.
 - Compound assignments. `+=`, `-=`, `*=`, `/=`, `%=`
 
 Power is right associative. `2 ** 3 ** 2` is evaluated as `2 ** (3 ** 2)`.
+
+### Integer Division
+
+Dividing two whole numbers gives a whole number. The result is cut off toward zero, it is
+not rounded and not floored. Make one side fractional when you want a fractional result.
+
+```cfs
+print(7 / 2);      # 3
+print(-7 / 2);     # -3, not -4
+print(7 / 2.0);    # 3.5
+```
+
+The remainder `%` follows the sign of the left operand, and dividing by zero is a runtime
+error even for floating point operands.
+
+```cfs
+print(7 % 2);      # 1
+print(-7 % 2);     # -1
+# print(7 / 0.0);  # error, not infinity
+```
+
+### Growing Numbers
+
+A result that no longer fits its type widens instead of wrapping around.
+
+```cfs
+print(typeof(2147483647 + 1));            # Long
+print(typeof(9223372036854775807 + 1));   # BigInt
+```
+
+### Comparing Values
+
+`==` compares numbers across numeric types and strings by content, but arrays,
+dictionaries, and class instances compare by identity.
+
+```cfs
+print(1 == 1.0);                # true
+print([1, 2] == [1, 2]);        # false, two separate arrays
+print({"a": 1} == {"a": 1});    # false
+
+var same = [1, 2];
+print(same == same);            # true
+```
+
+The same holds for `includes` and `indexOf`, which are defined through `==`. If you need to
+compare contents, match on the shape instead.
+
+```cfs
+var v = [1, 2];
+print(v match { [1, 2]: "same shape", _: "other" });   # same shape
+```
 
 The `+` operator is overloaded by operand type:
 
@@ -215,6 +296,9 @@ The `+` operator is overloaded by operand type:
 `+` no longer merges dictionaries. Use the `<<<` and `>>>` operators for that (see Dictionaries).
 
 An arithmetic or bitwise operator with a `null` operand is a runtime error. `null + 5`, `5 - null`, and `null & 1` all fail instead of silently producing `null`.
+
+String concatenation is the exception, because it is a text operation. If the other operand
+is a string, `null` contributes an empty text: `"a" + null` is `"a"`.
 
 ## Arrays
 
@@ -373,7 +457,7 @@ Delete on strings is not allowed.
 
 A dictionary separates data from methods by syntax, so the two never collide:
 
-- **Bracket access** (`cfg["host"]`) reads and writes data keys. Any non-empty string is a valid key, including names that match an intrinsic method such as `merge` or `get_or`.
+- **Bracket access** (`cfg["host"]`) reads and writes data keys. Any non-empty string is a valid key, including names that match an intrinsic method such as `merge` or `getOr`.
 - **Dot access** (`cfg.merge(other)`) resolves an intrinsic method only. It never reads or writes a data key.
 
 Because they never overlap, a data key may freely share a name with a method: `cfg["merge"]` is the value stored under `"merge"`, while `cfg.merge(...)` calls the merge intrinsic. There is no longer any reserved-key restriction.
@@ -390,7 +474,7 @@ print(cfg.merge({"x": 1})); # merge intrinsic
 
 ## Strings as a First Class Type
 
-Strings behave like primitive values with many intrinsics attached to them. The full method list is documented in [Standard Library](09_standard_library.md). The most important ones are `lower`, `upper`, `trim`, `contains`, `substr`, `slice`, `replace`, and `insert_at`.
+Strings behave like primitive values with many intrinsics attached to them. The full method list is documented in [Standard Library](09_standard_library.md). The most important ones are `lower`, `upper`, `trim`, `contains`, `substr`, `slice`, `replace`, and `insertAt`.
 
 ## JSON Shapes
 

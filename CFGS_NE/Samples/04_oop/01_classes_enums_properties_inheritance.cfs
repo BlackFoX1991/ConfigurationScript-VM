@@ -38,7 +38,7 @@ class Product(id, name): Entity(id, name) {
 
     public property name { get; set; } = "";
     public property count { get; set; } = 0;
-    public property level { get; private set; } = StockLevel["Empty"];
+    public property level { get; private set; } = StockLevel.Empty;
 
     # The `field` symbol is the auto-property backing storage.
     property normalizedName {
@@ -56,11 +56,11 @@ class Product(id, name): Entity(id, name) {
     func addStock(amount) {
         this.count = this.count + amount;
         if (this.count <= 0) {
-            this.level = StockLevel["Empty"];
+            this.level = StockLevel.Empty;
         } else if (this.count < 10) {
-            this.level = StockLevel["Low"];
+            this.level = StockLevel.Low;
         } else {
-            this.level = StockLevel["Ready"];
+            this.level = StockLevel.Ready;
         }
 
         return this.count;
@@ -98,7 +98,7 @@ ensure("protected and super", product.auditLabel().contains("P-100") && product.
 ensure("private access through method", product.secretLength() == 8);
 
 ensure("instance method", product.addStock(12) == 12);
-ensure("enum value", product.level == StockLevel["Ready"]);
+ensure("enum value", product.level == StockLevel.Ready);
 ensure("enum name", StockLevel.name(product.level) == "Ready");
 
 ensure("static property", Product.version == 1);

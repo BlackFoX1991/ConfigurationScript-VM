@@ -190,8 +190,18 @@ print(regex.replace("foo bar baz", "\\s+", "-"));
 ### JSON
 
 - `json.parse(text)` converts JSON text into CFGS values.
-- `json.stringify(value)` serializes a CFGS value into JSON text.
-- `json.from(text)` and `json.to(value)` are short aliases for parse and stringify inside the JSON namespace.
+- `json.stringify(value, pretty = true)` serializes a CFGS value into JSON text. The default is
+  indented for reading; pass `false` for a single-line payload to store or transmit.
+- `json.from(text)` and `json.to(value, pretty = true)` are short aliases for parse and stringify inside the JSON namespace.
+
+```cfs
+var cfg = {"host": "localhost", "port": 80};
+print(json.stringify(cfg, false));   # {"host":"localhost","port":80}
+```
+
+Note the difference to `print`: `json.stringify` is the machine-readable serialization, while
+printing a value produces the human-readable form described in
+[Language and Data](02_language_and_data.md).
 
 ### Async Helpers
 
@@ -240,10 +250,10 @@ Strings support these methods.
 - `contains(needle)`
 - `substr(start, length)`
 - `slice(start = null, end = null)`
-- `replace_range(start, end, repl)`
-- `remove_range(start, end)`
+- `replaceRange(start, end, repl)`
+- `removeRange(start, end)`
 - `replace(old, new)`
-- `insert_at(index, text)`
+- `insertAt(index, text)`
 - `split(separator)` splits the string by a separator and returns an array. An empty separator splits into individual characters.
 - `startsWith(prefix)` returns `true` if the string starts with the given prefix.
 - `endsWith(suffix)` returns `true` if the string ends with the given suffix.
@@ -295,9 +305,9 @@ Arrays support these methods.
 - `len()`
 - `push(value)`
 - `pop()`
-- `insert_at(index, value)`
-- `remove_range(start, end)`
-- `replace_range(start, end, value_or_list)`
+- `insertAt(index, value)`
+- `removeRange(start, end)`
+- `replaceRange(start, end, value_or_list)`
 - `slice(start = null, end = null)`
 - `sort()` sorts the array in place and returns it.
 - `reverse()` reverses the array in place and returns it.
@@ -318,7 +328,7 @@ Example.
 ```cfs
 var arr = [1, 2, 3];
 arr.push(4);
-arr.replace_range(1, 3, [20, 30]);
+arr.replaceRange(1, 3, [20, 30]);
 print(arr.slice(1, 3));
 ```
 
@@ -347,7 +357,7 @@ Dictionaries support these methods.
 - `keys()`
 - `values()`
 - `set(key, value)`
-- `get_or(key, fallback)`
+- `getOr(key, fallback)`
 - `entries()` returns a list of `[key, value]` pairs.
 - `merge(other)` merges another dictionary into this one and returns it. Existing keys are overwritten.
 - `clone()` returns a shallow copy of the dictionary.
@@ -357,7 +367,7 @@ Example.
 ```cfs
 var cfg = {"host": "localhost"};
 print(cfg.contains("host"));
-print(cfg.get_or("port", 80));
+print(cfg.getOr("port", 80));
 ```
 
 ## DateTime Intrinsics

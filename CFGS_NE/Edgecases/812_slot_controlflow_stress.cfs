@@ -18,7 +18,7 @@ func finallyMutatesLocal() {
     log[] = "after";
     return str(log);
 }
-edge_eq("finally_mutates_local", finallyMutatesLocal(), "[try, finally, after]");
+edge_eq("finally_mutates_local", finallyMutatesLocal(), "[\"try\", \"finally\", \"after\"]");
 
 # --- return from inside try runs finally first; return value uses a slotted local ---
 func returnRunsFinally(marker) {
@@ -34,7 +34,7 @@ func returnFinallyDriver() {
     var r = returnRunsFinally(marker);
     return str(r) + ":" + str(marker);
 }
-edge_eq("return_runs_finally", returnFinallyDriver(), "10:[cleaned]");
+edge_eq("return_runs_finally", returnFinallyDriver(), "10:[\"cleaned\"]");
 
 # --- nested try/finally, each with its own locals, all unwinding on return ---
 func nestedFinally(log) {
@@ -55,7 +55,7 @@ func nestedFinallyDriver() {
     var v = nestedFinally(log);
     return v + ":" + str(log);
 }
-edge_eq("nested_finally_order", nestedFinallyDriver(), "AB:[inner, outer]");
+edge_eq("nested_finally_order", nestedFinallyDriver(), "AB:[\"inner\", \"outer\"]");
 
 # --- using: resource binding + body local both slotted; return from using body ---
 func usingReturnFromBody() {
@@ -89,7 +89,7 @@ func tryBodyLoop() {
     }
     return str(trail);
 }
-edge_eq("try_body_loop_then_finally", tryBodyLoop(), "[done:5]");
+edge_eq("try_body_loop_then_finally", tryBodyLoop(), "[\"done:5\"]");
 
 # --- defer LIFO (lowers to try/finally); defers run after the return value is computed,
 #     so observe the log after the call returns ---
@@ -104,6 +104,6 @@ func deferLifoDriver() {
     var _ = deferLifo(log);
     return str(log);
 }
-edge_eq("defer_lifo", deferLifoDriver(), "[body, inner, outer]");
+edge_eq("defer_lifo", deferLifoDriver(), "[\"body\", \"inner\", \"outer\"]");
 
 edge_finish("812_slot_controlflow_stress");

@@ -110,6 +110,34 @@ foreach (var entry in {"a": 1, "b": 2}) {
 }
 ```
 
+### String iteration
+
+A string iterates character by character, and the two binding form gives index and
+character.
+
+```cfs
+foreach (var c in "abc") {
+    print(c);
+}
+
+foreach (var idx, c in "abc") {
+    print(str(idx) + ":" + str(c));
+}
+```
+
+### Loop variables and closures
+
+Every loop gives its loop variable a fresh binding per iteration, so a function created
+inside the body keeps that iteration's value. This is the same for `for` and `foreach`.
+
+```cfs
+var fns = [];
+for (var i = 0; i < 3; i = i + 1) {
+    fns[] = func() { return i; };
+}
+print(fns[0]() + "," + fns[1]() + "," + fns[2]());   # 0,1,2
+```
+
 ### Destructuring inside `foreach`
 
 ```cfs

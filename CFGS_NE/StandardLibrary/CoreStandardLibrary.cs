@@ -1,4 +1,4 @@
-using CFGS_VM.VMCore.Extensions.Instance;
+﻿using CFGS_VM.VMCore.Extensions.Instance;
 using CFGS_VM.VMCore.Extensions.Intrinsics.Handles;
 using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Plugin;
@@ -33,6 +33,54 @@ namespace CFGS_VM.StandardLibrary
         {
             WriteIndented = true,
         };
+
+        private static readonly JsonSerializerOptions CompactOptions = new JsonSerializerOptions
+        {
+            WriteIndented = false,
+        };
+        /// <summary>
+        /// The script-visible type name of a runtime value. Single source of truth: `typeof` returns
+        /// it and the `is` operator compares against it, so the two cannot disagree about what a
+        /// value is called.
+        /// </summary>
+        internal static string RuntimeTypeName(object? val)
+        {
+            if (val == null) return "Null";
+
+            Type vt = val.GetType();
+
+            if (val is System.Threading.Tasks.Task)
+            {
+                if (vt.IsGenericType)
+                    return $"Task<{FriendlyTypeName(vt.GetGenericArguments()[0])}>";
+                return "Task";
+            }
+            if (vt == typeof(System.Threading.Tasks.ValueTask))
+                return "ValueTask";
+            if (vt.IsGenericType && vt.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<>))
+                return $"ValueTask<{FriendlyTypeName(vt.GetGenericArguments()[0])}>";
+
+            if (val is bool) return "Boolean";
+            if (val is int) return "Int";
+            if (val is long) return "Long";
+            if (val is BigInteger) return "BigInt";
+            if (val is double) return "Double";
+            if (val is float) return "Float";
+            if (val is decimal) return "Decimal";
+            if (val is string) return "String";
+            if (val is char) return "Char";
+            if (val is List<object>) return "Array";
+            if (val is Dictionary<string, object>) return "Dictionary";
+            if (val is StringBuilderHandle) return "StringBuilder";
+            if (val is NamespaceBuiltinCallable) return "BuiltinCallable";
+            if (val is ClassInstance ci) return ci.ClassName;
+            if (val is StaticInstance si) return si.ClassName;
+            if (val is EnumInstance) return "Enum";
+            if (val is ExceptionObject) return "Exception";
+
+            return vt.Name;
+        }
+
         internal static string FriendlyTypeName(Type t)
         {
             if (t == typeof(void)) return "Void";
@@ -130,6 +178,35 @@ namespace CFGS_VM.StandardLibrary
             RegisterMathNamespace(intrinsics);
             RegisterConsoleNamespace(intrinsics);
             RegisterEventLogNamespace(intrinsics);
+            RegisterCamelCaseAliases(intrinsics);
+        }
+
+        /// <summary>
+        /// Re-registers an existing intrinsic under a second name, sharing one implementation.
+        /// </summary>
+        private static void RegisterAlias(IIntrinsicRegistry intrinsics, Type receiverType, string existing, string alias)
+        {
+            if (!intrinsics.TryGet(receiverType, existing, out IntrinsicDescriptor d))
+                throw new InvalidOperationException($"Cannot alias unknown intrinsic '{existing}' on {receiverType.Name}.");
+
+            intrinsics.Register(receiverType, new IntrinsicDescriptor(alias, d.ArityMin, d.ArityMax, d.Invoke, d.Options));
+        }
+
+        /// <summary>
+        /// Of the 160-odd intrinsic names, four were snake_case and every other one camelCase, so
+        /// callers had to remember which convention each member happened to use. These aliases make
+        /// camelCase work everywhere. The snake_case names stay registered because scripts use them.
+        /// </summary>
+        private static void RegisterCamelCaseAliases(IIntrinsicRegistry intrinsics)
+        {
+            foreach (Type t in new[] { typeof(string), typeof(List<object>) })
+            {
+                RegisterAlias(intrinsics, t, "insert_at", "insertAt");
+                RegisterAlias(intrinsics, t, "remove_range", "removeRange");
+                RegisterAlias(intrinsics, t, "replace_range", "replaceRange");
+            }
+
+            RegisterAlias(intrinsics, typeof(Dictionary<string, object>), "get_or", "getOr");
         }
 
         private static void RegisterNamespaces(INamespaceRegistry namespaces)
@@ -311,9 +388,14 @@ namespace CFGS_VM.StandardLibrary
             return JsonToVmValue(doc.RootElement)!;
         }
 
+        /// <summary>
+        /// Serializes to JSON. Indented by default, because the common use is a human reading the
+        /// output; pass false for a single-line payload to write to a file or send over the wire.
+        /// </summary>
         private static object JsonStringifyVm(List<object> args)
         {
-            return JsonSerializer.Serialize(NormalizeForJson(args[0]), Options);
+            bool pretty = args.Count < 2 || VM.ToBool(args[1]);
+            return JsonSerializer.Serialize(NormalizeForJson(args[0]), pretty ? Options : CompactOptions);
         }
 
         private static void RegisterJsonNamespace(IIntrinsicRegistry intrinsics)
@@ -322,8 +404,8 @@ namespace CFGS_VM.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("parse", 1, 1, (recv, a, instr) => JsonParseVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("from", 1, 1, (recv, a, instr) => JsonParseVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("stringify", 1, 1, (recv, a, instr) => JsonStringifyVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("to", 1, 1, (recv, a, instr) => JsonStringifyVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("stringify", 1, 2, (recv, a, instr) => JsonStringifyVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("to", 1, 2, (recv, a, instr) => JsonStringifyVm(a)));
         }
 
         private static object MathAbsVm(List<object> args) => args[0] switch
@@ -847,44 +929,7 @@ namespace CFGS_VM.StandardLibrary
         private static void RegisterBuiltins(IBuiltinRegistry builtins)
         {
 
-            builtins.Register(new BuiltinDescriptor("typeof", 1, 1, (args, instr) =>
-            {
-                object val = args[0];
-                if (val == null) return "Null";
-
-                Type vt = val.GetType();
-
-                if (val is System.Threading.Tasks.Task)
-                {
-                    if (vt.IsGenericType)
-                        return $"Task<{FriendlyTypeName(vt.GetGenericArguments()[0])}>";
-                    return "Task";
-                }
-                if (vt == typeof(System.Threading.Tasks.ValueTask))
-                    return "ValueTask";
-                if (vt.IsGenericType && vt.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<>))
-                    return $"ValueTask<{FriendlyTypeName(vt.GetGenericArguments()[0])}>";
-
-                if (val is bool) return "Boolean";
-                if (val is int) return "Int";
-                if (val is long) return "Long";
-                if (val is BigInteger) return "BigInt";
-                if (val is double) return "Double";
-                if (val is float) return "Float";
-                if (val is decimal) return "Decimal";
-                if (val is string) return "String";
-                if (val is char) return "Char";
-                if (val is List<object>) return "Array";
-                if (val is Dictionary<string, object>) return "Dictionary";
-                if (val is StringBuilderHandle) return "StringBuilder";
-                if (val is NamespaceBuiltinCallable) return "BuiltinCallable";
-                if (val is ClassInstance ci) return ci.ClassName;
-                if (val is StaticInstance si) return si.ClassName;
-                if (val is EnumInstance) return "Enum";
-                if (val is ExceptionObject) return "Exception";
-
-                return vt.Name;
-            }));
+            builtins.Register(new BuiltinDescriptor("typeof", 1, 1, (args, instr) => RuntimeTypeName(args[0])));
 
             builtins.Register(new BuiltinDescriptor("len", 1, 1, (args, instr) =>
             {
@@ -2021,27 +2066,6 @@ namespace CFGS_VM.StandardLibrary
             }
 
             return value.ToString();
-        }
-
-        private static string JsonStringify(object? v)
-        {
-            JsonSerializerOptions options = new()
-            {
-                Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                WriteIndented = false
-            };
-
-            object? Normalize(object? x)
-            {
-                if (x is null) return null;
-                if (x is string or bool or int or long or double or float or decimal or char) return x;
-                if (x is List<object> list) return SnapshotMutableList(list).Select(Normalize).ToList();
-                if (x is Dictionary<string, object> dict)
-                    return SnapshotMutableDictionaryEntries(dict).ToDictionary(k => k.Key, k => Normalize(k.Value)!);
-                return x.ToString();
-            }
-
-            return JsonSerializer.Serialize(Normalize(v), options);
         }
 
         private static List<object> FlattenList(List<object> list, int depth)

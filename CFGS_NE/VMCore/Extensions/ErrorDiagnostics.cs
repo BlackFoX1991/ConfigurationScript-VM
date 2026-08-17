@@ -174,7 +174,13 @@ namespace CFGS_VM.VMCore.Extensions
             return m;
         }
 
-        private static string InferCode(string category, string? message)
+        /// <summary>
+        /// Falls back to category/message inference for throw sites that carry no explicit
+        /// diagnostic code. Internal rather than private so the LSP shares this one ladder: the
+        /// specification requires editor diagnostics to match the CLI, which a second copy cannot
+        /// guarantee.
+        /// </summary>
+        internal static string InferCode(string category, string? message)
         {
             string m = NormalizeMessage(message).ToLowerInvariant();
 

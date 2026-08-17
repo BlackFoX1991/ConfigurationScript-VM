@@ -1,5 +1,17 @@
 # Change Log
 
+## 0.9.0 - 2026-08-17
+
+### Changed
+- Updated the bundled CFGS language server and CLI to v18.0.0. Editor behaviour does change this time: the language server used to keep its own copy of the diagnostic-code inference table, which had drifted from the runtime's, so the code shown in the editor could differ from the one the CLI reported for the same error. The server now uses the runtime's table, which is what the language specification requires of the editor path.
+- Runtime diagnostic codes in the problems panel are more specific for scripts run through the lint and format commands. Division by zero now reports `CFGS3007`, a `null` operand in an arithmetic or bitwise operator `CFGS3012`, and a non-numeric operand `CFGS3011`. All three previously reported the generic `CFGS3000`, because the code was being dropped while the language stack trace was attached.
+- Error messages no longer show internals. Indexing a non-indexable value named the bytecode opcode (`INDEX_GET`) and CLR type names (`System.String`); arithmetic errors named opcodes such as `ADD` and `MUL`. They now name the operator as written in source and the types as `typeof` reports them.
+- The language this extension highlights and checks gained decimal literals (`1.5m`), `is` against built-in type names (`1 is Int`), and camelCase aliases for the four snake_case intrinsics (`insertAt`, `removeRange`, `replaceRange`, `getOr`).
+
+### Breaking
+- v18.0.0 changes two language behaviours, which affects scripts run through the lint and format commands and any `.cfb` artifact in a workspace. A three-part `for` now gives its loop variable a fresh binding per iteration, so closures created in the body capture that iteration's value rather than the final one. Text inside an array or dictionary is now quoted and escaped when printed, so `{"a": "1"}` and `{"a": 1}` are no longer indistinguishable.
+- The bytecode version moved from 6 to 7. Existing `.cfb` files are rejected with a clear version error and have to be recompiled, because the loop change lives in the compiler and an older artifact would otherwise keep the old semantics silently.
+
 ## 0.8.8 - 2026-08-10
 
 ### Changed

@@ -1,6 +1,6 @@
 
 # This sample demonstrates arrays, dictionaries, slices, delete,
-# destructuring, foreach pairs, and the `out` expression block.
+# destructuring, foreach pairs, and scoped expressions.
 
 func ensure(label, condition) {
     if (!condition) {
@@ -72,12 +72,13 @@ func main() {
     }
     ensure("foreach key value", weighted == 8);
 
-    # The `out` block evaluates to the last expression in its own scope.
-    var summary = out {
+    # An immediately invoked function expression computes a value in its own
+    # scope, so the helper binding does not leak into the surrounding block.
+    var summary = func() {
         var local = id + len(secondTag);
-        "item:" + str(local);
-    };
-    ensure("out block", summary == "item:21");
+        return "item:" + str(local);
+    }();
+    ensure("scoped expression", summary == "item:21");
 
     print("COLLECTIONS_OK:" + summary);
 }

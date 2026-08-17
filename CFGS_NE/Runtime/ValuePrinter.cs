@@ -264,9 +264,39 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// Writes a runtime value in CFGS display format.
+        /// Quotes and escapes a text value the way it appears inside a collection.
         /// </summary>
-        public static void PrintValue(Value v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false)
+        private static void WriteQuoted(TextWriter w, string s, char quote)
+        {
+            w.Write(quote);
+            foreach (char c in s)
+            {
+                switch (c)
+                {
+                    case '\\': w.Write("\\\\"); break;
+                    case '\n': w.Write("\\n"); break;
+                    case '\r': w.Write("\\r"); break;
+                    case '\t': w.Write("\\t"); break;
+                    default:
+                        if (c == quote)
+                            w.Write('\\');
+                        w.Write(c);
+                        break;
+                }
+            }
+            w.Write(quote);
+        }
+
+        /// <summary>
+        /// Writes a runtime value in CFGS display format.
+        ///
+        /// <paramref name="nested"/> marks a value being rendered as an element or entry of a
+        /// collection. Nested text is quoted and escaped so the output is unambiguous: without it
+        /// {"a": "1"} and {"a": 1} print identically, and ["x, y"] is indistinguishable from two
+        /// elements. A value printed on its own stays raw, because quoting every print("hello")
+        /// would be worse than the ambiguity it removes.
+        /// </summary>
+        public static void PrintValue(Value v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false, bool nested = false)
         {
             switch (v.Kind)
             {
@@ -286,17 +316,20 @@ namespace CFGS_VM.VMCore
                     w.Write(v.AsDouble.ToString(CultureInfo.InvariantCulture));
                     break;
                 case ValueKind.Char:
-                    w.Write(v.AsChar);
+                    if (nested)
+                        WriteQuoted(w, v.AsChar.ToString(), '\'');
+                    else
+                        w.Write(v.AsChar);
                     break;
                 default:
-                    PrintValue(v.Reference, w, mode, seen, escapeNewlines);
+                    PrintValue(v.Reference, w, mode, seen, escapeNewlines, nested);
                     break;
             }
 
             w.Flush();
         }
 
-        public static void PrintValue(object? v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false)
+        public static void PrintValue(object? v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false, bool nested = false)
         {
             static string UnescapeForPrinting(string s)
             {
@@ -318,7 +351,7 @@ namespace CFGS_VM.VMCore
 
             if (v is Value tagged)
             {
-                PrintValue(tagged, w, mode, seen, escapeNewlines);
+                PrintValue(tagged, w, mode, seen, escapeNewlines, nested);
                 return;
             }
 
@@ -335,7 +368,7 @@ namespace CFGS_VM.VMCore
                 w.Write("[");
                 for (int i = 0; i < items.Count; i++)
                 {
-                    PrintValue(items[i], w, mode, seen, escapeNewlines);
+                    PrintValue(items[i], w, mode, seen, escapeNewlines, nested: true);
                     if (i + 1 < items.Count)
                         w.Write(", ");
                 }
@@ -369,10 +402,9 @@ namespace CFGS_VM.VMCore
                 for (int i = 0; i < entries.Count; i++)
                 {
                     KeyValuePair<string, object> kv = entries[i];
-                    w.Write("\"");
-                    w.Write(escapeNewlines ? UnescapeForPrinting(kv.Key) : kv.Key);
-                    w.Write("\": ");
-                    PrintValue(kv.Value, w, mode, seen, escapeNewlines);
+                    WriteQuoted(w, escapeNewlines ? UnescapeForPrinting(kv.Key) : kv.Key, '"');
+                    w.Write(": ");
+                    PrintValue(kv.Value, w, mode, seen, escapeNewlines, nested: true);
                     if (i + 1 < entries.Count)
                         w.Write(", ");
                 }
@@ -429,7 +461,16 @@ namespace CFGS_VM.VMCore
             switch (v)
             {
                 case string s:
-                    w.Write(escapeNewlines ? UnescapeForPrinting(s) : s);
+                    if (nested)
+                        WriteQuoted(w, escapeNewlines ? UnescapeForPrinting(s) : s, '"');
+                    else
+                        w.Write(escapeNewlines ? UnescapeForPrinting(s) : s);
+                    break;
+                case char c:
+                    if (nested)
+                        WriteQuoted(w, c.ToString(), '\'');
+                    else
+                        w.Write(c);
                     break;
                 case double xd:
                     w.Write(xd.ToString(CultureInfo.InvariantCulture));

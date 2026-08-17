@@ -22,6 +22,18 @@ The `.cfs` files contain detailed English comments next to the code they
 demonstrate. The examples are intentionally small, practical, and self-checking:
 each script throws if an important result is wrong.
 
+Because they are self-checking, they double as a test suite. Run all of them with:
+
+```powershell
+pwsh CFGS_NE/Samples/run_all_samples.ps1
+```
+
+The runner executes each sample rather than only compiling it, since some mistakes
+surface only at runtime, and it fails when a sample exits non-zero, prints a diagnostic,
+or does not reach its end-of-run marker. It is also wired into
+`scripts/run-all-tests.ps1` as a fourth suite. Files that other samples import are
+detected automatically and only checked for clean initialization.
+
 ## Folders
 
 - `01_basics`: literals, variables, constants, operators, type conversion.

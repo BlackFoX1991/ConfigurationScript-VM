@@ -6,7 +6,7 @@ import * as Extras from "extras.cfs";
 # This is the main module sample. It combines:
 # - bare file imports for namespace declarations
 # - named imports with aliases
-# - star imports as module dictionaries
+# - star imports as namespace aliases, accessed with dot syntax
 # - `use` declarations to shorten namespaced type references
 
 use Samples.Shop.Domain;
@@ -20,7 +20,7 @@ func ensure(label, condition) {
 
 var inventory = new InventoryService();
 var sku = makeSku("SKU", 42);
-var product = new Product(sku, "Keyboard", StockKind["Physical"]);
+var product = new Product(sku, "Keyboard", StockKind.Physical);
 
 var item = inventory.add(product, 12);
 ensure("namespace type import", item.product.describe() == "SKU-42:Keyboard:Physical");
@@ -36,11 +36,12 @@ ensure("module report", len(report) == 1 && report[0].contains("Keyboard"));
 var box = new FeatureBox(99);
 ensure("named class import", box.get() == 99);
 ensure("named const alias", helperVersion == "1.0");
-ensure("named enum import", HelperMode["Advanced"] == 2);
+ensure("named enum import", HelperMode.Advanced == 2);
 
-ensure("star function import", Extras["triple"](4) == 12);
-var multiplier = Extras["Multiplier"](5);
+# A star import alias is a namespace value, so its members use dot access.
+ensure("star function import", Extras.triple(4) == 12);
+var multiplier = new Extras.Multiplier(5);
 ensure("star class import", multiplier.apply(3) == 15);
-ensure("star enum import", Extras["ExtraFlag"]["On"] == 1);
+ensure("star enum import", Extras.ExtraFlag.On == 1);
 
-print("MODULES_OK:" + report[0] + ":v" + helperVersion + ":" + Extras["multiplierName"]);
+print("MODULES_OK:" + report[0] + ":v" + helperVersion + ":" + Extras.multiplierName);

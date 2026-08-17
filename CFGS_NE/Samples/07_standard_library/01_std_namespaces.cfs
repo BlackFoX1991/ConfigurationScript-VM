@@ -43,7 +43,7 @@ ensure("console namespace", console.put("") == 1);
 ensure("console use import", put("") == 1);
 
 # Date and time helpers are useful for logs and host integration.
-var stamp = UtcNow("yyyy-MM-dd");
+var stamp = utcNow().toString("yyyy-MM-dd");
 ensure("utc now", len(stamp) == 10);
 
 print("STD_NAMESPACES_OK:" + parsed["sku"] + ":" + stamp);

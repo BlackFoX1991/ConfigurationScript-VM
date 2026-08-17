@@ -254,5 +254,11 @@
         // ParamLowerer generates, so an explicitly passed null no longer triggers the default. Appended at
         // the end so existing opcode numbers (and .cfb bytecode) keep their values.
         IS_ARG_UNSET,
+
+        // `value is Int` and friends. Operand = the script-visible type name. IS_TYPE compares two
+        // class objects and cannot express this, because a primitive type has no class object to put
+        // on the right-hand side. Appended at the end so existing opcode numbers (and .cfb bytecode)
+        // keep their values.
+        IS_PRIMITIVE_TYPE,
     }
 }

@@ -27,4 +27,17 @@ var maxObj = math.max(new B(), new A());
 edge_eq("math_min_class_visible_order", "" + [minObj], "[A]");
 edge_eq("math_max_class_visible_order", "" + [maxObj], "[B]");
 
+# Ordering of values that fall through to the printed-representation comparison must stay put
+# when the printed representation itself changes. Sorting is not a display concern, so a change
+# to how collections render has to fail here rather than quietly reshuffle a user's data.
+var strLists = [["b"], ["a"]];
+strLists.sort();
+edge_eq("sort_string_lists_stable", strLists[0][0] + strLists[1][0], "ab");
+
+# Ordinal comparison of the printed forms, so the separator decides: in '["a", "a"]' vs '["a"]'
+# the first difference is ',' against ']', and ',' sorts lower.
+var mixed = [["b"], ["a", "a"], ["a"]];
+mixed.sort();
+edge_eq("sort_nested_lists_stable", str(mixed), "[[\"a\", \"a\"], [\"a\"], [\"b\"]]");
+
 edge_finish("741_non_numeric_sort_uses_script_order");

@@ -96,10 +96,17 @@ var bag = new StockBag();
 bag["sku"] = "C-1";
 ensure("interface indexer", bag["sku"] == "C-1");
 
-# Structural interface checks allow compatible shapes to satisfy contracts.
+# `is` and the `implements` builtin are nominal: the class must declare the
+# interface. A merely compatible shape does not satisfy either of them.
 var structural = new StructuralNamed();
-ensure("structural implements", structural is INamed);
-ensure("implements builtin", implements(structural, INamed));
+ensure("nominal is rejects a bare shape", !(structural is INamed));
+ensure("nominal implements rejects a bare shape", !implements(structural, INamed));
+ensure("nominal implements accepts a declaration", implements(item, INamed));
+
+# Structural satisfaction is opt-in through implements_shape, which accepts both
+# a matching shape and a declared implementation.
+ensure("structural shape check", implements_shape(structural, INamed));
+ensure("structural check accepts nominal too", implements_shape(item, INamed));
 
 var nominalInterfaces = interfaces(item);
 ensure("interfaces builtin", len(nominalInterfaces) > 0);

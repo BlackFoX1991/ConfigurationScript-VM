@@ -1,3 +1,4 @@
+﻿using CFGS_VM.StandardLibrary;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Extensions.Instance;
@@ -374,8 +375,31 @@ namespace CFGS_VM.VMCore
         /// propagates (which masked bugs); it is a clean runtime error, consistent across operators.
         /// </summary>
         private VMException NullOperand(Instruction instr, string op)
-            => new($"Runtime error: {op} on null is not allowed",
-                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            => new($"Runtime error: operator '{op}' cannot be applied to null",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!,
+                diagnosticCode: "CFGS3012");
+
+        /// <summary>
+        /// Error for an operator applied to operands it has no meaning for. Names the operator as it
+        /// is written in source and the types as `typeof` reports them, rather than the bytecode
+        /// opcode and CLR type names a script author cannot act on.
+        /// </summary>
+        private VMException NonNumericOperands(Instruction instr, string op, Value left, Value right)
+            => new($"Runtime error: operator '{op}' requires numeric operands, got " +
+                   $"{CoreStandardLibrary.RuntimeTypeName(left.ToObject())} and " +
+                   $"{CoreStandardLibrary.RuntimeTypeName(right.ToObject())}",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!,
+                diagnosticCode: "CFGS3011");
+
+        /// <summary>
+        /// Error for a zero divisor in `/` or `%`. The VM checks the divisor itself rather than
+        /// letting the CLR raise, so the code has to be attached here: without it the diagnostic
+        /// falls back to message inference and reports the generic CFGS3000.
+        /// </summary>
+        private VMException DivisionByZero(Instruction instr, bool remainder = false)
+            => new(remainder ? "division by zero in a remainder operation" : "division by zero",
+                instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!,
+                diagnosticCode: "CFGS3007");
 
         private Value AddDecimal(decimal a, decimal b, Instruction instr)
         {
@@ -421,7 +445,11 @@ namespace CFGS_VM.VMCore
             return Value.FromRef((decimal)result);
         }
 
-        private static bool ToBool(object? v)
+        /// <summary>
+        /// The language's truthiness rule. Internal rather than private so builtins taking a flag
+        /// argument judge it the same way `if` does, instead of each inventing its own test.
+        /// </summary>
+        internal static bool ToBool(object? v)
         {
             switch (v)
             {
@@ -1103,7 +1131,7 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-                throw NullOperand(instr, "ADD");
+                throw NullOperand(instr, "+");
 
             throw new VMException("ADD on incompatible types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
@@ -1131,7 +1159,7 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-                throw NullOperand(instr, "SUB");
+                throw NullOperand(instr, "-");
 
             if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
                 throw new VMException("SUB on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1172,7 +1200,7 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-                throw NullOperand(instr, "MUL");
+                throw NullOperand(instr, "*");
 
             if (TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
             {
@@ -1201,7 +1229,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            throw new VMException("MUL on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+            throw NonNumericOperands(instr, "*", leftValue, rightValue);
         }
 
         private StepResult HandleModInstruction(Instruction instr)
@@ -1216,27 +1244,27 @@ namespace CFGS_VM.VMCore
                 {
                     case NumKind.Int32:
                         if (hotPair.Int32Right == 0)
-                            throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            throw DivisionByZero(instr, remainder: true);
                         _valueStack.Push(ModInt32(hotPair.Int32Left, hotPair.Int32Right));
                         return StepResult.Next;
                     case NumKind.Int64:
                         if (hotPair.Int64Right == 0L)
-                            throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            throw DivisionByZero(instr, remainder: true);
                         _valueStack.Push(ModInt64(hotPair.Int64Left, hotPair.Int64Right));
                         return StepResult.Next;
                     case NumKind.Double:
                         if (hotPair.DoubleRight == 0.0)
-                            throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            throw DivisionByZero(instr, remainder: true);
                         _valueStack.Push(Value.FromDouble(hotPair.DoubleLeft % hotPair.DoubleRight));
                         return StepResult.Next;
                 }
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-                throw NullOperand(instr, "MOD");
+                throw NullOperand(instr, "%");
 
             if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
-                throw new VMException("MOD on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                throw NonNumericOperands(instr, "%", leftValue, rightValue);
 
             bool isZero = K switch
             {
@@ -1249,7 +1277,7 @@ namespace CFGS_VM.VMCore
                 _ => false
             };
             if (isZero)
-                throw new VMException("division by zero in MOD", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                throw DivisionByZero(instr, remainder: true);
 
             Value res = K switch
             {
@@ -1276,29 +1304,27 @@ namespace CFGS_VM.VMCore
                 {
                     case NumKind.Int32:
                         if (hotPair.Int32Right == 0)
-                            throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            throw DivisionByZero(instr);
                         _valueStack.Push(DivInt32(hotPair.Int32Left, hotPair.Int32Right));
                         return StepResult.Next;
                     case NumKind.Int64:
                         if (hotPair.Int64Right == 0L)
-                            throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            throw DivisionByZero(instr);
                         _valueStack.Push(DivInt64(hotPair.Int64Left, hotPair.Int64Right));
                         return StepResult.Next;
                     case NumKind.Double:
                         if (hotPair.DoubleRight == 0.0)
-                            throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            throw DivisionByZero(instr);
                         _valueStack.Push(Value.FromDouble(hotPair.DoubleLeft / hotPair.DoubleRight));
                         return StepResult.Next;
                 }
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-                throw NullOperand(instr, "DIV");
+                throw NullOperand(instr, "/");
 
             if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
-                throw new VMException(
-                    $"Runtime error: cannot DIV {(leftValue.Kind == ValueKind.Ref ? leftValue.Reference?.GetType() : leftValue.Kind)} and {(rightValue.Kind == ValueKind.Ref ? rightValue.Reference?.GetType() : rightValue.Kind)}",
-                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                throw NonNumericOperands(instr, "/", leftValue, rightValue);
 
             bool isZero = K switch
             {
@@ -1311,7 +1337,7 @@ namespace CFGS_VM.VMCore
                 _ => false
             };
             if (isZero)
-                throw new VMException("division by zero", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                throw DivisionByZero(instr);
 
             Value res = K switch
             {
@@ -1349,7 +1375,7 @@ namespace CFGS_VM.VMCore
             }
 
             if (leftValue.IsNull || rightValue.IsNull)
-                throw NullOperand(instr, "EXPO");
+                throw NullOperand(instr, "**");
 
             if (!TryCoerceFallbackNumericPair(leftValue, rightValue, out Value A, out Value B, out NumKind K))
                 throw new VMException("EXPO on non-numeric types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1382,7 +1408,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "BIT_AND");
+            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "&");
             if (!TryCoerceFallbackIntegralPair(leftValue, rightValue, out Value l, out Value r, out NumKind kind))
                 throw new VMException("BIT_AND requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             Value result = kind switch
@@ -1411,7 +1437,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "BIT_OR");
+            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "|");
             if (!TryCoerceFallbackIntegralPair(leftValue, rightValue, out Value l, out Value r, out NumKind kind))
                 throw new VMException("BIT_OR requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             Value result = kind switch
@@ -1440,7 +1466,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "BIT_XOR");
+            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "^");
             if (!TryCoerceFallbackIntegralPair(leftValue, rightValue, out Value l, out Value r, out NumKind kind))
                 throw new VMException("BIT_XOR requires integral types", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             Value result = kind switch
@@ -1471,7 +1497,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "SHL");
+            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "<<");
             if (!(TryGetFallbackIntegralValue(leftValue, out Value l) && TryGetFallbackNumericValue(rightValue, out Value r)))
                 throw new VMException("SHL requires (integral) << int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             int sh = ToInt32Invariant(r);
@@ -1509,7 +1535,7 @@ namespace CFGS_VM.VMCore
                 }
             }
 
-            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, "SHR");
+            if (leftValue.IsNull || rightValue.IsNull) throw NullOperand(instr, ">>");
             if (!(TryGetFallbackIntegralValue(leftValue, out Value l) && TryGetFallbackNumericValue(rightValue, out Value r)))
                 throw new VMException("SHR requires (integral) >> int", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
             int sh = ToInt32Invariant(r);
@@ -1614,6 +1640,14 @@ namespace CFGS_VM.VMCore
             _ => 4
         };
 
+        /// <summary>
+        /// Last-resort ordering key for two same-category values that are neither numeric, string nor
+        /// bool: class instances, closures, collections. Deliberately reuses the display rendering so
+        /// there is one notion of "what this value looks like", which does mean a change to that
+        /// rendering can move the relative order of such values. That is why
+        /// 741_non_numeric_sort_uses_script_order.cfs pins the order: a rendering change has to fail
+        /// there rather than quietly reshuffle a user's sort.
+        /// </summary>
         private static string FormatComparisonFallbackValue(object? value)
         {
             using StringWriter writer = new();
@@ -1734,6 +1768,20 @@ namespace CFGS_VM.VMCore
                     : IsSameOrDerivedStaticType(instType, target);
             }
             _valueStack.Push(Value.FromBool(found));
+            return StepResult.Next;
+        }
+
+        /// <summary>
+        /// `value is Int` and friends. Compares against the same name `typeof` reports, so the two
+        /// cannot drift apart.
+        /// </summary>
+        private StepResult HandleIsPrimitiveTypeInstruction(Instruction instr)
+        {
+            RequireStack(1, instr, "IS_PRIMITIVE_TYPE");
+            object? value = _valueStack.Pop().ToObject();
+            string expected = (string)instr.Operand!;
+            _valueStack.Push(Value.FromBool(
+                string.Equals(CoreStandardLibrary.RuntimeTypeName(value), expected, StringComparison.Ordinal)));
             return StepResult.Next;
         }
 
@@ -1932,7 +1980,7 @@ namespace CFGS_VM.VMCore
             switch (value.Kind)
             {
                 case ValueKind.Null:
-                    throw NullOperand(instr, "NEG");
+                    throw NullOperand(instr, "unary -");
                 case ValueKind.Int:
                     if (value.AsInt == int.MinValue)
                         _valueStack.Push(Value.FromLong(-(long)value.AsInt));
@@ -1956,8 +2004,9 @@ namespace CFGS_VM.VMCore
             if (!TryGetFallbackNumericValue(value, out Value v))
             {
                 throw new VMException(
-                    $"NEG only works on numeric types (got {value.Reference ?? "null"} of type {value.Reference?.GetType().Name ?? value.Kind.ToString()})",
-                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    $"Runtime error: operator 'unary -' requires a numeric operand, got {CoreStandardLibrary.RuntimeTypeName(value.ToObject())}",
+                    instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!,
+                    diagnosticCode: "CFGS3011");
             }
 
             Value res = v.Kind switch

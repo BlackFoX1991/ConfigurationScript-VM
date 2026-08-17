@@ -348,67 +348,125 @@ namespace CFGS_VM.VMCore
             _continueLists.Pop();
         }
 
+        // Names the for-initializer binds. These are the ones that get a fresh per-iteration
+        // binding; an initializer that only assigns or evaluates (`for (; i < n; i++)`) binds
+        // nothing, so such a loop keeps the plain single-scope shape.
+        private static List<string> CollectForInitBindingNames(Stmt? init)
+        {
+            switch (init)
+            {
+                case VarDecl v:
+                    return [v.Name];
+                case ConstDecl c:
+                    return [c.Name];
+                case DestructureDeclStmt d:
+                    return CollectDestructureBindingNames(d.Pattern);
+                default:
+                    return [];
+            }
+        }
+
+        // Only a closure can outlive the iteration that created it, so only a body that can build one
+        // needs the per-iteration scope. A tight numeric loop keeps the single-scope shape and its
+        // original speed; the extra Env allocation and write-back cost roughly 40% on such a loop.
+        // The scan is exhaustive by construction (see NodeWalker), so a body shape not considered
+        // here cannot silently fall back to shared capture.
+        private static bool BodyCanOutliveIteration(Stmt body)
+            => NodeWalker.AnyDescendantOrSelf(body, static n => n is FuncExpr or FuncDeclStmt or ClassDeclStmt);
+
         private void CompileForStatement(ForStmt fs, bool insideFunction)
         {
+            // The outer scope carries the initializer bindings across iterations; the loop body runs
+            // in a per-iteration scope that re-declares them, so a closure created in the body
+            // captures that iteration's value instead of one binding shared by the whole loop. This
+            // matches foreach. The carried value is read at the top of each iteration and written
+            // back at the bottom, so the increment and the condition still see a single logical
+            // variable.
             EmitPushScope(fs);
             int loopScopeDepth = _scopeDepth;
 
             if (fs.Init != null)
                 CompileStmt(fs.Init, insideFunction);
 
+            List<string> carried = CollectForInitBindingNames(fs.Init);
+            bool perIteration = carried.Count > 0 && BodyCanOutliveIteration(fs.Body);
+            bool carryBack = perIteration && fs.Init is not ConstDecl;
+
             int loopStart = _insns.Count;
             _breakLists.Push(new List<LoopLeavePatch>());
             _continueLists.Push(new List<LoopLeavePatch>());
 
+            // The condition is evaluated before the per-iteration scope exists, reading the carried
+            // binding. That keeps the false path free of a scope to unwind.
+            int jmpFalseIdx = -1;
             if (fs.Condition != null)
             {
                 CompileExpr(fs.Condition);
-                int jmpFalseIdx = _insns.Count;
+                jmpFalseIdx = _insns.Count;
                 _insns.Add(new Instruction(OpCode.JMP_IF_FALSE, null, fs.Line, fs.Col, fs.OriginFile));
+            }
 
-                CompileStmt(fs.Body, insideFunction);
+            int bodyScopeDepth = loopScopeDepth;
+            if (perIteration)
+            {
+                EmitPushScope(fs);
+                bodyScopeDepth = _scopeDepth;
 
-                int incStart = _insns.Count;
-                foreach (LoopLeavePatch patch in _continueLists.Peek())
-                    _insns[patch.Index] = new Instruction(
-                        OpCode.LEAVE,
-                        new object[] { incStart, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, fs) },
-                        fs.Line, fs.Col, fs.OriginFile);
+                foreach (string name in carried)
+                {
+                    // Reads the carried binding, because the inner slot is not declared yet.
+                    _insns.Add(new Instruction(OpCode.LOAD_VAR, name, fs.Line, fs.Col, fs.OriginFile));
+                    _insns.Add(new Instruction(
+                        fs.Init is ConstDecl ? OpCode.CONST_DECL : OpCode.VAR_DECL,
+                        name, fs.Line, fs.Col, fs.OriginFile));
+                    if (_localVarsStack.Count > 0)
+                        CurrentLocals.Add(name);
+                }
+            }
 
-                if (fs.Increment != null)
-                    CompileStmt(fs.Increment, insideFunction);
+            CompileStmt(fs.Body, insideFunction);
 
-                _insns.Add(new Instruction(OpCode.JMP, loopStart, fs.Line, fs.Col, fs.OriginFile));
+            // `continue` skips to the increment while still inside the per-iteration scope, so the
+            // increment and the write-back below apply to this iteration's binding.
+            int incStart = _insns.Count;
+            foreach (LoopLeavePatch patch in _continueLists.Peek())
+                _insns[patch.Index] = new Instruction(
+                    OpCode.LEAVE,
+                    new object[] { incStart, ScopePopsTo(patch.ScopeDepth, bodyScopeDepth, fs) },
+                    fs.Line, fs.Col, fs.OriginFile);
+
+            if (perIteration)
+            {
+                // Stack whatever the body left in the iteration bindings, drop the scope, then write
+                // them back. The order matters: Env.SetValue resolves innermost first, so the stores
+                // have to happen after the pop to reach the carried binding.
+                if (carryBack)
+                    foreach (string name in carried)
+                        _insns.Add(new Instruction(OpCode.LOAD_VAR, name, fs.Line, fs.Col, fs.OriginFile));
+
+                EmitPopScope(fs);
+
+                if (carryBack)
+                    for (int i = carried.Count - 1; i >= 0; i--)
+                        _insns.Add(new Instruction(OpCode.STORE_VAR, carried[i], fs.Line, fs.Col, fs.OriginFile));
+            }
+
+            // The increment runs on the carried binding, after the per-iteration scope is gone. If it
+            // ran inside that scope it would advance the very binding the body's closures captured,
+            // and every closure would again observe the next iteration's value.
+            if (fs.Increment != null)
+                CompileStmt(fs.Increment, insideFunction);
+
+            _insns.Add(new Instruction(OpCode.JMP, loopStart, fs.Line, fs.Col, fs.OriginFile));
+
+            if (jmpFalseIdx >= 0)
                 _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, fs.Line, fs.Col, fs.OriginFile);
 
-                foreach (LoopLeavePatch patch in _breakLists.Peek())
-                    _insns[patch.Index] = new Instruction(
-                        OpCode.LEAVE,
-                        new object[] { _insns.Count, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, fs) },
-                        fs.Line, fs.Col, fs.OriginFile);
-            }
-            else
-            {
-                CompileStmt(fs.Body, insideFunction);
-
-                int incStart = _insns.Count;
-                foreach (LoopLeavePatch patch in _continueLists.Peek())
-                    _insns[patch.Index] = new Instruction(
-                        OpCode.LEAVE,
-                        new object[] { incStart, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, fs) },
-                        fs.Line, fs.Col, fs.OriginFile);
-
-                if (fs.Increment != null)
-                    CompileStmt(fs.Increment, insideFunction);
-
-                _insns.Add(new Instruction(OpCode.JMP, loopStart, fs.Line, fs.Col, fs.OriginFile));
-
-                foreach (LoopLeavePatch patch in _breakLists.Peek())
-                    _insns[patch.Index] = new Instruction(
-                        OpCode.LEAVE,
-                        new object[] { _insns.Count, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, fs) },
-                        fs.Line, fs.Col, fs.OriginFile);
-            }
+            foreach (LoopLeavePatch patch in _breakLists.Peek())
+                _insns[patch.Index] = new Instruction(
+                    OpCode.LEAVE,
+                    new object[] { _insns.Count, ScopePopsTo(patch.ScopeDepth, loopScopeDepth, fs) },
+                    fs.Line, fs.Col, fs.OriginFile);
 
             _breakLists.Pop();
             _continueLists.Pop();

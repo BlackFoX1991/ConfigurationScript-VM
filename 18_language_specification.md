@@ -43,6 +43,10 @@ The lexer recognizes these token families:
 - comments
 - end of file
 
+A fractional literal MAY carry an `m` or `M` suffix, which makes it a `decimal` rather than a
+`double`. Without the suffix there is no way to write a decimal literal, so a value that
+requires decimal precision MUST use it rather than converting after the fact.
+
 Numeric literals may be written in decimal, hexadecimal (`0x`), binary (`0b`), or octal (`0o`) form, with optional `_` digit separators. Non-decimal literals are interpreted as unsigned magnitudes and promote to `BigInteger` when they exceed 64 bits; they never carry a two's-complement sign.
 
 String literals may be plain (`"..."`), verbatim (`@"..."`, where backslashes are literal and `""` denotes a single quote), interpolated (`$"..."`, where `{expr}` embeds an expression and `{{`/`}}` denote literal braces), or both (`$@"..."` and `@$"..."`). An interpolation hole MAY carry a `,alignment` and a `:format` specifier following .NET composite formatting. Because `:` begins the format specifier, a conditional expression inside an interpolation hole MUST be parenthesized.
@@ -108,6 +112,37 @@ Strings are immutable text values. Indexing and slicing MAY read strings, but as
 
 Class instances and static class objects are not dictionaries. Their members MUST be accessed with dot syntax, not bracket syntax.
 
+## Textual Representation
+
+Values acquire a textual form through `print`, `put`, `str`, `string`, string interpolation,
+string concatenation, and `format`. All of these MUST produce the same text for the same
+value; a host or tool that renders values differently is not conformant.
+
+A value rendered on its own is rendered raw: `print("hello")` writes `hello`, without quotes.
+
+A string or char rendered as an element of an array or as a value or key of a dictionary
+MUST be quoted and escaped, so that the rendered form is unambiguous. Strings use `"` and
+chars use `'`. The escapes are at least `\\`, `\"` or `\'`, `\n`, `\r`, and `\t`.
+
+```cfs
+print("hello");            # hello
+print(["x, y", "z"]);      # ["x, y", "z"]
+print({"a": "1"});         # {"a": "1"}
+print({"a": 1});           # {"a": 1}
+print(['a', "a"]);         # ['a', "a"]
+```
+
+Dictionary entries MUST be rendered in ordinal key order rather than insertion order, so two
+dictionaries with equal contents render identically regardless of how they were built. This
+is a property of the rendering only: `dictionary.keys()` and the merge operators preserve
+insertion order.
+
+A cyclic array renders as `[...]` and a cyclic dictionary as `{...}` at the point where the
+cycle closes.
+
+This rendering is the human-readable form. `json.stringify` is the machine-readable
+serialization, and the two are not required to agree.
+
 ## Variables, Constants, and Scopes
 
 `var` introduces a mutable binding.
@@ -155,6 +190,45 @@ The null coalescing operator MUST evaluate and return the right operand only whe
 
 Arithmetic operators operate on numeric values unless a documented overload exists.
 
+### Numeric Semantics
+
+Division of two integral operands is integer division. The result MUST be truncated toward
+zero rather than floored, and MUST stay integral. A division becomes fractional only when
+at least one operand is a floating point or decimal value.
+
+```cfs
+7 / 2      # 3, an integer
+-7 / 2     # -3, truncated toward zero and not -4
+6 / 3      # 2
+7 / 2.0    # 3.5
+```
+
+The remainder operator `%` MUST take the sign of its left operand, consistent with the
+truncating division above. It accepts fractional operands.
+
+```cfs
+7 % 2      # 1
+-7 % 2     # -1
+7 % -2     # 1
+7.5 % 2    # 1.5
+```
+
+Division or remainder by zero MUST fail with a runtime error. This applies to floating
+point operands as well: `7 / 0.0` MUST fail rather than produce an infinity.
+
+An arithmetic result that leaves the range of its operand type MUST widen rather than
+wrap. An `int` result widens to `long`, and a `long` result widens to `BigInteger`.
+
+```cfs
+2147483647 + 1            # a long
+-2147483648 - 1           # a long
+9223372036854775807 + 1   # a BigInteger
+```
+
+Because ordinary script arithmetic widens, the `CFGS3006` overflow diagnostic does not
+describe it. That code reports an overflow surfaced by a host call or an explicit
+conversion, such as `byte(300)`.
+
 The `+` operator is overloaded by operand type, evaluated in this order:
 
 1. If both operands are numeric, they add.
@@ -166,11 +240,66 @@ A char operand in any arithmetic, comparison, or equality operation coerces to i
 
 Any arithmetic or bitwise operator (`+`, `-`, `*`, `/`, `%`, `**`, `&`, `|`, `^`, `<<`, `>>`) applied to a `null` operand MUST fail with a runtime error rather than producing `null`.
 
+String concatenation is the one exception, because it is a text operation rather than an
+arithmetic one. When `+` takes the string concatenation branch above, a `null` operand
+contributes its empty textual form instead of failing.
+
+```cfs
+"a" + null      # "a"
+null + "a"      # "a"
+null + 5        # runtime error
+[1] + null      # runtime error
+```
+
 The dictionary merge operators `<<<` and `>>>` require two dictionaries and produce a new dictionary; the operands are not modified. `<<<` keeps the left operand's value on a key conflict, `>>>` keeps the right operand's value. The result preserves the left operand's key order and appends keys that occur only on the right. `a <<< b` is equivalent to `b >>> a`. These operators are left-associative and bind between the bitwise-and level and the shift level, so they are looser than `<<` and `>>` but tighter than `&`.
 
-Comparison operators return boolean values. Comparison operators MUST NOT be chained: an
-expression such as `a < b < c` is a parse error. Use parentheses to express a deliberate
-comparison of a comparison result, e.g. `(a < b) < c`.
+Comparison operators MUST NOT be chained: an expression such as `a < b < c` is a parse
+error. Use parentheses to express a deliberate comparison of a comparison result, e.g.
+`(a < b) < c`.
+
+The ordering comparisons `<`, `>`, `<=`, and `>=` return a boolean for two comparable
+operands. When either operand is `null` the result is `null` rather than a boolean, so an
+ordering comparison against `null` is falsey in a condition without claiming an order.
+
+### Equality and Identity
+
+`==` and `!=` compare numeric values across numeric types, and strings by their contents.
+
+```cfs
+1 == 1.0        # true
+"ab" == "ab"    # true
+'a' == 97       # true, a char compares as its code point
+"1" == 1        # false, no cross-type coercion
+```
+
+For arrays, dictionaries, and class instances, `==` MUST compare identity, not contents.
+Two separately constructed collections with equal contents are not equal.
+
+```cfs
+[1, 2] == [1, 2]         # false
+{"a": 1} == {"a": 1}     # false
+```
+
+The collection intrinsics that search by value follow the same identity rule, because they
+are defined in terms of `==`.
+
+```cfs
+[[1], [2]].includes([1])   # false, the argument is a different array
+[[1], [2]].indexOf([1])    # -1
+```
+
+Pattern matching is the deliberate exception. An array or dictionary pattern in `match`
+matches by shape, descending into the subject and applying these equality rules to the
+scalar leaves, so it succeeds where `==` on the same two values would not.
+
+```cfs
+var v = [1, 2];
+print(v == [1, 2]);                          # false, two distinct arrays
+print(v match { [1, 2]: "yes", _: "no" });   # yes, the pattern is structural
+```
+
+Structural comparison outside a pattern is not provided by an operator. Note also that
+`dictionary.contains(key)` is a key lookup and is unrelated to this rule.
 
 The null coalescing operator `??` binds more tightly than the ternary conditional `?:`.
 Therefore `x ?? y ? a : b` parses as `(x ?? y) ? a : b`.
@@ -206,6 +335,11 @@ Dictionary data is accessed with bracket indexing and requires a string-compatib
 Reading a dictionary key that is absent MUST return `null` rather than fail, which is what makes the `??` fallback idiom work. Deleting an absent key MUST fail with a runtime error.
 
 Slicing is supported for arrays and strings, and dictionary slice behavior is defined by the runtime collection rules.
+
+Sorting an array of mixed types MUST NOT fail. Values of the same comparable type order by
+their natural order; values of different types order by an implementation-defined but
+stable total order over the runtime types. Programs that depend on a particular
+cross-type order SHOULD sort with an explicit key instead.
 
 Push syntax appends to arrays or writes supported collection targets. Invalid push targets MUST fail.
 
@@ -367,6 +501,18 @@ Interface property contracts MAY be instance or static and define required `get`
 Interface indexer contracts use `index get(...)` and `index set(...)`. Implementing classes MUST provide compatible public instance methods named `get_index` and `set_index`; runtime index access on class instances dispatches to those methods when present.
 
 Explicit interface method implementations use an interface-qualified method declaration such as `func IFace.member(...) { ... }`. Implementations MUST satisfy the same signature and visibility rules as normal interface methods. `interface_call(value, interfaceType, methodName, args)` MUST prefer explicit implementations before falling back to normal methods.
+
+The `is` operator also accepts a built-in type name on its right-hand side, in which case it
+compares against the name `typeof` reports for the value. The accepted names are `Null`,
+`Boolean`, `Int`, `Long`, `BigInt`, `Double`, `Float`, `Decimal`, `String`, `Char`, `Array`,
+`Dictionary`, `Enum`, `Exception`, and `StringBuilder`. A declared class or interface of the
+same name takes precedence, so user types are never shadowed by this rule.
+
+```cfs
+1 is Int          # true
+"a" is String     # true
+[1] is Array      # true
+```
 
 The `is` operator and the `implements` builtin are nominal for interface targets: they MUST accept a declared implementation (direct, through a base class, or through interface inheritance) and MUST NOT accept a value that merely exposes compatible members. Structural, shape-based satisfaction MUST be requested explicitly through the `implements_shape` builtin, which accepts both nominal implementations and values whose public members match the interface. `interface_call` MUST gate on the same nominal check as `is`.
 
@@ -573,6 +719,29 @@ Supported control flow includes:
 `return` is valid only inside function or method bodies.
 
 Invalid control-flow positions MUST fail.
+
+### Iteration
+
+`foreach` iterates arrays, dictionaries, and strings.
+
+- Over an array, a single binding yields each element and a two-binding form yields the
+  index and the element.
+- Over a dictionary, a two-binding form yields the key and the value, and a single binding
+  yields a `[key, value]` pair array.
+- Over a string, iteration yields each character as a char value, and the two-binding form
+  yields the index and the character.
+
+A loop variable MUST receive a fresh binding on each iteration, so a closure created inside
+the body captures that iteration's value rather than a value shared across the whole loop.
+This applies to `foreach` and to the three-part `for` loop alike.
+
+```cfs
+var fns = [];
+for (var i = 0; i < 3; i = i + 1) {
+    fns[] = func() { return i; };
+}
+# fns[0]() is 0, fns[1]() is 1, fns[2]() is 2
+```
 
 ## CLI Execution Semantics
 

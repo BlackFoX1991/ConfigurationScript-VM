@@ -1,4 +1,4 @@
-using CFGS_VM.Analytic;
+﻿using CFGS_VM.Analytic;
 using CFGS_VM.Analytic.Core;
 using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
@@ -1110,7 +1110,7 @@ internal static class CfgsLinter
             if (node is FuncDeclStmt or FuncExpr)
                 return false;
 
-            foreach (object child in EnumerateNodeChildren(node))
+            foreach (object child in NodeWalker.EnumerateChildren(node))
             {
                 if (child is Node childNode && ContainsAwait(childNode))
                     return true;
@@ -1119,50 +1119,6 @@ internal static class CfgsLinter
             return false;
         }
 
-        private static IEnumerable<object> EnumerateNodeChildren(object node)
-        {
-            foreach (System.Reflection.PropertyInfo property in node.GetType().GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
-            {
-                if (property.GetIndexParameters().Length > 0 || property.PropertyType == typeof(string))
-                    continue;
-
-                object? value = property.GetValue(node);
-                if (value is null)
-                    continue;
-
-                if (value is Node child)
-                    yield return child;
-                else if (value is System.Collections.IEnumerable enumerable)
-                {
-                    foreach (object? item in enumerable)
-                    {
-                        if (item is Node itemNode)
-                            yield return itemNode;
-                    }
-                }
-            }
-
-            foreach (System.Reflection.FieldInfo field in node.GetType().GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
-            {
-                if (field.FieldType == typeof(string))
-                    continue;
-
-                object? value = field.GetValue(node);
-                if (value is null)
-                    continue;
-
-                if (value is Node child)
-                    yield return child;
-                else if (value is System.Collections.IEnumerable enumerable)
-                {
-                    foreach (object? item in enumerable)
-                    {
-                        if (item is Node itemNode)
-                            yield return itemNode;
-                    }
-                }
-            }
-        }
 
         private static bool IsImmediateTerminating(Stmt stmt)
             => stmt is ReturnStmt or ThrowStmt or BreakStmt or ContinueStmt;

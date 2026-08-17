@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
@@ -2549,96 +2549,11 @@ internal sealed class CfgsAnalyzer
         list.Add(new CfgsDiagnostic(range, message.Trim(), 1, "cfgs", code));
     }
 
+    // Delegates to the runtime's ladder instead of keeping a second copy. The specification
+    // requires the LSP path to report what the CLI reports, and two hand-maintained tables
+    // drift apart the moment one of them gains a code.
     private static string InferDiagnosticCode(string category, string? message)
-    {
-        string m = (message ?? string.Empty).Trim().ToLowerInvariant();
-
-        if (m.Contains(".cfb", StringComparison.Ordinal) ||
-            m.Contains("binary", StringComparison.Ordinal) ||
-            m.Contains("bytecode", StringComparison.Ordinal))
-            return "CFGS5000";
-
-        if (category.Equals("LexError", StringComparison.OrdinalIgnoreCase))
-            return "CFGS0001";
-
-        if (category.Equals("ParseError", StringComparison.OrdinalIgnoreCase))
-        {
-            if (m.Contains("expected", StringComparison.Ordinal))
-                return "CFGS1001";
-            if (m.Contains("import", StringComparison.Ordinal))
-                return "CFGS4001";
-            if (m.Contains("duplicate", StringComparison.Ordinal))
-                return "CFGS1002";
-            return "CFGS1000";
-        }
-
-        if (category.Equals("CompileError", StringComparison.OrdinalIgnoreCase))
-        {
-            if (m.Contains("dot access", StringComparison.Ordinal) ||
-                m.Contains("bracket access", StringComparison.Ordinal))
-                return "CFGS2003";
-            if (m.Contains("receiver", StringComparison.Ordinal))
-                return "CFGS2004";
-            if (m.Contains("unknown", StringComparison.Ordinal))
-                return "CFGS2001";
-            if (m.Contains("inaccessible", StringComparison.Ordinal))
-                return "CFGS2002";
-            if (m.Contains("duplicate", StringComparison.Ordinal))
-                return "CFGS2005";
-            if (m.Contains("override", StringComparison.Ordinal))
-                return "CFGS2006";
-            if (m.Contains("assignment", StringComparison.Ordinal) ||
-                m.Contains("assign target", StringComparison.Ordinal) ||
-                m.Contains("read-only", StringComparison.Ordinal))
-                return "CFGS2007";
-            if (m.Contains("invalid static member access", StringComparison.Ordinal) ||
-                m.Contains("invalid instance member access", StringComparison.Ordinal) ||
-                m.Contains("member is static", StringComparison.Ordinal) ||
-                m.Contains("member is instance", StringComparison.Ordinal))
-                return "CFGS2008";
-            if (m.Contains("reserved", StringComparison.Ordinal))
-                return "CFGS2009";
-            if (m.Contains("interface", StringComparison.Ordinal))
-                return "CFGS2010";
-            if (m.Contains("constructor", StringComparison.Ordinal) ||
-                m.Contains("base ctor", StringComparison.Ordinal))
-                return "CFGS2011";
-            if (m.Contains("property", StringComparison.Ordinal) ||
-                m.Contains("backing-field", StringComparison.Ordinal) ||
-                m.Contains("accessor", StringComparison.Ordinal))
-                return "CFGS2012";
-            if (m.Contains("ambiguous", StringComparison.Ordinal))
-                return "CFGS2013";
-            if (m.Contains("async", StringComparison.Ordinal) ||
-                m.Contains("await", StringComparison.Ordinal) ||
-                m.Contains("yield", StringComparison.Ordinal))
-                return "CFGS2014";
-            if (m.Contains("argument", StringComparison.Ordinal) ||
-                m.Contains("parameter", StringComparison.Ordinal) ||
-                m.Contains("spread", StringComparison.Ordinal) ||
-                m.Contains("rest", StringComparison.Ordinal) ||
-                m.Contains("default", StringComparison.Ordinal))
-                return "CFGS2015";
-            if (m.Contains("namespace", StringComparison.Ordinal))
-                return "CFGS2016";
-            return "CFGS2000";
-        }
-
-        if (category.Equals("RuntimeError", StringComparison.OrdinalIgnoreCase))
-        {
-            if (m.Contains("undefined variable", StringComparison.Ordinal))
-                return "CFGS3001";
-            if (m.Contains("not indexable", StringComparison.Ordinal))
-                return "CFGS3003";
-            if (m.Contains("index", StringComparison.Ordinal))
-                return "CFGS3002";
-            if (m.Contains("argument", StringComparison.Ordinal))
-                return "CFGS3004";
-            return "CFGS3000";
-        }
-
-        return "CFGS9000";
-    }
+        => ErrorDiagnostics.InferCode(category, message);
 
     private static string GetDocumentOrigin(string documentUri)
     {

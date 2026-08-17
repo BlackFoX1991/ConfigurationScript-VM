@@ -17,7 +17,14 @@ namespace CFGS_VM.VMCore
         // v6: default parameters now lower to an IS_ARG_UNSET presence guard instead of `param == null`,
         // so an explicitly passed null no longer triggers the default; only an omitted argument does.
         // Bumped to reject older artifacts whose prologue still carries the null-based default semantics.
-        public const int CurrentBytecodeVersion = 6;
+        // v7: a three-part `for` now emits a per-iteration scope, so its loop variable gets a fresh
+        // binding each pass and closures capture that iteration's value. The change lives in the
+        // emitter, so an older artifact would keep the old shared-counter semantics in its instruction
+        // stream with no indication. Bumped to reject those rather than run them with different
+        // meaning. The same bump also stops a v7 artifact from reaching an older VM and failing at the
+        // appended IS_PRIMITIVE_TYPE opcode, which would look like a corrupt file instead of an
+        // outdated VM.
+        public const int CurrentBytecodeVersion = 7;
 
         public string Name { get; }
 
