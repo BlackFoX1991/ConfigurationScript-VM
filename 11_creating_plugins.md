@@ -130,6 +130,7 @@ An intrinsic descriptor follows the same idea, but includes a receiver type.
 - maximum arity
 - delegate with `receiver`, `args`, `instr`
 - optional `NativeCallOptions`
+- optional `IsValue`: when set, dot access evaluates the intrinsic with no arguments and yields its result instead of a callable, the way `math.PI` works. Such an intrinsic must accept zero arguments.
 
 ## Path 2. Attributes
 

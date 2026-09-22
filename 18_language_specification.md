@@ -55,7 +55,7 @@ Operators are matched with longest-match precedence. In particular the three-cha
 
 Whitespace separates tokens where needed and otherwise has no semantic meaning, except inside string and character literals.
 
-Comments are ignored by later language phases and MUST NOT affect runtime behavior.
+Comments are ignored by later language phases and MUST NOT affect runtime behavior. A line comment starts with `#`. A block comment starts with `#+` followed by whitespace or the end of the text and ends at the next `+#`; a `#+` followed by any other character begins a line comment.
 
 Identifiers name variables, constants, functions, classes, namespaces, imports, fields, methods, properties, enum members, parameters, and pattern bindings.
 
@@ -140,6 +140,8 @@ insertion order.
 A cyclic array renders as `[...]` and a cyclic dictionary as `{...}` at the point where the
 cycle closes.
 
+A class instance renders as its class name, unless its class declares or inherits a public, non-async, parameterless instance method `toString`; then it renders as that method's result, which MUST be a string, written raw also inside a collection. Rendering for the debugger and ordering comparisons MUST NOT call `toString`.
+
 This rendering is the human-readable form. `json.stringify` is the machine-readable
 serialization, and the two are not required to agree.
 
@@ -148,6 +150,8 @@ serialization, and the two are not required to agree.
 `var` introduces a mutable binding.
 
 `const` introduces a binding that MUST NOT be reassigned after initialization.
+
+A `var` declaration MAY list several declarators separated by commas. Each introduces its own binding in the same scope, in source order, and every declarator belongs to the statement position of the declaration (a braceless `if` body contains all of them). A declarator without an initializer binds `null`.
 
 A declaration introduces its binding into the current scope. Redeclaring the same name in the same scope MUST fail.
 
@@ -181,6 +185,10 @@ Supported expression categories include:
 - member access
 - `match` expressions
 - `await` expressions where permitted
+
+Array literals, dictionary literals, argument lists, and parameter lists MAY end with a comma before the closing bracket.
+
+A statement MAY consist of any expression, including one that starts with an identifier and continues with an operator (`ok && f();`, `x ? a() : b();`).
 
 Short-circuit logical operators MUST avoid evaluating the right operand when the left operand determines the result.
 
@@ -332,6 +340,8 @@ Array indexes are zero-based. Out-of-range indexes MUST fail.
 
 Dictionary data is accessed with bracket indexing and requires a string-compatible key. Any non-empty string is a valid data key; intrinsic method names are NOT reserved, because dictionary data and dictionary methods are separated by syntax (see Dot Member Access). Dot access on a dictionary resolves an intrinsic method only and MUST NOT read or write a data key.
 
+A dictionary literal key is an expression evaluated like any other: `{name: 1}` reads the variable `name`, and the key is the textual form of its value.
+
 Reading a dictionary key that is absent MUST return `null` rather than fail, which is what makes the `??` fallback idiom work. Deleting an absent key MUST fail with a runtime error.
 
 Slicing is supported for arrays and strings, and dictionary slice behavior is defined by the runtime collection rules.
@@ -414,6 +424,10 @@ Each simple parameter in the class header (including the rest parameter) MUST be
 
 If a class defines an `init` method, object construction calls `init` after allocating the instance and after header-parameter promotion. Constructor parameters and `init` parameters MUST follow the class constructor rules documented for classes.
 
+A field declared without an initializer MUST start as `null`. A `const` instance field MAY be assigned until the constructor of its declaring class has finished and MUST reject every assignment afterwards.
+
+Constructing a derived class first constructs the base layer with the header's base arguments, which runs the base `init`. `super.init(...)` is an ordinary method call that runs the base `init` again.
+
 Instance members belong to instances. Static members belong to the static class object.
 
 `this` is available only in instance member contexts.
@@ -470,6 +484,8 @@ Derived classes inherit valid base members according to visibility rules.
 
 Overrides MUST match the overridden member kind. An instance member cannot override a static member, and a field cannot override a method or property.
 
+The `init` method is exempt from the signature and visibility override rules: a derived `init` MAY declare different parameters and a different visibility.
+
 Override signatures MUST be compatible with the base member signature.
 
 Overrides MUST NOT narrow visibility in a way forbidden by the semantic rules.
@@ -524,7 +540,7 @@ Interface diagnostics SHOULD identify the missing or incompatible member.
 
 ## Enums
 
-Enum declarations define named integer-like values.
+Enum declarations define named integer-like values. A value is an integer literal, optionally preceded by a minus sign; a member without a value takes the previous value plus one, starting at `0`.
 
 Duplicate enum values or invalid enum shapes MUST fail according to enum validation rules.
 
@@ -609,7 +625,7 @@ Native .NET interop MAY expose public CLR types, constructors, fields, propertie
 
 `async func` defines an asynchronous function.
 
-`await` is valid only in async contexts and allowed expression positions.
+`await` is valid only in async contexts and allowed expression positions. The async context is the innermost enclosing function: `await` inside a synchronous function expression nested in an async function MUST fail.
 
 Awaiting plugin-provided `Task` or `ValueTask` values is supported when the host value follows the await adapter contract.
 
@@ -636,7 +652,7 @@ The serialization boundary does not add CPU parallelism; a bytecode interpreter 
 
 `try`, `catch`, and `finally` provide structured error handling.
 
-`throw` raises a runtime error payload or value.
+`throw` raises a value. A handler receives the thrown value unchanged; only `throw null` and errors raised by the runtime itself arrive as exception objects.
 
 Errors route to the nearest applicable handler.
 
@@ -685,6 +701,8 @@ Pattern variable bindings introduce names in the arm scope.
 
 Duplicate bindings in one pattern MUST fail.
 
+An or-pattern `p1 | p2 | ...` matches when any alternative matches, tried from left to right. Alternatives MUST NOT bind variables. A guard applies to the whole or-pattern. A value pattern is parsed below the `|` operator, so a value whose top-level operator binds as loosely as `|` or looser MUST be parenthesized; `(1 | 2)` is the bitwise value `3`.
+
 Guards are evaluated only after the structural pattern matches.
 
 ## Destructuring
@@ -714,7 +732,7 @@ Supported control flow includes:
 - `try`, `catch`, `finally`
 - `throw`
 
-`break` and `continue` are valid only inside loops.
+`break` and `continue` are valid only inside loops. The loop MUST enclose the statement within the same function body; a loop outside a function expression, local function, or method does not count.
 
 `return` is valid only inside function or method bodies.
 

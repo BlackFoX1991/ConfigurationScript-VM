@@ -73,6 +73,14 @@ for (var i = 0; ; i++) {
 }
 ```
 
+The initializer may declare several variables. Each of them gets a fresh binding per iteration, like a single loop variable.
+
+```cfs
+for (var i = 0, j = 10; i < j; i++) {
+    j = j - 1;
+}
+```
+
 ## `foreach`
 
 ### Simple iteration
@@ -154,7 +162,7 @@ foreach ([a, b] in [[5, 6], [7, 8]]) {
 
 ## `break` and `continue`
 
-Both statements work as expected and are only valid inside loops.
+Both statements work as expected and are only valid inside loops. A loop does not reach into a function declared inside it: `break` and `continue` in a closure, a local function, or a method of a local class only refer to loops within that function body.
 
 ```cfs
 foreach (var n in [1, 2, 3, 4, 5]) {
@@ -186,7 +194,26 @@ A `try` block must have at least `catch` or `finally`. An empty `try` without ha
 
 ### The Catch Object
 
-Inside `catch`, the error object is a runtime exception object with intrinsics such as `message()`, `type()`, `file()`, `line()`, `col()`, and `stack()`. The complete list is documented in [Standard Library](09_standard_library.md).
+What `catch` receives depends on how the error was raised.
+
+- A runtime error, such as a division by zero, an undefined variable, or a failed await, arrives as an exception object with intrinsics such as `message()`, `type()`, `file()`, `line()`, `col()`, and `stack()`. The complete list is documented in [Standard Library](09_standard_library.md).
+- A value raised with `throw` arrives unchanged. `throw "boom"` gives the string `"boom"`, and `throw {"kind": "X"}` gives that dictionary, so its data is read with `e["kind"]`.
+- `throw null` is the one exception: it arrives as an exception object.
+
+```cfs
+try {
+    var x = 1 / 0;
+} catch(e) {
+    print(e.type());      # RuntimeError
+    print(e.message());   # division by zero
+}
+
+try {
+    throw {"kind": "ConfigError", "message": "host is missing"};
+} catch(e) {
+    print(e["kind"]);     # ConfigError
+}
+```
 
 ## `using`
 
@@ -325,7 +352,7 @@ if (mode == "fast") {
 Context-bound forms keep their usual rules everywhere, including at top level:
 
 - `return` and `yield` need an enclosing function.
-- `break` and `continue` need an enclosing loop (a top level loop counts).
+- `break` and `continue` need an enclosing loop in the same function body (a top level loop counts for top level code).
 - `defer` needs an enclosing `{ ... }` block.
 
 Imported modules and namespace bodies are declaration-oriented and reject imperative statements; see [Modules, Imports and Exports](07_modules_imports_and_exports.md). If logic must run when a module is used, export a function and call it from the entry script.

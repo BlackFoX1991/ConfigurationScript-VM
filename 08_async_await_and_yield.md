@@ -156,6 +156,8 @@ func bad() {
 }
 ```
 
+The rule applies to the innermost function. A synchronous function expression inside an async function cannot await either; declare it `async func` and await its result instead.
+
 At the top level of a directly executed script, `await` is allowed both inside expressions and as a bare statement. Imported `.cfs` modules do not allow top-level `await`; put that logic into `async func main()` or another async function instead.
 
 ```cfs

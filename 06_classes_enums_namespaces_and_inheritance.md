@@ -60,6 +60,7 @@ class Meter(v) {
 
 - `var` inside a class creates instance fields.
 - `static var` creates static fields on the type.
+- A field without an initializer starts as `null`, the same as a local variable.
 
 ## Properties
 
@@ -223,6 +224,31 @@ Important details.
 - `destroy` must stay synchronous. `await` inside `destroy` is rejected.
 - If a base class also needs cleanup, call `super.destroy()` explicitly from the derived destructor.
 
+## Custom Textual Representation
+
+An instance prints as its class name. A class changes that by declaring a public, parameterless `toString()` method that returns a string. `print`, `str`, string interpolation, `format`, string concatenation, and the rendering of arrays and dictionaries then use it.
+
+```cfs
+class Money(amount, currency) {
+    func toString() {
+        return str(amount) + " " + currency;
+    }
+}
+
+var m = new Money(5, "EUR");
+print(m);              # 5 EUR
+print("total: " + m);  # total: 5 EUR
+print([m]);            # [5 EUR]
+```
+
+Details.
+
+- The method may be declared on the class, inherited from a base class, or come from a default interface method.
+- A private, async, or parameterized `toString` is ignored, and the class name is used.
+- It must return a string; any other result is a runtime error.
+- It runs synchronously like any callback, so it cannot `await`.
+- `json.stringify`, the debugger, and sorting do not call it.
+
 ## Receivers `this`, `type`, `super`, `outer`
 
 ### `this`
@@ -329,6 +355,26 @@ class SpreadChild() : SpreadBase(*[3, 4, 9]) {
 ```
 
 The runtime and compiler validate these calls strictly. Unknown named arguments, too few arguments, or the wrong ordering produce clear errors.
+
+### Constructors in Derived Classes
+
+Constructing a derived class first constructs the base class with the arguments from the header (`: Base(args)`), and that includes running the base `init`. Then the derived class's field initializers and header promotion run, and finally its own `init`.
+
+A derived `init` does not override the base `init`, so it may declare its own parameters and visibility.
+
+```cfs
+class Base(a) {
+    func init(a) { print("base " + str(a)); }
+}
+
+class Child(a, b) : Base(a) {
+    func init(a, b) { print("child " + str(b)); }
+}
+
+var c = new Child(1, 2);   # prints "base 1", then "child 2"
+```
+
+`super.init(...)` inside a derived `init` is an ordinary method call: it runs the base `init` a second time, on top of the run from the header. Use it only when that is intended, for example to replace the values the header arguments produced.
 
 ## Interfaces
 
@@ -741,7 +787,7 @@ Fields can be declared as `const` to prevent reassignment after initialization. 
 
 ### Instance Const Fields
 
-Instance const fields are set during construction and cannot be changed afterward.
+Instance const fields are set during construction and cannot be changed afterward. A const field may be assigned by its initializer, by header promotion, and inside `init`; once the constructor of the declaring class has finished, every assignment fails.
 
 ```cfs
 class User(id, name) {
@@ -809,6 +855,7 @@ Overriding is implicit by redeclaring a member with the same name in a derived c
 - Property accessor shape must match across overrides.
 - Property accessor visibility must not become narrower.
 - Field against method, method against property, or field against property is not a valid override.
+- `init` is exempt from the signature and visibility rules: a derived `init` may take different parameters.
 
 This leads to a predictable and stable OOP layer.
 
@@ -831,6 +878,16 @@ class Point(x, y) {
         A = 1,
         B = 2
     }
+}
+```
+
+Values are integer literals and may be negative. A member without a value takes the previous value plus one, starting at `0`.
+
+```cfs
+enum Level {
+    Unknown = -1,
+    Low,        # 0
+    High = 10,
 }
 ```
 
@@ -1022,7 +1079,7 @@ For interface targets, `is` is a nominal check: it matches only a declared imple
 
 ## Reserved Names
 
-These names are semantically reserved and should not be used as normal bindings.
+These names are semantically reserved. They cannot name a variable, parameter, function, method, or property.
 
 - `this`
 - `type`

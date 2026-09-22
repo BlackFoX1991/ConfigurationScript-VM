@@ -46,8 +46,9 @@ class Product(id, name): Entity(id, name) {
         set(value) { field = value.trim(); }
     } = "";
 
+    # The header `: Entity(id, name)` already ran Entity.init; calling
+    # super.init here would run it a second time.
     func init(id, name) {
-        super.init(id, name);
         this.name = name;
         this.normalizedName = name;
         this.auditPrefix = "product";

@@ -5,7 +5,7 @@
 CFGS supports two comment styles.
 
 - Single line comments start with `#`.
-- Block comments start with `#+` and end with `+#`.
+- Block comments start with `#+` followed by whitespace or a line break, and end with `+#`.
 
 ```cfs
 # Single line
@@ -15,6 +15,8 @@ Multi line.
 Across several lines.
 +#
 ```
+
+A `#+` directly followed by another character, as in `#+1 for this idea`, is an ordinary line comment. Only `#+` followed by whitespace or the end of the line opens a block comment, so a line comment that happens to start with a plus sign never swallows the code after it. An inline block comment keeps the space: `var x = #+ note +# 1;`.
 
 ## Top Level Rules
 
@@ -134,6 +136,8 @@ insertion order.
 
 This form is meant for reading. For machine-readable output use `json.stringify`.
 
+A class instance prints as its class name, or through its own `toString()` method when its class declares one (see [Classes, Enums, Namespaces, and Inheritance](06_classes_enums_namespaces_and_inheritance.md)).
+
 An interpolation hole may carry an alignment and a format specifier as `{expr,align:format}`, following .NET composite formatting. Because a bare `:` begins the format specifier, a conditional expression inside a hole must be wrapped in parentheses.
 
 ```cfs
@@ -185,6 +189,12 @@ print('A' == 65);  # true
 ```cfs
 var port = 8080;
 port = 9090;
+```
+
+One declaration may introduce several variables. Each declarator may have its own initializer, and a later one may read an earlier one. A declarator without an initializer starts as `null`.
+
+```cfs
+var width = 3, height = width * 2, label;
 ```
 
 ### `const`
@@ -308,6 +318,8 @@ Array literals look like this.
 var arr = [1, 2, 3];
 ```
 
+A comma after the last element is allowed. The same holds for dictionary literals, argument lists, and parameter lists, so a list written one item per line can end every line with a comma.
+
 Elements are read and written through index access.
 
 ```cfs
@@ -354,6 +366,8 @@ Dictionary literals look like this.
 ```cfs
 var cfg = {"host": "localhost", "port": 80};
 ```
+
+A key is an expression, not a name. `{host: 1}` reads the variable `host` and uses its value as the key, which is what makes computed keys possible, but it fails when no such variable exists. Write a fixed key as a string, `{"host": 1}`. The linter reports a bare identifier key that names no declared variable (`CFGS8023`).
 
 Data is accessed through brackets. Dot access on a dictionary is reserved for its intrinsic methods (see below), never for data keys.
 
@@ -478,14 +492,14 @@ Strings behave like primitive values with many intrinsics attached to them. The 
 
 ## JSON Shapes
 
-With `fromjson` and `tojson` you can move between JSON text and CFGS data structures.
+With `json.parse` and `json.stringify` you can move between JSON text and CFGS data structures.
 
 ```cfs
-var obj = fromjson("{\"x\":1,\"y\":[2,3]}");
+var obj = json.parse("{\"x\":1,\"y\":[2,3]}");
 print(obj["y"][0]);
 
-var json = tojson(obj);
-print(json);
+var text = json.stringify(obj, false);
+print(text);   # {"x":1,"y":[2,3]}
 ```
 
 ## Short Combined Example

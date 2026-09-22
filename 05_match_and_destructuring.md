@@ -66,7 +66,30 @@ The language supports these pattern forms.
 - `var name` as a binding
 - Array patterns such as `[var a, var b]`
 - Dictionary patterns such as `{"kind": "pair", "left": var x, "right": var y}`
+- Or-patterns such as `1 | 2 | 3`
 - Arbitrary nesting of these forms
+
+## Or-Patterns
+
+`|` separates alternatives. The pattern matches when any alternative matches, tried from left to right. Or-patterns work in both `match` forms and nest inside array and dictionary patterns.
+
+```cfs
+func kind(v) {
+    return v match {
+        1 | 2 | 3: "small",
+        "a" | "b": "letter",
+        [0, 1 | 2]: "pair",
+        {"state": "on" | "enabled"}: "on",
+        _: "other"
+    };
+}
+```
+
+Rules.
+
+- Alternatives cannot bind variables, because the arm could not tell which alternative matched. `[var a, 1] | [1, var a]` is rejected.
+- A guard applies to the whole or-pattern: `case 10 | 20 if (v > 15):`.
+- A value pattern stops at `|`. To match the bitwise-or value of two numbers, parenthesize it: `(1 | 2)` matches `3`. The same applies to any value whose top-level operator binds as loosely as `|` or looser, such as a comparison, `&&`, `||`, `??`, or `?:`.
 
 ## Guards
 

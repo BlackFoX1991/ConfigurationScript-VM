@@ -38,6 +38,7 @@ These declaration forms can be exported.
 - `export func`
 - `export async func`
 - `export class`
+- `export interface`
 - `export enum`
 - `export var` with exactly one variable
 

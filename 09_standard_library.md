@@ -28,7 +28,7 @@ regex.match("abc123", "\\d+");
 - `len(value)` returns the length of a string, array, or dictionary.
 - `destroy(value)` explicitly destroys a class instance or disposable handle.
 - `destroy(value, true)` recursively destroys nested values found in instance fields, arrays, and dictionaries.
-- `str(value)` and `string(value)` convert values to text.
+- `str(value)` and `string(value)` convert values to text. A class instance renders through its `toString()` when its class declares one.
 - `int(value)`, `byte(value)`, `long(value)`, `double(value)`, `float(value)`, `decimal(value)`, `char(value)`, `bool(value)`, `bigint(value)` perform direct conversions.
 - `toi(value)`, `toi16(value)`, `toi32(value)`, `toi64(value)` are numeric helper conversions.
 - `chr(value)` converts to a char.
@@ -166,8 +166,9 @@ These return real `DateTime` and `TimeSpan` values, so the intrinsics listed fur
 ### Math and Character Checks
 
 - `math.abs(x)`, `math.floor(x)`, `math.ceil(x)`, `math.round(x, digits = optional)`, `math.min(a, b)`, and `math.max(a, b)` provide basic numeric helpers.
+- `math.round` rounds half-way values away from zero: `math.round(2.5)` is `3` and `math.round(-2.5)` is `-3`. A decimal argument stays a decimal, so `math.round(2.345m, 2)` is exactly `2.35m`.
 - `math.sqrt(x)`, `math.pow(base, exp)`, `math.log(x, base = optional)`, `math.log10(x)`, `math.sin(x)`, `math.cos(x)`, and `math.tan(x)` provide scientific helpers.
-- `math.sign(x)`, `math.trunc(x)`, `math.rand(seed, min, max)`, `math.pi()`, and `math.e()` provide sign, truncation, random, and constant helpers. The constants are also available uppercase as `math.PI` and `math.E`.
+- `math.sign(x)`, `math.trunc(x)`, `math.rand(seed, min, max)`, `math.pi()`, and `math.e()` provide sign, truncation, random, and constant helpers. `math.PI` and `math.E` are the same constants as plain values, so `math.PI * 2` needs no call.
 - `isdigit(x)`, `isletter(x)`, `isalnum(x)`, `isspace(x)` check character classes.
 
 ### Regular Expressions
@@ -280,12 +281,12 @@ Building a string with repeated `s = s + piece` rebuilds the whole string on eve
 quadratic for a growing result. `strbuilder()` returns a mutable accumulator that appends in place
 (amortized linear), then materializes once.
 
-- `strbuilder()` / `strbuilder(initial)` — create a builder, optionally seeded with an initial value.
-- `append(value)` — append the string form of `value` (same rendering as `str()`); returns the builder,
+- `strbuilder()` / `strbuilder(initial)`: create a builder, optionally seeded with an initial value.
+- `append(value)`: append the string form of `value` (same rendering as `str()`); returns the builder,
   so calls chain.
-- `str()` / `toString()` — materialize the accumulated text into a normal string.
-- `len()` — current length (the `len()` builtin also works on a builder).
-- `clear()` — reset to empty; returns the builder.
+- `str()` / `toString()`: materialize the accumulated text into a normal string.
+- `len()`: current length (the `len()` builtin also works on a builder).
+- `clear()`: reset to empty; returns the builder.
 
 ```cfs
 var b = strbuilder();
@@ -443,7 +444,7 @@ Available DirectoryInfo intrinsics are.
 - `setAttributes(value)`
 - `create()`
 - `delete(recursive = optional)`
-- `deleteDir(recursive = optional)` alias for scripts, because `delete` is also a language keyword
+- `deleteDir(recursive = optional)` is an alias of `delete`, kept for existing scripts
 - `refresh()`
 - `moveTo(dest)`
 - `createSubdirectory(name)`
@@ -585,12 +586,14 @@ Exception objects from `catch` or from async failures support these methods.
 
 Example.
 
+A value raised with `throw` reaches `catch` unchanged, so these methods apply to runtime errors and failed awaits, not to a thrown string or dictionary (see [Control Flow and Errors](03_control_flow_and_errors.md)).
+
 ```cfs
 try {
-    throw "boom";
+    var x = 1 / 0;
 } catch(e) {
-    print(e.type());
-    print(e.message());
+    print(e.type());      # RuntimeError
+    print(e.message());   # division by zero
 }
 ```
 

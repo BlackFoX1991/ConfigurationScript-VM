@@ -156,7 +156,7 @@ await script.InvokeAsync("main");  // run main explicitly when you want it
 Rules:
 
 - The top-level body runs at most once per `CfgsScript`
-- `main` is never invoked implicitly — the host decides when, and whether, to call it
+- `main` is never invoked implicitly; the host decides when, and whether, to call it
 - Use a two-phase flow when a host needs to inspect or adjust state before `main`:
   1. `RunAsync()` to load declarations and inspect globals
   2. inject or modify state with `SetGlobal(...)`

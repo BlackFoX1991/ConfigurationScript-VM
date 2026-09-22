@@ -53,7 +53,7 @@ each measurement, and net-ms subtraction removes most of the rest.
 
 These numbers describe this machine and this build only. To compare against
 another language, you must run an equivalent workload there the same way
-(process per run, same iteration counts) — the harness here does not do that.
+(process per run, same iteration counts); the harness here does not do that.
 
 ## Adding a case
 
