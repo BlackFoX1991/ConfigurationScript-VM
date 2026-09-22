@@ -50,10 +50,23 @@ namespace CFGS_VM.Analytic.Core
                 if (_current.Type == TokenType.Assign)
                 {
                     Eat(TokenType.Assign);
-                    if (_current.Type != TokenType.Number || _current.Value is not int)
-                        throw new ParserException("expected number after '='", _current.Line, _current.Column, _current.Filename);
 
-                    value = Convert.ToInt32(_current.Value);
+                    // A negative value is a minus sign followed by the magnitude. The lexer reads the
+                    // magnitude of int.MinValue (2147483648) as a long, so that one long is accepted too.
+                    bool negative = false;
+                    if (_current.Type == TokenType.Minus)
+                    {
+                        negative = true;
+                        Eat(TokenType.Minus);
+                    }
+
+                    bool isIntMagnitude = _current.Value is int ||
+                        (negative && _current.Value is long magnitude && magnitude == -(long)int.MinValue);
+                    if (_current.Type != TokenType.Number || !isIntMagnitude)
+                        throw new ParserException("expected integer number after '='", _current.Line, _current.Column, _current.Filename);
+
+                    long raw = Convert.ToInt64(_current.Value);
+                    value = (int)(negative ? -raw : raw);
                     Eat(TokenType.Number);
                 }
                 else

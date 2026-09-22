@@ -85,7 +85,8 @@ internal static class Program
             AwaitIsRejectedInSyncFunctionsNestedInAsyncFunctions,
             ReceiverNamesAreRejectedAsFunctionNames,
             HashPlusWithoutWhitespaceIsALineComment,
-            MultiVariableDeclarationsAndExpressionStatementsFormatAndCheck
+            MultiVariableDeclarationsAndExpressionStatementsFormatAndCheck,
+            TrailingCommasAndNegativeEnumValuesFormatAndCheck
         ];
 
         List<string> failures = [];
@@ -2801,6 +2802,28 @@ func run(ok, n) {
             $"formatter must keep an identifier-led expression statement, got:\n{formatted}");
         AssertEqual(formatted, NormalizeNewlines(CfgsFormatter.Format(formatted, new CfgsFormatOptions(4, UseTabs: false)).Text),
             "formatting the new statement forms must be idempotent");
+    }
+
+    private static void TrailingCommasAndNegativeEnumValuesFormatAndCheck()
+    {
+        AssertScriptError("var offset = 1;\nenum Broken { A = -offset }", "CFGS1001", "expected integer number after '='");
+
+        string source = """
+enum Level { Unknown = -1, Low, High = 10, }
+func pick(a, b = 2,) { return [a, b,]; }
+var d = {"x": pick(1, b: 3,),};
+""";
+
+        string formatted = NormalizeNewlines(CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text);
+        AssertTrue(formatted.Contains("Unknown = -1", StringComparison.Ordinal),
+            $"formatter must keep a negative enum value, got:\n{formatted}");
+        AssertEqual(formatted, NormalizeNewlines(CfgsFormatter.Format(formatted, new CfgsFormatOptions(4, UseTabs: false)).Text),
+            "formatting sources with trailing commas and negative enum values must be idempotent");
+
+        CfgsScript script = CompileProbe("<trailing-commas>", source + "func r() { return str(d); }\n");
+        script.RunAsync().GetAwaiter().GetResult();
+        AssertEqual("{\"x\": [1, 3]}", script.InvokeAsync<string>("r").GetAwaiter().GetResult() ?? "",
+            "trailing commas must not add elements or arguments");
     }
 
     private static CfgsScript CompileProbe(string name, string source)

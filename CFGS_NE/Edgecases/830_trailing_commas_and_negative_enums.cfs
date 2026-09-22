@@ -1,0 +1,36 @@
+import "edge_assert.cfs";
+
+edge_begin("830_trailing_commas_and_negative_enums");
+
+enum Level {
+    Unknown = -1,
+    Low,
+    High = 10,
+    Min = -2147483648,
+}
+
+func sum3(a, b, c = 0,) { return a + b + c; }
+func restTail(first, *rest,) { return len(rest); }
+class Pair(left, right,) {}
+
+var list = [1, 2, 3,];
+var dict = {"a": 1, "b": 2,};
+var nested = [[1,], {"k": [2,],},];
+
+edge_eq("array_trailing_comma", str(list), "[1, 2, 3]");
+edge_eq("dict_trailing_comma", str(dict), "{\"a\": 1, \"b\": 2}");
+edge_eq("nested_trailing_commas", str(nested), "[[1], {\"k\": [2]}]");
+edge_eq("call_trailing_comma", sum3(1, 2,), 3);
+edge_eq("named_call_trailing_comma", sum3(1, b: 2, c: 3,), 6);
+edge_eq("rest_param_trailing_comma", restTail(1, 2, 3,), 2);
+
+var pair = new Pair(4, 5,);
+edge_eq("new_trailing_comma", pair.left + pair.right, 9);
+
+edge_eq("negative_enum_value", Level.Unknown, -1);
+edge_eq("enum_auto_value_after_negative", Level.Low, 0);
+edge_eq("enum_explicit_value", Level.High, 10);
+edge_eq("enum_int_min_value", Level.Min, -2147483648);
+edge_eq("enum_name_of_negative_value", Level.name(-1), "Unknown");
+
+edge_finish("830_trailing_commas_and_negative_enums");

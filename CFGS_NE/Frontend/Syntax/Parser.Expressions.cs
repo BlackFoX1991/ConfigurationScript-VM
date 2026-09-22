@@ -405,9 +405,11 @@ namespace CFGS_VM.Analytic.Core
                         Expr value = Expr();
                         pairs.Add((key, value));
 
-                        if (_current.Type == TokenType.Comma)
-                            Eat(TokenType.Comma);
-                        else
+                        if (_current.Type != TokenType.Comma)
+                            break;
+
+                        Eat(TokenType.Comma);
+                        if (_current.Type == TokenType.RBrace)
                             break;
                     } while (true);
                 }
@@ -776,6 +778,12 @@ namespace CFGS_VM.Analytic.Core
             while (_current.Type == TokenType.Comma)
             {
                 Eat(TokenType.Comma);
+
+                // Every caller closes the list with ')' or ']', so a comma directly before the closing
+                // bracket is a trailing comma, as in match arms, patterns, enums, and imports.
+                if (_current.Type is TokenType.RParen or TokenType.RBracket)
+                    break;
+
                 list.Add(ParseCallArgument(allowNamedArgs));
             }
             return list;

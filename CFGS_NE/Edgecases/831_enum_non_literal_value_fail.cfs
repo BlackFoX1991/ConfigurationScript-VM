@@ -1,0 +1,3 @@
+# Enum values stay integer literals; a minus sign may precede the number, nothing else.
+var offset = 1;
+enum Broken { A = -offset }

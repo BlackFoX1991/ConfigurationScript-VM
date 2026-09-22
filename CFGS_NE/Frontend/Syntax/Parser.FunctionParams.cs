@@ -32,7 +32,7 @@ namespace CFGS_VM.Analytic.Core
 
         private (List<string> Parameters, int MinArgs, string? RestParameter, List<FunctionParameterSpec> ParameterSpecs) ParseFunctionParamsWithDefaults(
             bool requireParens = true,
-            bool allowTrailingComma = false)
+            bool allowTrailingComma = true)
         {
             if (_current.Type != TokenType.LParen)
                 return (new List<string>(), 0, null, new List<FunctionParameterSpec>());
@@ -91,7 +91,12 @@ namespace CFGS_VM.Analytic.Core
                     sawRest = true;
 
                     if (_current.Type == TokenType.Comma)
-                        throw new ParserException("rest parameter must be the last parameter", _current.Line, _current.Column, _current.Filename);
+                    {
+                        if (!allowTrailingComma || _next.Type != TokenType.RParen)
+                            throw new ParserException("rest parameter must be the last parameter", _current.Line, _current.Column, _current.Filename);
+
+                        Eat(TokenType.Comma);
+                    }
 
                     if (_current.Type != TokenType.RParen)
                         throw new ParserException($"invalid token {_current.Type} in parameters", _current.Line, _current.Column, _current.Filename);
