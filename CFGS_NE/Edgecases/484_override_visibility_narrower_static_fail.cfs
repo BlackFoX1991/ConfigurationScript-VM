@@ -1,3 +1,4 @@
+# expect-error: CFGS2006 incompatible visibility override for member 'token' in class 'Child': inherited member in base class 'Base'
 class Base() {
     public static var token = 1;
 }

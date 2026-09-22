@@ -1,3 +1,4 @@
+# expect-error: CFGS3000 interface_call target does not implement interface 'IRunner'.
 interface IRunner {
     property token { get; }
     func run(value);

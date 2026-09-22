@@ -1,3 +1,4 @@
+# expect-error: CFGS2010 class 'Bad' does not implement interface method 'run' from interface 'IB'
 interface IA {
     func run(value);
 }

@@ -14,6 +14,10 @@ $vmDll = Join-Path $repoRoot "dist\Debug\net10.0\CFGS_VM.dll"
 $importsDir = Join-Path $scriptDir "_imports"
 $createdImportsDir = $false
 $copiedImportFiles = New-Object System.Collections.Generic.List[string]
+$fixturesDir = Join-Path $scriptDir "_fixtures"
+$createdFixturesDir = $false
+$partialPluginProject = Join-Path $scriptDir "Fixtures\PartialRegistrationPlugin\CFGS.EdgePartial.csproj"
+$errorMarkers = 'EDGE_FAIL|EDGE_FAIL_CASE|CFGS\d{4}|\[.*Error.*\]|Runtime error|Could not load|Uncaught system exception'
 
 function Write-Status($status, $name, $message = "") {
     $line = "{0,-6} {1}" -f $status, $name
@@ -56,6 +60,54 @@ function Clear-GeneratedImportsDirectory {
     }
 }
 
+# Test fixtures that must not live in the repository as binaries: a file that is not a managed
+# assembly (494) and a plugin whose registration throws halfway (506). Built against the VM under test
+# on every run so the plugin never goes stale, and removed again afterwards.
+function Initialize-Fixtures {
+    if (-not (Test-Path -LiteralPath $fixturesDir)) {
+        New-Item -ItemType Directory -Path $fixturesDir | Out-Null
+        $script:createdFixturesDir = $true
+    }
+
+    Set-Content -LiteralPath (Join-Path $fixturesDir "_invalid_plugin.dll") -Value "not a real managed assembly" -NoNewline
+
+    $buildOutput = & dotnet build $partialPluginProject -c Release --nologo -v q -o $fixturesDir "-p:CfgsVmAssembly=$vmDll" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        # No throw: the fixture's test then fails with a precise expectation mismatch.
+        Write-Host "WARNING: building the CFGS.EdgePartial fixture failed:"
+        $buildOutput | Select-Object -Last 10 | ForEach-Object { Write-Host "       $_" }
+    }
+}
+
+function Clear-Fixtures {
+    if ($script:createdFixturesDir -and (Test-Path -LiteralPath $fixturesDir)) {
+        Remove-Item -LiteralPath $fixturesDir -Recurse -Force
+    }
+}
+
+# An expected-failure test states the diagnostic it must produce in a header comment:
+#   # expect-error: CFGS1000 break can only be used in loops
+# The code is required, the message fragment is recommended. The first CFGS diagnostic in the output
+# must carry exactly that code and contain the fragment, so a test that starts failing for a different
+# reason (a missing fixture, a renamed builtin, a changed rule) fails instead of passing silently.
+function Get-ErrorExpectation($testFile) {
+    $lines = @(Select-String -LiteralPath $testFile.FullName -Pattern '^\s*#\s*expect-error:\s*(.*?)\s*$')
+    if ($lines.Count -eq 0) {
+        return $null
+    }
+
+    if ($lines.Count -gt 1) {
+        return @{ Invalid = "more than one '# expect-error:' header" }
+    }
+
+    $spec = $lines[0].Matches[0].Groups[1].Value
+    if ($spec -notmatch '^(CFGS\d{4})(?:\s+(.*))?$') {
+        return @{ Invalid = "malformed '# expect-error:' header, expected '# expect-error: CFGSxxxx <message fragment>'" }
+    }
+
+    return @{ Code = $Matches[1]; Fragment = "$($Matches[2])".Trim() }
+}
+
 function Test-DllDependenciesAvailable($testFile) {
     $content = Get-Content -LiteralPath $testFile.FullName -Raw
     $matches = [regex]::Matches($content, 'import\s+(?:native\s+)?"([^"]+\.dll)"')
@@ -92,7 +144,7 @@ function Test-DllDependenciesAvailable($testFile) {
 
 function Get-TestKind($testFile) {
     $content = Get-Content -LiteralPath $testFile.FullName -Raw
-    if ($testFile.Name -match '_fail(\.|_)|^501_|^707_|^709_') {
+    if ($testFile.Name -match '_fail(\.|_)' -or $content -match '(?m)^\s*#\s*expect-error:') {
         return "ExpectedFailure"
     }
     if ($content -match 'edge_begin\s*\(') {
@@ -115,6 +167,7 @@ try {
     }
 
     Initialize-ImportsDirectory
+    Initialize-Fixtures
 
     $tests = Get-ChildItem -LiteralPath $scriptDir -File -Filter "*.cfs" |
         Where-Object {
@@ -150,23 +203,54 @@ try {
             Write-Host $text
         }
 
-        $ok = $false
+        $stem = [System.IO.Path]::GetFileNameWithoutExtension($test.Name)
+        $reason = $null
         switch ($kind) {
             "ExpectedFailure" {
-                $ok = $exitCode -ne 0 -or
-                    $text -match 'CFGS\d{4}|\[.*Error.*\]|Parser error|Compiler error|Runtime error|Could not load|Uncaught system exception'
+                $expectation = Get-ErrorExpectation $test
+                $firstDiagnostic = @($output | ForEach-Object { "$_" } | Where-Object { $_ -match '^CFGS\d{4}:' }) | Select-Object -First 1
+
+                if ($null -eq $expectation) {
+                    $reason = "missing '# expect-error: CFGSxxxx <message fragment>' header"
+                } elseif ($expectation.Invalid) {
+                    $reason = $expectation.Invalid
+                } elseif ($exitCode -eq 0) {
+                    $reason = "expected $($expectation.Code), but the script exited with code 0"
+                } elseif (-not $firstDiagnostic) {
+                    $reason = "expected $($expectation.Code), but the output has no CFGS diagnostic"
+                } elseif (-not $firstDiagnostic.StartsWith("$($expectation.Code):", [System.StringComparison]::Ordinal)) {
+                    $reason = "expected $($expectation.Code), got: $firstDiagnostic"
+                } elseif ($expectation.Fragment -and -not $firstDiagnostic.Contains($expectation.Fragment)) {
+                    $reason = "expected a message containing '$($expectation.Fragment)', got: $firstDiagnostic"
+                }
             }
             "EdgeAssert" {
-                $ok = $exitCode -eq 0 -and
-                    $text -match 'EDGE_OK:' -and
-                    $text -notmatch 'EDGE_FAIL|EDGE_FAIL_CASE|CFGS\d{4}|\[.*Error.*\]|Runtime error|Could not load|Uncaught system exception'
+                # The summary must come from this test (not a copied edge_begin name), report at least
+                # one case, and report no failure.
+                $escapedStem = [regex]::Escape($stem)
+                $summary = [regex]::Match($text, "(?m)^EDGE_SUMMARY:${escapedStem}:TOTAL=(\d+):FAILED=(\d+)\r?$")
+
+                if ($exitCode -ne 0) {
+                    $reason = "exited with code $exitCode"
+                } elseif ($text -match $errorMarkers) {
+                    $reason = "output contains a failure or error marker"
+                } elseif (-not $summary.Success) {
+                    $reason = "no EDGE_SUMMARY line for '$stem' (does edge_begin use the file name?)"
+                } elseif ([int]$summary.Groups[1].Value -eq 0) {
+                    $reason = "the test ran no cases"
+                } elseif ($text -notmatch "(?m)^EDGE_OK:${escapedStem}\r?$") {
+                    $reason = "no EDGE_OK line for '$stem'"
+                }
             }
             default {
-                $ok = ($text -match 'EDGE_OK:' -and $text -notmatch 'EDGE_FAIL') -or
-                    ($exitCode -eq 0 -and
-                        $text -notmatch 'EDGE_FAIL|EDGE_FAIL_CASE|CFGS\d{4}|\[.*Error.*\]|Runtime error|Could not load|Uncaught system exception')
+                if ($exitCode -ne 0) {
+                    $reason = "exited with code $exitCode"
+                } elseif ($text -match $errorMarkers) {
+                    $reason = "output contains a failure or error marker"
+                }
             }
         }
+        $ok = $null -eq $reason
 
         $duration = "{0:n2}s" -f $stopwatch.Elapsed.TotalSeconds
         if ($ok) {
@@ -175,7 +259,7 @@ try {
         } else {
             $failed++
             $failedTests.Add($test.Name)
-            Write-Status "FAIL" $test.Name $duration
+            Write-Status "FAIL" $test.Name "$duration - $reason"
             if (-not $VerboseOutput) {
                 ($output | Select-Object -Last 20) | ForEach-Object { Write-Host "       $_" }
             }
@@ -200,5 +284,6 @@ try {
 }
 finally {
     Clear-GeneratedImportsDirectory
+    Clear-Fixtures
     Pop-Location
 }

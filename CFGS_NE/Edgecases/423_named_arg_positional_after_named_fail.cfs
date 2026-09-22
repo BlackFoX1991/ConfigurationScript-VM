@@ -1,3 +1,4 @@
+# expect-error: CFGS3004 positional argument cannot follow named arguments
 func f(a, b, c = 0) {
     return a + b + c;
 }

@@ -1,3 +1,4 @@
+# expect-error: CFGS2000 invalid initializer member 'run' for class 'Worker': member is not assignable
 class Worker() {
     func run() {
         return 1;

@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 namespace root 'Lib' conflicts with existing variable 'Lib'
 import * as Lib from "_imports/mod_exports_ns.cfs";
 
 namespace Lib.Tools {

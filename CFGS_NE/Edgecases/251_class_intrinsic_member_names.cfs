@@ -1,6 +1,6 @@
 import "edge_assert.cfs";
 
-edge_begin("class_intrinsic_member_names");
+edge_begin("251_class_intrinsic_member_names");
 
 class FieldBox() {
     var get = 10;
@@ -79,4 +79,4 @@ edge_eq("static_const_field_values", StaticConstFieldBox.valuesStaticValue(), 65
 edge_eq("static_method_get", StaticMethodBox.getStatic(), 70);
 edge_eq("static_method_values", StaticMethodBox.valuesStatic(), 80);
 
-edge_finish("class_intrinsic_member_names");
+edge_finish("251_class_intrinsic_member_names");

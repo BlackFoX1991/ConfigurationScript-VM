@@ -1,3 +1,4 @@
+# expect-error: CFGS2006 invalid override for member 'ping' in class 'B': declared as instance method but inherited member in base
 class A() {
     static func ping() { return 1; }
 }

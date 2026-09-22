@@ -1,3 +1,4 @@
+# expect-error: CFGS2001 unknown instance member 'missing' in class 'Box'
 class Box() {
     func set_missing() {
         this.missing = 2;

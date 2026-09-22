@@ -1,3 +1,4 @@
+# expect-error: CFGS2001 unknown initializer member 'missing' for class 'Box'
 class Box(v) {
     var value = 0;
     func init(v) { this.value = v; }

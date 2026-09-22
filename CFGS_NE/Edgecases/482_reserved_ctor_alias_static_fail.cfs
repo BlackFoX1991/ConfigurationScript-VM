@@ -1,3 +1,4 @@
+# expect-error: CFGS3003 class static members are not indexable; use dot access for static members.
 class C() {
 }
 

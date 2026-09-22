@@ -1,2 +1,3 @@
+# expect-error: CFGS3000 SLICE_SET on string. Strings are immutable.
 var s = "abc";
 s[0~1] = "x";

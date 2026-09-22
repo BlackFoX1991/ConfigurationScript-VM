@@ -1,1 +1,2 @@
+# expect-error: CFGS0001 conditional expressions inside interpolated strings must be wrapped in parentheses
 var s = $"{true ? 1 : 2}";

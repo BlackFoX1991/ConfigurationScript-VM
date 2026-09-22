@@ -1,3 +1,4 @@
+# expect-error: CFGS2012 property 'child' in class 'Holder' has no getter
 class Child() {
     var value = 0;
 }

@@ -1,3 +1,4 @@
+# expect-error: CFGS4001 file-scoped namespace must be the first declaration after the import header
 var seed = 1;
 
 namespace Bad.Scope;

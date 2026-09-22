@@ -1,3 +1,4 @@
+# expect-error: CFGS3000 cannot assign to reserved runtime member '__base'
 class C() {
 }
 

@@ -1,3 +1,4 @@
+# expect-error: CFGS2002 inaccessible namespace member 'SecretBox' in namespace 'Access.HiddenTypes': 'private' access
 namespace Access.HiddenTypes {
     private class SecretBox {
     }

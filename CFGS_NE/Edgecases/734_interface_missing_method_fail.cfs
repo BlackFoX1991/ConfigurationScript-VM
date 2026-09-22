@@ -1,3 +1,4 @@
+# expect-error: CFGS2010 class 'Missing' does not implement interface method 'work' from interface 'IOnly'
 interface IOnly {
     func work(value);
 }

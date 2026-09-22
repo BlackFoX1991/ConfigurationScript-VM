@@ -1,2 +1,3 @@
+# expect-error: CFGS4001 Import cycle detected
 import "_imports/cycle_a.cfs";
 print("unreachable");

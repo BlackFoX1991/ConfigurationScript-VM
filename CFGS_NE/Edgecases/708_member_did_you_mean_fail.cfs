@@ -1,3 +1,4 @@
+# expect-error: CFGS2001 unknown static member 'tset1' in class 'C'; did you mean 'test1'?
 class C {
     public static var test1 = 222;
 }

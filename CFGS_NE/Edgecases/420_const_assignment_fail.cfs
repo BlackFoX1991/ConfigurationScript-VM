@@ -1,2 +1,3 @@
+# expect-error: CFGS3000 cannot assign to constant 'x'
 const x = 1;
 x = 2;

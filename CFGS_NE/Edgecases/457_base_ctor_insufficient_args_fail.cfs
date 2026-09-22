@@ -1,3 +1,4 @@
+# expect-error: CFGS2011 invalid base constructor call in class 'Child': insufficient args for call (expected at least 2)
 class Base() {
     func init(a, b) { }
 }

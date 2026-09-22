@@ -1,3 +1,4 @@
+# expect-error: CFGS2006 invalid override for member 'ping' in class 'Child': declared as instance method but inherited member in base
 namespace N {
     class Child(): Base {
         func ping() { return 2; }

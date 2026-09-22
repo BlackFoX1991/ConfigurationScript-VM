@@ -1,3 +1,4 @@
+# expect-error: CFGS2008 invalid static member access 'value' in class 'C': member is instance
 class C {
     public var value = 1;
 }

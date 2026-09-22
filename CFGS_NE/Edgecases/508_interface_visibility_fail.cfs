@@ -1,3 +1,4 @@
+# expect-error: CFGS2010 class 'HiddenCloser' cannot implement interface method 'close' from interface 'IClose' with non-public
 interface IClose {
     func close();
 }

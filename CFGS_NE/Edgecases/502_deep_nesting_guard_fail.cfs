@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 Maximum nesting depth (128) exceeded
 # Deeply nested expression must fail with a clean "maximum nesting depth exceeded" parse error,
 # never a StackOverflowException (uncatchable in .NET, would hard-crash the process / LSP).
 var x = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))));

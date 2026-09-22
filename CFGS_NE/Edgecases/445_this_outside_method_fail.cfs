@@ -1,3 +1,4 @@
+# expect-error: CFGS2004 invalid receiver usage 'this': only available in instance methods
 func bad() {
     return this;
 }

@@ -7,7 +7,7 @@
 
       CFGS.Tooling.Tests   hosting, VM, .cfb, native interop, tooling
       CFGS.Lsp.Tests       language server analysis, hover, diagnostics
-      Edgecases            340 .cfs programs run against the built VM
+      Edgecases            the .cfs programs under CFGS_NE/Edgecases, run against the built VM
       Samples              the 19 documented example scripts, executed end to end
 
     Both test projects are OutputType=Exe with hand-written runners rather than a

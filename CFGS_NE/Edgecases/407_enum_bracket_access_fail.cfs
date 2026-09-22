@@ -1,3 +1,4 @@
+# expect-error: CFGS2003 enum members require dot access (use Level.Mid); bracket access is for indexable values such as arrays and
 enum Level {
     Low = 1,
     Mid = 2,

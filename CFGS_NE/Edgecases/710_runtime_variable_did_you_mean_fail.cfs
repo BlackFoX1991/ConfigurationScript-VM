@@ -1,2 +1,3 @@
+# expect-error: CFGS3001 undefined variable 'totalCout'; did you mean 'totalCount'?
 var totalCount = 1;
 var y = totalCout;

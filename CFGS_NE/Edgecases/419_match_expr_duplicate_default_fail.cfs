@@ -1,3 +1,4 @@
+# expect-error: CFGS1002 duplicate '_' default arm in match expression
 func f() {
     var x = 1 match { _: 2, _: 3 };
     return x;

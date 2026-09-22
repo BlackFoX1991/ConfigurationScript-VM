@@ -1,3 +1,4 @@
+# expect-error: CFGS2008 invalid static member access 'token' in class 'C': member is instance
 class C() {
     var token = 1;
 }

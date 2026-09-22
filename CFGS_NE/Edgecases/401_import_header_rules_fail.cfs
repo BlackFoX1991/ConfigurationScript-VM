@@ -1,3 +1,4 @@
+# expect-error: CFGS4001 Invalid import statement. Imports are only allowed in the header of the script
 var x = 1;
 import "_imports/mod_extra.cfs";
 print(x);

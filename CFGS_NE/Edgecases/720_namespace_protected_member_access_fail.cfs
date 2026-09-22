@@ -1,3 +1,4 @@
+# expect-error: CFGS2002 inaccessible namespace member 'childOnly' in namespace 'Access.Protected': 'protected' access
 namespace Access.Protected {
     protected func childOnly() {
         return 1;

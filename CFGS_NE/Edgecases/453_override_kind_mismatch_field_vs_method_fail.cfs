@@ -1,3 +1,4 @@
+# expect-error: CFGS2006 invalid override for member 'f' in class 'B': declared as instance field but inherited member in base class
 class A() {
     func f() { return 1; }
 }

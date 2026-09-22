@@ -1,1 +1,2 @@
-import "_invalid_plugin.dll";
+# expect-error: CFGS1000 failed to load plugin dll '_fixtures/_invalid_plugin.dll': Bad IL format
+import "_fixtures/_invalid_plugin.dll";

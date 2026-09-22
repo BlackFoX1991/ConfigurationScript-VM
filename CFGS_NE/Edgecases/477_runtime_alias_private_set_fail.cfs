@@ -1,3 +1,4 @@
+# expect-error: CFGS3000 inaccessible instance member 'x' in class 'C': 'private' access
 class C() {
     private var x = 1;
 }

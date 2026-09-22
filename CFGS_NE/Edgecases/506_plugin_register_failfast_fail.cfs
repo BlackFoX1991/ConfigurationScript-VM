@@ -1,2 +1,2 @@
-import "CFGS.EdgePartial.dll";
-
+# expect-error: CFGS1000 Plugin activation failed: CFGS.EdgePartial.EdgePartialPlugin
+import "_fixtures/CFGS.EdgePartial.dll";

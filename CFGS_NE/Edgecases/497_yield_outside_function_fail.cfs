@@ -1,2 +1,3 @@
+# expect-error: CFGS1000 yield can only be used in function statements
 
 yield;

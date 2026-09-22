@@ -1,3 +1,4 @@
+# expect-error: CFGS0001 unterminated block comment (expected '+#')
 #+ This block comment is never closed with its matching terminator, so the lexer must
    raise a clear error instead of silently swallowing the rest of the file.
 var x = 1;

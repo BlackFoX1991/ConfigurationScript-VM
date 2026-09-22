@@ -1,2 +1,3 @@
+# expect-error: CFGS4001 Could not find export 'MissingClass' in import '_imports/mod_base.cfs'
 import MissingClass from "_imports/mod_base.cfs";
 print("unreachable");

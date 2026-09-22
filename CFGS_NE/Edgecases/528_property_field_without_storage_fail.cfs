@@ -1,3 +1,4 @@
+# expect-error: CFGS2012 invalid backing-field access 'field': current property has no hidden backing storage
 class ManualOnly() {
     property value {
         get { return field; }

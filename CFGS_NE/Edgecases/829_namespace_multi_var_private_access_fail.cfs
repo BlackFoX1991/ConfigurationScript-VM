@@ -1,3 +1,4 @@
+# expect-error: CFGS2002 inaccessible namespace member 'b' in namespace 'MultiVar.Hidden': 'private' access
 # A visibility modifier applies to every declarator of a namespace var declaration.
 namespace MultiVar.Hidden {
     private var a = 1, b = 2;

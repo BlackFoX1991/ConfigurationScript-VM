@@ -1,3 +1,7 @@
+import "edge_assert.cfs";
+
+edge_begin("522_foreach_global_dict_without_stdlib");
+
 enum Locales
 {
     DE,
@@ -26,11 +30,11 @@ func main() {
         }
     }
 
-    if (count == 4 && total == 6 && sawGerman) {
-        throw "EDGE_OK:522_foreach_global_dict_without_stdlib";
-    } else {
-        throw "EDGE_FAIL:522_foreach_global_dict_without_stdlib";
-    }
+    edge_eq("foreach_global_dict_count", count, 4);
+    edge_eq("foreach_global_dict_enum_sum", total, 6);
+    edge_true("foreach_global_dict_key_value_pair", sawGerman);
 }
 
 main();
+
+edge_finish("522_foreach_global_dict_without_stdlib");

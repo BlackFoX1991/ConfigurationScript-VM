@@ -1,3 +1,4 @@
+# expect-error: CFGS2012 property 'value' in class 'Box' has no init or set accessor
 class Box() {
     property value { get; }
 }

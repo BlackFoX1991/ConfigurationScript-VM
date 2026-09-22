@@ -1,3 +1,4 @@
+# expect-error: CFGS2007 invalid member assignment '__type': reserved member name
 class C() {
     func bad() {
         this.__type = 9;

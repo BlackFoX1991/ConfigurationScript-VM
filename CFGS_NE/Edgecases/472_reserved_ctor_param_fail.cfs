@@ -1,2 +1,3 @@
+# expect-error: CFGS1000 invalid parameter name '__type'
 class C(__type) {
 }

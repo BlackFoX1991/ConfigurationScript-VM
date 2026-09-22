@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 continue can only be used in loops
 # A continue inside a local function must not reach the loop that encloses the function.
 for (var i = 0; i < 3; i++) {
     func inner() { continue; }

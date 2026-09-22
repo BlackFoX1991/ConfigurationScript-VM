@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 yield can only be used in async function statements
 
 func bad() {
     yield;

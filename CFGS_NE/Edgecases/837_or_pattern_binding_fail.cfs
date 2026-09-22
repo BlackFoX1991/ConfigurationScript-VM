@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 or-pattern alternatives cannot bind variables ('var a')
 # Or-pattern alternatives cannot bind variables: the arm could not tell which one matched.
 func pick(v) {
     return v match {

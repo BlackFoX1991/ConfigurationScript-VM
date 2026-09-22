@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 ambiguous use reference 'INode': matches 'Wave6.Ambiguous.Left.INode', 'Wave6.Ambiguous.Right.INode'
 import "761_use_namespace_type_ambiguity_left.cfs";
 import "761_use_namespace_type_ambiguity_right.cfs";
 

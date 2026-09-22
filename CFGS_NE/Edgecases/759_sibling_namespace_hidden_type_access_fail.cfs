@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 inaccessible use reference 'ILocalContract': matches 'Wave6.Hidden.Shared.ILocalContract' (private)
 import "759_sibling_namespace_hidden_type_access_defs.cfs";
 
 use Wave6.Hidden.Shared;

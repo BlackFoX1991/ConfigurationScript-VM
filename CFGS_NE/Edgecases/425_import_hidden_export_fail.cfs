@@ -1,1 +1,2 @@
+# expect-error: CFGS4001 Could not find export 'hidden' in import '_imports/mod_exports.cfs'
 import hidden from "_imports/mod_exports.cfs";

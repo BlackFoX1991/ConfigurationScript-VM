@@ -1,3 +1,4 @@
+# expect-error: CFGS2002 inaccessible member 'ps' in class 'Base': 'protected' access
 class Base() {
     protected static var ps = 1;
 }

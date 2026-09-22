@@ -1,1 +1,2 @@
+# expect-error: CFGS1000 reserved name '__ns_member_fake' cannot be used as identifier
 var __ns_member_fake = 1;

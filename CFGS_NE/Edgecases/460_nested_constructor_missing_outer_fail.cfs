@@ -1,3 +1,4 @@
+# expect-error: CFGS3004 nested constructor requires an outer instance argument '__outer'
 class Outer() {
     class Inner() {
     }

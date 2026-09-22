@@ -1,3 +1,4 @@
+# expect-error: CFGS3000 inaccessible setter for instance property 'secret' in class 'Vault': 'private' access
 class Vault(seed) {
     var _secret = "";
 

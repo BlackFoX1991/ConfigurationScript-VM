@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 break can only be used in loops
 # A method body starts outside any loop, even when its class is declared inside one.
 while (true) {
     class Local() {

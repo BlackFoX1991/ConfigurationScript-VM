@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 defer is only allowed inside '{...}' blocks
 func main() {
     if (true)
         defer print("nope");

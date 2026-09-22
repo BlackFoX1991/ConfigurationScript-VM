@@ -1,2 +1,3 @@
+# expect-error: CFGS1000 invalid symbol declaration name 'type'
 # Receiver names cannot name a function; this used to pass -check and fail only at runtime.
 func type() { return 1; }

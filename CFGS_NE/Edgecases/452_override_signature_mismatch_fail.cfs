@@ -1,3 +1,4 @@
+# expect-error: CFGS2006 incompatible override for method 'f' in class 'B': expected arity 1..2 from base class 'A', got 1..1
 class A() {
     func f(a, b = 1) { return a + b; }
 }

@@ -1,3 +1,4 @@
+# expect-error: CFGS2010 class 'Hidden' cannot implement interface property 'token' accessor 'get' from interface 'ISecret' with
 interface ISecret {
     property token { get; }
 }

@@ -1,3 +1,4 @@
+# expect-error: CFGS4001 imports are not allowed inside namespace body
 namespace Bad {
     import "edge_assert.cfs";
 }

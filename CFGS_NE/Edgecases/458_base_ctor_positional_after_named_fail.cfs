@@ -1,3 +1,4 @@
+# expect-error: CFGS2011 invalid base constructor call in class 'Child': positional argument cannot follow named arguments
 class Base() {
     func init(a, b) { }
 }

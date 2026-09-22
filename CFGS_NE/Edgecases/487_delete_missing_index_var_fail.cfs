@@ -1,3 +1,4 @@
+# expect-error: CFGS3001 undefined variable 'missing'
 func run() {
     delete missing[0];
 }

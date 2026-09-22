@@ -1,1 +1,2 @@
+# expect-error: CFGS1000 const destructuring declarations require an initializer
 const [a] ;

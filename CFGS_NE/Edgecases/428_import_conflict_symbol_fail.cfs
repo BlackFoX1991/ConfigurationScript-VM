@@ -1,2 +1,3 @@
+# expect-error: CFGS1002 duplicate function 'clash'
 import "_imports/mod_conflict_a.cfs";
 import "_imports/mod_conflict_b.cfs";

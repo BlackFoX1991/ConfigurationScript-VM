@@ -1,3 +1,4 @@
+# expect-error: CFGS1002 duplicate enum value '1' in enum 'E'
 enum E {
     A = 1,
     B = 1

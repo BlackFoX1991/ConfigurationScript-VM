@@ -1,3 +1,4 @@
+# expect-error: CFGS2016 a namespace is not a value; access a member with dot notation (for example App.Core.Member)
 # A namespace is not a value (C#-like semantics): it can only prefix a member access
 # via dot notation. Capturing a namespace in a variable is a compile error, which also
 # removes the old "alias surface" bracket-access bypass.

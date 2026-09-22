@@ -1,3 +1,4 @@
+# expect-error: CFGS3003 class instances are not indexable; use dot access for members.
 class C() {
 }
 

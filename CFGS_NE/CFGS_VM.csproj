@@ -26,9 +26,11 @@
     <Compile Remove="Samples\plugins\**" />
     <EmbeddedResource Remove="Samples\plugins\**" />
     <None Remove="Samples\plugins\**" />
-    <Compile Remove="_edgecases\**" />
-    <EmbeddedResource Remove="_edgecases\**" />
-    <None Remove="_edgecases\**" />
+    <!-- Edge case test fixtures (for example the plugin projects under Edgecases\Fixtures) are built by
+         run_all_edgecases.ps1, never as part of the VM. -->
+    <Compile Remove="Edgecases\**" />
+    <EmbeddedResource Remove="Edgecases\**" />
+    <None Remove="Edgecases\**" />
   </ItemGroup>
 
   <ItemGroup>

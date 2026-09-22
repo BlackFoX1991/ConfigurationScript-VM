@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 namespace root 'Core' conflicts with existing function 'Core'
 func Core() {
     return 1;
 }

@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 ambiguous use reference 'same': matches 'Ambig.One.same', 'Ambig.Two.same'
 import "_imports/use_ambig_a.cfs";
 import "_imports/use_ambig_b.cfs";
 

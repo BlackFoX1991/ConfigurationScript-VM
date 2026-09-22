@@ -1,3 +1,4 @@
+# expect-error: CFGS1002 duplicate destructuring binding 'i'
 func bad(xs) {
     foreach (var i, i in xs) {
     }

@@ -1,3 +1,4 @@
+# expect-error: CFGS1002 duplicate destructuring binding 'a'
 func bad([a, a]) {
     return a;
 }

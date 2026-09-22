@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 inaccessible use reference 'secret': matches 'Access.Used.secret' (private)
 use Access.Used;
 
 namespace Access.Used {

@@ -1,3 +1,4 @@
+# expect-error: CFGS2009 invalid local binding 'field': reserved backing-field identifier inside property accessors with hidden storage
 class Invalid() {
     property value {
         get;

@@ -1,3 +1,4 @@
+# expect-error: CFGS2004 invalid receiver usage 'outer': only available in nested instance methods
 class Solo() {
     func bad() {
         return outer;

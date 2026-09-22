@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 Invalid use statement. Use directives are only allowed in the header of the script
 namespace Late.Use {
     func ping() {
         return 1;

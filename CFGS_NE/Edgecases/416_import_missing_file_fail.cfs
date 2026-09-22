@@ -1,1 +1,2 @@
+# expect-error: CFGS4001 import path not found '_imports/does_not_exist_mod.cfs'
 import "_imports/does_not_exist_mod.cfs";

@@ -1,1 +1,2 @@
+# expect-error: CFGS1000 invalid destructuring target
 var [a, 1] = [1, 2];

@@ -1,3 +1,4 @@
+# expect-error: CFGS2006 incompatible visibility override for member 'f' in class 'Child': inherited member in base class 'Base' is
 class Base() {
     protected func f() { return 1; }
 }

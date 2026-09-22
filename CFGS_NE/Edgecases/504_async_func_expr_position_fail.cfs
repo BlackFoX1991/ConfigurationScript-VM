@@ -1,1 +1,2 @@
+# expect-error: CFGS1001 expected 'func' after 'async'
 var x = async 1;

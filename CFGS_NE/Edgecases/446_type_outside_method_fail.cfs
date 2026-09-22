@@ -1,3 +1,4 @@
+# expect-error: CFGS2004 invalid receiver usage 'type': only available in class methods
 func bad() {
     return type;
 }

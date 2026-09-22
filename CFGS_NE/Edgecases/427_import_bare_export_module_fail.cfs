@@ -1,1 +1,2 @@
+# expect-error: CFGS4001 bare import is not allowed for modules with explicit exports. Use named or namespace import.
 import "_imports/mod_exports.cfs";

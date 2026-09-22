@@ -1,3 +1,4 @@
+# expect-error: CFGS1002 duplicate match binding 'a'
 var x = [1, 2] match {
     [var a, var a]: 1,
     _: 0

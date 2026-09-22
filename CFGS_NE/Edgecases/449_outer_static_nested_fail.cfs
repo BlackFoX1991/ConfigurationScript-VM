@@ -1,3 +1,4 @@
+# expect-error: CFGS2004 invalid receiver usage 'outer': only available in nested instance methods
 class Outer() {
     class Inner() {
         static func bad() {

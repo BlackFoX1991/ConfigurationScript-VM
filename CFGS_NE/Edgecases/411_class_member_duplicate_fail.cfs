@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 Field 'x' already declared in class 'C'
 class C {
     var x = 1;
     func x() { return 1; }

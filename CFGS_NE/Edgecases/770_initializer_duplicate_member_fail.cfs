@@ -1,3 +1,4 @@
+# expect-error: CFGS2005 duplicate initializer member 'value'
 class Box() {
     var value = 0;
 }

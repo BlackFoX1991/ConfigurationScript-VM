@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 non-default parameter cannot follow a default parameter
 func bad(a = 1, b) {
     return a + b;
 }

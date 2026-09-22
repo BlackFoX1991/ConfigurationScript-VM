@@ -1,3 +1,4 @@
+# expect-error: CFGS2006 invalid override for member 'token' in class 'Child': declared as static field but inherited member in base
 class Base() {
     var token = 1;
 }

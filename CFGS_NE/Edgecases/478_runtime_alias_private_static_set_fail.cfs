@@ -1,3 +1,4 @@
+# expect-error: CFGS2002 inaccessible member 's' in class 'C': 'private' access
 class C() {
     private static var s = 1;
 }

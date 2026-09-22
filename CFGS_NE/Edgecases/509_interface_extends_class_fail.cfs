@@ -1,3 +1,4 @@
+# expect-error: CFGS2010 invalid base type 'Base' in interface 'IWrong': 'Base' is a class
 class Base() {
 }
 

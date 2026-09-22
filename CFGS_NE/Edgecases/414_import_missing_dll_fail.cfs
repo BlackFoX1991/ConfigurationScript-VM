@@ -1,1 +1,2 @@
+# expect-error: CFGS1000 plugin dll not found 'does_not_exist_abc.dll'
 import "does_not_exist_abc.dll";

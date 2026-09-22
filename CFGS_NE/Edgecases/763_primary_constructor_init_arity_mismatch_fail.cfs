@@ -1,3 +1,4 @@
+# expect-error: CFGS2011 class 'Broken' declares a non-empty constructor header with arity 0..1, but init has arity 1..1
 class Broken(x = 1) {
     func init(x) {
     }

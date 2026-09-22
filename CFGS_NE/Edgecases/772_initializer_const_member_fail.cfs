@@ -1,3 +1,4 @@
+# expect-error: CFGS2000 invalid initializer member 'value' for class 'Box': member is not assignable
 class Box() {
     const value = 1;
 }

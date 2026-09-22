@@ -1,3 +1,4 @@
+# expect-error: CFGS2011 invalid base constructor call in class 'Child': rest parameter 'rest' cannot be passed as named argument
 class Base() {
     func init(a, *rest) { }
 }

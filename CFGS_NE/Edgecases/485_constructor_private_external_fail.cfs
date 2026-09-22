@@ -1,3 +1,4 @@
+# expect-error: CFGS2002 inaccessible member 'new' in class 'Vault': 'private' access
 class Vault() {
     private func init() {
     }

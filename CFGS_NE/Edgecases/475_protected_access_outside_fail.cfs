@@ -1,3 +1,4 @@
+# expect-error: CFGS3000 inaccessible instance member 'p' in class 'Base': 'protected' access
 class Base() {
     protected var p = 1;
 }

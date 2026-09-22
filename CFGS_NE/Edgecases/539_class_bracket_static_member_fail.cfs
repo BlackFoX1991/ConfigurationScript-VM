@@ -1,3 +1,4 @@
+# expect-error: CFGS2003 class static members require dot access; bracket access is for indexable values
 class C {
     public static var test1 = 222;
 }

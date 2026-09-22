@@ -1,3 +1,4 @@
+# expect-error: CFGS2003 enum members require dot access (use Mode.A); bracket access is for indexable values such as arrays and
 class Holder() {
     enum Mode {
         A = 10,

@@ -1,3 +1,4 @@
+# expect-error: CFGS1002 duplicate 'static' modifier in class member declaration
 class C() {
     static static var x = 1;
 }

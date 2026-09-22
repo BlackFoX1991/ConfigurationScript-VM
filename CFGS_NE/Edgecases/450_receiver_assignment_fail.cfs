@@ -1,3 +1,4 @@
+# expect-error: CFGS2004 invalid receiver assignment 'this': receiver identifiers are read-only
 class C() {
     func bad() {
         this = 1;

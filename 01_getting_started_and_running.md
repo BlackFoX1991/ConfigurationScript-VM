@@ -38,6 +38,25 @@ The sample suite executes every script under `CFGS_NE/Samples` rather than only 
 it, because some mistakes (bracket access on a namespace alias, a renamed builtin) surface
 only at runtime.
 
+The edge case runner (`CFGS_NE/Edgecases/run_all_edgecases.ps1`) knows three kinds of test:
+
+- An expected-failure test (`*_fail.cfs`, or any file with the header below) states the
+  diagnostic it must produce in its first line. The run must exit with an error, and the
+  first `CFGS` diagnostic must carry exactly that code and contain the message fragment.
+  A test without the header fails, so a test cannot pass by failing for the wrong reason.
+
+  ```cfs
+  # expect-error: CFGS1000 break can only be used in loops
+  ```
+
+- An assertion test imports `edge_assert.cfs` and calls `edge_begin` and `edge_finish` with
+  its own file name. It must exit cleanly, run at least one case, and report no failure.
+- Any other test must exit cleanly without printing an error.
+
+Test fixtures that should not live in the repository as binaries, such as a plugin whose
+registration fails, are built by the runner into `CFGS_NE/Edgecases/_fixtures` from the
+projects under `CFGS_NE/Edgecases/Fixtures` and removed after the run.
+
 ## Building the Project
 
 You can build the full repository through the solution.

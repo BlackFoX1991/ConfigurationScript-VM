@@ -1,1 +1,2 @@
+# expect-error: CFGS4001 default import from dll is not supported. Use: import "path.dll";
 import X from "CFGS.IO.dll";

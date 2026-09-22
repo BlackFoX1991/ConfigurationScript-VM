@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 await can only be used in async function statements
 import "edge_assert.cfs";
 
 func bad(value = await 1) {

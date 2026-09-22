@@ -1,3 +1,4 @@
+# expect-error: CFGS2007 invalid member assignment '__base': reserved member name
 class C() {
     static func bad() {
         type.__base = 1;

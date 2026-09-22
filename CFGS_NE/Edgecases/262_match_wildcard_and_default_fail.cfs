@@ -1,3 +1,4 @@
+# expect-error: CFGS1000 multiple default case not allowed
 # A match statement may have at most one catch-all. Combining an unguarded `case _:` with a
 # `default:` arm is rejected as multiple defaults, the same rule that forbids two `default:` arms
 # or a duplicate unguarded `_` arm in a match expression.
