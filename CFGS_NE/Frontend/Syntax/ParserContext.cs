@@ -38,13 +38,21 @@ namespace CFGS_VM.Analytic.Core
             MaxRecursionDepth = maxRecursionDepth;
         }
 
+        // Loop and async state belong to the innermost function or class body, not to the file. A plain
+        // counter let `break` inside a closure see the enclosing loop and let `await` inside a sync closure
+        // see the enclosing async function, so both boundaries save the outer state here and start clean.
+        private readonly Stack<(int LoopDepth, int AsyncFunctionDepth)> _savedBoundaryState = new();
+
         public void EnterFunctionOrClass()
         {
             FunctionOrClassDepth++;
+            _savedBoundaryState.Push((LoopDepth, AsyncFunctionDepth));
+            LoopDepth = 0;
         }
 
         public void ExitFunctionOrClass()
         {
+            RestoreBoundaryState();
             FunctionOrClassDepth--;
         }
 
@@ -52,16 +60,24 @@ namespace CFGS_VM.Analytic.Core
         {
             FunctionOrClassDepth++;
             FunctionDepth++;
-            if (isAsync)
-                AsyncFunctionDepth++;
+            _savedBoundaryState.Push((LoopDepth, AsyncFunctionDepth));
+            LoopDepth = 0;
+            AsyncFunctionDepth = isAsync ? 1 : 0;
         }
 
         public void ExitFunction(bool isAsync)
         {
-            if (isAsync)
-                AsyncFunctionDepth--;
+            RestoreBoundaryState();
             FunctionDepth--;
             FunctionOrClassDepth--;
+        }
+
+        private void RestoreBoundaryState()
+        {
+            if (_savedBoundaryState.Count == 0)
+                return;
+
+            (LoopDepth, AsyncFunctionDepth) = _savedBoundaryState.Pop();
         }
 
         public void EnterLoop()
@@ -89,6 +105,7 @@ namespace CFGS_VM.Analytic.Core
             AsyncFunctionDepth = 0;
             LoopDepth = 0;
             RecursionDepth = 0;
+            _savedBoundaryState.Clear();
         }
 
         public int EnterRecursion()

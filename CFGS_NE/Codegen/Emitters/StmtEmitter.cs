@@ -416,14 +416,15 @@ namespace CFGS_VM.VMCore
                         // At genuine top level the inherited context is already None.
                         ReceiverContextKind prevReceiverContext = _receiverContext;
                         EnterFunctionLocals(fd.Parameters);
-                        if (fd.IsAsync) _asyncFunctionDepth++;
+                        int outerAsyncFunctionDepth = _asyncFunctionDepth;
+                        _asyncFunctionDepth = fd.IsAsync ? 1 : 0;
                         try
                         {
                             CompileStmt(fd.Body, insideFunction: true);
                         }
                         finally
                         {
-                            if (fd.IsAsync) _asyncFunctionDepth--;
+                            _asyncFunctionDepth = outerAsyncFunctionDepth;
                             LeaveFunctionLocals();
                             _receiverContext = prevReceiverContext;
                         }

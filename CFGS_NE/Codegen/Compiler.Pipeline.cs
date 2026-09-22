@@ -135,8 +135,8 @@ namespace CFGS_VM.VMCore
                     ReceiverContextKind previousReceiverContext = _receiverContext;
                     _receiverContext = ReceiverContextKind.None;
                     EnterFunctionLocals(functionDecl.Parameters);
-                    if (functionDecl.IsAsync)
-                        _asyncFunctionDepth++;
+                    int outerAsyncFunctionDepth = _asyncFunctionDepth;
+                    _asyncFunctionDepth = functionDecl.IsAsync ? 1 : 0;
 
                     try
                     {
@@ -144,8 +144,7 @@ namespace CFGS_VM.VMCore
                     }
                     finally
                     {
-                        if (functionDecl.IsAsync)
-                            _asyncFunctionDepth--;
+                        _asyncFunctionDepth = outerAsyncFunctionDepth;
 
                         LeaveFunctionLocals();
                         _receiverContext = previousReceiverContext;

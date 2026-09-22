@@ -372,14 +372,15 @@ namespace CFGS_VM.VMCore
                         ReceiverContextKind prevReceiverContext = _receiverContext;
                         _receiverContext = DetermineReceiverContext(fe);
                         EnterFunctionLocals(fe.Parameters);
-                        if (fe.IsAsync) _asyncFunctionDepth++;
+                        int outerAsyncFunctionDepth = _asyncFunctionDepth;
+                        _asyncFunctionDepth = fe.IsAsync ? 1 : 0;
                         try
                         {
                             CompileStmt(fe.Body, insideFunction: true);
                         }
                         finally
                         {
-                            if (fe.IsAsync) _asyncFunctionDepth--;
+                            _asyncFunctionDepth = outerAsyncFunctionDepth;
                             LeaveFunctionLocals();
                             _receiverContext = prevReceiverContext;
                         }

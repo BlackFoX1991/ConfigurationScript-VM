@@ -129,10 +129,16 @@ namespace CFGS_VM.VMCore
             int start = _insns.Count;
             _functionStartStack.Push(start);
             _functionParams[start] = paramList;
+
+            // Loops of the enclosing code are not visible to break/continue inside this body.
+            _functionLoopBase.Push(_breakLists.Count);
         }
 
         private void LeaveFunctionLocals()
         {
+            if (_functionLoopBase.Count > 0)
+                _functionLoopBase.Pop();
+
             if (_localVarsStack.Count > 0)
                 _localVarsStack.Pop();
 

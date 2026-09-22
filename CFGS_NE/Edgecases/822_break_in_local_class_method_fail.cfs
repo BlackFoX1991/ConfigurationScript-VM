@@ -1,0 +1,7 @@
+# A method body starts outside any loop, even when its class is declared inside one.
+while (true) {
+    class Local() {
+        func m() { break; }
+    }
+    break;
+}

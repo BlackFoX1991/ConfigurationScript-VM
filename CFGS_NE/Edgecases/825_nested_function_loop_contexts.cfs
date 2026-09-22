@@ -1,0 +1,64 @@
+import "edge_assert.cfs";
+
+edge_begin("825_nested_function_loop_contexts");
+
+func loopInsideClosureInsideLoop() {
+    var log = [];
+    for (var i = 0; i < 3; i++) {
+        var f = func(limit) {
+            var n = 0;
+            while (true) {
+                n = n + 1;
+                if (n == 2) { continue; }
+                if (n >= limit) { break; }
+            }
+            return n;
+        };
+        log[] = f(i + 3);
+    }
+    return str(log);
+}
+edge_eq("loop_inside_closure_inside_loop", loopInsideClosureInsideLoop(), "[3, 4, 5]");
+
+func outerLoopContinuesAfterClosure() {
+    var total = 0;
+    foreach (var v in [1, 2, 3, 4]) {
+        var isEven = func(x) {
+            foreach (var probe in [0, 1]) {
+                if (probe == 1) { break; }
+            }
+            return x % 2 == 0;
+        };
+        if (isEven(v)) { continue; }
+        total = total + v;
+    }
+    return total;
+}
+edge_eq("outer_loop_keeps_its_own_break_continue", outerLoopContinuesAfterClosure(), 4);
+
+class Walker() {
+    func firstOver(items, limit) {
+        foreach (var item in items) {
+            if (item > limit) { return item; }
+        }
+        return null;
+    }
+}
+
+func methodLoopInsideLoop() {
+    var found = [];
+    foreach (var limit in [1, 5]) {
+        found[] = new Walker().firstOver([1, 3, 7], limit);
+    }
+    return str(found);
+}
+edge_eq("method_loop_inside_loop", methodLoopInsideLoop(), "[3, 7]");
+
+async func asyncClosureInAsyncFunction() {
+    var load = async func(x) { return await task().delay(1, x); };
+    var twice = func(x) { return x * 2; };
+    return twice(await load(21));
+}
+edge_eq("async_closure_inside_async_function", await asyncClosureInAsyncFunction(), 42);
+
+edge_finish("825_nested_function_loop_contexts");

@@ -1,0 +1,5 @@
+# await belongs to the innermost function; a sync closure inside an async function cannot await.
+async func runner() {
+    var f = func() { return await task().delay(1, 5); };
+    return f();
+}

@@ -80,7 +80,10 @@ internal static class Program
             SortAndIndexOfUseNumericComparison,
             MinMaxHandleMixedNumericKinds,
             RuntimeDiagnosticCodesSurviveToTheHost,
-            LambdaCapturesEnclosingReceiverLikeCSharp
+            LambdaCapturesEnclosingReceiverLikeCSharp,
+            BreakAndContinueDoNotCrossFunctionBoundaries,
+            AwaitIsRejectedInSyncFunctionsNestedInAsyncFunctions,
+            ReceiverNamesAreRejectedAsFunctionNames
         ];
 
         List<string> failures = [];
@@ -2636,6 +2639,130 @@ func r() {
         AssertEqual("5,1099511627776,1.5,1180591620717411303424",
             script.InvokeAsync<string>("r").GetAwaiter().GetResult() ?? "",
             "min/max must compare mixed numeric kinds without throwing");
+    }
+
+    private static void BreakAndContinueDoNotCrossFunctionBoundaries()
+    {
+        // Loop state used to be a file-wide counter in the parser and a compiler-wide patch stack, so a
+        // break inside a closure passed -check and at runtime jumped to the enclosing loop's exit from
+        // inside the closure's frame. Each function body now starts outside any loop.
+        AssertScriptError("""
+var i = 0;
+while (i < 3) {
+    var f = func() { break; };
+    i = i + 1;
+    f();
+}
+""", "CFGS1000", "break can only be used in loops");
+
+        AssertScriptError("""
+for (var i = 0; i < 3; i++) {
+    func inner() { continue; }
+    inner();
+}
+""", "CFGS1000", "continue can only be used in loops");
+
+        AssertScriptError("""
+while (true) {
+    class Local() {
+        func m() { break; }
+    }
+    break;
+}
+""", "CFGS1000", "break can only be used in loops");
+
+        CfgsScript script = CompileProbe("<nested-loop-contexts>", """
+func run() {
+    var log = [];
+    for (var i = 0; i < 2; i++) {
+        var f = func() {
+            var inner = 0;
+            while (true) {
+                inner = inner + 1;
+                if (inner == 2) { continue; }
+                if (inner > 3) { break; }
+            }
+            return inner;
+        };
+        log[] = f();
+    }
+    return str(log);
+}
+""");
+        script.RunAsync().GetAwaiter().GetResult();
+        AssertEqual("[4, 4]", script.InvokeAsync<string>("run").GetAwaiter().GetResult() ?? "",
+            "loops inside a closure inside a loop must keep working");
+    }
+
+    private static void AwaitIsRejectedInSyncFunctionsNestedInAsyncFunctions()
+    {
+        AssertScriptError("""
+async func runner() {
+    var f = func() { return await task().delay(1, 5); };
+    return f();
+}
+""", "CFGS1000", "await can only be used in async function statements");
+
+        CfgsScript script = CompileProbe("<nested-async-contexts>", """
+async func runner() {
+    var f = async func() { return await task().delay(1, 5); };
+    var g = func(x) { return x * 2; };
+    return g(await f());
+}
+""");
+        script.RunAsync().GetAwaiter().GetResult();
+        AssertEqual(10, script.InvokeAsync<int>("runner").GetAwaiter().GetResult(),
+            "an async closure inside an async function must still await");
+    }
+
+    private static void ReceiverNamesAreRejectedAsFunctionNames()
+    {
+        foreach (string source in new[]
+                 {
+                     "func type() { return 1; }",
+                     "func outer() { return 1; }",
+                     "class K() { func this() { return 1; } }",
+                     "class K() { func super() { return 1; } }"
+                 })
+        {
+            AssertScriptError(source, "CFGS1000", "invalid symbol declaration name");
+        }
+    }
+
+    private static CfgsScript CompileProbe(string name, string source)
+    {
+        CfgsScriptEngine engine = new()
+        {
+            WorkingDirectory = Environment.CurrentDirectory,
+            CompilerVersion = global::Program.Version
+        };
+
+        return engine.CompileSource(name, source);
+    }
+
+    /// <summary>
+    /// Asserts that compiling (and, with <paramref name="run"/>, running) the source fails with the exact
+    /// diagnostic code and a message containing the fragment. The edge case runner accepts any error for
+    /// an expected-failure file, so the precise contract of a new diagnostic is pinned here.
+    /// </summary>
+    private static void AssertScriptError(string source, string expectedCode, string expectedMessageFragment, bool run = false)
+    {
+        CfgsScriptException? error = null;
+        try
+        {
+            CfgsScript script = CompileProbe("<expected-error>", source);
+            if (run)
+                script.RunAsync().GetAwaiter().GetResult();
+        }
+        catch (CfgsScriptException ex)
+        {
+            error = ex;
+        }
+
+        AssertTrue(error is not null, $"expected an error for: {source}");
+        AssertEqual(expectedCode, error!.Code, $"unexpected diagnostic code for: {source}");
+        AssertTrue(error.Message.Contains(expectedMessageFragment, StringComparison.Ordinal),
+            $"diagnostic for '{source}' should mention '{expectedMessageFragment}', got: {error.Message}");
     }
 
     private static string NormalizeNewlines(string text)

@@ -1,0 +1,2 @@
+# Receiver names cannot name a function; this used to pass -check and fail only at runtime.
+func type() { return 1; }

@@ -663,6 +663,18 @@ namespace CFGS_VM.Analytic.Core
             return Factor();
         }
 
+        /// <summary>
+        /// Rejects declaration names that the lexer reserves, the same check var, const, class and enum
+        /// declarations already apply. Only the receiver names (this, type, super, outer) can reach here
+        /// as identifier tokens; a function declared with one of them used to pass -check and then fail at
+        /// runtime or at the first call site.
+        /// </summary>
+        private static void ThrowIfReservedDeclarationName(string name, Token token)
+        {
+            if (Lexer.Keywords.ContainsKey(name))
+                throw new ParserException($"invalid symbol declaration name '{name}'", token.Line, token.Column, token.Filename, token.Length);
+        }
+
         private FuncDeclStmt ParseFuncDecl()
         {
             int startTokenIndex = MarkNodeStart();
@@ -685,6 +697,7 @@ namespace CFGS_VM.Analytic.Core
                 throw new ParserException("expected function name", line, col, _current.Filename);
 
             string name = _current.Value.ToString() ?? "";
+            ThrowIfReservedDeclarationName(name, _current);
             Eat(TokenType.Ident);
 
             string? explicitInterfaceName = null;
@@ -696,6 +709,7 @@ namespace CFGS_VM.Analytic.Core
                     throw new ParserException("expected method name after explicit interface qualifier", _current.Line, _current.Column, _current.Filename);
 
                 name = _current.Value.ToString() ?? "";
+                ThrowIfReservedDeclarationName(name, _current);
                 Eat(TokenType.Ident);
             }
 

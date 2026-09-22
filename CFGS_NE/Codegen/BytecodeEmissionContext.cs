@@ -20,6 +20,11 @@ namespace CFGS_VM.VMCore.Codegen
 
         public Stack<List<LoopLeavePatch>> ContinueLists { get; } = new();
 
+        // BreakLists.Count at the start of each function body. Function bodies are emitted inline inside
+        // the enclosing code, so without this boundary a `break` in a closure would patch into the
+        // enclosing loop and jump across the call frame.
+        public Stack<int> FunctionLoopBase { get; } = new();
+
         public ClassInfo? CurrentClass { get; set; }
 
         public ClassDeclStmt? CurrentClassDecl { get; set; }
@@ -68,6 +73,7 @@ namespace CFGS_VM.VMCore.Codegen
             AnonymousCounter = 0;
             BreakLists.Clear();
             ContinueLists.Clear();
+            FunctionLoopBase.Clear();
             CurrentClass = null;
             CurrentClassDecl = null;
             CurrentMethodIsStatic = false;

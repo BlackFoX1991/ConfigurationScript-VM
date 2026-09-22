@@ -13,6 +13,14 @@ namespace CFGS_VM.VMCore
 
         private Stack<List<LoopLeavePatch>> _continueLists => _emission.ContinueLists;
 
+        private Stack<int> _functionLoopBase => _emission.FunctionLoopBase;
+
+        /// <summary>
+        /// Gets whether a loop encloses the current statement within the current function body.
+        /// </summary>
+        private bool IsInsideLoopOfCurrentFunction
+            => _breakLists.Count > (_functionLoopBase.Count > 0 ? _functionLoopBase.Peek() : 0);
+
         private Dictionary<ClassDeclStmt, ClassInfo> _classInfos => _context.ClassInfos;
 
         private Dictionary<string, ClassDeclStmt> _topLevelClassDecls => _context.TopLevelClassDecls;

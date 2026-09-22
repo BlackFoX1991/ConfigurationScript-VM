@@ -381,6 +381,18 @@ namespace CFGS_VM.Analytic.Semantics
                     return;
 
                 case AwaitExpr awaitExpr:
+                    // The script top level may await; inside a function only an async one may. The flags
+                    // describe the innermost function, so a sync closure nested in an async function is
+                    // rejected here instead of silently suspending its caller.
+                    if (insideFunction && !insideAsyncFunction)
+                    {
+                        throw new CompilerException(
+                            "await can only be used in async function statements",
+                            awaitExpr.Line,
+                            awaitExpr.Col,
+                            awaitExpr.OriginFile);
+                    }
+
                     ValidateExpr(awaitExpr.Inner, insideFunction, insideAsyncFunction);
                     return;
 

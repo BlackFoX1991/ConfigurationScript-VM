@@ -783,7 +783,7 @@ namespace CFGS_VM.VMCore
             // CompilerException, not VMException: this fires during codegen, and the rest of the compiler
             // reports through CompilerException. Using a runtime exception type here made the CLI and the
             // language server categorize these two diagnostics differently from every other compile error.
-            if (_continueLists.Count == 0)
+            if (!IsInsideLoopOfCurrentFunction)
                 throw new CompilerException("'continue' outside of loop", node.Line, node.Col, node.OriginFile);
 
             int leaveIdx = _insns.Count;
@@ -793,7 +793,7 @@ namespace CFGS_VM.VMCore
 
         private void CompileBreakStatement(Node node)
         {
-            if (_breakLists.Count == 0)
+            if (!IsInsideLoopOfCurrentFunction)
                 throw new CompilerException("'break' outside of loop", node.Line, node.Col, node.OriginFile);
 
             int leaveIdx = _insns.Count;

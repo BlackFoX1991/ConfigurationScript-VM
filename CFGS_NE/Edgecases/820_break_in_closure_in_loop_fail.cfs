@@ -1,0 +1,7 @@
+# A break inside a closure must not reach the loop that encloses the closure.
+var i = 0;
+while (i < 3) {
+    var f = func() { break; };
+    i = i + 1;
+    f();
+}
