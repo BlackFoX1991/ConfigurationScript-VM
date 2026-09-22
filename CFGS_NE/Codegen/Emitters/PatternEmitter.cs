@@ -100,6 +100,33 @@ namespace CFGS_VM.VMCore
                     }
                     return;
 
+                case OrMatchPattern or:
+                    {
+                        // Alternatives are tried left to right. Every pattern check leaves the stack as it
+                        // found it, so a failed alternative jumps straight to the next one; only a failure of
+                        // the last alternative fails the whole pattern. Alternatives bind no variables, so
+                        // the arm scope is the same whichever alternative matched.
+                        List<int> successJumps = new();
+                        for (int i = 0; i < or.Alternatives.Count - 1; i++)
+                        {
+                            List<int> alternativeFails = new();
+                            EmitPatternMatch(or.Alternatives[i], sourceVar, alternativeFails);
+                            successJumps.Add(_insns.Count);
+                            _insns.Add(new Instruction(OpCode.JMP, null, or.Line, or.Col, or.OriginFile));
+
+                            int nextAlternative = _insns.Count;
+                            foreach (int failIdx in alternativeFails)
+                                _insns[failIdx] = new Instruction(OpCode.JMP_IF_FALSE, nextAlternative, or.Line, or.Col, or.OriginFile);
+                        }
+
+                        EmitPatternMatch(or.Alternatives[^1], sourceVar, failJumps);
+
+                        int matched = _insns.Count;
+                        foreach (int successIdx in successJumps)
+                            _insns[successIdx] = new Instruction(OpCode.JMP, matched, or.Line, or.Col, or.OriginFile);
+                        return;
+                    }
+
                 default:
                     throw new CompilerException($"unsupported match pattern '{pattern.GetType().Name}'", pattern.Line, pattern.Col, pattern.OriginFile);
             }

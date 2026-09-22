@@ -74,11 +74,58 @@ namespace CFGS_VM.Analytic.Core
             }
             try
             {
-                return ParseMatchPatternCore();
+                MatchPattern first = ParseMatchPatternCore();
+                if (_current.Type != TokenType.bOr)
+                    return first;
+
+                // `1 | 2 | 3` lists alternatives. A bitwise-or value is written in parentheses: `(1 | 2)`.
+                List<MatchPattern> alternatives = [first];
+                while (_current.Type == TokenType.bOr)
+                {
+                    Eat(TokenType.bOr);
+                    alternatives.Add(ParseMatchPatternCore());
+                }
+
+                foreach (MatchPattern alternative in alternatives)
+                    ThrowIfOrAlternativeBinds(alternative);
+
+                return new OrMatchPattern(alternatives, first.Line, first.Col, first.OriginFile);
             }
             finally
             {
                 ExitExpressionRecursion();
+            }
+        }
+
+        /// <summary>
+        /// Rejects a variable binding inside an or-pattern alternative: the arm body could not tell which
+        /// alternative matched, so the binding would be undefined in the others.
+        /// </summary>
+        private static void ThrowIfOrAlternativeBinds(MatchPattern pattern)
+        {
+            switch (pattern)
+            {
+                case BindingMatchPattern binding:
+                    throw new ParserException(
+                        $"or-pattern alternatives cannot bind variables ('var {binding.Name}')",
+                        binding.Line,
+                        binding.Col,
+                        binding.OriginFile);
+
+                case ArrayMatchPattern array:
+                    foreach (MatchPattern element in array.Elements)
+                        ThrowIfOrAlternativeBinds(element);
+                    return;
+
+                case DictMatchPattern dict:
+                    foreach ((string _, MatchPattern entry) in dict.Entries)
+                        ThrowIfOrAlternativeBinds(entry);
+                    return;
+
+                case OrMatchPattern or:
+                    foreach (MatchPattern alternative in or.Alternatives)
+                        ThrowIfOrAlternativeBinds(alternative);
+                    return;
             }
         }
 
@@ -100,7 +147,11 @@ namespace CFGS_VM.Analytic.Core
             if (_current.Type == TokenType.LBrace)
                 return ParseDictMatchPattern();
 
-            Expr value = Expr();
+            // A value pattern stops before '|', which separates or-pattern alternatives. Everything that
+            // binds looser than '|' (comparisons, &&, ||, ??, ?:) needs parentheses in a pattern, as does
+            // a bitwise-or value.
+            int valueStartTokenIndex = MarkNodeStart();
+            Expr value = StampNode(BitwiseXor(), valueStartTokenIndex);
             return new ValueMatchPattern(value, value.Line, value.Col, value.OriginFile);
         }
 
@@ -228,6 +279,10 @@ namespace CFGS_VM.Analytic.Core
                     case DictMatchPattern d:
                         foreach ((string _, MatchPattern sub) in d.Entries)
                             Walk(sub, seen);
+                        return;
+
+                    case OrMatchPattern:
+                        // Alternatives bind nothing (ThrowIfOrAlternativeBinds).
                         return;
 
                     default:

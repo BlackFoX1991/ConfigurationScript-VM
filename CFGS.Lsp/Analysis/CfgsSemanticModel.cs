@@ -1962,6 +1962,11 @@ internal sealed class CfgsSemanticModelBuilder
                 foreach ((string _, MatchPattern childPattern) in dictPattern.Entries)
                     BindPattern(childPattern, scope, declareBindings, containerQualifiedName);
                 return;
+
+            case OrMatchPattern orPattern:
+                foreach (MatchPattern alternative in orPattern.Alternatives)
+                    BindPattern(alternative, scope, declareBindings, containerQualifiedName);
+                return;
         }
     }
 

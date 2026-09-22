@@ -1,0 +1,53 @@
+import "edge_assert.cfs";
+
+edge_begin("836_or_patterns");
+
+func classifyStatement(v) {
+    var result = "none";
+    match (v) {
+        case 1 | 2 | 3: { result = "small"; }
+        case "a" | "b": { result = "letter"; }
+        case 'x' | null: { result = "char-or-null"; }
+        case [0, 1 | 2]: { result = "pair"; }
+        case {"kind": "on" | "enabled"}: { result = "on"; }
+        case 10 | 20 if (v > 15): { result = "guarded-twenty"; }
+        default: { result = "other"; }
+    }
+    return result;
+}
+
+edge_eq("statement_first_alternative", classifyStatement(1), "small");
+edge_eq("statement_last_alternative", classifyStatement(3), "small");
+edge_eq("statement_no_bitwise_value", classifyStatement(0), "other");
+edge_eq("statement_string_alternatives", classifyStatement("b"), "letter");
+edge_eq("statement_char_or_null", classifyStatement(null), "char-or-null");
+edge_eq("statement_nested_in_array", classifyStatement([0, 2]), "pair");
+edge_eq("statement_nested_in_array_miss", classifyStatement([0, 3]), "other");
+edge_eq("statement_nested_in_dict", classifyStatement({"kind": "enabled"}), "on");
+edge_eq("statement_guard_applies_to_or", classifyStatement(10), "other");
+edge_eq("statement_guard_passes", classifyStatement(20), "guarded-twenty");
+
+func classifyExpression(v) {
+    return v match {
+        1 | 2: "low",
+        (1 | 2): "bitwise-three",
+        [var a, var b] if (a == b): "same-pair",
+        _: "other"
+    };
+}
+
+edge_eq("expression_or_pattern", classifyExpression(2), "low");
+edge_eq("expression_parenthesized_bitwise_value", classifyExpression(3), "bitwise-three");
+edge_eq("expression_other_arms_unaffected", classifyExpression([4, 4]), "same-pair");
+edge_eq("expression_default", classifyExpression(9), "other");
+
+var limit = 5;
+func compare(v) {
+    return v match {
+        (limit > 3): "limit-flag",
+        _: "no"
+    };
+}
+edge_eq("parenthesized_comparison_value", compare(true), "limit-flag");
+
+edge_finish("836_or_patterns");

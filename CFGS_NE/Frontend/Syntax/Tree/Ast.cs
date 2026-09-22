@@ -2333,6 +2333,23 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
+    /// <summary>
+    /// An or-pattern <c>1 | 2 | 3</c>: it matches when any alternative matches, tried left to right.
+    /// Alternatives bind no variables, so the arm body sees the same bindings whichever one matched.
+    /// </summary>
+    public sealed class OrMatchPattern : MatchPattern
+    {
+        /// <summary>
+        /// Gets the alternatives, at least two.
+        /// </summary>
+        public List<MatchPattern> Alternatives { get; }
+
+        public OrMatchPattern(List<MatchPattern> alternatives, int line, int col, string file) : base(line, col, file)
+        {
+            Alternatives = alternatives;
+        }
+    }
+
     public sealed class CaseExprArm : Node
     {
         /// <summary>

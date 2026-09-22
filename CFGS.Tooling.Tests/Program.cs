@@ -88,7 +88,8 @@ internal static class Program
             MultiVariableDeclarationsAndExpressionStatementsFormatAndCheck,
             TrailingCommasAndNegativeEnumValuesFormatAndCheck,
             UnknownStringAndArrayMethodsReportClearErrors,
-            ToStringProtocolIsConsistentAcrossTextPaths
+            ToStringProtocolIsConsistentAcrossTextPaths,
+            OrPatternsFormatAndReportBindings
         ];
 
         List<string> failures = [];
@@ -2850,6 +2851,29 @@ func r() {
         script.RunAsync().GetAwaiter().GetResult();
         AssertEqual("[\"5 EUR\", \"5 EUR\", \"5 EUR\", \"5 EUR\", \"[5 EUR]\"]", script.InvokeAsync<string>("r").GetAwaiter().GetResult() ?? "",
             "str, interpolation, concatenation, format and collections must all render through toString()");
+    }
+
+    private static void OrPatternsFormatAndReportBindings()
+    {
+        AssertScriptError("var r = 1 match { [var a, 1] | [1, var a]: a, _: null };", "CFGS1000", "or-pattern alternatives cannot bind variables");
+
+        string source = """
+func f(v) {
+    return v match {
+        1 | 2: "low",
+        (1 | 2): "three",
+        (v > 5): "flag",
+        _: "other"
+    };
+}
+""";
+
+        string formatted = NormalizeNewlines(CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text);
+        AssertTrue(formatted.Contains("1 | 2: \"low\"", StringComparison.Ordinal), $"formatter must print an or-pattern, got:\n{formatted}");
+        AssertTrue(formatted.Contains("(1 | 2): \"three\"", StringComparison.Ordinal), $"formatter must keep a parenthesized bitwise value, got:\n{formatted}");
+        AssertTrue(formatted.Contains("(v > 5): \"flag\"", StringComparison.Ordinal), $"formatter must keep a parenthesized comparison value, got:\n{formatted}");
+        AssertEqual(formatted, NormalizeNewlines(CfgsFormatter.Format(formatted, new CfgsFormatOptions(4, UseTabs: false)).Text),
+            "formatting or-patterns must be idempotent");
     }
 
     private static CfgsScript CompileProbe(string name, string source)

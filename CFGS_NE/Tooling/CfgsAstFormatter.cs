@@ -1413,11 +1413,32 @@ internal static class CfgsAstFormatter
             {
                 WildcardMatchPattern => "_",
                 BindingMatchPattern binding => binding.Name,
-                ValueMatchPattern value => FormatExpr(value.Value),
+                ValueMatchPattern value => FormatPatternValue(value.Value),
                 ArrayMatchPattern array => $"[{string.Join(", ", array.Elements.Select(element => FormatPattern(element)))}]",
                 DictMatchPattern dict => "{" + string.Join(", ", dict.Entries.Select(FormatDictPatternEntry)) + "}",
+                OrMatchPattern or => string.Join(" | ", or.Alternatives.Select(alternative => FormatPattern(alternative))),
                 _ => throw new CfgsAstFormatUnsupportedException()
             };
+        }
+
+        /// <summary>
+        /// A value pattern is parsed below '|', so a value whose top-level operator binds as loosely as '|'
+        /// or looser (a bitwise-or value, a comparison, logical and/or, ??, ?:) is parenthesized, or it
+        /// would re-parse as an or-pattern or fail to parse.
+        /// </summary>
+        private string FormatPatternValue(Expr value)
+        {
+            string text = FormatExpr(value);
+            bool needsParentheses = value switch
+            {
+                ConditionalExpr => true,
+                BinaryExpr binary => binary.Op is TokenType.bOr or TokenType.Eq or TokenType.Neq or TokenType.Lt
+                    or TokenType.Gt or TokenType.Le or TokenType.Ge or TokenType.Is or TokenType.AndAnd
+                    or TokenType.OrOr or TokenType.QQNull,
+                _ => false
+            };
+
+            return needsParentheses ? $"({text})" : text;
         }
 
         private string FormatDictPatternEntry((string Key, MatchPattern Pattern) entry)

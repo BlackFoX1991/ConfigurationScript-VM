@@ -49,6 +49,7 @@ internal static class SignatureDisplay
             ValueMatchPattern value => RenderExpr(value.Value),
             ArrayMatchPattern array => $"[{string.Join(", ", array.Elements.Select(RenderPattern))}]",
             DictMatchPattern dict => "{" + string.Join(", ", dict.Entries.Select(RenderDictEntry)) + "}",
+            OrMatchPattern or => string.Join(" | ", or.Alternatives.Select(RenderPattern)),
             _ => "?"
         };
     }

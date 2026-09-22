@@ -960,6 +960,11 @@ internal static class CfgsLinter
                     foreach ((_, MatchPattern entryPattern) in dictPattern.Entries)
                         VisitPatternValueExpressions(entryPattern);
                     break;
+
+                case OrMatchPattern orPattern:
+                    foreach (MatchPattern alternative in orPattern.Alternatives)
+                        VisitPatternValueExpressions(alternative);
+                    break;
             }
         }
 

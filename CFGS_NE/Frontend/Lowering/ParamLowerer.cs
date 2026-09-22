@@ -322,6 +322,7 @@ namespace CFGS_VM.Analytic.Lowering
                 ValueMatchPattern v => new ValueMatchPattern(LowerExpr(v.Value), v.Line, v.Col, v.OriginFile),
                 ArrayMatchPattern a => new ArrayMatchPattern(a.Elements.Select(LowerPattern).ToList(), a.Line, a.Col, a.OriginFile),
                 DictMatchPattern d => new DictMatchPattern(d.Entries.Select(entry => (entry.Key, LowerPattern(entry.Pattern))).ToList(), d.Line, d.Col, d.OriginFile),
+                OrMatchPattern o => new OrMatchPattern(o.Alternatives.Select(LowerPattern).ToList(), o.Line, o.Col, o.OriginFile),
                 _ => pattern
             };
         }

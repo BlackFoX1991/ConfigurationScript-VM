@@ -474,6 +474,11 @@ namespace CFGS_VM.Analytic.Semantics
                     foreach ((string _, MatchPattern nestedPattern) in dictPattern.Entries)
                         ValidatePattern(nestedPattern, insideFunction, insideAsyncFunction);
                     return;
+
+                case OrMatchPattern orPattern:
+                    foreach (MatchPattern alternative in orPattern.Alternatives)
+                        ValidatePattern(alternative, insideFunction, insideAsyncFunction);
+                    return;
             }
         }
 

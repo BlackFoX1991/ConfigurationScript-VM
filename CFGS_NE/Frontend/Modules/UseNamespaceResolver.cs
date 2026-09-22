@@ -1212,6 +1212,7 @@ namespace CFGS_VM.Analytic.Modules
                 ValueMatchPattern valuePattern => new ValueMatchPattern(RewriteExpr(valuePattern.Value, state), valuePattern.Line, valuePattern.Col, valuePattern.OriginFile),
                 ArrayMatchPattern arrayPattern => new ArrayMatchPattern(arrayPattern.Elements.Select(element => RewritePattern(element, state)).ToList(), arrayPattern.Line, arrayPattern.Col, arrayPattern.OriginFile),
                 DictMatchPattern dictPattern => new DictMatchPattern(dictPattern.Entries.Select(entry => (entry.Key, RewritePattern(entry.Pattern, state))).ToList(), dictPattern.Line, dictPattern.Col, dictPattern.OriginFile),
+                OrMatchPattern orPattern => new OrMatchPattern(orPattern.Alternatives.Select(alternative => RewritePattern(alternative, state)).ToList(), orPattern.Line, orPattern.Col, orPattern.OriginFile),
                 _ => pattern
             };
         }
