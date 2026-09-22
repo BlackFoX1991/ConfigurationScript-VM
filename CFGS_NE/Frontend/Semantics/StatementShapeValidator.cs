@@ -22,7 +22,6 @@ namespace CFGS_VM.Analytic.Semantics
                 case EmptyStmt:
                 case BreakStmt:
                 case ContinueStmt:
-                case DeleteVarStmt:
                 case InterfaceDeclStmt:
                 case EnumDeclStmt:
                     return;
@@ -52,11 +51,6 @@ namespace CFGS_VM.Analytic.Semantics
 
                 case AssignStmt assignStmt:
                     ValidateExpr(assignStmt.Value, insideFunction, insideAsyncFunction);
-                    return;
-
-                case AssignIndexExprStmt assignIndexExpr:
-                    ValidateIndexExpression(assignIndexExpr.Target, insideFunction, insideAsyncFunction);
-                    ValidateExpr(assignIndexExpr.Value, insideFunction, insideAsyncFunction);
                     return;
 
                 case AssignExprStmt assignExpr:
@@ -90,26 +84,9 @@ namespace CFGS_VM.Analytic.Semantics
                     ValidateExpr(pushStmt.Value, insideFunction, insideAsyncFunction);
                     return;
 
-                case DeleteIndexStmt deleteIndex:
-                    ValidateExpr(deleteIndex.Index, insideFunction, insideAsyncFunction);
-                    return;
-
                 case DeleteExprStmt deleteExpr:
                     ValidateDeleteExpr(deleteExpr);
                     ValidateExpr(deleteExpr.Target, insideFunction, insideAsyncFunction);
-                    return;
-
-                case DeleteAllStmt deleteAll:
-                    if (deleteAll.Target is not VarExpr && deleteAll.Target is not IndexExpr && deleteAll.Target is not SliceExpr)
-                    {
-                        throw new CompilerException(
-                            "invalid use of 'delete'",
-                            deleteAll.Line,
-                            deleteAll.Col,
-                            deleteAll.OriginFile);
-                    }
-
-                    ValidateExpr(deleteAll.Target, insideFunction, insideAsyncFunction);
                     return;
 
                 case ClassDeclStmt classDecl:
@@ -187,11 +164,6 @@ namespace CFGS_VM.Analytic.Semantics
 
                 case YieldStmt yieldStmt:
                     ValidateYield(yieldStmt, insideFunction, insideAsyncFunction);
-                    return;
-
-                case SetFieldStmt setField:
-                    ValidateExpr(setField.Target, insideFunction, insideAsyncFunction);
-                    ValidateExpr(setField.Value, insideFunction, insideAsyncFunction);
                     return;
 
                 case UsingStmt usingStmt:
@@ -339,25 +311,10 @@ namespace CFGS_VM.Analytic.Semantics
                         ValidateExpr(sliceExpr.End, insideFunction, insideAsyncFunction);
                     return;
 
-                case TryUnwrapExpr tryUnwrapExpr:
-                    if (tryUnwrapExpr.Inner is not null)
-                        ValidateExpr(tryUnwrapExpr.Inner, insideFunction, insideAsyncFunction);
-                    return;
-
-                case MethodCallExpr methodCallExpr:
-                    ValidateExpr(methodCallExpr.Target, insideFunction, insideAsyncFunction);
-                    foreach (Expr arg in methodCallExpr.Args)
-                        ValidateExpr(arg, insideFunction, insideAsyncFunction);
-                    return;
-
                 case NewExpr newExpr:
                     foreach (Expr arg in newExpr.Args)
                         ValidateExpr(arg, insideFunction, insideAsyncFunction);
                     ValidateObjectInitializerEntries(newExpr.Initializers, insideFunction, insideAsyncFunction);
-                    return;
-
-                case GetFieldExpr getFieldExpr:
-                    ValidateExpr(getFieldExpr.Target, insideFunction, insideAsyncFunction);
                     return;
 
                 case ConditionalExpr conditionalExpr:

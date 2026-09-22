@@ -210,10 +210,6 @@ internal static class CfgsAstFormatter
                     WriteExpressionStatement($"{assignStmt.Name} = ", assignStmt.Value);
                     break;
 
-                case AssignIndexExprStmt assignIndex:
-                    WriteExpressionStatement($"{FormatExpr(assignIndex.Target)} = ", assignIndex.Value);
-                    break;
-
                 case AssignExprStmt assignExpr:
                     WriteExpressionStatement($"{FormatExpr(assignExpr.Target)} = ", assignExpr.Value);
                     break;
@@ -224,18 +220,6 @@ internal static class CfgsAstFormatter
 
                 case PushStmt pushStmt:
                     WriteExpressionStatement($"{FormatExpr(pushStmt.Target)}[] = ", pushStmt.Value);
-                    break;
-
-                case DeleteVarStmt deleteVar:
-                    WriteIndentedLine($"delete {deleteVar.Name};");
-                    break;
-
-                case DeleteIndexStmt deleteIndex:
-                    WriteIndentedLine($"delete {deleteIndex.Name}[{FormatExpr(deleteIndex.Index)}];");
-                    break;
-
-                case DeleteAllStmt deleteAll:
-                    WriteIndentedLine($"delete {FormatExpr(deleteAll.Target)}[];");
                     break;
 
                 case DeleteExprStmt deleteExpr:
@@ -344,10 +328,6 @@ internal static class CfgsAstFormatter
                 case NamespaceImportAliasStmt:
                 case ImportAliasDeclStmt:
                     throw new CfgsAstFormatUnsupportedException();
-
-                case SetFieldStmt setField:
-                    WriteExpressionStatement($"{FormatExpr(setField.Target)}.{setField.Field} = ", setField.Value);
-                    break;
 
                 case ExprStmt exprStmt:
                     WriteExpressionStatement(string.Empty, exprStmt.Expression);
@@ -1072,7 +1052,6 @@ internal static class CfgsAstFormatter
                 ArrayExpr array => array.Elements.Count > 1,
                 DictExpr dict => dict.Pairs.Count > 1,
                 CallExpr call => call.Args.Count > 1,
-                MethodCallExpr methodCall => methodCall.Args.Count > 1,
                 NewExpr newExpr => newExpr.Args.Count > 1 || HasMultilineObjectInitializer(newExpr.Initializers),
                 ObjectInitExpr objectInit => HasMultilineObjectInitializer(objectInit.Inits),
                 BinaryExpr binary when binary.Op is TokenType.AndAnd or TokenType.OrOr => HasLogicalChain(binary),
@@ -1099,10 +1078,6 @@ internal static class CfgsAstFormatter
 
                 case CallExpr call:
                     WriteMultilineCall(call);
-                    return;
-
-                case MethodCallExpr methodCall:
-                    WriteMultilineMethodCall(methodCall);
                     return;
 
                 case NewExpr newExpr:
@@ -1145,15 +1120,6 @@ internal static class CfgsAstFormatter
             _sb.Append(FormatExpr(call.Target ?? throw new CfgsAstFormatUnsupportedException(), GetPrecedence(call)));
             _sb.Append('(');
             WriteMultilineItems(call.Args, arg => _sb.Append(FormatExpr(arg)), ')');
-        }
-
-        private void WriteMultilineMethodCall(MethodCallExpr methodCall)
-        {
-            _sb.Append(FormatExpr(methodCall.Target, GetPrecedence(methodCall)));
-            _sb.Append('.');
-            _sb.Append(methodCall.Method);
-            _sb.Append('(');
-            WriteMultilineItems(methodCall.Args, arg => _sb.Append(FormatExpr(arg)), ')');
         }
 
         private void WriteMultilineNew(NewExpr newExpr)
@@ -1331,7 +1297,6 @@ internal static class CfgsAstFormatter
                 DestructureDeclStmt destructureDecl => $"{(destructureDecl.IsConst ? "const" : "var")} {FormatPattern(destructureDecl.Pattern)} = {FormatExpr(destructureDecl.Value)}",
                 DestructureAssignStmt destructureAssign => $"{FormatPattern(destructureAssign.Pattern)} = {FormatExpr(destructureAssign.Value)}",
                 AssignStmt assignStmt => $"{assignStmt.Name} = {FormatExpr(assignStmt.Value)}",
-                AssignIndexExprStmt assignIndex => $"{FormatExpr(assignIndex.Target)} = {FormatExpr(assignIndex.Value)}",
                 AssignExprStmt assignExpr => $"{FormatExpr(assignExpr.Target)} = {FormatExpr(assignExpr.Value)}",
                 CompoundAssignStmt compoundAssign => $"{FormatExpr(compoundAssign.Target)} {MapOperator(compoundAssign.Op)} {FormatExpr(compoundAssign.Value)}",
                 ExprStmt exprStmt => FormatExpr(exprStmt.Expression),
@@ -1476,7 +1441,6 @@ internal static class CfgsAstFormatter
                 IndexExpr index => FormatIndex(index, precedence),
                 SliceExpr slice => FormatSlice(slice, precedence),
                 CallExpr call => $"{FormatExpr(call.Target ?? throw new CfgsAstFormatUnsupportedException(), precedence)}({string.Join(", ", call.Args.Select(arg => FormatExpr(arg)))})",
-                MethodCallExpr methodCall => $"{FormatExpr(methodCall.Target, precedence)}.{methodCall.Method}({string.Join(", ", methodCall.Args.Select(arg => FormatExpr(arg)))})",
                 ConditionalExpr conditional => $"{FormatExpr(conditional.Condition, precedence + 1)} ? {FormatExpr(conditional.ThenExpr, precedence)}: {FormatExpr(conditional.ElseExpr, precedence, isRightChild: true)}",
                 AwaitExpr awaitExpr => $"await {FormatExpr(awaitExpr.Inner, precedence)}",
                 MatchExpr matchExpr => FormatMatchExpr(matchExpr, precedence),
@@ -1484,10 +1448,8 @@ internal static class CfgsAstFormatter
                 NewExpr newExpr => FormatNewExpr(newExpr),
                 ObjectInitExpr objectInit => $"{FormatExpr(objectInit.Target, precedence)} {{ {string.Join(", ", objectInit.Inits.Select(FormatObjectInitializerEntry))} }}",
                 NativeAssemblyExpr nativeAssembly => $"import native {FormatStringLiteral(nativeAssembly.Path)} as {nativeAssembly.Alias}",
-                GetFieldExpr getField => $"{FormatExpr(getField.Target, precedence)}.{getField.Field}",
                 NamedArgExpr namedArg => $"{namedArg.Name}: {FormatExpr(namedArg.Value)}",
                 SpreadArgExpr spreadArg => $"*{FormatExpr(spreadArg.Value)}",
-                TryUnwrapExpr => throw new CfgsAstFormatUnsupportedException(),
                 _ => throw new CfgsAstFormatUnsupportedException()
             };
 
@@ -1901,7 +1863,7 @@ internal static class CfgsAstFormatter
                 BinaryExpr { Op: TokenType.Star or TokenType.Slash or TokenType.Modulo } => 12,
                 BinaryExpr { Op: TokenType.Expo } => 13,
                 UnaryExpr or PrefixExpr or AwaitExpr => 14,
-                CallExpr or MethodCallExpr or IndexExpr or SliceExpr or PostfixExpr => 15,
+                CallExpr or IndexExpr or SliceExpr or PostfixExpr => 15,
                 _ => 16
             };
         }

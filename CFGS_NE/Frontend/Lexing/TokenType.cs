@@ -76,8 +76,6 @@
 
         Assign,
 
-        Print,
-
         Var,
 
         Const,

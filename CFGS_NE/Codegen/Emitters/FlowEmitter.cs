@@ -72,16 +72,11 @@ namespace CFGS_VM.VMCore
                 case ExprStmt:
                 case AssignStmt:
                 case AssignExprStmt:
-                case AssignIndexExprStmt:
                 case CompoundAssignStmt:
                 case DestructureAssignStmt:
-                case SetFieldStmt:
                 case SliceSetStmt:
                 case PushStmt:
-                case DeleteAllStmt:
                 case DeleteExprStmt:
-                case DeleteIndexStmt:
-                case DeleteVarStmt:
                 case ReturnStmt:
                 case BreakStmt:
                 case ContinueStmt:

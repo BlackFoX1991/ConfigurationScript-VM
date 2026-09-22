@@ -199,12 +199,6 @@ internal sealed class CfgsSemanticModelBuilder
                 scope.SetResolvedAccessPaths(assignStmt.Name, TryResolveContainerAccessPaths(assignStmt.Value, scope));
                 return CompletionResult.Fallthrough();
 
-            case AssignIndexExprStmt assignIndexExpr:
-                VisitExpr(assignIndexExpr.Target, scope);
-                VisitExpr(assignIndexExpr.Value, scope);
-                TrackAssignedMemberBinding(assignIndexExpr.Target, assignIndexExpr.Value, scope);
-                return CompletionResult.Fallthrough();
-
             case AssignExprStmt assignExpr:
                 VisitExpr(assignExpr.Target, scope);
                 VisitExpr(assignExpr.Value, scope);
@@ -231,19 +225,6 @@ internal sealed class CfgsSemanticModelBuilder
             case PushStmt pushStmt:
                 VisitExpr(pushStmt.Target, scope);
                 VisitExpr(pushStmt.Value, scope);
-                return CompletionResult.Fallthrough();
-
-            case DeleteVarStmt deleteVar:
-                RecordNamedReference(deleteVar.Name, deleteVar.Line, deleteVar.Col, deleteVar.OriginFile, scope);
-                return CompletionResult.Fallthrough();
-
-            case DeleteIndexStmt deleteIndex:
-                RecordNamedReference(deleteIndex.Name, deleteIndex.Line, deleteIndex.Col, deleteIndex.OriginFile, scope);
-                VisitExpr(deleteIndex.Index, scope);
-                return CompletionResult.Fallthrough();
-
-            case DeleteAllStmt deleteAll:
-                VisitExpr(deleteAll.Target, scope);
                 return CompletionResult.Fallthrough();
 
             case DeleteExprStmt deleteExpr:
@@ -296,13 +277,6 @@ internal sealed class CfgsSemanticModelBuilder
                     VisitExpr(returnStmt.Value, scope);
 
                 return CompletionResult.WithReturn(CaptureReturnFlow(returnStmt.Value, scope));
-
-            case SetFieldStmt setField:
-                VisitExpr(setField.Target, scope);
-                RecordQualifiedMemberReference(setField.Target, setField.Field, setField.Line, setField.Col, setField.OriginFile, scope);
-                VisitExpr(setField.Value, scope);
-                TrackAssignedMemberBinding(new GetFieldExpr(setField.Target, setField.Field, setField.Line, setField.Col, setField.OriginFile), setField.Value, scope);
-                return CompletionResult.Fallthrough();
 
             default:
                 return CompletionResult.Fallthrough();
@@ -1161,31 +1135,12 @@ internal sealed class CfgsSemanticModelBuilder
                     VisitExpr(sliceExpr.End, scope);
                 return;
 
-            case TryUnwrapExpr tryUnwrapExpr:
-                if (tryUnwrapExpr.Inner is not null)
-                    VisitExpr(tryUnwrapExpr.Inner, scope);
-                return;
-
-            case MethodCallExpr methodCallExpr:
-                VisitExpr(methodCallExpr.Target, scope);
-                RecordQualifiedMemberReference(methodCallExpr.Target, methodCallExpr.Method, methodCallExpr.Line, methodCallExpr.Col, methodCallExpr.OriginFile, scope);
-                foreach (Expr arg in methodCallExpr.Args)
-                    VisitExpr(arg, scope);
-                return;
-
             case NewExpr newExpr:
                 RecordTypeReference(newExpr.ClassName, newExpr.Line, newExpr.Col, newExpr.OriginFile, scope);
                 foreach (Expr arg in newExpr.Args)
                     VisitExpr(arg, scope);
                 VisitObjectInitializerEntries(newExpr.Initializers, scope);
                 return;
-
-            case GetFieldExpr getFieldExpr:
-                VisitExpr(getFieldExpr.Target, scope);
-                RecordCompletionTarget(getFieldExpr.Target, getFieldExpr.Field, scope, getFieldExpr.OriginFile);
-                RecordQualifiedMemberReference(getFieldExpr.Target, getFieldExpr.Field, getFieldExpr.Line, getFieldExpr.Col, getFieldExpr.OriginFile, scope);
-                return;
-
 
             case ConditionalExpr conditionalExpr:
                 VisitExpr(conditionalExpr.Condition, scope);
@@ -1636,17 +1591,6 @@ internal sealed class CfgsSemanticModelBuilder
                 end = objectInitTargetEnd;
                 return true;
 
-            case GetFieldExpr getFieldExpr:
-                if (TryGetExpressionEnd(getFieldExpr.Target, out PositionInfo fieldTargetEnd) &&
-                    TryFindMemberAccessAnchor(sourceText, fieldTargetEnd, getFieldExpr.Field, out PositionInfo fieldStart))
-                {
-                    end = new PositionInfo(fieldStart.Line, fieldStart.Character + getFieldExpr.Field.Length);
-                    return true;
-                }
-
-                end = default;
-                return false;
-
             default:
                 end = default;
                 return false;
@@ -2070,9 +2014,6 @@ internal sealed class CfgsSemanticModelBuilder
                 && TryGetIndexMemberName(indexExpr.Index, out string? indexMemberName):
                 return ResolveMemberSymbols(TryResolveContainerAccessPaths(indexExpr.Target, scope), indexMemberName!);
 
-            case GetFieldExpr getFieldExpr:
-                return ResolveMemberSymbols(TryResolveContainerAccessPaths(getFieldExpr.Target, scope), getFieldExpr.Field);
-
             default:
                 return [];
         }
@@ -2213,13 +2154,6 @@ internal sealed class CfgsSemanticModelBuilder
                 token = varExpr.Name;
                 return true;
 
-            case GetFieldExpr getFieldExpr:
-                line = getFieldExpr.Line;
-                column = getFieldExpr.Col;
-                originFile = getFieldExpr.OriginFile;
-                token = getFieldExpr.Field;
-                return true;
-
             case IndexExpr indexExpr when TryGetIndexMemberName(indexExpr.Index, out string? indexMemberName):
                 line = indexExpr.Line;
                 column = indexExpr.Col;
@@ -2298,9 +2232,6 @@ internal sealed class CfgsSemanticModelBuilder
 
                 return DistinctValues(returnedAccessPaths);
 
-            case MethodCallExpr methodCallExpr:
-                return TryResolveNativeMethodReturnAccessPaths(methodCallExpr, scope);
-
             case VarExpr varExpr:
                 List<string> varPaths = [];
                 if (scope.ResolveContextualQualifier(varExpr.Name) is string contextual)
@@ -2333,21 +2264,6 @@ internal sealed class CfgsSemanticModelBuilder
 
                 return DistinctValues(indexPaths);
 
-            case GetFieldExpr getFieldExpr:
-                List<string> fieldPaths = [];
-                foreach (string targetPath in TryResolveContainerAccessPaths(getFieldExpr.Target, scope))
-                {
-                    string? accessPath = TryResolveMemberAccessPath(targetPath, getFieldExpr.Field);
-                    if (!string.IsNullOrWhiteSpace(accessPath))
-                        fieldPaths.Add(accessPath!);
-
-                    string? valueType = TryResolveMemberValueType(targetPath, getFieldExpr.Field);
-                    if (!string.IsNullOrWhiteSpace(valueType))
-                        fieldPaths.Add(valueType!);
-                }
-
-                return DistinctValues(fieldPaths);
-
             default:
                 return [];
         }
@@ -2362,15 +2278,6 @@ internal sealed class CfgsSemanticModelBuilder
         return CfgsAnalyzer.TryGetNativeReturnTypePaths(expressionPath!, _sources.DocumentText, _sources.DocumentOrigin);
     }
 
-    private IReadOnlyList<string> TryResolveNativeMethodReturnAccessPaths(MethodCallExpr methodCallExpr, SemanticScope scope)
-    {
-        string? targetPath = TryGetExpressionPath(methodCallExpr.Target, scope);
-        if (string.IsNullOrWhiteSpace(targetPath))
-            return [];
-
-        return CfgsAnalyzer.TryGetNativeReturnTypePaths($"{targetPath}.{methodCallExpr.Method}", _sources.DocumentText, _sources.DocumentOrigin);
-    }
-
     private string? TryGetExpressionPath(Expr? expr, SemanticScope scope)
     {
         switch (expr)
@@ -2383,10 +2290,6 @@ internal sealed class CfgsSemanticModelBuilder
                 }
 
                 return varExpr.Name;
-
-            case GetFieldExpr getFieldExpr:
-                string? targetPath = TryGetExpressionPath(getFieldExpr.Target, scope);
-                return string.IsNullOrWhiteSpace(targetPath) ? null : $"{targetPath}.{getFieldExpr.Field}";
 
             case IndexExpr indexExpr
                 when TryGetIndexMemberName(indexExpr.Index, out string? indexMemberName):
@@ -2543,11 +2446,6 @@ internal sealed class CfgsSemanticModelBuilder
                 && TryExtractQualifiedAccess(indexExpr.Target, scope, out string? targetPath):
                 TrackAssignedMemberBinding(targetPath!, indexMemberName!, value, scope);
                 return;
-
-            case GetFieldExpr getFieldExpr
-                when TryExtractQualifiedAccess(getFieldExpr.Target, scope, out string? fieldTargetPath):
-                TrackAssignedMemberBinding(fieldTargetPath!, getFieldExpr.Field, value, scope);
-                return;
         }
     }
 
@@ -2630,9 +2528,6 @@ internal sealed class CfgsSemanticModelBuilder
             case CallExpr callExpr:
                 return TryResolveNativeReturnAccessPaths(callExpr.Target, scope).FirstOrDefault();
 
-            case MethodCallExpr methodCallExpr:
-                return TryResolveNativeMethodReturnAccessPaths(methodCallExpr, scope).FirstOrDefault();
-
             case VarExpr varExpr:
                 if (scope.ResolveContextualQualifier(varExpr.Name) is string contextual)
                     return contextual;
@@ -2647,10 +2542,6 @@ internal sealed class CfgsSemanticModelBuilder
                 && indexExpr.Index is StringExpr stringIndex
                 && TryExtractQualifiedAccess(indexExpr.Target, scope, out string? targetPath):
                 return TryResolveMemberValueType(targetPath!, stringIndex.Value);
-
-            case GetFieldExpr getFieldExpr
-                when TryExtractQualifiedAccess(getFieldExpr.Target, scope, out string? fieldTargetPath):
-                return TryResolveMemberValueType(fieldTargetPath!, getFieldExpr.Field);
 
             default:
                 return null;

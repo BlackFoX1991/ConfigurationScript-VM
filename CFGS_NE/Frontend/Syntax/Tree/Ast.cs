@@ -671,34 +671,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    public class AssignIndexExprStmt : Stmt
-    {
-        /// <summary>
-        /// Gets the Target
-        /// </summary>
-        public IndexExpr Target { get; }
-
-        /// <summary>
-        /// Gets the Value
-        /// </summary>
-        public Expr Value { get; }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AssignIndexExprStmt"/> class.
-        /// </summary>
-        /// <param name="target">The target<see cref="IndexExpr"/></param>
-        /// <param name="value">The value<see cref="Expr"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public AssignIndexExprStmt(IndexExpr target, Expr value, int line, int col, string fname)
-            : base(line, col, fname)
-        {
-            Target = target;
-            Value = value;
-        }
-    }
-
     public class AssignExprStmt : Stmt
     {
         /// <summary>
@@ -735,14 +707,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    public sealed class TryUnwrapExpr(Expr? inner, int line, int col, string file) : Expr(line, col, file)
-    {
-        /// <summary>
-        /// Gets the Inner
-        /// </summary>
-        public Expr? Inner { get; } = inner;
-    }
-
     public class PushStmt : Stmt
     {
         /// <summary>
@@ -770,63 +734,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-    public class DeleteVarStmt : Stmt
-    {
-        public string Name;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="DeleteVarStmt"/> class.
-        /// </summary>
-        /// <param name="n">The n<see cref="string"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public DeleteVarStmt(string n, int line, int col, string fname) : base(line, col, fname)
-        {
-            Name = n;
-        }
-    }
-
-    public class DeleteIndexStmt : Stmt
-    {
-        public string Name;
-
-        public Expr Index;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="DeleteIndexStmt"/> class.
-        /// </summary>
-        /// <param name="n">The n<see cref="string"/></param>
-        /// <param name="idx">The idx<see cref="Expr"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public DeleteIndexStmt(string n, Expr idx, int line, int col, string fname) : base(line, col, fname)
-        {
-            Name = n; Index = idx;
-        }
-    }
-
-    public class DeleteAllStmt : Stmt
-    {
-        /// <summary>
-        /// Gets the Target
-        /// </summary>
-        public Expr Target { get; }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="DeleteAllStmt"/> class.
-        /// </summary>
-        /// <param name="target">The target<see cref="Expr"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public DeleteAllStmt(Expr target, int line, int col, string fname) : base(line, col, fname)
-        {
-            Target = target;
-        }
-    }
-
     public class DeleteExprStmt : Stmt
     {
         /// <summary>
@@ -851,41 +758,6 @@ namespace CFGS_VM.Analytic.Tree
         {
             Target = target;
             DeleteAll = deleteAll;
-        }
-    }
-
-    public class MethodCallExpr : Expr
-    {
-        /// <summary>
-        /// Gets the Target
-        /// </summary>
-        public Expr Target { get; }
-
-        /// <summary>
-        /// Gets the Method
-        /// </summary>
-        public string Method { get; }
-
-        /// <summary>
-        /// Gets the Args
-        /// </summary>
-        public List<Expr> Args { get; }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="MethodCallExpr"/> class.
-        /// </summary>
-        /// <param name="target">The target<see cref="Expr"/></param>
-        /// <param name="method">The method<see cref="string"/></param>
-        /// <param name="args">The args<see cref="List{Expr}"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public MethodCallExpr(Expr target, string method, List<Expr> args, int line, int col, string fname)
-            : base(line, col, fname)
-        {
-            Target = target;
-            Method = method;
-            Args = args;
         }
     }
 
@@ -1897,69 +1769,6 @@ namespace CFGS_VM.Analytic.Tree
         }
     }
 
-
-    public class GetFieldExpr : Expr
-    {
-        /// <summary>
-        /// Gets the Target
-        /// </summary>
-        public Expr Target { get; }
-
-        /// <summary>
-        /// Gets the Field
-        /// </summary>
-        public string Field { get; }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="GetFieldExpr"/> class.
-        /// </summary>
-        /// <param name="target">The target<see cref="Expr"/></param>
-        /// <param name="field">The field<see cref="string"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public GetFieldExpr(Expr target, string field, int line, int col, string fname)
-            : base(line, col, fname)
-        {
-            Target = target;
-            Field = field;
-        }
-    }
-
-    public class SetFieldStmt : Stmt
-    {
-        /// <summary>
-        /// Gets the Target
-        /// </summary>
-        public Expr Target { get; }
-
-        /// <summary>
-        /// Gets the Field
-        /// </summary>
-        public string Field { get; }
-
-        /// <summary>
-        /// Gets the Value
-        /// </summary>
-        public Expr Value { get; }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="SetFieldStmt"/> class.
-        /// </summary>
-        /// <param name="target">The target<see cref="Expr"/></param>
-        /// <param name="field">The field<see cref="string"/></param>
-        /// <param name="value">The value<see cref="Expr"/></param>
-        /// <param name="line">The line<see cref="int"/></param>
-        /// <param name="col">The col<see cref="int"/></param>
-        /// <param name="fname">The fname<see cref="string"/></param>
-        public SetFieldStmt(Expr target, string field, Expr value, int line, int col, string fname)
-            : base(line, col, fname)
-        {
-            Target = target;
-            Field = field;
-            Value = value;
-        }
-    }
 
     public class BlockStmt : Stmt
     {

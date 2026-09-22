@@ -25,7 +25,6 @@ namespace CFGS_VM.Analytic.Lowering
                 DestructureAssignStmt d => new DestructureAssignStmt(LowerPattern(d.Pattern), LowerExpr(d.Value), d.Line, d.Col, d.OriginFile),
                 ExportStmt e => new ExportStmt(e.Name, LowerStatement(e.Inner), e.Line, e.Col, e.OriginFile),
                 AssignStmt a => new AssignStmt(a.Name, LowerExpr(a.Value), a.Line, a.Col, a.OriginFile),
-                AssignIndexExprStmt a => new AssignIndexExprStmt((IndexExpr)LowerExpr(a.Target), LowerExpr(a.Value), a.Line, a.Col, a.OriginFile),
                 AssignExprStmt a => new AssignExprStmt(LowerExpr(a.Target), LowerExpr(a.Value), a.Line, a.Col, a.OriginFile)
                 {
                     IsSyntheticNamespacePath = a.IsSyntheticNamespacePath
@@ -34,11 +33,7 @@ namespace CFGS_VM.Analytic.Lowering
                 SliceSetStmt s => new SliceSetStmt((SliceExpr)LowerExpr(s.Slice), LowerExpr(s.Value), s.Line, s.Col, s.OriginFile),
                 ExprStmt e => new ExprStmt(LowerExpr(e.Expression), e.Line, e.Col, e.OriginFile),
                 PushStmt p => new PushStmt(LowerExpr(p.Target), LowerExpr(p.Value), p.Line, p.Col, p.OriginFile),
-                DeleteVarStmt => stmt,
-                DeleteIndexStmt d => new DeleteIndexStmt(d.Name, LowerExpr(d.Index), d.Line, d.Col, d.OriginFile),
-                DeleteAllStmt d => new DeleteAllStmt(LowerExpr(d.Target), d.Line, d.Col, d.OriginFile),
                 DeleteExprStmt d => new DeleteExprStmt(LowerExpr(d.Target), d.DeleteAll, d.Line, d.Col, d.OriginFile),
-                SetFieldStmt s => new SetFieldStmt(LowerExpr(s.Target), s.Field, LowerExpr(s.Value), s.Line, s.Col, s.OriginFile),
                 BlockStmt b => LowerBlock(b),
                 IfStmt i => new IfStmt(LowerExpr(i.Condition), LowerBlock(i.ThenBlock), i.ElseBranch is null ? null : LowerStatement(i.ElseBranch), i.Line, i.Col, i.OriginFile),
                 WhileStmt w => new WhileStmt(LowerExpr(w.Condition), LowerBlock(w.Body), w.Line, w.Col, w.OriginFile),
@@ -367,8 +362,6 @@ namespace CFGS_VM.Analytic.Lowering
                 },
                 PrefixExpr p => new PrefixExpr(LowerNullableExpr(p.Target), p.Op, p.Line, p.Col, p.OriginFile),
                 PostfixExpr p => new PostfixExpr(LowerNullableExpr(p.Target), p.Op, p.Line, p.Col, p.OriginFile),
-                TryUnwrapExpr t => new TryUnwrapExpr(LowerNullableExpr(t.Inner), t.Line, t.Col, t.OriginFile),
-                MethodCallExpr m => new MethodCallExpr(LowerExpr(m.Target), m.Method, m.Args.Select(LowerExpr).ToList(), m.Line, m.Col, m.OriginFile),
                 NewExpr n => new NewExpr(
                     n.ClassName,
                     n.Args.Select(LowerExpr).ToList(),
@@ -376,7 +369,6 @@ namespace CFGS_VM.Analytic.Lowering
                     n.Line,
                     n.Col,
                     n.OriginFile),
-                GetFieldExpr g => new GetFieldExpr(LowerExpr(g.Target), g.Field, g.Line, g.Col, g.OriginFile),
                 ObjectInitExpr o => new ObjectInitExpr(LowerExpr(o.Target), LowerObjectInitializerEntries(o.Inits), o.Line, o.Col, o.OriginFile),
                 ConditionalExpr c => new ConditionalExpr(LowerExpr(c.Condition), LowerExpr(c.ThenExpr), LowerExpr(c.ElseExpr), c.Line, c.Col, c.OriginFile),
                 MatchExpr m => new MatchExpr(

@@ -142,15 +142,6 @@ namespace CFGS_VM.VMCore
                 case EmptyStmt etst:
                     break;
 
-                case AssignIndexExprStmt aies:
-                    {
-                        CompileExpr(aies.Value);
-                        CompileExpr(aies.Target);
-                        _insns.Add(new Instruction(OpCode.ROT, null, aies.Line, aies.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_SET, IndexAccessOperand(aies.Target), aies.Line, aies.Col, s.OriginFile));
-                        break;
-                    }
-
                 case SliceSetStmt sliceSet:
                     CompileExpr(sliceSet.Slice.Target);
 
@@ -191,23 +182,6 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
-                case DeleteIndexStmt di:
-                    {
-                        VarExpr targetExpr = new(di.Name, di.Line, di.Col, s.OriginFile);
-                        CompileExpr(targetExpr);
-                        CompileExpr(di.Index);
-                        _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM, null, s.Line, s.Col, s.OriginFile));
-                        break;
-                    }
-
-                case DeleteVarStmt dv:
-                    {
-                        VarExpr targetExpr = new(dv.Name, dv.Line, dv.Col, s.OriginFile);
-                        CompileExpr(targetExpr);
-                        _insns.Add(new Instruction(OpCode.ARRAY_CLEAR, null, dv.Line, dv.Col, s.OriginFile));
-                        break;
-                    }
-
                 case DeleteExprStmt des:
                     {
                         if (des.Target is SliceExpr se)
@@ -244,34 +218,6 @@ namespace CFGS_VM.VMCore
                         }
 
                         throw new CompilerException("unsupported delete target", des.Line, des.Col, s.OriginFile);
-                    }
-
-                case DeleteAllStmt das:
-                    {
-                        if (das.Target is VarExpr var)
-                        {
-                            CompileExpr(var);
-
-                            _insns.Add(new Instruction(OpCode.ARRAY_CLEAR, null, das.Line, das.Col, s.OriginFile));
-                        }
-                        else if (das.Target is IndexExpr xie)
-                        {
-                            CompileExpr(xie.Target);
-                            CompileExpr(xie.Index);
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_ELEM_ALL, null, das.Line, das.Col, s.OriginFile));
-                        }
-                        else if (das.Target is SliceExpr xse)
-                        {
-                            CompileExpr(xse.Target);
-                            if (xse.Start != null) CompileExpr(xse.Start); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, das.Line, das.Col, s.OriginFile));
-                            if (xse.End != null) CompileExpr(xse.End); else _insns.Add(new Instruction(OpCode.PUSH_NULL, null, das.Line, das.Col, s.OriginFile));
-                            _insns.Add(new Instruction(OpCode.ARRAY_DELETE_SLICE, null, das.Line, das.Col, s.OriginFile));
-                        }
-                        else
-                        {
-                            throw new CompilerException("invalid use of 'delete'", das.Line, das.Col, s.OriginFile);
-                        }
-                        break;
                     }
 
                 case ClassDeclStmt cds:

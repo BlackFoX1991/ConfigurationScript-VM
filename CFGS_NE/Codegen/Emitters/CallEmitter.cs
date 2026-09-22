@@ -33,15 +33,6 @@ namespace CFGS_VM.VMCore
             _insns.Add(new Instruction(OpCode.CALL_INDIRECT, call.Args.Count, call.Line, call.Col, call.OriginFile));
         }
 
-        private void CompileMethodCallExpression(MethodCallExpr mce)
-        {
-            CompileExpr(mce.Target);
-            _insns.Add(new Instruction(OpCode.PUSH_STR, mce.Method, mce.Line, mce.Col, mce.OriginFile));
-            _insns.Add(new Instruction(OpCode.INDEX_GET, true, mce.Line, mce.Col, mce.OriginFile));
-            EmitCallArgumentsReversed(mce.Args);
-            _insns.Add(new Instruction(OpCode.CALL_INDIRECT, mce.Args.Count, mce.Line, mce.Col, mce.OriginFile));
-        }
-
         private void CompileNamedArgumentExpression(NamedArgExpr na)
         {
             CompileExpr(na.Value);

@@ -41,7 +41,6 @@ namespace CFGS_VM.Analytic.Semantics
                 case EmptyStmt:
                 case BreakStmt:
                 case ContinueStmt:
-                case DeleteVarStmt:
                 case EnumDeclStmt:
                     return;
 
@@ -92,11 +91,6 @@ namespace CFGS_VM.Analytic.Semantics
                     ValidateExpr(assignStmt.Value);
                     return;
 
-                case AssignIndexExprStmt assignIndexExpr:
-                    ValidateStoreTarget(assignIndexExpr.Target);
-                    ValidateExpr(assignIndexExpr.Value);
-                    return;
-
                 case AssignExprStmt assignExpr:
                     WithNamespaceValueCheckSuppressed(assignExpr.IsSyntheticNamespacePath, () =>
                     {
@@ -120,16 +114,8 @@ namespace CFGS_VM.Analytic.Semantics
                     ValidateExpr(pushStmt.Value);
                     return;
 
-                case DeleteIndexStmt deleteIndex:
-                    ValidateExpr(deleteIndex.Index);
-                    return;
-
                 case DeleteExprStmt deleteExpr:
                     ValidateExpr(deleteExpr.Target);
-                    return;
-
-                case DeleteAllStmt deleteAll:
-                    ValidateExpr(deleteAll.Target);
                     return;
 
                 case ClassDeclStmt classDecl:
@@ -211,11 +197,6 @@ namespace CFGS_VM.Analytic.Semantics
                     return;
 
                 case YieldStmt:
-                    return;
-
-                case SetFieldStmt setField:
-                    ValidateExpr(setField.Target);
-                    ValidateExpr(setField.Value);
                     return;
 
                 case UsingStmt usingStmt:
@@ -604,17 +585,6 @@ namespace CFGS_VM.Analytic.Semantics
                         ValidateExpr(sliceExpr.End);
                     return;
 
-                case TryUnwrapExpr tryUnwrapExpr:
-                    if (tryUnwrapExpr.Inner is not null)
-                        ValidateExpr(tryUnwrapExpr.Inner);
-                    return;
-
-                case MethodCallExpr methodCallExpr:
-                    ValidateExpr(methodCallExpr.Target, asValue: false);
-                    foreach (Expr arg in methodCallExpr.Args)
-                        ValidateExpr(arg);
-                    return;
-
                 case NewExpr newExpr:
                     _namespaceAccessRules.ValidateQualifiedTypeAccess(
                         newExpr.ClassName,
@@ -626,10 +596,6 @@ namespace CFGS_VM.Analytic.Semantics
                         ValidateExpr(arg);
                     ValidateObjectInitializerEntries(newExpr.Initializers);
                     _memberAccessRules.ValidateNewObjectInitializers(_compiler, newExpr, _currentClassDecl);
-                    return;
-
-                case GetFieldExpr getFieldExpr:
-                    ValidateExpr(getFieldExpr.Target);
                     return;
 
                 case ConditionalExpr conditionalExpr:

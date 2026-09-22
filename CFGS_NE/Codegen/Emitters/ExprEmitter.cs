@@ -355,10 +355,6 @@ namespace CFGS_VM.VMCore
                     CompileObjectInitializerExpression(oi);
                     break;
 
-                case MethodCallExpr mce:
-                    CompileMethodCallExpression(mce);
-                    break;
-
                 case FuncExpr fe:
                     {
                         int jmpOverFuncIdx = _insns.Count;

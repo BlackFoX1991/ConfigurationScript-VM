@@ -544,11 +544,6 @@ internal static class CfgsLinter
                     VisitExpr(a.Value);
                     break;
 
-                case AssignIndexExprStmt a:
-                    VisitExpr(a.Target);
-                    VisitExpr(a.Value);
-                    break;
-
                 case CompoundAssignStmt c:
                     VisitExpr(c.Target);
                     VisitExpr(c.Value);
@@ -562,24 +557,6 @@ internal static class CfgsLinter
                 case PushStmt p:
                     VisitExpr(p.Target);
                     VisitExpr(p.Value);
-                    break;
-
-                case SetFieldStmt s:
-                    VisitExpr(s.Target);
-                    VisitExpr(s.Value);
-                    break;
-
-                case DeleteVarStmt d:
-                    Use(d.Name);
-                    break;
-
-                case DeleteIndexStmt d:
-                    Use(d.Name);
-                    VisitExpr(d.Index);
-                    break;
-
-                case DeleteAllStmt d:
-                    VisitExpr(d.Target);
                     break;
 
                 case DeleteExprStmt d:
@@ -962,12 +939,6 @@ internal static class CfgsLinter
                     }
                     break;
 
-                case MethodCallExpr m:
-                    VisitExpr(m.Target);
-                    foreach (Expr arg in m.Args)
-                        VisitExpr(arg);
-                    break;
-
                 case BinaryExpr b:
                     VisitExpr(b.Left);
                     if (b.Op == TokenType.Is)
@@ -1045,10 +1016,6 @@ internal static class CfgsLinter
                     VisitObjectInitializerEntries(n.Initializers);
                     break;
 
-                case GetFieldExpr g:
-                    VisitExpr(g.Target);
-                    break;
-
                 case ObjectInitExpr o:
                     VisitExpr(o.Target);
                     VisitObjectInitializerEntries(o.Inits);
@@ -1061,9 +1028,6 @@ internal static class CfgsLinter
                     VisitExpr(m.DefaultArm);
                     break;
 
-                case TryUnwrapExpr t:
-                    VisitExpr(t.Inner);
-                    break;
             }
         }
 

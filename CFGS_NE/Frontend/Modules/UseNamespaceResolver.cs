@@ -352,12 +352,6 @@ namespace CFGS_VM.Analytic.Modules
                     destructureAssign.Col,
                     destructureAssign.OriginFile),
                 AssignStmt assignStmt => RewriteAssignStatement(assignStmt, state),
-                AssignIndexExprStmt assignIndexExpr => new AssignIndexExprStmt(
-                    (IndexExpr)RewriteExpr(assignIndexExpr.Target, state),
-                    RewriteExpr(assignIndexExpr.Value, state),
-                    assignIndexExpr.Line,
-                    assignIndexExpr.Col,
-                    assignIndexExpr.OriginFile),
                 AssignExprStmt assignExpr => new AssignExprStmt(
                     RewriteExpr(assignExpr.Target, state),
                     RewriteExpr(assignExpr.Value, state),
@@ -379,11 +373,7 @@ namespace CFGS_VM.Analytic.Modules
                     sliceSet.OriginFile),
                 ExprStmt exprStmt => new ExprStmt(RewriteExpr(exprStmt.Expression, state), exprStmt.Line, exprStmt.Col, exprStmt.OriginFile),
                 PushStmt pushStmt => new PushStmt(RewriteExpr(pushStmt.Target, state), RewriteExpr(pushStmt.Value, state), pushStmt.Line, pushStmt.Col, pushStmt.OriginFile),
-                DeleteVarStmt deleteVar => RewriteDeleteVarStatement(deleteVar, state),
-                DeleteIndexStmt deleteIndex => RewriteDeleteIndexStatement(deleteIndex, state),
-                DeleteAllStmt deleteAll => new DeleteAllStmt(RewriteExpr(deleteAll.Target, state), deleteAll.Line, deleteAll.Col, deleteAll.OriginFile),
                 DeleteExprStmt deleteExpr => new DeleteExprStmt(RewriteExpr(deleteExpr.Target, state), deleteExpr.DeleteAll, deleteExpr.Line, deleteExpr.Col, deleteExpr.OriginFile),
-                SetFieldStmt setField => new SetFieldStmt(RewriteExpr(setField.Target, state), setField.Field, RewriteExpr(setField.Value, state), setField.Line, setField.Col, setField.OriginFile),
                 BlockStmt blockStmt => RewriteBlock(blockStmt, state),
                 IfStmt ifStmt => new IfStmt(
                     RewriteExpr(ifStmt.Condition, state),
@@ -507,42 +497,6 @@ namespace CFGS_VM.Analytic.Modules
             }
 
             return new AssignStmt(assignStmt.Name, value, assignStmt.Line, assignStmt.Col, assignStmt.OriginFile);
-        }
-
-        private Stmt RewriteDeleteVarStatement(DeleteVarStmt deleteVar, RewriteState state)
-        {
-            if (TryResolveUsedValueRoot(deleteVar.Name, deleteVar, state, out NamespaceMemberInfo? resolved))
-            {
-                return new DeleteExprStmt(
-                    BuildResolvedNamespaceMemberExpr(resolved!, deleteVar, state.CurrentNamespacePath),
-                    deleteAll: true,
-                    deleteVar.Line,
-                    deleteVar.Col,
-                    deleteVar.OriginFile);
-            }
-
-            return deleteVar;
-        }
-
-        private Stmt RewriteDeleteIndexStatement(DeleteIndexStmt deleteIndex, RewriteState state)
-        {
-            Expr rewrittenIndex = RewriteExpr(deleteIndex.Index, state);
-            if (TryResolveUsedValueRoot(deleteIndex.Name, deleteIndex, state, out NamespaceMemberInfo? resolved))
-            {
-                return new DeleteExprStmt(
-                    new IndexExpr(
-                        BuildResolvedNamespaceMemberExpr(resolved!, deleteIndex, state.CurrentNamespacePath),
-                        rewrittenIndex,
-                        deleteIndex.Line,
-                        deleteIndex.Col,
-                        deleteIndex.OriginFile),
-                    deleteAll: false,
-                    deleteIndex.Line,
-                    deleteIndex.Col,
-                    deleteIndex.OriginFile);
-            }
-
-            return new DeleteIndexStmt(deleteIndex.Name, rewrittenIndex, deleteIndex.Line, deleteIndex.Col, deleteIndex.OriginFile);
         }
 
         private ForStmt RewriteForStatement(ForStmt forStmt, RewriteState state)
@@ -1032,9 +986,7 @@ namespace CFGS_VM.Analytic.Modules
                 },
                 PrefixExpr prefixExpr => new PrefixExpr(RewriteNullableExpr(prefixExpr.Target, state), prefixExpr.Op, prefixExpr.Line, prefixExpr.Col, prefixExpr.OriginFile),
                 PostfixExpr postfixExpr => new PostfixExpr(RewriteNullableExpr(postfixExpr.Target, state), postfixExpr.Op, postfixExpr.Line, postfixExpr.Col, postfixExpr.OriginFile),
-                TryUnwrapExpr tryUnwrapExpr => new TryUnwrapExpr(RewriteNullableExpr(tryUnwrapExpr.Inner, state), tryUnwrapExpr.Line, tryUnwrapExpr.Col, tryUnwrapExpr.OriginFile),
                 NewExpr newExpr => RewriteNewExpr(newExpr, state),
-                GetFieldExpr getFieldExpr => new GetFieldExpr(RewriteExpr(getFieldExpr.Target, state), getFieldExpr.Field, getFieldExpr.Line, getFieldExpr.Col, getFieldExpr.OriginFile),
                 ConditionalExpr conditionalExpr => new ConditionalExpr(
                     RewriteExpr(conditionalExpr.Condition, state),
                     RewriteExpr(conditionalExpr.ThenExpr, state),
@@ -1054,13 +1006,6 @@ namespace CFGS_VM.Analytic.Modules
                     objectInitExpr.Line,
                     objectInitExpr.Col,
                     objectInitExpr.OriginFile),
-                MethodCallExpr methodCallExpr => new MethodCallExpr(
-                    RewriteExpr(methodCallExpr.Target, state),
-                    methodCallExpr.Method,
-                    methodCallExpr.Args.Select(arg => RewriteExpr(arg, state)).ToList(),
-                    methodCallExpr.Line,
-                    methodCallExpr.Col,
-                    methodCallExpr.OriginFile),
                 _ => expr
             };
         }

@@ -210,13 +210,11 @@ namespace CFGS_VM.Analytic.Core
                                        IsPureModuleInitializer(sliceExpr.Target) &&
                                        (sliceExpr.Start is null || IsPureModuleInitializer(sliceExpr.Start)) &&
                                        (sliceExpr.End is null || IsPureModuleInitializer(sliceExpr.End)),
-                GetFieldExpr getFieldExpr => IsPureModuleInitializer(getFieldExpr.Target),
                 MatchExpr matchExpr => IsPureModuleInitializer(matchExpr.Scrutinee) &&
                                        matchExpr.Arms.All(arm =>
                                            (arm.Guard is null || IsPureModuleInitializer(arm.Guard)) &&
                                            IsPureModuleInitializer(arm.Body)) &&
                                        (matchExpr.DefaultArm is null || IsPureModuleInitializer(matchExpr.DefaultArm)),
-                TryUnwrapExpr tryUnwrapExpr => tryUnwrapExpr.Inner is null || IsPureModuleInitializer(tryUnwrapExpr.Inner),
                 _ => false
             };
 

@@ -35,7 +35,6 @@ namespace CFGS_VM.Analytic.Core
             return type switch
             {
                 TokenType.Ident or
-                TokenType.Print or
                 TokenType.Var or
                 TokenType.Const or
                 TokenType.Static or
