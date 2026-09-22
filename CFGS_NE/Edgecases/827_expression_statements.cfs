@@ -1,0 +1,43 @@
+import "edge_assert.cfs";
+
+edge_begin("827_expression_statements");
+
+var calls = [];
+func note(tag) {
+    calls[] = tag;
+    return true;
+}
+
+var ok = true;
+var off = false;
+var missing = null;
+
+# Statements that start with an identifier used to accept only assignment, call, and index chains.
+ok && note("and");
+off && note("and-skipped");
+off || note("or");
+ok ? note("ternary-then") : note("ternary-else");
+missing ?? note("coalesce");
+ok match { true: note("match-expr"), _: note("match-else") };
+calls.push("chain");
+
+edge_eq("expression_statements_evaluate", str(calls), "[\"and\", \"or\", \"ternary-then\", \"coalesce\", \"match-expr\", \"chain\"]");
+
+func insideFunction() {
+    var log = [];
+    var push = func(v) { log[] = v; return v; };
+    var flag = true;
+    flag && push(1);
+    flag ? push(2) : push(-2);
+    return str(log);
+}
+edge_eq("expression_statements_inside_function", insideFunction(), "[1, 2]");
+
+var counter = 0;
+for (var i = 0; i < 3; ok && note("loop")) {
+    i = i + 1;
+    counter = counter + 1;
+}
+edge_eq("expression_in_for_increment", counter, 3);
+
+edge_finish("827_expression_statements");

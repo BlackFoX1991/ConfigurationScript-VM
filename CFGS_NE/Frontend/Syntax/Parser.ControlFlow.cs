@@ -146,7 +146,7 @@ namespace CFGS_VM.Analytic.Core
                         break;
                     }
 
-                    stmts.Add(Statement());
+                    stmts.AddRange(ParseStatementList());
                 }
                 catch (Exception ex) when (IsTolerant && ex is ParserException or LexerException)
                 {
@@ -255,8 +255,13 @@ namespace CFGS_VM.Analytic.Core
                 return ParseBlock();
             }
 
-            Stmt one = Statement();
-            return CopyNodeSpan(new BlockStmt(new List<Stmt> { one }, one.Line, one.Col, one.OriginFile), one);
+            // All declarators of `if (c) var a = 1, b = 2;` belong to the body; they used to escape it and
+            // run unconditionally.
+            List<Stmt> statements = ParseStatementList();
+            Stmt first = statements[0];
+            BlockStmt block = CopyNodeSpan(new BlockStmt(statements, first.Line, first.Col, first.OriginFile), first);
+            block.SyntaxEndTokenIndex = statements[^1].SyntaxEndTokenIndex;
+            return block;
         }
 
         private BlockStmt ParseBlock()
@@ -454,7 +459,7 @@ namespace CFGS_VM.Analytic.Core
             if (_current.Type != TokenType.Semi)
             {
                 if (_current.Type == TokenType.Var)
-                    init = ParseVarDecl;
+                    init = ParseForInitDeclarations();
                 else if (_current.Type == TokenType.Const)
                     init = ParseConstDecl;
                 else
@@ -506,6 +511,23 @@ namespace CFGS_VM.Analytic.Core
             try { body = ParseEmbeddedBlockOrSingleStatement(); }
             finally { ExitLoopContext(); }
             return new ForStmt(init, cond, inc, body, line, col, file);
+        }
+
+        /// <summary>
+        /// Parses the <c>var</c> initializer of a three-part for. Several declarators
+        /// (<c>for (var i = 0, j = n - 1; ...)</c>) share the single initializer slot as a declaration group,
+        /// which opens no scope of its own.
+        /// </summary>
+        private Stmt ParseForInitDeclarations()
+        {
+            List<Stmt> declarations = ParseVarDeclList();
+            if (declarations.Count == 1)
+                return declarations[0];
+
+            Stmt first = declarations[0];
+            BlockStmt group = CopyNodeSpan(new BlockStmt(declarations, first.Line, first.Col, first.OriginFile) { IsDeclarationGroup = true }, first);
+            group.SyntaxEndTokenIndex = declarations[^1].SyntaxEndTokenIndex;
+            return group;
         }
 
         private Stmt ParseForIncrement()

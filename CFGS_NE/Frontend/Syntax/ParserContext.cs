@@ -23,8 +23,6 @@ namespace CFGS_VM.Analytic.Core
 
         public int RecursionDepth { get; private set; }
 
-        public bool IsInMultipleVarDeclaration { get; private set; }
-
         public bool IsInFunctionOrClass => FunctionOrClassDepth > 0;
 
         public bool IsInFunction => FunctionDepth > 0;
@@ -116,16 +114,6 @@ namespace CFGS_VM.Analytic.Core
         public void ExitRecursion()
         {
             RecursionDepth--;
-        }
-
-        public void ContinueMultipleVarDeclaration()
-        {
-            IsInMultipleVarDeclaration = true;
-        }
-
-        public void CompleteMultipleVarDeclaration()
-        {
-            IsInMultipleVarDeclaration = false;
         }
 
         public string AllocateDestructureParameterName()

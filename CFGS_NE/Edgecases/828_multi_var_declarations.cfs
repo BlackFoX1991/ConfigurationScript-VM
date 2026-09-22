@@ -1,0 +1,46 @@
+import "edge_assert.cfs";
+import "mod_multi_var.cfs";
+
+edge_begin("828_multi_var_declarations");
+
+namespace MultiVar.Core {
+    var first = 1, second = 2;
+    private var hiddenA = 10, hiddenB = 20;
+
+    func hiddenSum() { return hiddenA + hiddenB; }
+}
+
+func noLeakFromBracelessIf() {
+    if (false) var a = 1, b = 2;
+    return b;
+}
+
+func laterDeclarationIsNotARedeclaration() {
+    if (true) var a = 3, b = 4;
+    var b = 5;
+    return b;
+}
+
+func forWithTwoDeclarators() {
+    var pairs = [];
+    for (var i = 0, j = 3; i < j; i++) {
+        pairs[] = func() { return str(i) + ":" + str(j); };
+        j = j - 1;
+    }
+    return str(pairs.map(func(f, index) { return f(); }));
+}
+
+func declaratorSeesEarlierOne() {
+    var a = 2, b = a * 10, c;
+    return str([a, b, c]);
+}
+
+edge_throws("no_leak_from_braceless_if", func() { return noLeakFromBracelessIf(); });
+edge_eq("braceless_if_declarators_stay_in_the_body", laterDeclarationIsNotARedeclaration(), 5);
+edge_eq("namespace_multi_var_public", MultiVar.Core.second, 2);
+edge_eq("namespace_multi_var_private_visibility", MultiVar.Core.hiddenSum(), 30);
+edge_eq("for_with_two_declarators", forWithTwoDeclarators(), "[\"0:2\", \"1:1\"]");
+edge_eq("declarator_sees_earlier_one", declaratorSeesEarlierOne(), "[2, 20, null]");
+edge_eq("module_multi_var", moduleMultiVarSum(), 5);
+
+edge_finish("828_multi_var_declarations");

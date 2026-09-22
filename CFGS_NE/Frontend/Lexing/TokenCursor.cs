@@ -73,6 +73,22 @@ namespace CFGS_VM.Analytic.Core
         }
 
         /// <summary>
+        /// Moves the cursor back to a token index captured earlier through <see cref="CurrentIndex"/>, so the
+        /// parser can re-read a prefix with a different grammar rule.
+        /// </summary>
+        /// <param name="index">The token index to resume at.</param>
+        public void Reset(int index)
+        {
+            if (index < 0 || index >= _tokens.Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
+
+            _index = index;
+            Current = _tokens[_index];
+            Next = _index + 1 < _tokens.Count ? _tokens[_index + 1] : _tokens[^1];
+            LastConsumed = _index > 0 ? _tokens[_index - 1] : null;
+        }
+
+        /// <summary>
         /// Consumes the current token if it matches the supplied type.
         /// </summary>
         /// <param name="type">The token type to match.</param>

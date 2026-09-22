@@ -1325,6 +1325,8 @@ internal static class CfgsAstFormatter
             {
                 null => string.Empty,
                 VarDecl varDecl => $"var {varDecl.Name}{FormatInitializer(varDecl.Value)}",
+                BlockStmt { IsDeclarationGroup: true } group when group.Statements.All(static s => s is VarDecl)
+                    => "var " + string.Join(", ", group.Statements.Cast<VarDecl>().Select(d => $"{d.Name}{FormatInitializer(d.Value)}")),
                 ConstDecl constDecl => $"const {constDecl.Name} = {FormatExpr(constDecl.Value)}",
                 DestructureDeclStmt destructureDecl => $"{(destructureDecl.IsConst ? "const" : "var")} {FormatPattern(destructureDecl.Pattern)} = {FormatExpr(destructureDecl.Value)}",
                 DestructureAssignStmt destructureAssign => $"{FormatPattern(destructureAssign.Pattern)} = {FormatExpr(destructureAssign.Value)}",

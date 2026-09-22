@@ -221,7 +221,8 @@ namespace CFGS_VM.Analytic.Lowering
             BlockStmt lowered = new(LowerStatementList(block.Statements), block.Line, block.Col, block.OriginFile)
             {
                 IsFunctionBody = block.IsFunctionBody,
-                IsNamespaceScope = block.IsNamespaceScope
+                IsNamespaceScope = block.IsNamespaceScope,
+                IsDeclarationGroup = block.IsDeclarationGroup
             };
 
             return lowered;
@@ -232,7 +233,8 @@ namespace CFGS_VM.Analytic.Lowering
             return new BlockStmt(statements, block.Line, block.Col, block.OriginFile)
             {
                 IsFunctionBody = block.IsFunctionBody,
-                IsNamespaceScope = block.IsNamespaceScope
+                IsNamespaceScope = block.IsNamespaceScope,
+                IsDeclarationGroup = block.IsDeclarationGroup
             };
         }
 

@@ -84,7 +84,8 @@ internal static class Program
             BreakAndContinueDoNotCrossFunctionBoundaries,
             AwaitIsRejectedInSyncFunctionsNestedInAsyncFunctions,
             ReceiverNamesAreRejectedAsFunctionNames,
-            HashPlusWithoutWhitespaceIsALineComment
+            HashPlusWithoutWhitespaceIsALineComment,
+            MultiVariableDeclarationsAndExpressionStatementsFormatAndCheck
         ];
 
         List<string> failures = [];
@@ -2772,6 +2773,34 @@ func f(){
 
         string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
         AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "formatter must treat '#+1' as a line comment and keep indenting the code after it");
+    }
+
+    private static void MultiVariableDeclarationsAndExpressionStatementsFormatAndCheck()
+    {
+        // Every declarator of a namespace declaration carries the modifier, not just the first one.
+        AssertScriptError("""
+namespace Hidden.Pair {
+    private var a = 1, b = 2;
+}
+var x = Hidden.Pair.b;
+""", "CFGS2002", "inaccessible namespace member 'b'");
+
+        string source = """
+func run(ok, n) {
+    for (var i = 0, j = n; i < j; i++) {
+        ok && print(i);
+    }
+    ok ? print("yes") : print("no");
+}
+""";
+
+        string formatted = NormalizeNewlines(CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text);
+        AssertTrue(formatted.Contains("var i = 0, j = n;", StringComparison.Ordinal),
+            $"formatter must keep both for-initializer declarators, got:\n{formatted}");
+        AssertTrue(formatted.Contains("ok && print(i);", StringComparison.Ordinal),
+            $"formatter must keep an identifier-led expression statement, got:\n{formatted}");
+        AssertEqual(formatted, NormalizeNewlines(CfgsFormatter.Format(formatted, new CfgsFormatOptions(4, UseTabs: false)).Text),
+            "formatting the new statement forms must be idempotent");
     }
 
     private static CfgsScript CompileProbe(string name, string source)

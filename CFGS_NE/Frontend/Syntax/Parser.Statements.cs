@@ -7,16 +7,61 @@ namespace CFGS_VM.Analytic.Core
 {
     public partial class Parser
     {
+        // Declarators after the first one of a `var a = 1, b = 2;` statement. Statement() returns the first
+        // and queues the rest here; every caller that collects statements takes them right away through
+        // ParseStatementList, so all declarators land in the same statement list.
+        private readonly List<Stmt> _pendingDeclarations = [];
+
         private Stmt Statement()
         {
-            int startTokenIndex = MarkNodeStart();
-            if (_context.IsInMultipleVarDeclaration)
-                return StampNode(ParseVarDecl, startTokenIndex);
+            if (_pendingDeclarations.Count > 0)
+            {
+                // A caller parsed a statement and did not collect the queued declarators. Failing loudly
+                // keeps them from being attached to the next statement's position (the bug this queue
+                // replaced). A ParserException, so the tolerant parser reports it instead of crashing.
+                Stmt orphan = _pendingDeclarations[0];
+                _pendingDeclarations.Clear();
+                throw new ParserException(
+                    "internal parser error: declarators of a multi-variable declaration were not collected",
+                    orphan.Line,
+                    orphan.Col,
+                    orphan.OriginFile);
+            }
 
+            int startTokenIndex = MarkNodeStart();
             Stmt stmt = IsInFunctionOrClass
                 ? ParseStatementInMemberScope()
                 : ParseStatementTopLevel();
             return StampNode(stmt, startTokenIndex);
+        }
+
+        /// <summary>
+        /// Parses one statement plus the further declarators of a multi-variable declaration, if any.
+        /// </summary>
+        private List<Stmt> ParseStatementList()
+        {
+            Stmt first = Statement();
+            if (_pendingDeclarations.Count == 0)
+                return [first];
+
+            List<Stmt> statements = [first];
+            statements.AddRange(TakePendingDeclarations());
+            return statements;
+        }
+
+        private List<Stmt> TakePendingDeclarations()
+        {
+            List<Stmt> pending = [.. _pendingDeclarations];
+            _pendingDeclarations.Clear();
+            return pending;
+        }
+
+        private Stmt FirstAndQueueRest(List<Stmt> declarations)
+        {
+            for (int i = 1; i < declarations.Count; i++)
+                _pendingDeclarations.Add(declarations[i]);
+
+            return declarations[0];
         }
 
         private bool TryParseCommonStatement(out Stmt stmt)
@@ -27,7 +72,7 @@ namespace CFGS_VM.Analytic.Core
                     stmt = ParseEmptyStmt;
                     return true;
                 case TokenType.Var:
-                    stmt = ParseVarDecl;
+                    stmt = FirstAndQueueRest(ParseVarDeclList());
                     return true;
                 case TokenType.Const:
                     stmt = ParseConstDecl;
@@ -79,8 +124,11 @@ namespace CFGS_VM.Analytic.Core
                     stmt = ParseEmptyStmt;
                     break;
                 case TokenType.Var:
-                    stmt = ParseVarDecl;
-                    break;
+                    List<Stmt> declarations = ParseVarDeclList();
+                    foreach (Stmt declaration in declarations)
+                        ValidateModuleScopeInitializer(declaration);
+                    stmt = FirstAndQueueRest(declarations);
+                    return true;
                 case TokenType.Const:
                     stmt = ParseConstDecl;
                     break;
@@ -393,11 +441,26 @@ namespace CFGS_VM.Analytic.Core
             return target;
         }
 
+        /// <summary>
+        /// Gets whether the token can continue an expression after an identifier chain such as
+        /// <c>a.b(c)[d]</c>. Assignment, push, and increment forms are handled by the chain parser itself;
+        /// these tokens mean the statement is a larger expression (<c>ok &amp;&amp; f();</c>,
+        /// <c>x ? a() : b();</c>, <c>v match { ... };</c>) that has to be parsed as a whole.
+        /// </summary>
+        private static bool ContinuesExpressionStatement(TokenType type)
+            => type is TokenType.Plus or TokenType.Minus or TokenType.Star or TokenType.Slash or TokenType.Modulo
+                or TokenType.Expo or TokenType.bShiftL or TokenType.bShiftR or TokenType.MergeLeft or TokenType.MergeRight
+                or TokenType.bOr or TokenType.bAnd or TokenType.bXor
+                or TokenType.Eq or TokenType.Neq or TokenType.Lt or TokenType.Gt or TokenType.Le or TokenType.Ge or TokenType.Is
+                or TokenType.AndAnd or TokenType.OrOr or TokenType.QQNull or TokenType.Question
+                or TokenType.Match or TokenType.LBrace;
+
         private Stmt ParseAssignOrIndexAssignOrPushOrExpr(bool requireSemicolon = true)
         {
             int line = _current.Line;
             int col = _current.Column;
             string fsname = _current.Filename;
+            int statementStartIndex = _cursor.CurrentIndex;
 
             string name = _current.Value.ToString() ?? "";
             Eat(TokenType.Ident);
@@ -479,6 +542,17 @@ namespace CFGS_VM.Analytic.Core
                 {
                     break;
                 }
+            }
+
+            // The chain above only understands member, index, and call steps. When an operator follows,
+            // re-read the statement from its first token with the full expression grammar; the chain
+            // parse had no side effects beyond building nodes, so rewinding the cursor is safe.
+            if (ContinuesExpressionStatement(_current.Type))
+            {
+                _cursor.Reset(statementStartIndex);
+                Expr expression = Expr();
+                EatStatementTerminator(requireSemicolon);
+                return new ExprStmt(expression, line, col, fsname);
             }
 
             if (_current.Type == TokenType.Assign ||

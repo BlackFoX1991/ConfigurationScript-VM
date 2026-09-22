@@ -446,7 +446,8 @@ internal static class CfgsLinter
                     break;
 
                 case BlockStmt b:
-                    VisitStatements(b.Statements);
+                    // A declaration group (for initializer) binds in the enclosing scope.
+                    VisitStatements(b.Statements, isTopLevel: b.IsDeclarationGroup);
                     break;
 
                 case IfStmt i:

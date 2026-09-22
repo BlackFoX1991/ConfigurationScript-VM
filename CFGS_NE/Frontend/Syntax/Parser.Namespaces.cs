@@ -54,8 +54,27 @@ namespace CFGS_VM.Analytic.Core
             return sb.ToString();
         }
 
-        private Stmt ParseNamespaceBodyStatement()
+        /// <summary>
+        /// Parses one namespace member declaration. A multi-variable declaration yields one statement per
+        /// declarator, all carrying the same visibility.
+        /// </summary>
+        private List<Stmt> ParseNamespaceBodyStatements()
         {
+            Stmt first = ParseNamespaceBodyStatement(out MemberVisibility? visibility);
+            List<Stmt> statements = [first];
+            foreach (Stmt declaration in TakePendingDeclarations())
+            {
+                if (visibility is MemberVisibility explicitVisibility)
+                    NamespaceMemberVisibilityFacts.TryApply(declaration, explicitVisibility, hasExplicitVisibility: true);
+                statements.Add(declaration);
+            }
+
+            return statements;
+        }
+
+        private Stmt ParseNamespaceBodyStatement(out MemberVisibility? explicitVisibility)
+        {
+            explicitVisibility = null;
             int startTokenIndex = MarkNodeStart();
             if (_current.Type == TokenType.Public || _current.Type == TokenType.Private || _current.Type == TokenType.Protected)
             {
@@ -84,6 +103,7 @@ namespace CFGS_VM.Analytic.Core
                         file);
                 }
 
+                explicitVisibility = visibility;
                 return StampNode(visibleStmt, startTokenIndex);
             }
 
@@ -154,8 +174,7 @@ namespace CFGS_VM.Analytic.Core
                     int attemptIndex = _cursor.CurrentIndex;
                     try
                     {
-                        Stmt bodyStmt = ParseNamespaceBodyStatement();
-                        fileScopedBodyStatements.Add(bodyStmt);
+                        fileScopedBodyStatements.AddRange(ParseNamespaceBodyStatements());
                     }
                     catch (Exception ex) when (IsTolerant && ex is ParserException or LexerException)
                     {
@@ -202,8 +221,7 @@ namespace CFGS_VM.Analytic.Core
                 int attemptIndex = _cursor.CurrentIndex;
                 try
                 {
-                    Stmt bodyStmt = ParseNamespaceBodyStatement();
-                    bodyStmts.Add(bodyStmt);
+                    bodyStmts.AddRange(ParseNamespaceBodyStatements());
                 }
                 catch (Exception ex) when (IsTolerant && ex is ParserException or LexerException)
                 {

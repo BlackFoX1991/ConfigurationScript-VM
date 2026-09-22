@@ -1977,6 +1977,13 @@ namespace CFGS_VM.Analytic.Tree
         public bool IsNamespaceScope { get; set; } = false;
 
         /// <summary>
+        /// Gets or sets a value indicating whether this block only groups the declarators of one
+        /// <c>var a = 1, b = 2</c> declaration in a single statement slot (the for initializer). Such a
+        /// group opens no scope: its bindings belong to the enclosing scope.
+        /// </summary>
+        public bool IsDeclarationGroup { get; set; } = false;
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="BlockStmt"/> class.
         /// </summary>
         /// <param name="s">The s<see cref="List{Stmt}"/></param>

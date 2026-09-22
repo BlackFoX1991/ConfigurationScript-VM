@@ -898,61 +898,66 @@ namespace CFGS_VM.Analytic.Core
         }
 
         /// <summary>
-        /// Gets the ParseVarDecl
+        /// Parses a complete <c>var</c> declaration including its terminating semicolon. Every declarator
+        /// of <c>var a = 1, b = 2;</c> becomes its own <see cref="VarDecl"/>; a destructuring declaration
+        /// stands alone.
+        /// <para>
+        /// This used to return one declarator at a time and set a parser flag so the next statement parse
+        /// continued the list. Any caller that parsed exactly one statement (a braceless if body, a for
+        /// initializer) then left the remaining declarators to whoever parsed next: they escaped an
+        /// <c>if</c> body and ran unconditionally, and broke a for header or a namespace body.
+        /// </para>
         /// </summary>
-        private Stmt ParseVarDecl
+        private List<Stmt> ParseVarDeclList()
         {
-            get
+            int startTokenIndex = MarkNodeStart();
+            Eat(TokenType.Var);
+
+            if (_current.Type == TokenType.LBracket || _current.Type == TokenType.LBrace)
             {
+                int patternLine = _current.Line;
+                int patternCol = _current.Column;
+                string patternFile = _current.Filename;
+
+                MatchPattern pattern = ParseDestructurePattern();
+                ValidateUniqueDestructureBindings(pattern);
+
+                if (_current.Type != TokenType.Assign)
+                {
+                    throw new ParserException(
+                        "destructuring declarations require an initializer",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+                }
+
+                Eat(TokenType.Assign);
+                Expr destructValue = Expr();
+                Eat(TokenType.Semi);
+
+                return [StampNode(new DestructureDeclStmt(pattern, destructValue, isConst: false, patternLine, patternCol, patternFile), startTokenIndex)];
+            }
+
+            List<Stmt> declarations = [];
+            while (true)
+            {
+                if (declarations.Count > 0 && (_current.Type == TokenType.LBracket || _current.Type == TokenType.LBrace))
+                {
+                    throw new ParserException(
+                        "destructuring declaration cannot follow ',' in var declaration",
+                        _current.Line,
+                        _current.Column,
+                        _current.Filename);
+                }
+
                 int declLine = _current.Line;
                 int declCol = _current.Column;
                 string declFile = _current.Filename;
-
-                if (!_context.IsInMultipleVarDeclaration)
-                {
-                    Eat(TokenType.Var);
-                    declLine = _current.Line;
-                    declCol = _current.Column;
-                    declFile = _current.Filename;
-                }
-
-                if (_current.Type == TokenType.LBracket || _current.Type == TokenType.LBrace)
-                {
-                    if (_context.IsInMultipleVarDeclaration)
-                    {
-                        throw new ParserException(
-                            "destructuring declaration cannot follow ',' in var declaration",
-                            _current.Line,
-                            _current.Column,
-                            _current.Filename);
-                    }
-
-                    MatchPattern pattern = ParseDestructurePattern();
-                    ValidateUniqueDestructureBindings(pattern);
-
-                    if (_current.Type != TokenType.Assign)
-                    {
-                        throw new ParserException(
-                            "destructuring declarations require an initializer",
-                            _current.Line,
-                            _current.Column,
-                            _current.Filename);
-                    }
-
-                    Eat(TokenType.Assign);
-                    Expr destructValue = Expr();
-                    Eat(TokenType.Semi);
-
-                    return new DestructureDeclStmt(pattern, destructValue, isConst: false, declLine, declCol, declFile);
-                }
-
-                declLine = _current.Line;
-                declCol = _current.Column;
-                declFile = _current.Filename;
                 string name = _current.Value.ToString() ?? "";
                 if (Lexer.Keywords.ContainsKey(name))
                     throw new ParserException($"invalid symbol declaration name '{name}'", _current.Line, _current.Column, _current.Filename);
                 Eat(TokenType.Ident);
+
                 Expr? value = null;
                 if (_current.Type == TokenType.Assign)
                 {
@@ -960,18 +965,14 @@ namespace CFGS_VM.Analytic.Core
                     value = Expr();
                 }
 
-                if (_current.Type == TokenType.Comma)
-                {
-                    _context.ContinueMultipleVarDeclaration();
-                    Eat(TokenType.Comma);
-                }
-                else
-                {
-                    _context.CompleteMultipleVarDeclaration();
-                    Eat(TokenType.Semi);
-                }
+                bool hasMore = _current.Type == TokenType.Comma;
+                Eat(hasMore ? TokenType.Comma : TokenType.Semi);
+                declarations.Add(StampNode(new VarDecl(name, value, declLine, declCol, declFile), startTokenIndex));
 
-                return new VarDecl(name, value, declLine, declCol, declFile);
+                if (!hasMore)
+                    return declarations;
+
+                startTokenIndex = MarkNodeStart();
             }
         }
 

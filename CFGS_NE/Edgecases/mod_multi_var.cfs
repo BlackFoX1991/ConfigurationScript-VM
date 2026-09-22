@@ -1,0 +1,5 @@
+var moduleLeft = 2, moduleRight = 3;
+
+func moduleMultiVarSum() {
+    return moduleLeft + moduleRight;
+}

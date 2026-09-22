@@ -46,6 +46,10 @@ namespace CFGS_VM.VMCore
         // descriptor/slot passes never see it (so hop counts are correct) — no post-hoc fixup is needed.
         private bool BlockNeedsOwnScope(BlockStmt b)
         {
+            // The declarators of `for (var i = 0, j = 1; ...)` bind in the loop scope itself.
+            if (b.IsDeclarationGroup)
+                return false;
+
             // Namespace scope blocks publish types through a dedicated scope; always keep it.
             if (TryGetNamespaceScopePath(b, out _))
                 return true;
@@ -93,8 +97,11 @@ namespace CFGS_VM.VMCore
                 case MatchStmt:
                 case TryStmt:
                 case UsingStmt:
-                case BlockStmt:
                     return false;
+
+                // A nested block binds in its own scope, except a declaration group, which binds here.
+                case BlockStmt block:
+                    return block.IsDeclarationGroup;
 
                 // export <decl> binds iff its wrapped declaration does.
                 case ExportStmt ex:
@@ -361,6 +368,8 @@ namespace CFGS_VM.VMCore
                     return [c.Name];
                 case DestructureDeclStmt d:
                     return CollectDestructureBindingNames(d.Pattern);
+                case BlockStmt { IsDeclarationGroup: true } group:
+                    return group.Statements.SelectMany(CollectForInitBindingNames).ToList();
                 default:
                     return [];
             }

@@ -48,6 +48,7 @@ namespace CFGS_VM.Analytic.Core
             // ResetNestingDepths) so recovered errors cannot cascade into false diagnostics on later,
             // well-formed statements.
             ResetNestingDepths();
+            _pendingDeclarations.Clear();
 
             int attemptIndex = _cursor.CurrentIndex;
             try
@@ -74,9 +75,9 @@ namespace CFGS_VM.Analytic.Core
                     return;
                 }
 
-                Stmt stmt = Statement();
-                stmts.Add(stmt);
-                TrackKnownTopLevelSymbols([stmt]);
+                List<Stmt> parsed = ParseStatementList();
+                stmts.AddRange(parsed);
+                TrackKnownTopLevelSymbols(parsed);
             }
             catch (Exception ex) when (ex is ParserException or LexerException)
             {
@@ -89,6 +90,10 @@ namespace CFGS_VM.Analytic.Core
 
         private void AddErrorStatement(List<Stmt> statements, Exception ex)
         {
+            // Every tolerant catch site passes through here; declarators queued by a statement that then
+            // failed must not be attached to the next one.
+            _pendingDeclarations.Clear();
+
             ParserException diagnostic = NormalizeDiagnostic(ex);
             _diagnostics.Add(diagnostic);
             statements.Add(new ErrorStmt(diagnostic.RawMessage, diagnostic.Line, diagnostic.Column, diagnostic.Filename));

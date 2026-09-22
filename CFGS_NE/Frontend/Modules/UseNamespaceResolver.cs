@@ -438,7 +438,8 @@ namespace CFGS_VM.Analytic.Modules
             BlockStmt copy = new(rewritten, block.Line, block.Col, block.OriginFile)
             {
                 IsFunctionBody = block.IsFunctionBody,
-                IsNamespaceScope = block.IsNamespaceScope
+                IsNamespaceScope = block.IsNamespaceScope,
+                IsDeclarationGroup = block.IsDeclarationGroup
             };
             return copy;
         }

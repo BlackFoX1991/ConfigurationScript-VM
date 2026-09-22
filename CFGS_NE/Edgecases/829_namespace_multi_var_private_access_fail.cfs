@@ -1,0 +1,5 @@
+# A visibility modifier applies to every declarator of a namespace var declaration.
+namespace MultiVar.Hidden {
+    private var a = 1, b = 2;
+}
+print(MultiVar.Hidden.b);

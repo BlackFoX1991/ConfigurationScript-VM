@@ -140,9 +140,9 @@ namespace CFGS_VM.Analytic.Core
                     continue;
                 }
 
-                Stmt stmt = Statement();
-                stmts.Add(stmt);
-                TrackKnownTopLevelSymbols(new[] { stmt });
+                List<Stmt> parsed = ParseStatementList();
+                stmts.AddRange(parsed);
+                TrackKnownTopLevelSymbols(parsed);
             }
 
             ValidateTopLevelSymbolUniqueness(stmts);

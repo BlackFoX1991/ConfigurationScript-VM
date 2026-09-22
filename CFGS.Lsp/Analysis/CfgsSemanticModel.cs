@@ -146,6 +146,14 @@ internal sealed class CfgsSemanticModelBuilder
             return CompletionResult.Fallthrough();
         }
 
+        if (stmt is BlockStmt { IsDeclarationGroup: true } declarationGroup)
+        {
+            // The declarators of `for (var i = 0, j = 1; ...)` bind in the enclosing (loop) scope.
+            foreach (Stmt declaration in declarationGroup.Statements)
+                VisitStatement(declaration, scope, containerQualifiedName);
+            return CompletionResult.Fallthrough();
+        }
+
         switch (stmt)
         {
             case EmptyStmt:
