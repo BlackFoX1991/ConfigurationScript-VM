@@ -1,0 +1,21 @@
+import "edge_assert.cfs";
+
+edge_begin("826_hash_plus_line_comment");
+
+func collect() {
+    var log = [];
+    #+1 a line comment that happens to start with a plus
+    log[] = "a";
+    #+
+    A real block comment spans lines.
+    log[] = "swallowed";
+    +#
+    log[] = #+ an inline block comment +# "b";
+    #++ decorative separator
+    log[] = "c";
+    return str(log);
+}
+
+edge_eq("hash_plus_line_comment_does_not_swallow_code", collect(), "[\"a\", \"b\", \"c\"]");
+
+edge_finish("826_hash_plus_line_comment");

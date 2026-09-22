@@ -1729,9 +1729,9 @@ internal static class CfgsAstFormatter
                 return;
             }
 
-            if (trimmed.StartsWith("#+", StringComparison.Ordinal))
+            if (CommentSyntax.IsBlockCommentStart(trimmed, 0))
             {
-                inBlockComment = !trimmed.Contains("+#", StringComparison.Ordinal);
+                inBlockComment = trimmed.IndexOf(CommentSyntax.BlockCommentClose, CommentSyntax.BlockCommentOpen.Length, StringComparison.Ordinal) < 0;
                 WriteIndent();
                 _sb.Append(trimmed);
                 AppendLine();
@@ -1753,7 +1753,7 @@ internal static class CfgsAstFormatter
             if (offset < 0 || offset >= _sourceText.Length || _sourceText[offset] != '#')
                 return false;
 
-            if (offset + 1 < _sourceText.Length && _sourceText[offset + 1] == '+')
+            if (CommentSyntax.IsBlockCommentStart(_sourceText, offset))
                 return false;
 
             int probe = offset;

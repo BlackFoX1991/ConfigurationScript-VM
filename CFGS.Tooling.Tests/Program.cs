@@ -83,7 +83,8 @@ internal static class Program
             LambdaCapturesEnclosingReceiverLikeCSharp,
             BreakAndContinueDoNotCrossFunctionBoundaries,
             AwaitIsRejectedInSyncFunctionsNestedInAsyncFunctions,
-            ReceiverNamesAreRejectedAsFunctionNames
+            ReceiverNamesAreRejectedAsFunctionNames,
+            HashPlusWithoutWhitespaceIsALineComment
         ];
 
         List<string> failures = [];
@@ -2727,6 +2728,50 @@ async func runner() {
         {
             AssertScriptError(source, "CFGS1000", "invalid symbol declaration name");
         }
+    }
+
+    private static void HashPlusWithoutWhitespaceIsALineComment()
+    {
+        // "#+1 for this" used to open a block comment and silently swallow every line up to the next
+        // "+#". A block comment now needs whitespace or the line end after "#+".
+        CfgsScript script = CompileProbe("<hash-plus>", """
+func run() {
+    var log = [];
+    #+1 good idea
+    log[] = "a";
+    #+ real block comment
+    log[] = "swallowed";
+    +#
+    log[] = #+ inline +# "b";
+    #++ decorative line
+    log[] = "c";
+    return str(log);
+}
+""");
+        script.RunAsync().GetAwaiter().GetResult();
+        AssertEqual("[\"a\", \"b\", \"c\"]", script.InvokeAsync<string>("run").GetAwaiter().GetResult() ?? "",
+            "'#+' followed by a non-space character must be a line comment");
+
+        string source = """
+func f(){
+#+1 note
+if(true){
+return 1;
+}
+}
+""";
+
+        string expected = """
+func f(){
+    #+1 note
+    if(true){
+        return 1;
+    }
+}
+""" + "\n";
+
+        string actual = CfgsFormatter.Format(source, new CfgsFormatOptions(4, UseTabs: false)).Text;
+        AssertEqual(NormalizeNewlines(expected), NormalizeNewlines(actual), "formatter must treat '#+1' as a line comment and keep indenting the code after it");
     }
 
     private static CfgsScript CompileProbe(string name, string source)

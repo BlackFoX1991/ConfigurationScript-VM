@@ -502,7 +502,7 @@ public class Lexer
 
             if (c == '#')
             {
-                if (Peek == '+')
+                if (CommentSyntax.IsBlockCommentStart(_text, _pos))
                 {
                     int blockLine = _line, blockCol = _col;
                     SyncPos(2);

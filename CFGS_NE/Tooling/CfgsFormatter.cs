@@ -1,4 +1,5 @@
 using System.Text;
+using CFGS_VM.Analytic.Tokens;
 
 namespace CFGS_VM.Tooling;
 
@@ -339,7 +340,7 @@ public static class CfgsFormatter
 
             if (ch == '#')
             {
-                if (next == '+')
+                if (CommentSyntax.IsBlockCommentStart(line, i))
                 {
                     inBlockComment = true;
                     i++;
