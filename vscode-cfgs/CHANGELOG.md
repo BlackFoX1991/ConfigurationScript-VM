@@ -1,5 +1,31 @@
 # Change Log
 
+## 0.10.0 - 2026-09-22
+
+### Changed
+- Updated the bundled CFGS language server and CLI to v19.0.0.
+- Syntax highlighting: `#+` starts a block comment only when whitespace or the end of the line follows, matching the new lexer rule. `#+1 for this` is highlighted as a line comment.
+
+### Breaking
+- v19.0.0 changes several language behaviours, which affects scripts run through the lint and format commands and any `.cfb` artifact in a workspace:
+  - A class field without an initializer starts as `null` instead of `0`.
+  - `|` in a `match` value pattern separates or-pattern alternatives (`case 1 | 2:`). A bitwise-or value is written in parentheses, `(1 | 2)`.
+  - `math.round` rounds half-way values away from zero, and `math.PI` and `math.E` are values instead of zero-argument methods.
+  - A derived `init` is no longer held to the base `init` signature.
+  - A class can render its instances through a public `toString()` method, which print, str, interpolation, format, and concatenation now call.
+- The bytecode version moved from 7 to 8. Existing `.cfb` files are rejected with a clear version error and have to be recompiled.
+
+### Fixed
+- `break` or `continue` inside a closure, local function, or local-class method no longer passes the checker and then jumps into the enclosing loop at runtime; it is reported as a parse error. `await` inside a synchronous closure nested in an async function is reported too.
+- A function or method named `this`, `type`, `super`, or `outer` is reported where it is declared instead of failing at runtime.
+- `ok && f();`, `x ? a() : b();`, and other expression statements that start with an identifier parse.
+- `var a = 1, b = 2;` keeps both declarators in a braceless `if` body, works in a `for` initializer, and works in a namespace body with the modifier applied to every name.
+- A `const` instance field can be assigned in `init`.
+- Trailing commas are accepted in array and dictionary literals, argument lists, and parameter lists; enum values may be negative.
+
+### Added
+- Lint rule `CFGS8023` warns when a dictionary key such as `{host: 1}` is a bare identifier that names no declared variable.
+
 ## 0.9.0 - 2026-08-17
 
 ### Changed

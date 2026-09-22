@@ -24,7 +24,12 @@ namespace CFGS_VM.VMCore
         // meaning. The same bump also stops a v7 artifact from reaching an older VM and failing at the
         // appended IS_PRIMITIVE_TYPE opcode, which would look like a corrupt file instead of an
         // outdated VM.
-        public const int CurrentBytecodeVersion = 7;
+        // v8: fields without an initializer now start as null instead of 0, a `|` in a value pattern
+        // now separates or-pattern alternatives instead of computing a bitwise value, and const
+        // instance fields are sealed by the appended SEAL_CONST_FIELDS opcode at the end of their
+        // class's constructor. All three live in the emitted code, so an older artifact would keep the
+        // old meaning silently.
+        public const int CurrentBytecodeVersion = 8;
 
         public string Name { get; }
 
