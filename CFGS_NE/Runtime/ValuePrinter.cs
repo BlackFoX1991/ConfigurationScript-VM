@@ -295,8 +295,12 @@ namespace CFGS_VM.VMCore
         /// {"a": "1"} and {"a": 1} print identically, and ["x, y"] is indistinguishable from two
         /// elements. A value printed on its own stays raw, because quoting every print("hello")
         /// would be worse than the ambiguity it removes.
+        ///
+        /// <paramref name="invokeUserToString"/> lets a class instance render through its own toString()
+        /// (see <see cref="TryInvokeUserToString"/>). Paths that must not run script code, such as the
+        /// debugger, pass false and get the class name.
         /// </summary>
-        public static void PrintValue(Value v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false, bool nested = false)
+        public static void PrintValue(Value v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false, bool nested = false, bool invokeUserToString = true)
         {
             switch (v.Kind)
             {
@@ -322,14 +326,14 @@ namespace CFGS_VM.VMCore
                         w.Write(v.AsChar);
                     break;
                 default:
-                    PrintValue(v.Reference, w, mode, seen, escapeNewlines, nested);
+                    PrintValue(v.Reference, w, mode, seen, escapeNewlines, nested, invokeUserToString);
                     break;
             }
 
             w.Flush();
         }
 
-        public static void PrintValue(object? v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false, bool nested = false)
+        public static void PrintValue(object? v, TextWriter w, int mode = 2, HashSet<object>? seen = null, bool escapeNewlines = false, bool nested = false, bool invokeUserToString = true)
         {
             static string UnescapeForPrinting(string s)
             {
@@ -351,7 +355,7 @@ namespace CFGS_VM.VMCore
 
             if (v is Value tagged)
             {
-                PrintValue(tagged, w, mode, seen, escapeNewlines, nested);
+                PrintValue(tagged, w, mode, seen, escapeNewlines, nested, invokeUserToString);
                 return;
             }
 
@@ -368,7 +372,7 @@ namespace CFGS_VM.VMCore
                 w.Write("[");
                 for (int i = 0; i < items.Count; i++)
                 {
-                    PrintValue(items[i], w, mode, seen, escapeNewlines, nested: true);
+                    PrintValue(items[i], w, mode, seen, escapeNewlines, nested: true, invokeUserToString);
                     if (i + 1 < items.Count)
                         w.Write(", ");
                 }
@@ -404,7 +408,7 @@ namespace CFGS_VM.VMCore
                     KeyValuePair<string, object> kv = entries[i];
                     WriteQuoted(w, escapeNewlines ? UnescapeForPrinting(kv.Key) : kv.Key, '"');
                     w.Write(": ");
-                    PrintValue(kv.Value, w, mode, seen, escapeNewlines, nested: true);
+                    PrintValue(kv.Value, w, mode, seen, escapeNewlines, nested: true, invokeUserToString);
                     if (i + 1 < entries.Count)
                         w.Write(", ");
                 }
@@ -415,6 +419,15 @@ namespace CFGS_VM.VMCore
 
             if (v is ClassInstance ci)
             {
+                // An instance renders through its class's toString() when it declares a usable one, and
+                // as its class name otherwise. The text is written raw, also inside a collection: it is
+                // the instance's representation, not a string element that needs quoting.
+                if (invokeUserToString && CurrentVm is VM vm && vm.TryInvokeUserToString(ci, out string rendered))
+                {
+                    w.Write(rendered);
+                    return;
+                }
+
                 w.Write(ci.ClassName);
                 return;
             }

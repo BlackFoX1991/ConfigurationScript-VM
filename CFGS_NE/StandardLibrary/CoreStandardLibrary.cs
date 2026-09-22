@@ -189,7 +189,7 @@ namespace CFGS_VM.StandardLibrary
             if (!intrinsics.TryGet(receiverType, existing, out IntrinsicDescriptor d))
                 throw new InvalidOperationException($"Cannot alias unknown intrinsic '{existing}' on {receiverType.Name}.");
 
-            intrinsics.Register(receiverType, new IntrinsicDescriptor(alias, d.ArityMin, d.ArityMax, d.Invoke, d.Options));
+            intrinsics.Register(receiverType, new IntrinsicDescriptor(alias, d.ArityMin, d.ArityMax, d.Invoke, d.Options) { IsValue = d.IsValue });
         }
 
         /// <summary>
@@ -422,9 +422,17 @@ namespace CFGS_VM.StandardLibrary
 
         private static object MathFloorVm(List<object> args) => Math.Floor(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
         private static object MathCeilVm(List<object> args) => Math.Ceiling(Convert.ToDouble(args[0], CultureInfo.InvariantCulture));
-        private static object MathRoundVm(List<object> args) => args.Count == 1
-            ? Math.Round(Convert.ToDouble(args[0], CultureInfo.InvariantCulture))
-            : Math.Round(Convert.ToDouble(args[0], CultureInfo.InvariantCulture), Convert.ToInt32(args[1], CultureInfo.InvariantCulture));
+        // Half-way values round away from zero (2.5 -> 3, -2.5 -> -3), which is what a script author
+        // expects; .NET's default is banker's rounding (2.5 -> 2). A decimal stays decimal so money rounds
+        // exactly instead of going through a double first.
+        private static object MathRoundVm(List<object> args)
+        {
+            int digits = args.Count == 1 ? 0 : Convert.ToInt32(args[1], CultureInfo.InvariantCulture);
+            if (args[0] is decimal dec)
+                return Math.Round(dec, digits, MidpointRounding.AwayFromZero);
+
+            return Math.Round(Convert.ToDouble(args[0], CultureInfo.InvariantCulture), digits, MidpointRounding.AwayFromZero);
+        }
 
         private static object MathMinVm(List<object> args)
             => VM.CompareRuntimeValues(args[0], args[1]) <= 0 ? args[0] : args[1];
@@ -464,9 +472,10 @@ namespace CFGS_VM.StandardLibrary
             intrinsics.Register(T, new IntrinsicDescriptor("tan", 1, 1, (recv, a, instr) => MathTanVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("sign", 1, 1, (recv, a, instr) => MathSignVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("trunc", 1, 1, (recv, a, instr) => MathTruncVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("PI", 0, 0, (recv, a, instr) => Math.PI));
+            // Uppercase PI and E are constants (math.PI * 2); lowercase pi() and e() stay functions.
+            intrinsics.Register(T, new IntrinsicDescriptor("PI", 0, 0, (recv, a, instr) => Math.PI) { IsValue = true });
             intrinsics.Register(T, new IntrinsicDescriptor("pi", 0, 0, (recv, a, instr) => Math.PI));
-            intrinsics.Register(T, new IntrinsicDescriptor("E", 0, 0, (recv, a, instr) => Math.E));
+            intrinsics.Register(T, new IntrinsicDescriptor("E", 0, 0, (recv, a, instr) => Math.E) { IsValue = true });
             intrinsics.Register(T, new IntrinsicDescriptor("e", 0, 0, (recv, a, instr) => Math.E));
         }
 

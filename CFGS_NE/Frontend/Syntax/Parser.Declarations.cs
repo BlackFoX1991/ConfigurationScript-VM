@@ -738,14 +738,14 @@ namespace CFGS_VM.Analytic.Core
 
                     if (staticSet)
                     {
-                        staticFields[fieldName] = init ?? new NumberExpr(0, line, col, _current.Filename);
+                        staticFields[fieldName] = init ?? new NullExpr(memberLine, memberCol, memberFile);
                         staticFieldVisibility[fieldName] = visibility;
                         if (constSet)
                             staticConstFields.Add(fieldName);
                     }
                     else
                     {
-                        fields[fieldName] = init ?? new NumberExpr(0, line, col, _current.Filename);
+                        fields[fieldName] = init ?? new NullExpr(memberLine, memberCol, memberFile);
                         fieldVisibility[fieldName] = visibility;
                         if (constSet)
                             constFields.Add(fieldName);

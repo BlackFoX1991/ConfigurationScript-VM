@@ -1,0 +1,19 @@
+import "edge_assert.cfs";
+
+edge_begin("834_math_round_and_constants");
+
+edge_true("pi_constant", math.PI > 3.14 && math.PI < 3.15);
+edge_true("pi_constant_in_arithmetic", math.PI * 2 > 6.28);
+edge_true("e_constant", math.E > 2.71 && math.E < 2.72);
+edge_true("pi_function_still_callable", math.pi() == math.PI);
+edge_true("std_alias_constant", std.math.PI == math.PI);
+
+edge_eq("round_half_away_from_zero", math.round(2.5), 3);
+edge_eq("round_negative_half_away_from_zero", math.round(-2.5), -3);
+edge_eq("round_digits_double", math.round(0.125, 2), 0.13);
+edge_eq("round_decimal_exact", math.round(2.345m, 2), 2.35m);
+edge_eq("round_decimal_keeps_type", typeof(math.round(2.345m, 2)), "Decimal");
+edge_eq("round_double_type", typeof(math.round(2.5)), "Double");
+edge_eq("round_regular_value", math.round(1.6), 2);
+
+edge_finish("834_math_round_and_constants");

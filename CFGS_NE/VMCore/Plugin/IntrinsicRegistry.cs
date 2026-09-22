@@ -16,6 +16,8 @@ namespace CFGS_VM.VMCore.Plugin
             }
             if (bucket.ContainsKey(d.Name))
                 throw new InvalidOperationException($"Duplicate intrinsic '{d.Name}' for {receiverType.Name}.");
+            if (d.IsValue && d.ArityMin != 0)
+                throw new InvalidOperationException($"Value intrinsic '{d.Name}' for {receiverType.Name} must accept zero arguments.");
             bucket[d.Name] = d;
         }
 

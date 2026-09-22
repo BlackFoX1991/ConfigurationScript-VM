@@ -119,6 +119,13 @@ namespace CFGS_VM.VMCore.Plugin
         public NativeCallOptions Options { get; }
 
         /// <summary>
+        /// Gets a value indicating whether the member is a value rather than a method. Dot access
+        /// (<c>math.PI</c>) invokes it with no arguments and yields the result instead of a bound callable,
+        /// so it must accept zero arguments.
+        /// </summary>
+        public bool IsValue { get; init; }
+
+        /// <summary>
         /// Initializes a new instance of the <see cref="IntrinsicDescriptor"/> class.
         /// </summary>
         /// <param name="name">The name<see cref="string"/></param>

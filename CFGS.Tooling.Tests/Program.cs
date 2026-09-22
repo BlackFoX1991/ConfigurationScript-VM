@@ -86,7 +86,9 @@ internal static class Program
             ReceiverNamesAreRejectedAsFunctionNames,
             HashPlusWithoutWhitespaceIsALineComment,
             MultiVariableDeclarationsAndExpressionStatementsFormatAndCheck,
-            TrailingCommasAndNegativeEnumValuesFormatAndCheck
+            TrailingCommasAndNegativeEnumValuesFormatAndCheck,
+            UnknownStringAndArrayMethodsReportClearErrors,
+            ToStringProtocolIsConsistentAcrossTextPaths
         ];
 
         List<string> failures = [];
@@ -2824,6 +2826,30 @@ var d = {"x": pick(1, b: 3,),};
         script.RunAsync().GetAwaiter().GetResult();
         AssertEqual("{\"x\": [1, 3]}", script.InvokeAsync<string>("r").GetAwaiter().GetResult() ?? "",
             "trailing commas must not add elements or arguments");
+    }
+
+    private static void UnknownStringAndArrayMethodsReportClearErrors()
+    {
+        // Dot access with an unknown name used to fall through to element indexing and report
+        // "index must be an integer, got 'String'".
+        AssertScriptError("var s = \"text\";\nvar t = s.type();", "CFGS3000", "'type' is not a string method", run: true);
+        AssertScriptError("var a = [1, 2];\nvar n = a.length;", "CFGS3000", "'length' is not an array method", run: true);
+    }
+
+    private static void ToStringProtocolIsConsistentAcrossTextPaths()
+    {
+        CfgsScript script = CompileProbe("<tostring>", """
+class Money(amount, currency) {
+    func toString() { return str(amount) + " " + currency; }
+}
+func r() {
+    var m = new Money(5, "EUR");
+    return str([str(m), $"{m}", "" + m, format("{0}", m), str([m])]);
+}
+""");
+        script.RunAsync().GetAwaiter().GetResult();
+        AssertEqual("[\"5 EUR\", \"5 EUR\", \"5 EUR\", \"5 EUR\", \"[5 EUR]\"]", script.InvokeAsync<string>("r").GetAwaiter().GetResult() ?? "",
+            "str, interpolation, concatenation, format and collections must all render through toString()");
     }
 
     private static CfgsScript CompileProbe(string name, string source)

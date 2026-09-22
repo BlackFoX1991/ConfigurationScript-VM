@@ -49,6 +49,14 @@ namespace CFGS_VM.Analytic.Semantics
                         continue;
 
                     ValidateMemberKindCompatibility(cls, method.RuntimeMemberName, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
+
+                    // `init` is the construction hook of its own class: the class header already runs the
+                    // base init with the header's base arguments, and `super.init(...)` is an explicit call.
+                    // Holding a derived init to the base signature made it impossible for a subclass to take
+                    // more constructor parameters and still run construction logic.
+                    if (IsConstructorHook(method))
+                        continue;
+
                     ValidateMemberVisibilityCompatibility(cls, method.RuntimeMemberName, InheritedMemberKind.InstanceMethod, inherited, method.Line, method.Col, method.OriginFile);
                     ValidateMethodOverrideShape(cls, method, inherited);
                 }
@@ -376,6 +384,9 @@ namespace CFGS_VM.Analytic.Semantics
             member = default;
             return false;
         }
+
+        private static bool IsConstructorHook(FuncDeclStmt method)
+            => string.Equals(method.RuntimeMemberName, "init", StringComparison.Ordinal);
 
         private static void ValidateMethodOverrideShape(
             ClassDeclStmt derivedClass,

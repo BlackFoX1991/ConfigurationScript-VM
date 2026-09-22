@@ -1,0 +1,36 @@
+import "edge_assert.cfs";
+
+edge_begin("833_derived_init_signature");
+
+var log = [];
+
+class Base(a) {
+    func init(a) { log[] = "base:" + str(a); }
+}
+
+class Child(a, b) : Base(a) {
+    func init(a, b) { log[] = "child:" + str(a) + "," + str(b); }
+}
+
+class Reinit(a, b, c) : Base(a) {
+    func init(a, b, c) { super.init(a + b + c); }
+}
+
+class PrivateInit(v) : Base(v) {
+    private func init(v) { log[] = "private"; }
+    static func make(v) { return new PrivateInit(v); }
+}
+
+var child = new Child(1, 2);
+edge_eq("derived_init_with_more_parameters", str(log), "[\"base:1\", \"child:1,2\"]");
+edge_eq("derived_fields_promoted", child.a + child.b, 3);
+
+log = [];
+var reinit = new Reinit(1, 2, 3);
+edge_eq("super_init_reruns_base_init", str(log), "[\"base:1\", \"base:6\"]");
+
+log = [];
+var hidden = PrivateInit.make(4);
+edge_eq("derived_init_may_narrow_visibility", str(log), "[\"base:4\", \"private\"]");
+
+edge_finish("833_derived_init_signature");

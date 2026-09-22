@@ -1049,6 +1049,10 @@ namespace CFGS_VM.VMCore
                 _ => value.Reference switch
                 {
                     null => string.Empty,
+                    // An instance renders like print/str/interpolation (its toString(), else the class
+                    // name). It used to fall through to the CLR ToString and concatenate the .NET type
+                    // name "CFGS_VM.VMCore.Extensions.Instance.ClassInstance".
+                    ClassInstance => FormatPrintedConcatOperand(value),
                     StaticInstance staticInstance => staticInstance.ClassName,
                     BoundType boundType => boundType.Type.ClassName,
                     IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
@@ -1650,8 +1654,10 @@ namespace CFGS_VM.VMCore
         /// </summary>
         private static string FormatComparisonFallbackValue(object? value)
         {
+            // A comparison never runs script code: an instance sorts by its class name, not by a
+            // toString() that could throw or change between two comparisons of the same sort.
             using StringWriter writer = new();
-            PrintValue(value, writer);
+            PrintValue(value, writer, invokeUserToString: false);
             return writer.ToString();
         }
 

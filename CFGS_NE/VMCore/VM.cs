@@ -868,6 +868,14 @@ namespace CFGS_VM.VMCore
                         break;
                     }
 
+                case OpCode.SEAL_CONST_FIELDS:
+                    {
+                        RequireStack(1, instr, "SEAL_CONST_FIELDS");
+                        if (_valueStack.Pop().ToObject() is ClassInstance constructed)
+                            constructed.ConstFieldsSealed = true;
+                        break;
+                    }
+
                 case OpCode.DESTROY:
                     {
                         RequireStack(1, instr, "DESTROY");

@@ -1,0 +1,49 @@
+import "edge_assert.cfs";
+
+edge_begin("832_field_default_null");
+
+class Holder() {
+    var plain;
+    static var shared;
+    const fixed;
+    var initialized = 5;
+
+    func init() {
+        this.fixed = "set-in-init";
+    }
+}
+
+var holder = new Holder();
+edge_eq("instance_field_default_is_null", holder.plain, null);
+edge_eq("static_field_default_is_null", Holder.shared, null);
+edge_eq("const_field_set_in_init", holder.fixed, "set-in-init");
+edge_eq("initialized_field_keeps_value", holder.initialized, 5);
+edge_eq("null_default_supports_coalesce", holder.plain ?? "fallback", "fallback");
+edge_eq("typeof_default_field", typeof(holder.plain), "Null");
+
+# A const field is writable until the constructor of its declaring class finishes.
+edge_throws("const_field_sealed_after_construction", func() { holder.fixed = "later"; });
+
+class Named(id, name) {
+    const id;
+    var name;
+
+    func init(id, name) {
+        this.id = id;
+        this.name = name;
+    }
+}
+
+var named = new Named(1, "Max");
+edge_eq("const_promoted_then_assigned_in_init", named.id, 1);
+edge_throws("const_promoted_field_sealed", func() { named.id = 2; });
+
+class DerivedHolder() : Holder() {
+    func init() {
+        super.init();
+    }
+}
+
+edge_throws("base_const_sealed_before_derived_init", func() { return new DerivedHolder(); });
+
+edge_finish("832_field_default_null");

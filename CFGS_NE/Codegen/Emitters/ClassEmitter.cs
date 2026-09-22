@@ -295,6 +295,13 @@ namespace CFGS_VM.VMCore
                     _insns.Add(new Instruction(OpCode.POP, null, cds.Line, cds.Col, cds.OriginFile));
                 }
 
+                // Construction of this layer is complete: its const fields become read-only.
+                if (cds.ConstFields.Count > 0)
+                {
+                    _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
+                    _insns.Add(new Instruction(OpCode.SEAL_CONST_FIELDS, null, cds.Line, cds.Col, cds.OriginFile));
+                }
+
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
                 _insns.Add(new Instruction(OpCode.RET, null, cds.Line, cds.Col, cds.OriginFile));
 

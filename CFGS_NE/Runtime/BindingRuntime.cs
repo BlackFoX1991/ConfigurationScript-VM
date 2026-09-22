@@ -87,6 +87,26 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
+        /// Resolves an intrinsic for dot access: a bound callable, or for a value intrinsic
+        /// (<see cref="IntrinsicDescriptor.IsValue"/>, such as <c>math.PI</c>) the value itself.
+        /// </summary>
+        private bool TryResolveIntrinsicMember(object receiver, string name, Instruction instr, out object member)
+        {
+            Type receiverType = receiver?.GetType() ?? typeof(object);
+            if (!_intrinsics.TryGet(receiverType, name, out IntrinsicDescriptor descriptor) ||
+                !TryBindIntrinsic(receiver!, name, out IntrinsicBound bound, instr))
+            {
+                member = null!;
+                return false;
+            }
+
+            member = descriptor.IsValue
+                ? InvokeIntrinsicForCall(bound.Method, bound.Receiver, new List<Value>(), instr)!
+                : bound;
+            return true;
+        }
+
+        /// <summary>
         /// Returns whether the supplied name is reserved by an intrinsic on the given receiver type.
         /// </summary>
         private bool IsReservedIntrinsicName(Type receiverType, string name)

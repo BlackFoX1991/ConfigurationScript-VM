@@ -132,9 +132,9 @@ internal sealed class CfgsAnalyzer
                 new("sign", 2, "math.sign(x)"),
                 new("trunc", 2, "math.trunc(x)"),
                 new("pi", 2, "math.pi()"),
-                new("PI", 2, "math.PI()"),
+                new("PI", 2, "math.PI"),
                 new("e", 2, "math.e()"),
-                new("E", 2, "math.E()")
+                new("E", 2, "math.E")
             ],
             ["console"] =
             [

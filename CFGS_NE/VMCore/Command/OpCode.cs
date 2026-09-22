@@ -260,5 +260,10 @@
         // on the right-hand side. Appended at the end so existing opcode numbers (and .cfb bytecode)
         // keep their values.
         IS_PRIMITIVE_TYPE,
+
+        // Pops a class instance and closes its const fields for writing. Emitted at the end of the
+        // constructor of a class that declares const instance fields, so `const id;` can be assigned in
+        // init and never afterwards. Appended at the end so existing opcode numbers keep their values.
+        SEAL_CONST_FIELDS,
     }
 }

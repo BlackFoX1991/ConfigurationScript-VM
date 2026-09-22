@@ -19,6 +19,13 @@ namespace CFGS_VM.VMCore.Extensions.Instance
         public bool Destroyed;
         public bool Destroying;
 
+        /// <summary>
+        /// Set when the constructor of this layer's class has finished. Until then the class's const
+        /// fields may still be assigned (from field initializers, header promotion, and init); afterwards
+        /// every write to them fails.
+        /// </summary>
+        public bool ConstFieldsSealed;
+
         // The class's declared instance fields (own layer only — inheritance is layered via __base) live in a
         // Value[] indexed by a shared compile-time shape, instead of a per-instance dictionary. The dictionary
         // is kept for the `__`-metadata keys (__type/__base/__outer) and for any name the shape did not predict.

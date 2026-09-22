@@ -52,7 +52,8 @@ namespace CFGS_VM.VMCore
         public string FormatDebugValue(object? value)
         {
             using StringWriter writer = new(CultureInfo.InvariantCulture);
-            PrintValue(value!, writer);
+            // The debugger must not run script code (toString) while it inspects paused state.
+            PrintValue(value!, writer, invokeUserToString: false);
             return writer.ToString();
         }
 

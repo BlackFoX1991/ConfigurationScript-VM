@@ -155,6 +155,52 @@ namespace CFGS_VM.VMCore
             return true;
         }
 
+        private static readonly Instruction ToStringCallSite = new(OpCode.CALL, "toString", -1, -1, string.Empty);
+
+        /// <summary>
+        /// Renders an instance through its class's <c>toString()</c>: a public, non-async instance method
+        /// without parameters, declared on the class or inherited. Returns false when there is none, so the
+        /// caller falls back to the class name. The method runs synchronously like any native callback, so
+        /// it cannot await, and a toString that renders its own instance stops at the callback depth limit.
+        /// </summary>
+        internal bool TryInvokeUserToString(ClassInstance instance, out string text)
+        {
+            text = string.Empty;
+            if (_program is null ||
+                IsInstanceDestroyed(instance) ||
+                !TryResolveInstanceMemberValueInHierarchy(instance, "toString", out _, out StaticInstance? ownerType, out Value member) ||
+                member.Reference is not Closure closure ||
+                closure.IsAsync ||
+                closure.Parameters.Count != 1 ||
+                closure.Parameters[0] != "this")
+            {
+                return false;
+            }
+
+            if (ownerType != null &&
+                TryGetDeclaredVisibilityCode(ownerType, expectInstance: true, "toString", out int visibilityCode) &&
+                visibilityCode != VisibilityPublic)
+            {
+                return false;
+            }
+
+            Instruction site = closure.Address >= 0 && closure.Address < _program.Count ? _program[closure.Address] : ToStringCallSite;
+            object? result = InvokeClosureSyncValue(closure, new List<Value>(), site, instance, ownerType).ToObject();
+            if (result is not string rendered)
+            {
+                throw new VMException(
+                    $"Runtime error: toString() of class '{instance.ClassName}' must return a String, got {CFGS_VM.StandardLibrary.CoreStandardLibrary.RuntimeTypeName(result)}",
+                    site.Line,
+                    site.Col,
+                    site.OriginFile,
+                    IsDebugging,
+                    DebugStream!);
+            }
+
+            text = rendered;
+            return true;
+        }
+
         /// <summary>
         /// The IsInstanceDestroyed.
         /// </summary>
@@ -1193,8 +1239,11 @@ namespace CFGS_VM.VMCore
                 case List<object> arr:
                     {
                         MarkAsyncHazardForMutableCollection(arr);
-                        if (idxObj is string mname && TryBindIntrinsic(arr, mname, out IntrinsicBound? bound, instr))
-                            return bound;
+                        if (idxObj is string mname && TryResolveIntrinsicMember(arr, mname, instr, out object boundMember))
+                            return boundMember;
+
+                        if (IsMemberAccessInstruction(instr))
+                            throw new VMException($"Runtime error: '{idxObj}' is not an array method", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         int count = GetListCount(arr);
                         int index = ResolveElementIndex(idxObj, count, instr);
@@ -1205,23 +1254,23 @@ namespace CFGS_VM.VMCore
 
                 case FileHandle fh:
                     {
-                        if (idxObj is string mname && TryBindIntrinsic(fh, mname, out IntrinsicBound? bound, instr))
-                            return bound;
+                        if (idxObj is string mname && TryResolveIntrinsicMember(fh, mname, instr, out object boundMember))
+                            return boundMember;
                         throw new VMException($"invalid file member '{idxObj}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }
 
                 case StringBuilderHandle sbh:
                     {
-                        if (idxObj is string mname && TryBindIntrinsic(sbh, mname, out IntrinsicBound? bound, instr))
-                            return bound;
+                        if (idxObj is string mname && TryResolveIntrinsicMember(sbh, mname, instr, out object boundMember))
+                            return boundMember;
                         throw new VMException($"invalid string-builder member '{idxObj}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }
 
                 case ExceptionObject exo:
                     {
                         string key = idxObj?.ToString() ?? "";
-                        if (idxObj is string mname && TryBindIntrinsic(exo, mname, out IntrinsicBound? bound, instr))
-                            return bound;
+                        if (idxObj is string mname && TryResolveIntrinsicMember(exo, mname, instr, out object boundMember))
+                            return boundMember;
                         if (string.Equals(key, "message$", StringComparison.Ordinal)) return exo.eMessage;
                         if (string.Equals(key, "type$", StringComparison.Ordinal)) return exo.Type;
                         throw new VMException($"invalid member '{key}' on Exception", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
@@ -1229,8 +1278,11 @@ namespace CFGS_VM.VMCore
 
                 case string strv:
                     {
-                        if (idxObj is string mname && TryBindIntrinsic(strv, mname, out IntrinsicBound? bound, instr))
-                            return bound;
+                        if (idxObj is string mname && TryResolveIntrinsicMember(strv, mname, instr, out object boundMember))
+                            return boundMember;
+
+                        if (IsMemberAccessInstruction(instr))
+                            throw new VMException($"Runtime error: '{idxObj}' is not a string method", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
                         int index = ResolveElementIndex(idxObj, strv.Length, instr);
                         if (index < 0 || index >= strv.Length)
@@ -1277,8 +1329,8 @@ namespace CFGS_VM.VMCore
                         // name with a method with no collision.
                         if (IsMemberAccessInstruction(instr))
                         {
-                            if (idxObj is string mname && TryBindIntrinsic(dict, mname, out IntrinsicBound? bound, instr))
-                                return bound;
+                            if (idxObj is string mname && TryResolveIntrinsicMember(dict, mname, instr, out object boundMember))
+                                return boundMember;
 
                             throw new VMException(
                                 $"Runtime error: '{idxObj}' is not a dictionary method; use bracket access for data keys, e.g. value[\"{idxObj}\"]",
@@ -1470,8 +1522,8 @@ namespace CFGS_VM.VMCore
                     }
 
                 default:
-                    if (idxObj is string defName && TryBindIntrinsic(target, defName, out IntrinsicBound? defbound, instr))
-                        return defbound;
+                    if (idxObj is string defName && TryResolveIntrinsicMember(target, defName, instr, out object defboundMember))
+                        return defboundMember;
                     throw CreateIndexException(target, idxObj, instr);
             }
         }
@@ -1635,9 +1687,13 @@ namespace CFGS_VM.VMCore
                             EnforceRuntimeVisibility(ownerType, visCode, key, isStatic: false, instr);
                         }
 
+                        // A const field stays writable until the constructor of its declaring class has
+                        // finished (the layer that owns the field is sealed then), which is what lets
+                        // `const id;` be assigned in init.
                         if (!allowReservedRuntimeSlotWrites &&
                             TryGetStaticType(obj, out StaticInstance constCheckType) &&
-                            IsConstFieldInHierarchy(constCheckType, key, isStatic: false))
+                            IsConstFieldInHierarchy(constCheckType, key, isStatic: false) &&
+                            (ownerFieldInst ?? obj).ConstFieldsSealed)
                         {
                             throw new VMException(
                                 $"Runtime error: cannot assign to const field '{key}'.",

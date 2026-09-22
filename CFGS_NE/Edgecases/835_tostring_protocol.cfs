@@ -1,0 +1,39 @@
+import "edge_assert.cfs";
+
+edge_begin("835_tostring_protocol");
+
+class Point(x, y) {
+    func toString() { return $"({x}, {y})"; }
+}
+
+class Diagonal(v) : Point(v, v) {}
+
+class Plain(v) {}
+
+class Hidden(v) {
+    private func toString() { return "secret"; }
+}
+
+class WithArgs(v) {
+    func toString(prefix) { return prefix + str(v); }
+}
+
+class NotString(v) {
+    func toString() { return 42; }
+}
+
+var p = new Point(1, 2);
+edge_eq("str_uses_tostring", str(p), "(1, 2)");
+edge_eq("interpolation_uses_tostring", $"at {p}", "at (1, 2)");
+edge_eq("concat_uses_tostring", "p=" + p, "p=(1, 2)");
+edge_eq("format_uses_tostring", format("{0}|{1,8}", p, p), "(1, 2)|  (1, 2)");
+edge_eq("array_element_uses_tostring", str([p, "s"]), "[(1, 2), \"s\"]");
+edge_eq("dict_value_uses_tostring", str({"k": p}), "{\"k\": (1, 2)}");
+edge_eq("inherited_tostring", str(new Diagonal(3)), "(3, 3)");
+edge_eq("no_tostring_uses_class_name", str(new Plain(1)), "Plain");
+edge_eq("private_tostring_is_ignored", str(new Hidden(1)), "Hidden");
+edge_eq("tostring_with_parameters_is_ignored", str(new WithArgs(1)), "WithArgs");
+edge_throws("non_string_tostring_throws", func() { return str(new NotString(1)); });
+edge_eq("explicit_call_still_works", p.toString(), "(1, 2)");
+
+edge_finish("835_tostring_protocol");
