@@ -89,7 +89,8 @@ internal static class Program
             TrailingCommasAndNegativeEnumValuesFormatAndCheck,
             UnknownStringAndArrayMethodsReportClearErrors,
             ToStringProtocolIsConsistentAcrossTextPaths,
-            OrPatternsFormatAndReportBindings
+            OrPatternsFormatAndReportBindings,
+            LinterReportsUndeclaredDictionaryKeys
         ];
 
         List<string> failures = [];
@@ -2874,6 +2875,53 @@ func f(v) {
         AssertTrue(formatted.Contains("(v > 5): \"flag\"", StringComparison.Ordinal), $"formatter must keep a parenthesized comparison value, got:\n{formatted}");
         AssertEqual(formatted, NormalizeNewlines(CfgsFormatter.Format(formatted, new CfgsFormatOptions(4, UseTabs: false)).Text),
             "formatting or-patterns must be idempotent");
+    }
+
+    private static void LinterReportsUndeclaredDictionaryKeys()
+    {
+        // `{host: 1}` reads a variable named host; without one the author meant the string key "host".
+        (_, string file) = WriteTempCfgsProject(
+            """
+var port = 80;
+
+func config(flag) {
+    var local = "l";
+    return {host: 1, port: port, local: local, flag: flag, len: 2, laterValue: 4, "quoted": 3};
+}
+
+var laterValue = 5;
+
+class Box(size) {
+    func toDict() { return {size: size}; }
+}
+
+print(config(true));
+""");
+
+        CfgsLintResult result = CfgsLinter.LintFile(file, new CfgsLintOptions(), global::Program.Version);
+        string[] undeclared = result.Diagnostics
+            .Where(static d => d.Code == "CFGS8023")
+            .Select(static d => d.Message)
+            .ToArray();
+
+        AssertEqual(1, undeclared.Length, $"exactly the undeclared 'host' key should be reported, got: {string.Join(" | ", undeclared)}");
+        AssertTrue(undeclared[0].Contains("'host'", StringComparison.Ordinal), $"CFGS8023 should name the key, got: {undeclared[0]}");
+
+        // A bare import can bring in names the linter cannot see, so the rule stays silent.
+        (_, string importing) = WriteTempCfgsProject(
+            """
+import "helpers.cfs";
+
+var d = {helperName: 1};
+""",
+            additionalFiles: new Dictionary<string, string>
+            {
+                ["helpers.cfs"] = "var helperName = \"k\";\n"
+            });
+
+        CfgsLintResult importingResult = CfgsLinter.LintFile(importing, new CfgsLintOptions(), global::Program.Version);
+        AssertFalse(importingResult.Diagnostics.Any(static d => d.Code == "CFGS8023"),
+            "CFGS8023 must not fire when a bare import can declare the name");
     }
 
     private static CfgsScript CompileProbe(string name, string source)

@@ -4,6 +4,7 @@ using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions;
+using CFGS_VM.VMCore.Plugin;
 
 namespace CFGS_VM.Tooling;
 
@@ -256,6 +257,7 @@ internal static class CfgsLinter
         }
 
         AstLintWalker walker = new(path, diagnostics, rules);
+        walker.CollectFileLevelNames(ast);
         walker.VisitStatements(ast, isTopLevel: true);
         walker.Finish();
     }
@@ -273,6 +275,38 @@ internal static class CfgsLinter
         private int _namespaceDepth;
         private int _magicNumberAllowanceDepth;
 
+        // CFGS8023 support. A dictionary key such as `{host: 1}` is an expression, so a bare identifier
+        // reads a variable; when no such variable exists the author almost always meant the string key
+        // "host". The rule only fires when every name the script can see is known: names declared
+        // anywhere at file or namespace level (declarations are hoisted), the runtime's own globals, and
+        // no bare import or `use` directive that could bring in names the linter cannot see. Inside class
+        // members it stays silent, because a bare name there may be an implicit member access.
+        private readonly HashSet<string> _fileLevelNames = new(StringComparer.Ordinal);
+        private bool _fileHasUnknownNames;
+        private int _classMemberDepth;
+
+        private static readonly Lazy<HashSet<string>> RuntimeGlobalNames = new(static () =>
+        {
+            BuiltinRegistry builtins = new();
+            IntrinsicRegistry intrinsics = new();
+            NamespaceRegistry namespaces = new();
+            CFGS_VM.StandardLibrary.CoreStandardLibrary.Register(builtins, intrinsics, namespaces);
+
+            HashSet<string> names = new(StringComparer.Ordinal)
+            {
+                // Registered by the VM itself (interface reflection), not by the standard library.
+                "interfaces", "implements", "implements_shape", "interfaceof", "interface_call"
+            };
+
+            foreach (BuiltinDescriptor builtin in builtins.Snapshot())
+                names.Add(builtin.Name);
+
+            foreach (NamespaceDescriptor ns in namespaces.Snapshot())
+                names.Add(ns.Path.Split('.')[0]);
+
+            return names;
+        });
+
         public AstLintWalker(
             string path,
             List<CfgsToolDiagnostic> diagnostics,
@@ -282,6 +316,113 @@ internal static class CfgsLinter
             _diagnostics = diagnostics;
             _rules = rules;
             _scopes.Push(new Scope(isTopLevel: true));
+        }
+
+        /// <summary>
+        /// Records the names a script declares at file or namespace level, and whether it pulls in names
+        /// the linter cannot see (bare imports, use directives). Runs before the walk because declarations
+        /// are hoisted: a function body may use a variable declared further down the file.
+        /// </summary>
+        public void CollectFileLevelNames(IEnumerable<Stmt> statements)
+        {
+            foreach (Stmt statement in statements)
+            {
+                switch (statement)
+                {
+                    case BareImportSyntaxStmt:
+                    case UseNamespaceStmt:
+                        _fileHasUnknownNames = true;
+                        break;
+                    case NamedImportSyntaxStmt named:
+                        foreach (ImportBindingSpec binding in named.Imports)
+                            _fileLevelNames.Add(binding.LocalName);
+                        break;
+                    case DefaultImportSyntaxStmt single:
+                        _fileLevelNames.Add(single.ImportName);
+                        break;
+                    case NamespaceImportSyntaxStmt aliased:
+                        _fileLevelNames.Add(aliased.Alias);
+                        break;
+                    case NativeImportSyntaxStmt native:
+                        _fileLevelNames.Add(native.Alias);
+                        break;
+                    case NamespaceDeclStmt ns:
+                        if (ns.Parts.Count > 0)
+                            _fileLevelNames.Add(ns.Parts[0]);
+                        CollectFileLevelNames(ns.BodyStatements);
+                        break;
+                    case ExportStmt export:
+                        CollectFileLevelNames([export.Inner]);
+                        break;
+                    case VarDecl v:
+                        _fileLevelNames.Add(v.Name);
+                        break;
+                    case ConstDecl c:
+                        _fileLevelNames.Add(c.Name);
+                        break;
+                    case DestructureDeclStmt d:
+                        CollectPatternNames(d.Pattern, _fileLevelNames);
+                        break;
+                    case FuncDeclStmt f:
+                        _fileLevelNames.Add(f.Name);
+                        break;
+                    case ClassDeclStmt cls:
+                        _fileLevelNames.Add(cls.Name);
+                        break;
+                    case InterfaceDeclStmt iface:
+                        _fileLevelNames.Add(iface.Name);
+                        break;
+                    case EnumDeclStmt en:
+                        _fileLevelNames.Add(en.Name);
+                        break;
+                }
+            }
+        }
+
+        private static void CollectPatternNames(MatchPattern pattern, HashSet<string> names)
+        {
+            switch (pattern)
+            {
+                case BindingMatchPattern binding:
+                    names.Add(binding.Name);
+                    break;
+                case ArrayMatchPattern array:
+                    foreach (MatchPattern element in array.Elements)
+                        CollectPatternNames(element, names);
+                    break;
+                case DictMatchPattern dict:
+                    foreach ((_, MatchPattern entry) in dict.Entries)
+                        CollectPatternNames(entry, names);
+                    break;
+            }
+        }
+
+        private void MaybeReportUndeclaredDictionaryKey(Expr key)
+        {
+            if (key is not VarExpr variable || _fileHasUnknownNames || _classMemberDepth > 0)
+                return;
+
+            string name = variable.Name;
+            if (name.StartsWith("__", StringComparison.Ordinal) ||
+                IsDeclaredInAnyScope(name) ||
+                _fileLevelNames.Contains(name) ||
+                RuntimeGlobalNames.Value.Contains(name))
+            {
+                return;
+            }
+
+            Add("CFGS8023", $"dictionary key '{name}' reads an undeclared variable; quote it for a string key: \"{name}\"", variable);
+        }
+
+        private bool IsDeclaredInAnyScope(string name)
+        {
+            foreach (Scope scope in _scopes)
+            {
+                if (scope.Declarations.ContainsKey(name))
+                    return true;
+            }
+
+            return false;
         }
 
         public void VisitStatements(IEnumerable<Stmt> statements, bool isTopLevel = false)
@@ -613,53 +754,71 @@ internal static class CfgsLinter
                     foreach (Expr baseCtorArg in c.BaseCtorArgs)
                         VisitExpr(baseCtorArg);
 
-                    foreach ((string fieldName, Expr? value) in c.Fields)
+                    // Inside a class a bare name may be an implicit member access, which CFGS8023 cannot
+                    // tell apart from an undeclared variable.
+                    _classMemberDepth++;
+                    try
                     {
-                        if (c.ConstFields.Contains(fieldName))
-                            VisitExprAllowingMagicNumbers(value);
-                        else
-                            VisitExpr(value);
-                    }
-
-                    foreach ((string fieldName, Expr? value) in c.StaticFields)
-                    {
-                        if (c.StaticConstFields.Contains(fieldName))
-                            VisitExprAllowingMagicNumbers(value);
-                        else
-                            VisitExpr(value);
-                    }
-
-                    foreach (FuncDeclStmt method in c.Methods)
-                        VisitFunction(method.Name, method.IsAsync, method.Parameters, method.RestParameter, method.ParameterSpecs, method.Body, method.Line, method.Col);
-                    foreach (FuncDeclStmt method in c.StaticMethods)
-                        VisitFunction(method.Name, method.IsAsync, method.Parameters, method.RestParameter, method.ParameterSpecs, method.Body, method.Line, method.Col);
-
-                    foreach (PropertyDeclStmt property in c.Properties.Concat(c.StaticProperties))
-                    {
-                        if (property.Initializer is not null)
-                            VisitExpr(property.Initializer);
-
-                        foreach (PropertyAccessorDecl accessor in property.Accessors)
+                        foreach ((string fieldName, Expr? value) in c.Fields)
                         {
-                            if (accessor.Body is not null)
-                                VisitStatement(accessor.Body);
+                            if (c.ConstFields.Contains(fieldName))
+                                VisitExprAllowingMagicNumbers(value);
+                            else
+                                VisitExpr(value);
                         }
-                    }
 
-                    foreach (EnumDeclStmt nestedEnum in c.Enums)
-                        VisitStatement(nestedEnum);
-                    foreach (ClassDeclStmt nestedClass in c.NestedClasses)
-                        VisitStatement(nestedClass);
+                        foreach ((string fieldName, Expr? value) in c.StaticFields)
+                        {
+                            if (c.StaticConstFields.Contains(fieldName))
+                                VisitExprAllowingMagicNumbers(value);
+                            else
+                                VisitExpr(value);
+                        }
+
+                        foreach (FuncDeclStmt method in c.Methods)
+                            VisitFunction(method.Name, method.IsAsync, method.Parameters, method.RestParameter, method.ParameterSpecs, method.Body, method.Line, method.Col);
+                        foreach (FuncDeclStmt method in c.StaticMethods)
+                            VisitFunction(method.Name, method.IsAsync, method.Parameters, method.RestParameter, method.ParameterSpecs, method.Body, method.Line, method.Col);
+
+                        foreach (PropertyDeclStmt property in c.Properties.Concat(c.StaticProperties))
+                        {
+                            if (property.Initializer is not null)
+                                VisitExpr(property.Initializer);
+
+                            foreach (PropertyAccessorDecl accessor in property.Accessors)
+                            {
+                                if (accessor.Body is not null)
+                                    VisitStatement(accessor.Body);
+                            }
+                        }
+
+                        foreach (EnumDeclStmt nestedEnum in c.Enums)
+                            VisitStatement(nestedEnum);
+                        foreach (ClassDeclStmt nestedClass in c.NestedClasses)
+                            VisitStatement(nestedClass);
+                    }
+                    finally
+                    {
+                        _classMemberDepth--;
+                    }
                     break;
 
                 case InterfaceDeclStmt i:
                     foreach (string baseInterface in i.BaseInterfaces)
                         MarkQualifiedPathUsage(baseInterface);
 
-                    foreach (InterfaceMethodDecl method in i.Methods)
+                    _classMemberDepth++;
+                    try
                     {
-                        if (method.Body is not null)
-                            VisitFunction(method.Name, method.IsAsync, method.Parameters, method.RestParameter, method.ParameterSpecs, method.Body, method.Line, method.Col);
+                        foreach (InterfaceMethodDecl method in i.Methods)
+                        {
+                            if (method.Body is not null)
+                                VisitFunction(method.Name, method.IsAsync, method.Parameters, method.RestParameter, method.ParameterSpecs, method.Body, method.Line, method.Col);
+                        }
+                    }
+                    finally
+                    {
+                        _classMemberDepth--;
                     }
                     break;
 
@@ -839,6 +998,7 @@ internal static class CfgsLinter
                 case DictExpr d:
                     foreach ((Expr key, Expr value) in d.Pairs)
                     {
+                        MaybeReportUndeclaredDictionaryKey(key);
                         VisitExpr(key);
                         VisitExpr(value);
                     }

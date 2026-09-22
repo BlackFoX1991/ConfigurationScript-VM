@@ -133,6 +133,7 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS8020`: unreachable statement after guaranteed terminating control flow.
 - `CFGS8021`: magic number. Strict preset only; off in the recommended preset.
 - `CFGS8022`: a char literal is used in arithmetic or a bitwise operation, where it silently coerces to its Unicode code point. Reported only when both operands are literals, so it never fires on string concatenation or on a char combined with a variable; subtraction and comparisons are exempt because those are the idiomatic char patterns.
+- `CFGS8023`: a dictionary literal key is a bare identifier that names no declared variable, as in `{host: 1}`. Dictionary keys are expressions, so the key reads a variable; the author almost always meant the string key `"host"`. The rule stays silent when the file has a bare import or a `use` directive, which can bring in names the linter cannot see, and inside class members, where a bare name may be an implicit member access.
 - `CFGS9000`: host or system error.
 - `CFGS9100`: operation canceled.
 
@@ -171,7 +172,7 @@ JSON output uses a compact diagnostic array.
 
 Warnings and errors return a non-zero process exit code. Informational diagnostics alone do not fail the command.
 
-`--fix` applies only safe source-style fixes and then lints the updated source again. It can remove trailing whitespace, collapse excessive blank lines, add a missing final newline, and convert leading tabs to spaces unless `--allow-tabs` is set. Semantic and policy diagnostics such as `CFGS8011`-`CFGS8022` are reported but are not auto-fixed.
+`--fix` applies only safe source-style fixes and then lints the updated source again. It can remove trailing whitespace, collapse excessive blank lines, add a missing final newline, and convert leading tabs to spaces unless `--allow-tabs` is set. Semantic and policy diagnostics such as `CFGS8011`-`CFGS8023` are reported but are not auto-fixed.
 
 Lint options may be set in the nearest `cfgs.json`. Existing flat keys under `tooling` remain valid. The richer rule configuration lives under `tooling.lint`, and those nested values override the flat defaults from the same manifest.
 
