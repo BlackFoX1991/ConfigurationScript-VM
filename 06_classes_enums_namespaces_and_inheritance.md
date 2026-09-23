@@ -902,7 +902,8 @@ Enum members are named, not indexable, so they are reached only with dot access.
 
 ## Namespaces
 
-Namespaces structure larger surfaces.
+Namespaces structure larger surfaces. They exist only at compile time: a namespace is never a runtime
+object, and every member reference is resolved while compiling to the one binding that stores the member.
 
 ```cfs
 namespace App.Tools {
@@ -946,6 +947,52 @@ print(box is Box);
 `use App.Core.Tools;` brings the direct members of that namespace into unqualified lookup.
 `use App.Core;` also makes direct child namespaces of `App.Core` available, so `Math.plus(...)` works without writing `App.Core.Math.plus(...)`.
 
+### Name Resolution Inside a Namespace
+
+Inside a namespace body a bare name is resolved in this order.
+
+1. A local binding (parameter, local variable, pattern binding).
+2. A member of the enclosing class, which is implicit member access (`this.x` or `type.x`).
+3. A member of the current namespace, across every block and every file that declares it.
+4. A member of an enclosing namespace, innermost first.
+5. A global top level name.
+6. A member of a `use`d namespace.
+
+```cfs
+namespace App {
+    func shared() { return 1; }
+}
+
+namespace App.Core {
+    const LIMIT = 10;
+
+    func total() {
+        return LIMIT + shared();
+    }
+}
+
+namespace App.Core {
+    func again() {
+        return total();
+    }
+}
+```
+
+`LIMIT` resolves in the current namespace, `shared()` in the enclosing namespace `App`, and `total()` in the
+other block of the same namespace. A member is the same binding everywhere, so a namespace variable written
+through its qualified name is the value the namespace body reads.
+
+```cfs
+namespace Store {
+    var count = 0;
+    func bump() { count = count + 1; }
+}
+
+Store.bump();
+Store.count = Store.count + 10;
+print(Store.count);
+```
+
 Namespace members can also declare visibility.
 
 ```cfs
@@ -962,6 +1009,10 @@ namespace App.Core {
 - This applies to namespace functions, classes, interfaces, enums, variables, and constants.
 - `use` imports only members that are visible from the current namespace context.
 - A namespace is not a value. Like in C#, it can only prefix a member access through dot notation (`App.Core.open()`). Capturing a namespace in a variable, passing it as an argument, returning it, or indexing it (`App.Core["open"]`) is a compile error. Visibility is therefore always enforced at the statically known access site.
+- A member that does not exist is a compile error (`unknown member 'x' in namespace 'App.Core'`, CFGS2001), in a value position and in a type position such as `new App.Core.Ghost()`.
+- Only a namespace variable can be assigned. Assigning to a namespace function, class, interface, or enum is a compile error (CFGS2007), and assigning to a namespace constant fails at runtime like any other constant.
+- A member exists from the point its declaration runs, like any other top level binding, so calling `App.Core.open()` above the namespace declaration is a runtime error.
+- A namespace root must not collide with a native namespace registered by the standard library or a plugin (for example `math`).
 
 File-scoped namespace syntax is also supported.
 
@@ -1002,7 +1053,8 @@ Important practical notes.
 - `use` is not allowed inside a namespace body.
 - `import` stays in the file header and is not part of namespace syntax.
 - `export` is not allowed inside a namespace body.
-- A namespace root must not collide with an already declared top level symbol.
+- A namespace root must not collide with an already declared top level symbol, and not with a native namespace root.
+- Destructuring declarations are not allowed in a namespace body; declare each member separately.
 
 ## Type Checking with `is`
 

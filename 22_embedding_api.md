@@ -219,6 +219,16 @@ Behavior:
 
 - `GetGlobal(name)` throws if the global does not exist
 - `TryGetGlobal(name, out value)` returns `false` instead of throwing
+- A namespace member is reached by its qualified name, because a script namespace exists only at compile time
+
+```csharp
+int seed = script.GetGlobal<int>("App.Core.seed");
+script.SetGlobal("App.Core.seed", 25);
+object? result = await script.InvokeAsync("App.Core.add", 1, 2);
+object? box = await script.NewAsync("App.Core.Box", 7);
+```
+
+`GetGlobals()` lists namespace members under the same qualified names.
 - `SetGlobal(name, value)` creates the global if it does not exist
 - `TrySetGlobal(name, value)` returns `false` if the target global is `const`
 - existing `const` globals cannot be modified

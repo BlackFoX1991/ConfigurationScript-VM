@@ -82,13 +82,13 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS1001`: expected syntax element is missing.
 - `CFGS1002`: duplicate parser-level declaration or binding.
 - `CFGS2000`: general compile or semantic error.
-- `CFGS2001`: unknown member or symbol.
+- `CFGS2001`: unknown member or symbol, including a member a namespace or a namespace import alias does not declare.
 - `CFGS2002`: inaccessible member.
 - `CFGS2003`: dot access versus bracket access mismatch.
 - `CFGS2004`: invalid member receiver.
 - `CFGS2005`: duplicate semantic declaration.
 - `CFGS2006`: invalid override.
-- `CFGS2007`: invalid assignment target or read-only target.
+- `CFGS2007`: invalid assignment target or read-only target, including a namespace member that is not a variable.
 - `CFGS2008`: static versus instance member access mismatch.
 - `CFGS2009`: reserved member or reserved name misuse.
 - `CFGS2010`: interface contract error.
@@ -97,7 +97,7 @@ Failed checks return a JSON array of diagnostics.
 - `CFGS2013`: ambiguous semantic reference.
 - `CFGS2014`: async, await, or yield semantic error.
 - `CFGS2015`: argument, parameter, spread, rest, or default-value shape error.
-- `CFGS2016`: namespace semantic error.
+- `CFGS2016`: namespace semantic error, such as a namespace or a namespace import alias used as a value.
 - `CFGS3000`: general runtime error.
 - `CFGS3001`: undefined variable.
 - `CFGS3002`: index operation error.

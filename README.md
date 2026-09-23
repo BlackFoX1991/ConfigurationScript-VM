@@ -50,7 +50,7 @@ The following topics are covered completely across the English documentation set
 - Pattern matching. `match` as a statement. `match` as an expression. Guards. Wildcards. Literal patterns. Array patterns. Dictionary patterns. Or-patterns. `var` bindings.
 - Destructuring. Declarations. Assignments. Parameters. `foreach` patterns.
 - OOP. Classes. Constructors. `init`. Object initialization. Fields. Properties with `get`/`set`/`init`. Auto-properties. Mixed auto/manual accessors. `field` backing symbol. Instance members. Static members. Visibility. Inheritance. `super`. `type`. `this`. `outer`. Custom textual representation through `toString`. Nested classes. Enums inside classes. Override rules. Interfaces with instance/static contracts, default methods, structural checks, indexer contracts, and reflection builtins.
-- Namespaces. Qualified names. Multiple declarations. `use` directives. Name resolution.
+- Namespaces. Compile-time members with one binding each. Qualified names. Multiple declarations across blocks and files. `use` directives. Name resolution order. Visibility.
 - Modules. `export`. Bare imports. Named imports. Alias imports. Namespace imports. Single symbol imports. File imports. URL imports. DLL imports. Header rules. Import resolution. Cycles.
 - Async model. `async func`. `await`. `yield`. Top level await inside expressions. Hot start behavior. Await on lists and dictionaries. Await on Task and ValueTask values returned by plugins.
 - Standard library. All builtins. Native namespace roots such as `encoding`, `regex`, `json`, `math`, `console`, `fs`, `file`, and `eventlog`. All string, array, dictionary, DateTime, DirectoryInfo, FileHandle, BinaryFileHandle, exception, and task intrinsics.

@@ -107,7 +107,18 @@ Tools.add_base(5)
 Tools.Flag.On
 ```
 
-The alias is a namespace value, so it is accessed exclusively through dot access, exactly like a declared namespace such as `App.Core`. Bracket access on the alias (`Tools["add_base"]`) is a runtime error, because a namespace is not an indexable value. Enum members reached through the alias follow the same rule: `Tools.Flag.On`.
+The alias exists only at compile time, exactly like a declared namespace such as `App.Core`. `Tools.add_base`
+is resolved while compiling to the imported binding itself, so a local variable or class member of the same
+name cannot hide it, and a module variable read through the alias is the variable, not a copy taken at import
+time.
+
+The alias is accessed exclusively through dot access. These are compile errors.
+
+- Bracket access on the alias, such as `Tools["add_base"]` (CFGS2003).
+- An export the module does not have, such as `Tools.missing` (CFGS2001).
+- The alias as a value, such as `var t = Tools;` (CFGS2016).
+
+Enum members reached through the alias follow the same rule: `Tools.Flag.On`.
 
 ## File Resolution
 

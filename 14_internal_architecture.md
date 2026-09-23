@@ -103,10 +103,10 @@ The productive compiler now uses a lightweight `BoundProgram` handoff between sy
 
 `SyntaxLowerer` is not a generic cleanup pass. It produces a more compiler-friendly AST with two concrete responsibilities:
 
-- `NamespaceLowerer` rewrites namespace syntax into explicit top-level runtime-shape statements.
-  - Namespace roots and nested paths become ordinary `VarDecl` and `AssignExprStmt` nodes that ensure the dictionary/object path exists.
-  - Namespace bodies are wrapped in a scoped `BlockStmt` with a synthetic namespace temp such as `__ns_scope_*`.
-  - Parser-only namespace import alias nodes such as `NamespaceImportAliasStmt` and `ImportAliasDeclStmt` are rewritten into ordinary alias declarations and indexed assignments. Native namespace roots registered by the host or plugins are resolved later through the namespace registry, not by parser side effects.
+- `NamespaceLowerer` turns a namespace declaration into one `BlockStmt` that is marked as a namespace scope and carries the qualified path.
+  - The block opens no runtime scope and builds no namespace object. Each member declares its own global binding, named by `NamespaceRuntimeBindingNames` from the namespace path and the member name, so a member has exactly one storage location no matter how many blocks or files declare the namespace.
+  - `UseNamespaceResolver` has already bound every reference to a member, qualified or bare or shortened by `use`, to that binding, and carries the expression it stood for along for editor tooling. The compiler emits `LOAD_GLOBAL` and `STORE_GLOBAL` for those references, so no local, capture, or implicit class member of the same name can hide them.
+  - `NamespaceImportAliasStmt` stays in the lowered tree as a declaration without code: the resolver binds `Alias.member` to the imported top-level binding, and validation and tooling read the statement to know the alias. `ImportAliasDeclStmt` becomes an ordinary alias declaration. Native namespace roots registered by the host or plugins stay runtime values and are resolved through the namespace registry.
 - `ParamLowerer` rewrites function sugar into ordinary statements inside function bodies.
   - Default parameters become `if (<param> is unset) param = <default>` style initialization statements at the start of the body. The guard compiles to the `IS_ARG_UNSET` opcode, which tests whether the call left the parameter slot holding the `Unset` omitted-argument sentinel, so an explicitly passed `null` is kept and does not trigger the default.
   - Destructure parameters become explicit `DestructureDeclStmt` nodes against the synthetic parameter variable.

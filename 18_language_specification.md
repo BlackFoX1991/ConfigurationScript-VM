@@ -550,13 +550,30 @@ Assigning to enum members MUST fail.
 
 ## Namespaces and Name Resolution
 
-Namespaces group declarations under qualified names.
+Namespaces group declarations under qualified names. A namespace is a compile-time construct: it MUST NOT
+exist as a runtime value, and every member MUST have exactly one binding that all references to it share.
 
-Namespace declarations with the same qualified path may merge when allowed by the namespace rules.
+Namespace declarations with the same qualified path may merge when allowed by the namespace rules. Members
+of a namespace MUST be visible in every block and every file that declares that namespace.
 
 Namespace body declarations MAY use `public`, `private`, or `protected` visibility modifiers.
 
-Namespace members are resolved through qualified dot paths.
+Namespace bodies MUST contain only named declarations; a destructuring declaration MUST fail.
+
+Namespace members are resolved at compile time, through qualified dot paths and through the name resolution
+order below.
+
+Inside a namespace body, a bare name MUST resolve in this order: local bindings, members of the enclosing
+class, members of the current namespace, members of enclosing namespaces from innermost outward, global top
+level names, members of `use`d namespaces.
+
+A reference to a member that the namespace does not declare MUST fail at compile time, in value positions and
+in type positions.
+
+Only a namespace variable MAY be assigned. Assignment to a namespace function, class, interface, or enum MUST
+fail at compile time; assignment to a namespace constant MUST fail like any other constant assignment.
+
+A namespace root MUST NOT collide with a native namespace root registered by the host.
 
 Known namespace members MUST use dot access and MUST NOT rely on bracket access as namespace lookup.
 
@@ -566,7 +583,8 @@ Namespace visibility is defined relative to the declaring namespace path:
 - `private` members are visible only inside the same namespace path,
 - `protected` members are visible inside the same namespace path and descendant namespace paths.
 
-Namespace value objects MUST expose only public members. Accessible non-public members are resolved through statically known namespace references inside allowed namespace contexts.
+Visibility MUST be enforced at the statically known access site, because there is no namespace value whose
+members could be enumerated at runtime.
 
 `use namespace` imports visible namespace members into resolution scope.
 
@@ -582,7 +600,10 @@ Imports are header-oriented. Imports in invalid positions MUST fail.
 
 CFGS supports source imports, module imports, named imports, alias imports, namespace imports, URL imports, DLL plugin imports, and native .NET imports where enabled by the host.
 
-A namespace import alias (`import * as Alias from ...`) introduces a namespace value. Its members MUST be accessed through dot member syntax (`Alias.member`), and bracket access on the alias MUST fail, the same rule that applies to declared namespaces.
+A namespace import alias (`import * as Alias from ...`) introduces a compile-time alias for the imported
+module surface, not a value. `Alias.member` MUST resolve to the imported binding itself. Its members MUST be
+accessed through dot member syntax; bracket access on the alias, a member the module does not export, and the
+alias used as a value MUST fail at compile time, the same rules that apply to declared namespaces.
 
 Import resolution searches documented locations in order:
 
