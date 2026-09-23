@@ -182,8 +182,6 @@
 
         MERGE_RIGHT,
 
-        NEW_NAMESPACE,
-
         // Slot-based local variable access (Plan A, stage 1b). Operand packs (hops, slotIndex) as
         // (hops << 16) | idx: walk `hops` parent scopes then index the slot array directly, bypassing the
         // name hash + scope walk of LOAD_VAR/STORE_VAR. Emitted only for reads/assignments the compiler
@@ -244,10 +242,6 @@
 
         SUB_STORE_SLOT,
 
-        // Like INDEX_GET, but a missing namespace member yields null instead of raising an "undefined
-        // member" error. Emitted only for the get-or-create probe the namespace lowerer wraps in `?? {}`.
-        INDEX_GET_OPT,
-
         // Default-parameter presence test. Operand = parameter name. Pushes true when that parameter's
         // slot still holds the Unset omitted-argument sentinel (i.e. the caller supplied no value), false
         // otherwise. Emitted only for the `if (<param> is unset) <param> = <default>` prologue the
@@ -265,5 +259,13 @@
         // constructor of a class that declares const instance fields, so `const id;` can be assigned in
         // init and never afterwards. Appended at the end so existing opcode numbers keep their values.
         SEAL_CONST_FIELDS,
+
+        // Read / write a binding of the global scope by name, never a local, capture, or implicit member
+        // of the same name. Emitted for references the resolver bound at compile time: namespace members
+        // (whose single global binding is named by NamespaceRuntimeBindingNames) and exports reached
+        // through a namespace import alias (`Alias.member`), which a local named `member` must not hide.
+        LOAD_GLOBAL,
+
+        STORE_GLOBAL,
     }
 }

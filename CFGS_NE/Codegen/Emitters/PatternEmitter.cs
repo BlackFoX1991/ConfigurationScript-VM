@@ -176,7 +176,7 @@ namespace CFGS_VM.VMCore
                             break;
                         case DestructureBindMode.Assign:
                             if (!TryEmitImplicitMemberStore(bind.Name, node))
-                                _insns.Add(new Instruction(OpCode.STORE_VAR, bind.Name, bind.Line, bind.Col, bind.OriginFile));
+                                EmitNameStore(bind.Name, bind);
                             break;
                     }
                     return;

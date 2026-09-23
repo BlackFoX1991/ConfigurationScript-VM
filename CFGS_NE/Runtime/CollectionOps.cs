@@ -587,17 +587,6 @@ namespace CFGS_VM.VMCore
         }
 
         /// <summary>
-        /// Handles the NEW_NAMESPACE opcode. Produces an empty distinct namespace value; members are
-        /// populated by the namespace-path stores emitted after it.
-        /// </summary>
-        private StepResult HandleNewNamespaceInstruction(Instruction instr)
-        {
-            string name = instr.Operand as string ?? string.Empty;
-            PushRuntimeObject(new NamespaceInstance(name));
-            return StepResult.Next;
-        }
-
-        /// <summary>
         /// Handles the IS_DICT opcode.
         /// </summary>
         private StepResult HandleIsDictionaryInstruction(Instruction instr)

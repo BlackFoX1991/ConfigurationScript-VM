@@ -135,6 +135,12 @@ namespace CFGS_VM.VMCore
                     {
                         string name = v.Name;
 
+                        if (IsResolvedGlobalReference(v))
+                        {
+                            _insns.Add(new Instruction(OpCode.LOAD_GLOBAL, name, e.Line, e.Col, e.OriginFile));
+                            break;
+                        }
+
                         if (IsReceiverIdentifier(name))
                         {
                             _insns.Add(new Instruction(OpCode.LOAD_VAR, name, e.Line, e.Col, e.OriginFile));
@@ -165,9 +171,7 @@ namespace CFGS_VM.VMCore
 
                     CompileExpr(idx.Target);
                     CompileExpr(idx.Index);
-                    _insns.Add(new Instruction(
-                        idx.IsOptionalAccess ? OpCode.INDEX_GET_OPT : OpCode.INDEX_GET,
-                        IndexAccessOperand(idx), idx.Line, idx.Col, e.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_GET, IndexAccessOperand(idx), idx.Line, idx.Col, e.OriginFile));
                     break;
 
                 case SliceExpr slice:
@@ -297,15 +301,6 @@ namespace CFGS_VM.VMCore
                     break;
 
                 case DictExpr d:
-                    // A synthetic namespace container materializes as a distinct runtime namespace
-                    // value (always empty at creation; members are assigned by later namespace-path
-                    // stores) rather than a user dictionary.
-                    if (d.IsNamespaceContainer)
-                    {
-                        _insns.Add(new Instruction(OpCode.NEW_NAMESPACE, d.NamespaceContainerName, e.Line, e.Col, e.OriginFile));
-                        break;
-                    }
-
                     foreach ((Expr k, Expr v) in d.Pairs)
                     {
                         CompileExpr(k);

@@ -1,3 +1,4 @@
+using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Extensions.Instance;
@@ -94,14 +95,15 @@ public class Closure
                 .Select(kvp =>
                 {
                     Value value = kvp.Value;
-                    if (value.IsNull) return $"{kvp.Key}=null";
+                    string key = NamespaceRuntimeBindingNames.ToDisplayName(kvp.Key);
+                    if (value.IsNull) return $"{key}=null";
                     if (value.Kind != ValueKind.Ref)
-                        return $"{kvp.Key}={value.Kind}";
+                        return $"{key}={value.Kind}";
 
                     object raw = value.Reference!;
-                    if (raw is Closure) return $"{kvp.Key}=<closure>";
-                    if (raw is FunctionInfo fi) return $"{kvp.Key}=<fn:{fi.Address.ToString()}>";
-                    return $"{kvp.Key}={raw.GetType().Name}";
+                    if (raw is Closure) return $"{key}=<closure>";
+                    if (raw is FunctionInfo fi) return $"{key}=<fn:{fi.Address.ToString()}>";
+                    return $"{key}={raw.GetType().Name}";
                 });
                 captured = $" captured: {{{string.Join(", ", pairs)}}}";
             }

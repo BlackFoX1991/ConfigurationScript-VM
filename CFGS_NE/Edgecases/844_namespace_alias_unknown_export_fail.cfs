@@ -1,0 +1,4 @@
+# expect-error: CFGS2001 unknown member 'nope' in namespace import 'Lib'
+import * as Lib from "_imports/mod_exports_ns.cfs";
+
+print(Lib.nope);

@@ -1,3 +1,4 @@
+using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.VMCore.Extensions.Core;
 using CFGS_VM.VMCore.Extensions.Instance;
 using System.Collections;
@@ -67,6 +68,24 @@ namespace CFGS_VM.VMCore
         public static Dictionary<string, object> CreateHostDictionary(IDictionary<string, object?> values)
             => values.ToDictionary(static kv => kv.Key, static kv => NormalizeHostValue(kv.Value)!, StringComparer.Ordinal);
 
+        /// <summary>
+        /// Maps a qualified namespace member name such as <c>App.Core.seed</c> to the global binding that
+        /// stores the member. Script namespaces exist only at compile time, so a host reaches a member
+        /// through its qualified name. Any other name is returned unchanged.
+        /// </summary>
+        private static string ResolveGlobalBindingName(Env global, string name)
+        {
+            if (global.HasLocal(name))
+                return name;
+
+            int lastDot = name.LastIndexOf('.');
+            if (lastDot <= 0 || lastDot == name.Length - 1)
+                return name;
+
+            string bindingName = NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(name[..lastDot], name[(lastDot + 1)..]);
+            return global.HasLocal(bindingName) ? bindingName : name;
+        }
+
         public bool TryGetGlobal(string name, out object? value)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -78,9 +97,10 @@ namespace CFGS_VM.VMCore
                 return false;
             }
 
-            Env global = _scopes[0];
+            Env global = GlobalEnv();
             lock (global.SyncRoot)
             {
+                name = ResolveGlobalBindingName(global, name);
                 if (global.TryGetLocalValue(name, out Value local))
                 {
                     value = ToHostObject(local);
@@ -108,9 +128,10 @@ namespace CFGS_VM.VMCore
             if (_scopes.Count == 0)
                 return new Dictionary<string, object?>(StringComparer.Ordinal);
 
-            Env global = _scopes[0];
+            // Namespace members are listed under their qualified name (App.Core.seed).
+            Env global = GlobalEnv();
             lock (global.SyncRoot)
-                return global.LocalBindings().ToDictionary(static kv => kv.Key, static kv => ToHostObject(kv.Value), StringComparer.Ordinal);
+                return global.LocalBindings().ToDictionary(static kv => NamespaceRuntimeBindingNames.ToDisplayName(kv.Key), static kv => ToHostObject(kv.Value), StringComparer.Ordinal);
         }
 
         public void SetGlobal(string name, object? value)
@@ -121,13 +142,14 @@ namespace CFGS_VM.VMCore
             if (_scopes.Count == 0)
                 _scopes.Add(new Env(null));
 
-            Env global = _scopes[0];
+            Env global = GlobalEnv();
             lock (global.SyncRoot)
             {
-                if (global.IsConstLocal(name))
+                string bindingName = ResolveGlobalBindingName(global, name);
+                if (global.IsConstLocal(bindingName))
                     throw new InvalidOperationException($"Global variable '{name}' is const and cannot be changed.");
 
-                global.DefineValue(name, ToRuntimeValue(NormalizeHostValue(value)));
+                global.DefineValue(bindingName, ToRuntimeValue(NormalizeHostValue(value)));
             }
         }
 
@@ -139,13 +161,14 @@ namespace CFGS_VM.VMCore
             if (_scopes.Count == 0)
                 _scopes.Add(new Env(null));
 
-            Env global = _scopes[0];
+            Env global = GlobalEnv();
             lock (global.SyncRoot)
             {
-                if (global.IsConstLocal(name))
+                string bindingName = ResolveGlobalBindingName(global, name);
+                if (global.IsConstLocal(bindingName))
                     return false;
 
-                global.DefineValue(name, ToRuntimeValue(NormalizeHostValue(value)));
+                global.DefineValue(bindingName, ToRuntimeValue(NormalizeHostValue(value)));
                 return true;
             }
         }

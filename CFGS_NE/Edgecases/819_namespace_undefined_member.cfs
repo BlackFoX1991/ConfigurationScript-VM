@@ -13,18 +13,16 @@ namespace Modules.Masterdata {
 }
 
 func run() {
-    # the defined path still works (get-or-create namespace build is intact)
+    # Members of a namespace are resolved at compile time, so the defined path is a direct binding.
     var p = new Modules.Masterdata.Person("Bob");
     edge_eq("defined_class", p.greet(), "Hi Bob");
     edge_eq("defined_func", Modules.Masterdata.helper(), 42);
-
-    # an undefined member is a clean error, not a silent null / leaked index dump
-    edge_throws("undefined_intermediate", func() { return new Modules.Nonexistent.Person(); });
-    edge_throws("undefined_leaf_class", func() { return new Modules.Masterdata.Ghost(); });
-    edge_throws("undefined_leaf_func", func() { return Modules.Masterdata.missing(); });
-    edge_throws("undefined_read", func() { var x = Modules.Masterdata.nope; return x; });
 }
 
 run();
+
+# An undefined member is a compile error, not a runtime surprise:
+# 840_namespace_unknown_member_fail, 841_namespace_unknown_segment_fail and
+# 842_namespace_unknown_type_fail cover the read, the intermediate path, and the type position.
 
 edge_finish("819_namespace_undefined_member");

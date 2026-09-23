@@ -380,8 +380,6 @@ namespace CFGS_VM.Analytic.Modules
 
                 if (stmt is NamespaceDeclStmt ns && ns.Parts.Count > 0)
                     knownNamespaceRoots.Add(ns.Parts[0]);
-                else if (stmt is VarDecl v && v.IsSyntheticNamespaceRoot)
-                    knownNamespaceRoots.Add(v.Name);
             }
         }
 

@@ -194,6 +194,19 @@ namespace CFGS_VM.Analytic.Tree
     public class VarExpr(string n, int line, int col, string fname) : Expr(line, col, fname)
     {
         public string Name = n;
+
+        /// <summary>
+        /// Gets or sets the qualified path (for example <c>App.Core.add</c>) when the resolver bound this
+        /// reference to a namespace member. <see cref="Name"/> is then the member's single global binding.
+        /// </summary>
+        public string? NamespaceMember { get; set; }
+
+        /// <summary>
+        /// Gets or sets the expression this reference stood for before the resolver bound it to a namespace
+        /// member binding (a qualified member access, a bare member name, or a namespace import alias
+        /// access). Code generation ignores it; editor tooling analyzes it instead of the binding name.
+        /// </summary>
+        public Expr? SourceExpr { get; set; }
     }
 
     /// <summary>
@@ -321,12 +334,6 @@ namespace CFGS_VM.Analytic.Tree
         public bool IsDotAccess { get; }
 
         /// <summary>
-        /// When set, a missing member yields null instead of raising an "undefined member" error. Used only
-        /// by the namespace lowerer for the get-or-create probe (`ns.part ?? {}`); never set for user code.
-        /// </summary>
-        public bool IsOptionalAccess { get; set; }
-
-        /// <summary>
         /// Initializes a new instance of the <see cref="IndexExpr"/> class.
         /// </summary>
         /// <param name="t">The t<see cref="Expr?"/></param>
@@ -397,18 +404,6 @@ namespace CFGS_VM.Analytic.Tree
     public class DictExpr : Expr
     {
         public List<(Expr Key, Expr Value)> Pairs;
-
-        /// <summary>
-        /// Gets or sets a value indicating whether this literal is a synthetic namespace container
-        /// produced during namespace lowering. Such literals materialize as a distinct runtime
-        /// namespace value rather than a user dictionary.
-        /// </summary>
-        public bool IsNamespaceContainer { get; set; }
-
-        /// <summary>
-        /// Gets or sets the fully qualified namespace path for a namespace container literal.
-        /// </summary>
-        public string NamespaceContainerName { get; set; } = string.Empty;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="DictExpr"/> class.
@@ -512,11 +507,6 @@ namespace CFGS_VM.Analytic.Tree
         /// Gets or sets a value indicating whether this variable used an explicit visibility modifier.
         /// </summary>
         public bool HasExplicitVisibility { get; set; }
-
-        /// <summary>
-        /// Gets or sets a value indicating whether this declaration is a synthetic namespace root created during lowering.
-        /// </summary>
-        public bool IsSyntheticNamespaceRoot { get; set; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="VarDecl"/> class.
@@ -682,14 +672,6 @@ namespace CFGS_VM.Analytic.Tree
         /// Gets the Value
         /// </summary>
         public Expr Value { get; }
-
-        /// <summary>
-        /// Gets or sets a value indicating whether this assignment is compiler-generated
-        /// namespace plumbing (e.g. ensuring a namespace dictionary path). Such statements may
-        /// legitimately reference a namespace path as a value and are exempt from the
-        /// "namespace is not a value" rule.
-        /// </summary>
-        public bool IsSyntheticNamespacePath { get; set; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="AssignExprStmt"/> class.
@@ -1426,7 +1408,10 @@ namespace CFGS_VM.Analytic.Tree
     }
 
     /// <summary>
-    /// Defines a raw namespace import alias before lowering.
+    /// Declares a namespace import alias (<c>import * as Alias from ...</c>). The alias exists only at
+    /// compile time: the resolver binds <c>Alias.member</c> to the imported top-level binding, and the
+    /// statement stays in the lowered tree only so validation and editor tooling know the alias. Code
+    /// generation emits nothing for it.
     /// </summary>
     public sealed class NamespaceImportAliasStmt : Stmt
     {
@@ -1780,10 +1765,16 @@ namespace CFGS_VM.Analytic.Tree
         public bool IsFunctionBody { get; set; } = false;
 
         /// <summary>
-        /// Gets or sets a value indicating whether this block is the synthetic
-        /// execution scope created for a namespace declaration.
+        /// Gets or sets a value indicating whether this block holds the member declarations of a namespace
+        /// declaration. It opens no runtime scope: each member declares its own global binding (see
+        /// <c>NamespaceRuntimeBindingNames</c>).
         /// </summary>
         public bool IsNamespaceScope { get; set; } = false;
+
+        /// <summary>
+        /// Gets or sets the qualified namespace path (for example <c>App.Core</c>) of a namespace block.
+        /// </summary>
+        public string? NamespacePath { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether this block only groups the declarators of one

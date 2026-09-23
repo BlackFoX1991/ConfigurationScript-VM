@@ -1,0 +1,10 @@
+# Imported by 839_namespace_merged_bare_refs.cfs. It adds members to the same namespace.
+namespace Merged.Core;
+
+func fromModule() {
+    return 7;
+}
+
+func fromModuleUsingBase() {
+    return base() + 1;
+}

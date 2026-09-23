@@ -16,19 +16,13 @@ namespace CFGS_VM.Analytic.Lowering
             return stmt switch
             {
                 EmptyStmt => stmt,
-                VarDecl v => CopyNamespaceVisibility(new VarDecl(v.Name, LowerNullableExpr(v.Value), v.Line, v.Col, v.OriginFile)
-                {
-                    IsSyntheticNamespaceRoot = v.IsSyntheticNamespaceRoot
-                }, v),
+                VarDecl v => CopyNamespaceVisibility(new VarDecl(v.Name, LowerNullableExpr(v.Value), v.Line, v.Col, v.OriginFile), v),
                 ConstDecl c => CopyNamespaceVisibility(new ConstDecl(c.Name, LowerExpr(c.Value), c.Line, c.Col, c.OriginFile), c),
                 DestructureDeclStmt d => new DestructureDeclStmt(LowerPattern(d.Pattern), LowerExpr(d.Value), d.IsConst, d.Line, d.Col, d.OriginFile),
                 DestructureAssignStmt d => new DestructureAssignStmt(LowerPattern(d.Pattern), LowerExpr(d.Value), d.Line, d.Col, d.OriginFile),
                 ExportStmt e => new ExportStmt(e.Name, LowerStatement(e.Inner), e.Line, e.Col, e.OriginFile),
                 AssignStmt a => new AssignStmt(a.Name, LowerExpr(a.Value), a.Line, a.Col, a.OriginFile),
-                AssignExprStmt a => new AssignExprStmt(LowerExpr(a.Target), LowerExpr(a.Value), a.Line, a.Col, a.OriginFile)
-                {
-                    IsSyntheticNamespacePath = a.IsSyntheticNamespacePath
-                },
+                AssignExprStmt a => new AssignExprStmt(LowerExpr(a.Target), LowerExpr(a.Value), a.Line, a.Col, a.OriginFile),
                 CompoundAssignStmt a => new CompoundAssignStmt(LowerExpr(a.Target), a.Op, LowerExpr(a.Value), a.Line, a.Col, a.OriginFile),
                 SliceSetStmt s => new SliceSetStmt((SliceExpr)LowerExpr(s.Slice), LowerExpr(s.Value), s.Line, s.Col, s.OriginFile),
                 ExprStmt e => new ExprStmt(LowerExpr(e.Expression), e.Line, e.Col, e.OriginFile),
@@ -217,6 +211,7 @@ namespace CFGS_VM.Analytic.Lowering
             {
                 IsFunctionBody = block.IsFunctionBody,
                 IsNamespaceScope = block.IsNamespaceScope,
+                NamespacePath = block.NamespacePath,
                 IsDeclarationGroup = block.IsDeclarationGroup
             };
 
@@ -229,6 +224,7 @@ namespace CFGS_VM.Analytic.Lowering
             {
                 IsFunctionBody = block.IsFunctionBody,
                 IsNamespaceScope = block.IsNamespaceScope,
+                NamespacePath = block.NamespacePath,
                 IsDeclarationGroup = block.IsDeclarationGroup
             };
         }
@@ -350,16 +346,9 @@ namespace CFGS_VM.Analytic.Lowering
                 BinaryExpr b => new BinaryExpr(LowerExpr(b.Left), b.Op, LowerExpr(b.Right), b.Line, b.Col, b.OriginFile),
                 UnaryExpr u => new UnaryExpr(u.Op, LowerExpr(u.Right), u.Line, u.Col, u.OriginFile),
                 ArrayExpr a => new ArrayExpr(a.Elements.Select(LowerExpr).ToList(), a.Line, a.Col, a.OriginFile),
-                IndexExpr i => new IndexExpr(LowerNullableExpr(i.Target), LowerNullableExpr(i.Index), i.Line, i.Col, i.OriginFile, i.IsDotAccess)
-                {
-                    IsOptionalAccess = i.IsOptionalAccess
-                },
+                IndexExpr i => new IndexExpr(LowerNullableExpr(i.Target), LowerNullableExpr(i.Index), i.Line, i.Col, i.OriginFile, i.IsDotAccess),
                 SliceExpr s => new SliceExpr(LowerNullableExpr(s.Target), LowerNullableExpr(s.Start), LowerNullableExpr(s.End), s.Line, s.Col, s.OriginFile),
-                DictExpr d => new DictExpr(d.Pairs.Select(pair => (LowerExpr(pair.Key), LowerExpr(pair.Value))).ToList(), d.Line, d.Col, d.OriginFile)
-                {
-                    IsNamespaceContainer = d.IsNamespaceContainer,
-                    NamespaceContainerName = d.NamespaceContainerName
-                },
+                DictExpr d => new DictExpr(d.Pairs.Select(pair => (LowerExpr(pair.Key), LowerExpr(pair.Value))).ToList(), d.Line, d.Col, d.OriginFile),
                 PrefixExpr p => new PrefixExpr(LowerNullableExpr(p.Target), p.Op, p.Line, p.Col, p.OriginFile),
                 PostfixExpr p => new PostfixExpr(LowerNullableExpr(p.Target), p.Op, p.Line, p.Col, p.OriginFile),
                 NewExpr n => new NewExpr(

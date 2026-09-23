@@ -1,0 +1,7 @@
+# expect-error: CFGS2016 a namespace is not a value; access a member with dot notation
+# A namespace import alias exists only at compile time, exactly like a declared namespace,
+# so it can only prefix a member access.
+import * as Lib from "_imports/mod_exports_ns.cfs";
+
+var captured = Lib;
+print(captured);

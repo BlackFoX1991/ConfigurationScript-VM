@@ -189,7 +189,7 @@ namespace CFGS_VM.VMCore
 
                     _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_STR, "__type", cds.Line, cds.Col, cds.OriginFile));
-                    _insns.Add(new Instruction(OpCode.LOAD_VAR, cds.Name, cds.Line, cds.Col, cds.OriginFile));
+                    EmitNameLoad(GetDeclarationBindingName(cds, cds.Name), cds);
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
 
                     if (!string.IsNullOrEmpty(cds.BaseName))
@@ -405,7 +405,7 @@ namespace CFGS_VM.VMCore
                 {
                     _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, cds.OriginFile));
-                    EmitLoadQualifiedRuntimeValue(cds.BaseName, cds);
+                    EmitLoadDeclaredTypeReference(cds.BaseName, TryResolveBaseClassDecl(cds, out ClassDeclStmt baseClassDecl) ? baseClassDecl : null, cds);
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
                 }
 
@@ -414,7 +414,7 @@ namespace CFGS_VM.VMCore
                     _insns.Add(new Instruction(OpCode.DUP, null, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.PUSH_STR, "__interfaces", cds.Line, cds.Col, cds.OriginFile));
                     foreach (string ifaceName in cds.ImplementedInterfaces)
-                        EmitLoadQualifiedRuntimeValue(ifaceName, cds);
+                        EmitLoadDeclaredTypeReference(ifaceName, TryResolveInterfaceDecl(cds, ifaceName, out InterfaceDeclStmt ifaceDecl) ? ifaceDecl : null, cds);
                     _insns.Add(new Instruction(OpCode.NEW_ARRAY, cds.ImplementedInterfaces.Count, cds.Line, cds.Col, cds.OriginFile));
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, cds.Line, cds.Col, cds.OriginFile));
                 }
@@ -511,7 +511,7 @@ namespace CFGS_VM.VMCore
                     }
                 }
 
-                _insns.Add(new Instruction(OpCode.VAR_DECL, cds.Name, cds.Line, cds.Col, cds.OriginFile));
+                _insns.Add(new Instruction(OpCode.VAR_DECL, GetDeclarationBindingName(cds, cds.Name), cds.Line, cds.Col, cds.OriginFile));
             }
             finally
             {
@@ -592,7 +592,7 @@ namespace CFGS_VM.VMCore
 
             if (!usedOuterBinding)
             {
-                if (TryEmitHiddenNamespaceRuntimeValueLoad(ne.ClassName, ne))
+                if (TryEmitNamespaceMemberLoad(ne.ClassName, ne))
                 {
                     usedOuterBinding = true;
                 }

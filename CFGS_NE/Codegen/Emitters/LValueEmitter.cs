@@ -12,7 +12,9 @@ namespace CFGS_VM.VMCore
             {
                 if (load)
                 {
-                    if (!TryEmitImplicitMemberLoad(v.Name, v))
+                    if (IsResolvedGlobalReference(v))
+                        _insns.Add(new Instruction(OpCode.LOAD_GLOBAL, v.Name, v.Line, v.Col, v.OriginFile));
+                    else if (!TryEmitImplicitMemberLoad(v.Name, v))
                         _insns.Add(new Instruction(OpCode.LOAD_VAR, v.Name, v.Line, v.Col, v.OriginFile));
                 }
             }
@@ -79,7 +81,9 @@ namespace CFGS_VM.VMCore
         {
             if (target is VarExpr v)
             {
-                if (!TryEmitImplicitMemberStore(v.Name, v))
+                if (IsResolvedGlobalReference(v))
+                    _insns.Add(new Instruction(OpCode.STORE_GLOBAL, v.Name, v.Line, v.Col, v.OriginFile));
+                else if (!TryEmitImplicitMemberStore(v.Name, v))
                     _insns.Add(new Instruction(OpCode.STORE_VAR, v.Name, v.Line, v.Col, v.OriginFile));
             }
             else if (target is IndexExpr ie)

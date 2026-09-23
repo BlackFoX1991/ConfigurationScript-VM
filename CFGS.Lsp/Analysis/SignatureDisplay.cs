@@ -74,7 +74,9 @@ internal static class SignatureDisplay
             StringExpr text => $"\"{text.Value}\"",
             CharExpr ch => $"'{ch.Value}'",
             BoolExpr boolean => boolean.Value ? "true" : "false",
+            VarExpr { SourceExpr: { } source } => RenderExpr(source),
             VarExpr variable => variable.Name,
+            IndexExpr { IsDotAccess: true, Target: { } target, Index: StringExpr member } => $"{RenderExpr(target)}.{member.Value}",
             _ => "?"
         };
     }

@@ -1,0 +1,6 @@
+# Imported by 838_namespace_var_single_storage.cfs through `import * as Counter`.
+export var total = 0;
+
+export func increment() {
+    total = total + 1;
+}

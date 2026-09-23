@@ -1,0 +1,10 @@
+# Uses its own namespace import alias for the same module the importing test aliases as `Lib`.
+import * as Tools from "mod_exports_ns.cfs";
+
+export func viaModuleAlias(v) {
+    return Tools.triple(v) + Tools.nanswer;
+}
+
+export func aliasFlag() {
+    return Tools.Flag.On;
+}

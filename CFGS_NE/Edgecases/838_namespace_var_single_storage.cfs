@@ -1,0 +1,54 @@
+import "edge_assert.cfs";
+import * as Counter from "_imports/ns_alias_counter_mod.cfs";
+
+edge_begin("838_namespace_var_single_storage");
+
+# A namespace variable has exactly one storage: code inside the namespace and qualified access
+# from outside read and write the same binding.
+namespace Store {
+    var count = 0;
+
+    func bump() {
+        count = count + 1;
+        return count;
+    }
+
+    func read() {
+        return count;
+    }
+}
+
+namespace Guarded {
+    protected var level = 1;
+
+    func raise() {
+        level = level + 1;
+    }
+}
+
+namespace Guarded.Child {
+    func readLevel() {
+        return Guarded.level;
+    }
+}
+
+Store.bump();
+Store.bump();
+edge_eq("function_write_visible_outside", Store.count, 2);
+
+Store.count = 10;
+edge_eq("outside_write_visible_inside", Store.read(), 10);
+edge_eq("function_after_outside_write", Store.bump(), 11);
+
+Store.count += 5;
+edge_eq("compound_assignment", Store.read(), 16);
+
+Guarded.raise();
+edge_eq("protected_var_from_child", Guarded.Child.readLevel(), 2);
+
+# A namespace import alias reads the module variable itself, not a copy taken at import time.
+Counter.increment();
+Counter.increment();
+edge_eq("alias_export_var", Counter.total, 2);
+
+edge_finish("838_namespace_var_single_storage");

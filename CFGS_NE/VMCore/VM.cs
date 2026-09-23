@@ -1,3 +1,4 @@
+using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.VMCore.Codegen;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions;
@@ -182,6 +183,28 @@ namespace CFGS_VM.VMCore
         /// <param name="owner">The environment that owns the resolved local.</param>
         /// <param name="value">The resolved value.</param>
         /// <returns>True if the variable was found.</returns>
+        // The program's global scope: the root of the current scope chain. A hot-start async child VM runs
+        // with only the call scope in _scopes, so the root is reached through the captured parents rather
+        // than through _scopes[0]. Cached per scope root because it never changes while a VM runs.
+        private Env? _globalEnvSource;
+        private Env? _globalEnv;
+
+        internal Env GlobalEnv()
+        {
+            Env source = _scopes[0];
+            if (!ReferenceEquals(source, _globalEnvSource) || _globalEnv is null)
+            {
+                Env env = source;
+                while (env.Parent is not null)
+                    env = env.Parent;
+
+                _globalEnvSource = source;
+                _globalEnv = env;
+            }
+
+            return _globalEnv;
+        }
+
         private bool TryResolveVarOwnerValue(string name, out Env owner, out Value value)
         {
             for (Env? env = _scopes.Count > 0 ? _scopes[^1] : null; env != null; env = env.Parent)
@@ -430,9 +453,6 @@ namespace CFGS_VM.VMCore
                 case OpCode.INDEX_GET:
                     return HandleIndexGetInstruction(_ip, instr);
 
-                case OpCode.INDEX_GET_OPT:
-                    return HandleIndexGetInstruction(_ip, instr, optional: true);
-
                 case OpCode.INDEX_SET:
                 case OpCode.INDEX_SET_INTERNAL:
                 case OpCode.INDEX_INIT:
@@ -440,9 +460,6 @@ namespace CFGS_VM.VMCore
 
                 case OpCode.NEW_DICT:
                     return HandleNewDictionaryInstruction(instr);
-
-                case OpCode.NEW_NAMESPACE:
-                    return HandleNewNamespaceInstruction(instr);
 
                 case OpCode.NEW_DICT_INTERNAL:
                     return HandleNewDictionaryInstruction(instr);
@@ -726,6 +743,38 @@ namespace CFGS_VM.VMCore
 
                         if (name == "this" || name == "type" || name == "super" || name == "outer")
                             throw new VMException($"Runtime error: cannot assign to '{name}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+
+                        throw new VMException(UndefinedAssignmentMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    }
+
+                case OpCode.LOAD_GLOBAL:
+                    {
+                        string name = (string)instr.Operand!;
+                        Env global = GlobalEnv();
+                        if (TryGetLocalVarValue(global, name, out Value globalValue))
+                        {
+                            MarkAsyncHazardForEnvAccess(global);
+                            _valueStack.Push(globalValue);
+                            break;
+                        }
+
+                        throw new VMException(UndefinedVariableMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                    }
+
+                case OpCode.STORE_GLOBAL:
+                    {
+                        string name = (string)instr.Operand!;
+                        RequireStack(1, instr, "STORE_GLOBAL");
+                        Value value = _valueStack.Pop();
+                        Env global = GlobalEnv();
+                        if (TryGetLocalVarValue(global, name, out _))
+                        {
+                            MarkAsyncHazardForEnvAccess(global);
+                            if (global.IsConstLocal(name))
+                                throw new VMException($"Runtime error: cannot assign to constant '{NamespaceRuntimeBindingNames.ToDisplayName(name)}'", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
+                            global.DefineValue(name, value);
+                            break;
+                        }
 
                         throw new VMException(UndefinedAssignmentMessage(name), instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                     }

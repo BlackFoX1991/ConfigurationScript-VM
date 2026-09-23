@@ -51,7 +51,7 @@ namespace CFGS_VM.Analytic.Semantics
             {
                 int rootSep = qualifiedPath.IndexOf('.');
                 string root = rootSep >= 0 ? qualifiedPath[..rootSep] : qualifiedPath;
-                if (!currentLocals.Contains(root) && compiler.Context.QualifiedClassDecls.TryGetValue(qualifiedPath, out decl!))
+                if ((IsBoundChain(expr) || !currentLocals.Contains(root)) && compiler.Context.QualifiedClassDecls.TryGetValue(qualifiedPath, out decl!))
                     return true;
             }
 
@@ -88,7 +88,7 @@ namespace CFGS_VM.Analytic.Semantics
             {
                 int rootSep = qualifiedPath.IndexOf('.');
                 string root = rootSep >= 0 ? qualifiedPath[..rootSep] : qualifiedPath;
-                if (!currentLocals.Contains(root) && compiler.Context.QualifiedEnumDecls.TryGetValue(qualifiedPath, out decl!))
+                if ((IsBoundChain(expr) || !currentLocals.Contains(root)) && compiler.Context.QualifiedEnumDecls.TryGetValue(qualifiedPath, out decl!))
                     return true;
             }
 
@@ -365,12 +365,22 @@ namespace CFGS_VM.Analytic.Semantics
                 expectInstance: false);
         }
 
+        // A chain rooted at a reference the resolver bound to a global binding cannot be hidden by a local.
+        private static bool IsBoundChain(Expr expr)
+        {
+            while (expr is IndexExpr { Target: not null } indexExpr)
+                expr = indexExpr.Target;
+
+            return expr is VarExpr { SourceExpr: not null };
+        }
+
         private static bool TryExtractQualifiedPath(Expr expr, out string path)
         {
             switch (expr)
             {
+                // A namespace member bound to its global binding still names the member's qualified path.
                 case VarExpr variableExpr:
-                    path = variableExpr.Name;
+                    path = variableExpr.NamespaceMember ?? variableExpr.Name;
                     return !string.IsNullOrWhiteSpace(path);
 
                 case IndexExpr indexExpr when indexExpr.Target != null && indexExpr.Index is StringExpr segment:

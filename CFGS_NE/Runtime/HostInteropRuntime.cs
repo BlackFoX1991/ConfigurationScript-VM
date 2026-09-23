@@ -1,3 +1,4 @@
+using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions;
 using CFGS_VM.VMCore.Extensions.Core;
@@ -190,17 +191,47 @@ namespace CFGS_VM.VMCore
         private static List<Value> NormalizeRuntimeArgs(IEnumerable<object?>? args)
             => args?.Select(static arg => ToRuntimeValue(NormalizeHostValue(arg))).ToList() ?? [];
 
+        /// <summary>
+        /// Resolves a qualified name for the host API. A name that starts inside a script namespace
+        /// (<c>App.Core.Box.Inner</c>) is read from the member's global binding first; the remaining
+        /// segments, like every segment of any other name, are member accesses.
+        /// </summary>
         private object? ResolveQualifiedRuntimeValue(string qualifiedName, string? originFile)
         {
             string[] parts = qualifiedName.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (parts.Length == 0)
                 throw new ArgumentException("Qualified name must not be empty.", nameof(qualifiedName));
 
+            foreach ((string bindingName, string[] remaining) in NamespaceRuntimeBindingNames.EnumerateQualifiedCandidates(qualifiedName))
+            {
+                if (!TryGetGlobal(bindingName, out object? member))
+                    continue;
+
+                foreach (string part in remaining)
+                    member = GetIndexedValue(member!, part, CreateHostMemberInstruction(OpCode.INDEX_GET, originFile));
+
+                return member;
+            }
+
             object? current = GetGlobal(parts[0]);
             for (int i = 1; i < parts.Length; i++)
                 current = GetIndexedValue(current!, parts[i], CreateHostMemberInstruction(OpCode.INDEX_GET, originFile));
 
             return current;
+        }
+
+        private bool TryResolveQualifiedCallable(string qualifiedName, string? originFile, out object? callable)
+        {
+            try
+            {
+                callable = ResolveQualifiedRuntimeValue(qualifiedName, originFile);
+                return callable is not null;
+            }
+            catch (Exception ex) when (ex is KeyNotFoundException or VMException)
+            {
+                callable = null;
+                return false;
+            }
         }
 
         private static Instruction CreateHostMemberInstruction(OpCode code, string? originFile)

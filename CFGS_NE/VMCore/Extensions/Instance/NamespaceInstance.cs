@@ -1,10 +1,11 @@
 namespace CFGS_VM.VMCore.Extensions.Instance
 {
     /// <summary>
-    /// A runtime namespace value. Namespaces are accessed exclusively through dot member syntax
-    /// (App.Core, Ns.member); they are deliberately a distinct type from a user dictionary so that
-    /// dictionary data access can require bracket syntax without breaking namespace resolution.
-    /// Members are stored as raw runtime objects, exactly like the values a dictionary would hold.
+    /// A native namespace registered by the standard library or a plugin (for example <c>math</c> or
+    /// <c>std.math</c>). Script namespaces never become runtime values: they are resolved at compile time
+    /// to one global binding per member. A native namespace is accessed exclusively through dot member
+    /// syntax (Ns.member); it is deliberately a distinct type from a user dictionary so that dictionary
+    /// data access can require bracket syntax. Members are stored as raw runtime objects.
     /// </summary>
     public sealed class NamespaceInstance
     {

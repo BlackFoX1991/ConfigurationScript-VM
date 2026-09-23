@@ -53,6 +53,13 @@ namespace CFGS_VM.VMCore.Codegen
 
         public Dictionary<ClassDeclStmt, (HashSet<string> InstanceMembers, HashSet<string> StaticMembers)> ClassMemberSetCache { get; } = new();
 
+        // Namespace member declaration -> the name of the single global binding that stores the member
+        // (see NamespaceRuntimeBindingNames). Declarations outside a namespace bind under their own name.
+        public Dictionary<Stmt, string> DeclarationBindingNames { get; } = new(ReferenceEqualityComparer.Instance);
+
+        // Every script namespace path, including the prefixes of nested paths (App and App.Core).
+        public HashSet<string> NamespacePaths { get; } = new(StringComparer.Ordinal);
+
         public void Reset()
         {
             Instructions.Clear();
@@ -72,6 +79,8 @@ namespace CFGS_VM.VMCore.Codegen
             InterfacePropertyContractCache.Clear();
             InterfaceIndexerContractCache.Clear();
             ClassMemberSetCache.Clear();
+            DeclarationBindingNames.Clear();
+            NamespacePaths.Clear();
         }
     }
 }

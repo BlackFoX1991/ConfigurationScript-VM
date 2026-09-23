@@ -2571,7 +2571,6 @@ internal sealed class CfgsAnalyzer
         private readonly SourceResolver _sources;
         private readonly string _documentOrigin;
         private readonly string _documentUri;
-        private readonly HashSet<(int Line, int Column, string RootName)> _syntheticNamespaceRoots = new();
 
         public SymbolCollector(SourceResolver sources, string documentOrigin, string documentUri)
         {
@@ -2596,9 +2595,6 @@ internal sealed class CfgsAnalyzer
                     continue;
                 }
 
-                if (stmt is VarDecl syntheticRoot && IsSyntheticNamespaceRoot(syntheticRoot))
-                    continue;
-
                 if (TryCreateSymbol(stmt, null, out CfgsSymbol? symbol))
                 {
                     AddFlattenedSymbol(symbol!);
@@ -2616,28 +2612,16 @@ internal sealed class CfgsAnalyzer
                 AddFlattenedSymbol(child);
         }
 
-        private bool IsSyntheticNamespaceRoot(VarDecl decl)
-            // Primaer die vom NamespaceLowerer gesetzte AST-Markierung nutzen: der synthetische Wurzel-VarDecl
-            // (z.B. "Modules" fuer `namespace Modules.Types;`) wird VOR dem Namespace-Block emittiert, also ist
-            // die positionsbasierte Menge beim ersten Sehen noch leer. Ohne die Flag-Pruefung wuerde die Wurzel
-            // als eigenes Symbol durchrutschen und ein zweites, ueberlappendes "N references"-CodeLens auf der
-            // namespace-Zeile erzeugen (nur wenn kein vorheriger Import die Wurzel bereits deklariert hat).
-            => decl.IsSyntheticNamespaceRoot ||
-               (decl.Value is DictExpr &&
-                _syntheticNamespaceRoots.Contains((decl.Line, decl.Col, decl.Name)));
-
         private bool TryCreateNamespaceSymbol(BlockStmt block, out CfgsSymbol? namespaceSymbol)
         {
             namespaceSymbol = null;
 
-            if (!TryExtractNamespaceInfo(block, out string? namespacePath, out string? tempName))
+            if (!block.IsNamespaceScope || string.IsNullOrWhiteSpace(block.NamespacePath))
                 return false;
 
-            string rootName = namespacePath!.Split('.')[0];
-            _syntheticNamespaceRoots.Add((block.Line, block.Col, rootName));
-
+            string namespacePath = block.NamespacePath;
             List<CfgsSymbol> children = [];
-            foreach (Stmt stmt in EnumerateNamespaceBodyStatements(block, tempName!))
+            foreach (Stmt stmt in block.Statements)
             {
                 if (TryCreateSymbol(stmt, namespacePath, out CfgsSymbol? child))
                     children.Add(child!);
@@ -2659,36 +2643,6 @@ internal sealed class CfgsAnalyzer
                 IsSynthetic: false);
 
             return true;
-        }
-
-        private IEnumerable<Stmt> EnumerateNamespaceBodyStatements(BlockStmt block, string tempName)
-        {
-            foreach (Stmt stmt in block.Statements.Skip(1))
-            {
-                if (stmt is AssignExprStmt assign &&
-                    assign.Target is IndexExpr target &&
-                    target.Target is VarExpr varExpr &&
-                    string.Equals(varExpr.Name, tempName, StringComparison.Ordinal) &&
-                    assign.Value is VarExpr)
-                {
-                    continue;
-                }
-
-                yield return stmt;
-            }
-        }
-
-        private bool TryExtractNamespaceInfo(BlockStmt block, out string? namespacePath, out string? tempName)
-        {
-            namespacePath = null;
-            tempName = null;
-
-            if (block.Statements.FirstOrDefault() is not VarDecl tempDecl)
-                return false;
-
-            tempName = tempDecl.Name;
-            namespacePath = TextLocator.TryExtractQualifiedPath(tempDecl.Value);
-            return !string.IsNullOrWhiteSpace(namespacePath);
         }
 
         private bool TryCreateSymbol(Stmt stmt, string? containerName, out CfgsSymbol? symbol)
@@ -2720,6 +2674,10 @@ internal sealed class CfgsAnalyzer
 
                 case ConstDecl constant:
                     symbol = CreateSimpleSymbol(constant.Name, containerName, constant.Line, constant.Col, constant.OriginFile, 14, $"const {constant.Name}");
+                    return true;
+
+                case NamespaceImportAliasStmt alias:
+                    symbol = CreateSimpleSymbol(alias.Alias, containerName, alias.Line, alias.Col, alias.OriginFile, 13, $"var {alias.Alias}");
                     return true;
 
                 default:

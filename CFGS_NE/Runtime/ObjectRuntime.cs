@@ -1212,7 +1212,7 @@ namespace CFGS_VM.VMCore
                 instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
         }
 
-        private object GetIndexedValue(object target, object idxObj, Instruction instr, bool optional = false)
+        private object GetIndexedValue(object target, object idxObj, Instruction instr)
         {
             switch (target)
             {
@@ -1292,10 +1292,9 @@ namespace CFGS_VM.VMCore
 
                 case NamespaceInstance ns:
                     {
-                        // Namespace members require dot access (Ns.member). A namespace is not an indexable
-                        // value, so bracket access is rejected here at runtime, matching the compile-time rule
-                        // for statically known namespace paths. The internal get-or-create probe and every
-                        // qualified access the lowerer emits use dot access, so they are unaffected.
+                        // A native namespace registered by a plugin or the standard library (script
+                        // namespaces are compile-time only and never reach the runtime). Its members require
+                        // dot access (Ns.member); bracket access is rejected, matching the compile-time rule.
                         if (!IsMemberAccessInstruction(instr))
                             throw new VMException(
                                 $"Runtime error: namespace '{ns.Name}' members require dot access; use {ns.Name}.{idxObj} instead of {ns.Name}[\"{idxObj}\"]",
@@ -1304,11 +1303,6 @@ namespace CFGS_VM.VMCore
                         string nsKey = idxObj?.ToString() ?? "";
                         if (ns.Members.TryGetValue(nsKey, out object? nsMember))
                             return nsMember;
-
-                        // An optional read (the `?? container` probe the namespace lowerer emits to
-                        // get-or-create nested namespaces) tolerates a missing member and yields null.
-                        if (optional)
-                            return null!;
 
                         // A plain member access to a missing member is an undefined reference, not a null
                         // value: report it as such instead of silently returning null (which used to surface
@@ -1557,9 +1551,8 @@ namespace CFGS_VM.VMCore
 
                 case NamespaceInstance ns:
                     {
-                        // Namespace members are written through dot access, both by the synthetic namespace
-                        // lowering and by any user assignment. Bracket access is rejected so a namespace value
-                        // stays dot-only, mirroring the read path and the compile-time namespace rule.
+                        // A native namespace (see the read path). Bracket access is rejected so it stays
+                        // dot-only, mirroring the read path and the compile-time namespace rule.
                         if (!IsMemberAccessInstruction(instr))
                             throw new VMException(
                                 $"Runtime error: namespace '{ns.Name}' members require dot access; use {ns.Name}.{idxObj} = ... instead of {ns.Name}[\"{idxObj}\"] = ...",
@@ -1793,7 +1786,7 @@ namespace CFGS_VM.VMCore
         /// <summary>
         /// Handles the INDEX_GET opcode.
         /// </summary>
-        private StepResult HandleIndexGetInstruction(int ip, Instruction instr, bool optional = false)
+        private StepResult HandleIndexGetInstruction(int ip, Instruction instr)
         {
             if (instr.Operand is string)
                 RequireStack(1, instr, "INDEX_GET");
@@ -1838,7 +1831,7 @@ namespace CFGS_VM.VMCore
                 return StepResult.Next;
             }
 
-            PushRuntimeObject(GetIndexedValue(target, idxObj, instr, optional));
+            PushRuntimeObject(GetIndexedValue(target, idxObj, instr));
             return StepResult.Next;
         }
 

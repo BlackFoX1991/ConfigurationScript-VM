@@ -88,6 +88,11 @@ namespace CFGS_VM.VMCore
         {
             if (!Functions.TryGetValue(name, out FunctionInfo? func))
             {
+                // A namespace function (App.Core.add) is a closure in its member binding, not a hoisted
+                // top-level function.
+                if (name.Contains('.') && TryResolveQualifiedCallable(name, originFile, out object? callable))
+                    return await InvokeRuntimeValueAsync(callable, args ?? [], originFile, ct).ConfigureAwait(false);
+
                 throw new VMException(
                     $"Runtime error: undefined function '{name}'",
                     -1, -1, originFile ?? string.Empty, IsDebugging, DebugStream!);

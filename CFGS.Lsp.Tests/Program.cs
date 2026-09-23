@@ -31,7 +31,9 @@ internal static class Program
             HoverUsesLastGoodAnalysisAfterCatastrophicLexerFailure,
             ReferencesUseLastGoodAnalysisAfterCatastrophicLexerFailure,
             LiveLintPublishesStyleDiagnosticsWhenEnabled,
-            LiveLintStaysSilentWhenDisabled
+            LiveLintStaysSilentWhenDisabled,
+            NamespaceMembersResolveThroughCompileTimeBindings,
+            NamespaceImportAliasMembersResolveToTheImportedSymbol
         ];
 
         List<string> failures = [];
@@ -595,6 +597,122 @@ var answer = add(1, 2);
 
         AssertEqual(JsonValueKind.Array, references.ValueKind, "references result must be an array");
         AssertTrue(references.GetArrayLength() >= 2, "references should still include declaration and usage from the last good analysis");
+    }
+
+    /// <summary>
+    /// Namespace members are bound to compile-time bindings, so the editor must still see the reference
+    /// as written: qualified, bare inside the namespace, and across the blocks of a merged namespace.
+    /// </summary>
+    private static void NamespaceMembersResolveThroughCompileTimeBindings()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+namespace Demo.Tools {
+    func helper() {
+        return 1;
+    }
+}
+
+namespace Demo.Tools {
+    func caller() {
+        return helper();
+    }
+}
+
+var direct = Demo.Tools.helper();
+""";
+        string uri = CreateDocumentUri("namespace-bindings.cfs");
+        client.DidOpen(uri, source);
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertEqual(0, diagnostics.GetArrayLength(), "expected the namespace sample to analyze cleanly");
+
+        string[] lines = source.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        const string expectedSymbol = "Symbol: `Demo.Tools.helper`";
+
+        JsonElement qualifiedHover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 12, character = lines[12].LastIndexOf("helper", StringComparison.Ordinal) + 1 }
+        });
+        string qualifiedValue = qualifiedHover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(qualifiedValue.Contains(expectedSymbol, StringComparison.Ordinal), "a qualified namespace member access must hover as the member");
+
+        JsonElement bareHover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 8, character = lines[8].LastIndexOf("helper", StringComparison.Ordinal) + 1 }
+        });
+        string bareValue = bareHover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(bareValue.Contains(expectedSymbol, StringComparison.Ordinal), "a bare reference inside the namespace must hover as the member");
+
+        JsonElement definition = client.SendRequest("textDocument/definition", new
+        {
+            textDocument = new { uri },
+            position = new { line = 12, character = lines[12].LastIndexOf("helper", StringComparison.Ordinal) + 1 }
+        });
+        AssertTrue(definition.ValueKind is JsonValueKind.Object or JsonValueKind.Array, "a namespace member must have a definition target");
+
+        JsonElement references = client.SendRequest("textDocument/references", new
+        {
+            textDocument = new { uri },
+            position = new { line = 1, character = lines[1].IndexOf("helper", StringComparison.Ordinal) + 1 },
+            context = new { includeDeclaration = true }
+        });
+        AssertEqual(JsonValueKind.Array, references.ValueKind, "references result must be an array");
+        AssertTrue(references.GetArrayLength() >= 3, "references must cover the declaration and both uses of the namespace member");
+    }
+
+    /// <summary>
+    /// A namespace import alias is compile-time only, so Alias.member must still resolve to the imported
+    /// symbol in the editor.
+    /// </summary>
+    private static void NamespaceImportAliasMembersResolveToTheImportedSymbol()
+    {
+        string appPluginDirectory = Path.Combine(AppContext.BaseDirectory, "plugins");
+        Directory.CreateDirectory(appPluginDirectory);
+        string moduleFileName = $"cfgs_lsp_alias_{Guid.NewGuid():N}.cfs";
+        string modulePath = Path.Combine(appPluginDirectory, moduleFileName);
+        File.WriteAllText(modulePath, "export func triple(v) { return v * 3; }");
+
+        try
+        {
+            using LspTestClient client = LspTestClient.StartInitialized();
+            string uri = CreateDocumentUri("namespace-alias.cfs");
+            string source = $$"""
+import * as Tools from "{{moduleFileName}}";
+
+func run(triple) {
+    return Tools.triple(triple);
+}
+""";
+            client.DidOpen(uri, source);
+            JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+            AssertEqual(0, diagnostics.GetArrayLength(), "expected the alias sample to analyze cleanly");
+
+            JsonElement hover = client.SendRequest("textDocument/hover", new
+            {
+                textDocument = new { uri },
+                position = new { line = 3, character = 18 }
+            });
+
+            string value = hover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+            AssertTrue(value.Contains("triple", StringComparison.Ordinal), "hover on an alias member must resolve the imported function");
+            AssertFalse(value.Contains("__ns_member_", StringComparison.Ordinal), "hover must never show an internal binding name");
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(modulePath))
+                    File.Delete(modulePath);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
     }
 
     private static string CreateDocumentUri(string fileName)

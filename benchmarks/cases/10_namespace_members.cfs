@@ -1,0 +1,32 @@
+# name: Namespace member access
+# units: 400000
+# unit-label: member accesses
+#
+# Calls namespace functions by their qualified name and by their bare name from
+# inside the namespace, and reads and writes a namespace variable. Namespace
+# members are resolved at compile time, so each access is one global load or
+# store rather than a namespace object lookup per path segment.
+
+namespace Bench.Math {
+    var accumulator = 0;
+
+    func add(a, b) {
+        return a + b;
+    }
+
+    func square(v) {
+        return v * v;
+    }
+
+    func combine(v) {
+        return add(square(v), accumulator);
+    }
+}
+
+var total = 0;
+for (var i = 0; i < 400000; i++) {
+    total = total + Bench.Math.combine(i % 7);
+    Bench.Math.accumulator = i % 3;
+}
+
+print("namespace total: " + str(total));

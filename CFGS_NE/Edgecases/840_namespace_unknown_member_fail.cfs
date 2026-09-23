@@ -1,0 +1,10 @@
+# expect-error: CFGS2001 unknown member 'missing' in namespace 'Modules.Masterdata'
+namespace Modules.Masterdata {
+    func helper() { return 42; }
+}
+
+func run() {
+    return Modules.Masterdata.missing();
+}
+
+run();

@@ -1,0 +1,33 @@
+import * as Lib from "_imports/mod_exports_ns.cfs";
+import { viaModuleAlias, aliasFlag } from "_imports/ns_alias_consumer_mod.cfs";
+import "edge_assert.cfs";
+
+edge_begin("847_namespace_alias_compile_time");
+
+# The alias resolves to the imported bindings themselves, so a local or class member of the same
+# name cannot hide them.
+func shadowed(triple, nanswer) {
+    return Lib.triple(triple) + Lib.nanswer + nanswer;
+}
+
+class Holder() {
+    var triple = 100;
+    const nanswer = 200;
+
+    func viaAlias() { return Lib.triple(2) + Lib.nanswer; }
+}
+
+edge_eq("local_does_not_shadow", shadowed(2, 100), 113);
+edge_eq("class_member_does_not_shadow", (new Holder()).viaAlias(), 13);
+
+# Type positions and enum members through the alias.
+var crate = new Lib.Crate(9);
+edge_eq("alias_class", crate.get(), 9);
+edge_true("alias_type_check", crate is Lib.Crate);
+edge_eq("alias_enum", Lib.Flag.Off, 0);
+
+# An alias declared inside an imported module resolves in that module.
+edge_eq("alias_inside_module", viaModuleAlias(3), 16);
+edge_eq("alias_enum_inside_module", aliasFlag(), 1);
+
+edge_finish("847_namespace_alias_compile_time");

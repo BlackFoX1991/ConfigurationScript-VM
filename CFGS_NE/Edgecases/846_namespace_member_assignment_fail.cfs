@@ -1,0 +1,6 @@
+# expect-error: CFGS2007 invalid assignment to namespace function 'App.Core.add'; only namespace variables can be assigned
+namespace App.Core {
+    func add(a, b) { return a + b; }
+}
+
+App.Core.add = 5;

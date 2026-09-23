@@ -69,6 +69,20 @@ namespace CFGS_VM.Analytic.Core
                 statements.Add(declaration);
             }
 
+            // Every namespace member is a named declaration with its own global binding. A destructuring
+            // declaration would bind several names without making any of them a member.
+            foreach (Stmt statement in statements)
+            {
+                if (statement is DestructureDeclStmt destructure)
+                {
+                    throw new ParserException(
+                        "destructuring declarations are not supported in a namespace body; declare each member separately",
+                        destructure.Line,
+                        destructure.Col,
+                        destructure.OriginFile);
+                }
+            }
+
             return statements;
         }
 

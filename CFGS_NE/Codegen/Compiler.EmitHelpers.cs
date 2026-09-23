@@ -16,7 +16,7 @@ namespace CFGS_VM.VMCore
             if (string.IsNullOrWhiteSpace(qualifiedPath))
                 throw new CompilerException("internal compiler error: empty qualified runtime path", node.Line, node.Col, node.OriginFile);
 
-            if (TryEmitHiddenNamespaceRuntimeValueLoad(qualifiedPath, node))
+            if (TryEmitNamespaceMemberLoad(qualifiedPath, node))
                 return;
 
             string[] parts = qualifiedPath.Split('.', StringSplitOptions.RemoveEmptyEntries);
@@ -34,39 +34,54 @@ namespace CFGS_VM.VMCore
             }
         }
 
-        private bool TryEmitHiddenNamespaceRuntimeValueLoad(string qualifiedPath, Node node)
+        /// <summary>
+        /// Loads a qualified path that starts inside a script namespace (for example
+        /// <c>App.Core.Box.Inner</c>): the member right after the longest namespace prefix is read from its
+        /// global binding, and the remaining segments are ordinary member accesses.
+        /// </summary>
+        private bool TryEmitNamespaceMemberLoad(string qualifiedPath, Node node)
         {
-            if (_qualifiedClassDecls.TryGetValue(qualifiedPath, out ClassDeclStmt? classDecl) &&
-                NamespaceRuntimeBindingNames.UsesSyntheticBinding(classDecl.Visibility))
+            string[] parts = qualifiedPath.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            for (int memberIndex = parts.Length - 1; memberIndex >= 1; memberIndex--)
             {
-                _insns.Add(new Instruction(
-                    OpCode.LOAD_VAR,
-                    NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(GetNamespacePath(qualifiedPath), classDecl.Name),
-                    node.Line,
-                    node.Col,
-                    node.OriginFile));
-                return true;
-            }
+                string namespacePath = string.Join(".", parts, 0, memberIndex);
+                if (!_context.NamespacePaths.Contains(namespacePath))
+                    continue;
 
-            if (_qualifiedInterfaceDecls.TryGetValue(qualifiedPath, out InterfaceDeclStmt? interfaceDecl) &&
-                NamespaceRuntimeBindingNames.UsesSyntheticBinding(interfaceDecl.Visibility))
-            {
                 _insns.Add(new Instruction(
-                    OpCode.LOAD_VAR,
-                    NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(GetNamespacePath(qualifiedPath), interfaceDecl.Name),
+                    OpCode.LOAD_GLOBAL,
+                    NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(namespacePath, parts[memberIndex]),
                     node.Line,
                     node.Col,
                     node.OriginFile));
+
+                for (int i = memberIndex + 1; i < parts.Length; i++)
+                {
+                    _insns.Add(new Instruction(OpCode.PUSH_STR, parts[i], node.Line, node.Col, node.OriginFile));
+                    _insns.Add(new Instruction(OpCode.INDEX_GET, true, node.Line, node.Col, node.OriginFile));
+                }
+
                 return true;
             }
 
             return false;
         }
 
-        private static string GetNamespacePath(string qualifiedPath)
+        /// <summary>
+        /// Loads a type named in a declaration (a base class or an implemented or inherited interface). A
+        /// type declared directly in a namespace is read from its member binding, which also covers a name
+        /// the declaration wrote relative to its own namespace. Any other name keeps its written form, so a
+        /// nested type still resolves through the declaring class's scope while that class is being built.
+        /// </summary>
+        private void EmitLoadDeclaredTypeReference(string typeName, Stmt? resolvedDecl, Node node)
         {
-            int lastDot = qualifiedPath.LastIndexOf('.');
-            return lastDot > 0 ? qualifiedPath[..lastDot] : string.Empty;
+            if (resolvedDecl is not null && _context.DeclarationBindingNames.TryGetValue(resolvedDecl, out string? bindingName))
+            {
+                _insns.Add(new Instruction(OpCode.LOAD_GLOBAL, bindingName, node.Line, node.Col, node.OriginFile));
+                return;
+            }
+
+            EmitLoadQualifiedRuntimeValue(typeName, node);
         }
 
         private static OpCode OpFromToken(TokenType t, Node tp, string outOfFile) => t switch

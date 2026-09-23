@@ -4,6 +4,12 @@ using CFGS_VM.VMCore.Extensions;
 
 namespace CFGS_VM.Analytic.Semantics
 {
+    /// <summary>
+    /// Compile-time rules for script namespaces and namespace import aliases. The resolver binds every
+    /// valid member reference to its global binding before compilation, so a member access chain that still
+    /// starts at a namespace or an alias here is invalid: bracket access, an unknown member, an inaccessible
+    /// member, or a namespace used as a value.
+    /// </summary>
     internal sealed class NamespaceAccessRules
     {
         internal enum NamespaceSymbolKind
@@ -14,7 +20,8 @@ namespace CFGS_VM.Analytic.Semantics
             Interface,
             Enum,
             Variable,
-            Constant
+            Constant,
+            AliasExport
         }
 
         private sealed record NamespaceMemberDescriptor(
@@ -26,15 +33,25 @@ namespace CFGS_VM.Analytic.Semantics
 
         private readonly Dictionary<string, Dictionary<string, NamespaceMemberDescriptor>> _namespaceMembersByPath = new(StringComparer.Ordinal);
         private readonly HashSet<string> _knownNamespacePaths = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _aliasNames = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, NamespaceMemberDescriptor> _membersByQualifiedPath = new(StringComparer.Ordinal);
 
         public void Build(IEnumerable<Stmt> statements)
         {
             _namespaceMembersByPath.Clear();
             _knownNamespacePaths.Clear();
+            _aliasNames.Clear();
+            _membersByQualifiedPath.Clear();
 
             foreach (Stmt raw in statements)
             {
                 Stmt stmt = raw is ExportStmt exportStmt ? exportStmt.Inner : raw;
+                if (stmt is NamespaceImportAliasStmt alias)
+                {
+                    RegisterAlias(alias);
+                    continue;
+                }
+
                 if (stmt is not BlockStmt block || !Compiler.TryGetNamespaceScopePath(block, out string namespacePath))
                     continue;
 
@@ -48,10 +65,7 @@ namespace CFGS_VM.Analytic.Semantics
             string? currentNamespacePath)
         {
             if (indexExpr.Target is null ||
-                indexExpr.Index is not StringExpr memberExpr ||
-                !TryResolveKnownNamespacePathFromExpr(indexExpr.Target, currentLocals, out string namespacePath) ||
-                !_namespaceMembersByPath.TryGetValue(namespacePath, out Dictionary<string, NamespaceMemberDescriptor>? members) ||
-                !members.TryGetValue(memberExpr.Value, out NamespaceMemberDescriptor? descriptor))
+                !TryResolveKnownNamespacePathFromExpr(indexExpr.Target, currentLocals, out string namespacePath))
             {
                 return;
             }
@@ -65,15 +79,19 @@ namespace CFGS_VM.Analytic.Semantics
                     indexExpr.OriginFile);
             }
 
+            if (indexExpr.Index is not StringExpr memberExpr)
+                return;
+
+            if (!_namespaceMembersByPath.TryGetValue(namespacePath, out Dictionary<string, NamespaceMemberDescriptor>? members) ||
+                !members.TryGetValue(memberExpr.Value, out NamespaceMemberDescriptor? descriptor))
+            {
+                throw CreateUnknownMemberException(namespacePath, memberExpr.Value, memberExpr);
+            }
+
             if (IsNamespaceMemberAccessible(descriptor, currentNamespacePath))
                 return;
 
-            throw new CompilerException(
-                $"inaccessible namespace member '{descriptor.Name}' in namespace '{descriptor.DeclaringNamespacePath}': '{VisibilityLabel(descriptor.Visibility)}' access",
-                indexExpr.Line,
-                indexExpr.Col,
-                indexExpr.OriginFile,
-                descriptor.Name.Length);
+            throw CreateInaccessibleMemberException(descriptor, indexExpr);
         }
 
         public void ValidateQualifiedTypeAccess(
@@ -98,7 +116,7 @@ namespace CFGS_VM.Analytic.Semantics
                 if (!_namespaceMembersByPath.TryGetValue(currentPath, out Dictionary<string, NamespaceMemberDescriptor>? members) ||
                     !members.TryGetValue(parts[i], out NamespaceMemberDescriptor? descriptor))
                 {
-                    return;
+                    throw CreateUnknownMemberException(currentPath, parts[i], node);
                 }
 
                 if (descriptor.Kind == NamespaceSymbolKind.Namespace)
@@ -113,13 +131,39 @@ namespace CFGS_VM.Analytic.Semantics
                 if (IsNamespaceMemberAccessible(descriptor, currentNamespacePath))
                     return;
 
-                throw new CompilerException(
-                    $"inaccessible namespace member '{descriptor.Name}' in namespace '{descriptor.DeclaringNamespacePath}': '{VisibilityLabel(descriptor.Visibility)}' access",
-                    node.Line,
-                    node.Col,
-                    node.OriginFile,
-                    descriptor.Name.Length);
+                throw CreateInaccessibleMemberException(descriptor, node);
             }
+        }
+
+        /// <summary>
+        /// Rejects an assignment to a namespace member that is not a variable. Functions, classes,
+        /// interfaces, and enums are declarations, not storage; a constant keeps its runtime const check.
+        /// </summary>
+        public void ValidateMemberAssignment(VarExpr target)
+        {
+            if (target.NamespaceMember is null ||
+                !_membersByQualifiedPath.TryGetValue(target.NamespaceMember, out NamespaceMemberDescriptor? descriptor))
+            {
+                return;
+            }
+
+            string? label = descriptor.Kind switch
+            {
+                NamespaceSymbolKind.Function => "function",
+                NamespaceSymbolKind.Class => "class",
+                NamespaceSymbolKind.Interface => "interface",
+                NamespaceSymbolKind.Enum => "enum",
+                _ => null
+            };
+
+            if (label is null)
+                return;
+
+            throw new CompilerException(
+                $"invalid assignment to namespace {label} '{descriptor.QualifiedPath}'; only namespace variables can be assigned",
+                target.Line,
+                target.Col,
+                target.OriginFile);
         }
 
         private void RegisterNamespaceScope(string namespacePath, BlockStmt block)
@@ -136,6 +180,14 @@ namespace CFGS_VM.Analytic.Semantics
 
                 AddNamespaceMember(namespacePath, name, $"{namespacePath}.{name}", kind, visibility, namespacePath);
             }
+        }
+
+        private void RegisterAlias(NamespaceImportAliasStmt alias)
+        {
+            _aliasNames.Add(alias.Alias);
+            EnsureNamespacePath(alias.Alias);
+            foreach (string exportName in alias.ImportedNames)
+                AddNamespaceMember(alias.Alias, exportName, exportName, NamespaceSymbolKind.AliasExport, MemberVisibility.Public, alias.Alias);
         }
 
         private void RegisterNamespacePath(string namespacePath)
@@ -172,9 +224,9 @@ namespace CFGS_VM.Analytic.Semantics
             string declaringNamespacePath)
         {
             EnsureNamespacePath(namespacePath);
-            _namespaceMembersByPath[namespacePath].TryAdd(
-                name,
-                new NamespaceMemberDescriptor(name, qualifiedPath, kind, visibility, declaringNamespacePath));
+            NamespaceMemberDescriptor descriptor = new(name, qualifiedPath, kind, visibility, declaringNamespacePath);
+            if (_namespaceMembersByPath[namespacePath].TryAdd(name, descriptor) && kind != NamespaceSymbolKind.AliasExport)
+                _membersByQualifiedPath.TryAdd(qualifiedPath, descriptor);
         }
 
         private static bool TryGetNamespaceDeclaredMember(
@@ -183,14 +235,6 @@ namespace CFGS_VM.Analytic.Semantics
             out NamespaceSymbolKind kind,
             out MemberVisibility visibility)
         {
-            if (stmt is VarDecl { Name: string tempName } && tempName.StartsWith("__ns_scope_", StringComparison.Ordinal))
-            {
-                name = null;
-                kind = default;
-                visibility = MemberVisibility.Public;
-                return false;
-            }
-
             switch (stmt)
             {
                 case FuncDeclStmt funcDecl:
@@ -238,10 +282,10 @@ namespace CFGS_VM.Analytic.Semantics
         }
 
         /// <summary>
-        /// Returns true when the expression resolves to a pure namespace path (no concrete
-        /// member leaf), i.e. the expression *is* a namespace rather than a value. Used to
-        /// enforce C#-like semantics where a namespace can only prefix a member access and is
-        /// never itself a value.
+        /// Returns true when the expression resolves to a pure namespace path or a namespace import alias
+        /// (no concrete member leaf), i.e. the expression *is* a namespace rather than a value. Used to
+        /// enforce C#-like semantics where a namespace can only prefix a member access and is never itself
+        /// a value.
         /// </summary>
         public bool IsNamespacePathExpr(Expr expr, ISet<string> currentLocals)
         {
@@ -252,12 +296,13 @@ namespace CFGS_VM.Analytic.Semantics
         {
             switch (expr)
             {
-                case VarExpr variableExpr:
+                case VarExpr { SourceExpr: null } variableExpr:
                     namespacePath = variableExpr.Name;
                     return !currentLocals.Contains(variableExpr.Name) && _knownNamespacePaths.Contains(namespacePath);
 
                 case IndexExpr { Target: not null, Index: StringExpr segment } indexExpr:
-                    if (!TryResolveKnownNamespacePathFromExpr(indexExpr.Target, currentLocals, out string prefix))
+                    if (!TryResolveKnownNamespacePathFromExpr(indexExpr.Target, currentLocals, out string prefix) ||
+                        _aliasNames.Contains(prefix))
                     {
                         namespacePath = string.Empty;
                         return false;
@@ -271,6 +316,28 @@ namespace CFGS_VM.Analytic.Semantics
                     return false;
             }
         }
+
+        private CompilerException CreateUnknownMemberException(string namespacePath, string memberName, Node node)
+        {
+            string container = _aliasNames.Contains(namespacePath)
+                ? $"namespace import '{namespacePath}'"
+                : $"namespace '{namespacePath}'";
+
+            return new CompilerException(
+                $"unknown member '{memberName}' in {container}",
+                node.Line,
+                node.Col,
+                node.OriginFile,
+                memberName.Length);
+        }
+
+        private static CompilerException CreateInaccessibleMemberException(NamespaceMemberDescriptor descriptor, Node node)
+            => new(
+                $"inaccessible namespace member '{descriptor.Name}' in namespace '{descriptor.DeclaringNamespacePath}': '{VisibilityLabel(descriptor.Visibility)}' access",
+                node.Line,
+                node.Col,
+                node.OriginFile,
+                descriptor.Name.Length);
 
         private static bool IsNamespaceMemberAccessible(NamespaceMemberDescriptor descriptor, string? currentNamespacePath)
         {

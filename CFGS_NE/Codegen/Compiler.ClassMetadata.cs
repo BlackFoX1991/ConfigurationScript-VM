@@ -211,7 +211,10 @@ namespace CFGS_VM.VMCore
             {
                 ClassDeclStmt classDecl = boundClass.Declaration;
                 string? baseName = string.IsNullOrEmpty(classDecl.BaseName) ? null : classDecl.BaseName;
-                ClassInfo classInfo = new(classDecl.Name, baseName, classDecl.IsNested);
+                ClassInfo classInfo = new(classDecl.Name, baseName, classDecl.IsNested)
+                {
+                    RuntimeBindingName = GetDeclarationBindingName(classDecl, classDecl.Name)
+                };
                 AddDeclaredMembersToClassInfo(classDecl, classInfo);
 
                 if (TryResolveBaseClassDecl(classDecl, out ClassDeclStmt baseDecl) &&
@@ -227,7 +230,10 @@ namespace CFGS_VM.VMCore
         private ClassInfo BuildAdHocClassInfo(ClassDeclStmt classDecl)
         {
             string? baseName = string.IsNullOrEmpty(classDecl.BaseName) ? null : classDecl.BaseName;
-            ClassInfo classInfo = new(classDecl.Name, baseName, classDecl.IsNested);
+            ClassInfo classInfo = new(classDecl.Name, baseName, classDecl.IsNested)
+            {
+                RuntimeBindingName = GetDeclarationBindingName(classDecl, classDecl.Name)
+            };
 
             AddDeclaredMembersToClassInfo(classDecl, classInfo);
 

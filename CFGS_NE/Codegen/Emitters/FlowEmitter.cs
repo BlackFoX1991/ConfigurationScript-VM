@@ -46,13 +46,10 @@ namespace CFGS_VM.VMCore
         // descriptor/slot passes never see it (so hop counts are correct) — no post-hoc fixup is needed.
         private bool BlockNeedsOwnScope(BlockStmt b)
         {
-            // The declarators of `for (var i = 0, j = 1; ...)` bind in the loop scope itself.
-            if (b.IsDeclarationGroup)
+            // The declarators of `for (var i = 0, j = 1; ...)` bind in the loop scope itself, and the members
+            // of a namespace block declare their own global bindings.
+            if (b.IsDeclarationGroup || b.IsNamespaceScope)
                 return false;
-
-            // Namespace scope blocks publish types through a dedicated scope; always keep it.
-            if (TryGetNamespaceScopePath(b, out _))
-                return true;
 
             foreach (Stmt sub in b.Statements)
                 if (StatementBindsNameInEnclosingScope(sub))
@@ -123,59 +120,30 @@ namespace CFGS_VM.VMCore
             {
                 if (TryGetNamespaceScopePath(b, out _))
                 {
+                    // Interfaces and classes first, each in inheritance order, so a base type's binding
+                    // exists before a derived type in the same block loads it; then the other members in
+                    // source order.
                     InterfaceCatalog interfaceCatalog = new();
                     ClassCatalog classCatalog = new();
-                    HashSet<Stmt> emittedNamespacePrelude = [];
-                    Dictionary<string, List<Stmt>> namespaceTypePublications = b.Statements
-                        .Where(static stmt => TryGetPublishedNamespaceMemberName(stmt, out _))
-                        .GroupBy(static stmt => GetPublishedNamespaceMemberName(stmt), StringComparer.Ordinal)
-                        .ToDictionary(
-                            static group => group.Key,
-                            static group => group.ToList(),
-                            StringComparer.Ordinal);
-                    HashSet<Stmt> emittedNamespacePublications = [];
-
-                    foreach (Stmt sub in b.Statements)
-                    {
-                        if (!IsNamespacePreludeStmt(sub))
-                            continue;
-
-                        emittedNamespacePrelude.Add(sub);
-                        CompileStmt(sub, insideFunction);
-                    }
 
                     List<InterfaceDeclStmt> namespaceInterfaces = b.Statements
                         .OfType<InterfaceDeclStmt>()
                         .ToList();
 
-                    List<InterfaceDeclStmt> sortedNamespaceInterfaces = interfaceCatalog.OrderByInheritance(this, namespaceInterfaces);
-                    foreach (InterfaceDeclStmt nsInterface in sortedNamespaceInterfaces)
-                    {
+                    foreach (InterfaceDeclStmt nsInterface in interfaceCatalog.OrderByInheritance(this, namespaceInterfaces))
                         CompileStmt(nsInterface, insideFunction: false);
-                        EmitNamespaceTypePublications(nsInterface.Name, namespaceTypePublications, emittedNamespacePublications, insideFunction);
-                    }
 
                     List<ClassDeclStmt> namespaceClasses = b.Statements
                         .OfType<ClassDeclStmt>()
                         .ToList();
 
-                    List<ClassDeclStmt> sortedNamespaceClasses = classCatalog.OrderByInheritance(this, namespaceClasses);
-
-                    foreach (ClassDeclStmt nsClass in sortedNamespaceClasses)
-                    {
+                    foreach (ClassDeclStmt nsClass in classCatalog.OrderByInheritance(this, namespaceClasses))
                         CompileStmt(nsClass, insideFunction: false);
-                        EmitNamespaceTypePublications(nsClass.Name, namespaceTypePublications, emittedNamespacePublications, insideFunction);
-                    }
 
                     foreach (Stmt sub in b.Statements)
                     {
-                        if (sub is ClassDeclStmt ||
-                            sub is InterfaceDeclStmt ||
-                            emittedNamespacePrelude.Contains(sub) ||
-                            emittedNamespacePublications.Contains(sub))
-                        {
+                        if (sub is ClassDeclStmt or InterfaceDeclStmt)
                             continue;
-                        }
 
                         CompileStmt(sub, insideFunction);
                     }
@@ -213,72 +181,6 @@ namespace CFGS_VM.VMCore
             {
                 _insns[jmpFalseIdx] = new Instruction(OpCode.JMP_IF_FALSE, _insns.Count, ifs.Line, ifs.Col, ifs.OriginFile);
             }
-        }
-
-        private void EmitNamespaceTypePublications(
-            string memberName,
-            IReadOnlyDictionary<string, List<Stmt>> namespaceTypePublications,
-            ISet<Stmt> emittedNamespacePublications,
-            bool insideFunction)
-        {
-            if (!namespaceTypePublications.TryGetValue(memberName, out List<Stmt>? publications))
-                return;
-
-            foreach (Stmt publication in publications)
-            {
-                if (!emittedNamespacePublications.Add(publication))
-                    continue;
-
-                CompileStmt(publication, insideFunction);
-            }
-        }
-
-        private static bool TryGetPublishedNamespaceMemberName(Stmt stmt, out string memberName)
-        {
-            switch (stmt)
-            {
-                case AssignExprStmt
-                {
-                    IsSyntheticNamespacePath: true,
-                    Target: IndexExpr
-                    {
-                        Index: StringExpr key
-                    },
-                    Value: VarExpr valueVar
-                } when string.Equals(key.Value, valueVar.Name, StringComparison.Ordinal):
-                    memberName = key.Value;
-                    return true;
-
-                case AssignStmt
-                {
-                    Name: string hiddenBindingName,
-                    Value: VarExpr valueVar
-                } when hiddenBindingName.StartsWith(NamespaceRuntimeBindingNames.HiddenMemberPrefix, StringComparison.Ordinal):
-                    memberName = valueVar.Name;
-                    return true;
-
-                default:
-                    memberName = string.Empty;
-                    return false;
-            }
-        }
-
-        private static bool IsNamespacePreludeStmt(Stmt stmt)
-        {
-            return stmt switch
-            {
-                VarDecl { Name: string name } when name.StartsWith("__ns_scope_", StringComparison.Ordinal) => true,
-                VarDecl { Name: string name } when name.StartsWith(NamespaceRuntimeBindingNames.HiddenMemberPrefix, StringComparison.Ordinal) => true,
-                _ => false
-            };
-        }
-
-        private static string GetPublishedNamespaceMemberName(Stmt stmt)
-        {
-            if (!TryGetPublishedNamespaceMemberName(stmt, out string memberName))
-                throw new InvalidOperationException("statement is not a namespace publication");
-
-            return memberName;
         }
 
         private void CompileDoWhileStatement(DoWhileStmt dws, bool insideFunction)
@@ -573,7 +475,7 @@ namespace CFGS_VM.VMCore
 
             _insns.Add(new Instruction(OpCode.SWAP, null, fe.Line, fe.Col, fe.OriginFile));
             _insns.Add(new Instruction(OpCode.NEW_ARRAY, 2, fe.Line, fe.Col, fe.OriginFile));
-            _insns.Add(new Instruction(OpCode.STORE_VAR, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
+            EmitNameStore(fe.VarName, fe);
             if (fe.TargetPattern is not null)
                 EmitDestructureBinding(fe.TargetPattern, fe.VarName, DestructureBindMode.Assign, fe);
 
@@ -590,14 +492,14 @@ namespace CFGS_VM.VMCore
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
                 _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
                 _insns.Add(new Instruction(OpCode.NEW_ARRAY, 2, fe.Line, fe.Col, fe.OriginFile));
-                _insns.Add(new Instruction(OpCode.STORE_VAR, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
+                EmitNameStore(fe.VarName, fe);
             }
             else
             {
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, seqNm, fe.Line, fe.Col, fe.OriginFile));
                 _insns.Add(new Instruction(OpCode.LOAD_VAR, idxNm, fe.Line, fe.Col, fe.OriginFile));
                 _insns.Add(new Instruction(OpCode.INDEX_GET, null, fe.Line, fe.Col, fe.OriginFile));
-                _insns.Add(new Instruction(OpCode.STORE_VAR, fe.VarName, fe.Line, fe.Col, fe.OriginFile));
+                EmitNameStore(fe.VarName, fe);
             }
             if (fe.TargetPattern is not null)
                 EmitDestructureBinding(fe.TargetPattern, fe.VarName, DestructureBindMode.Assign, fe);

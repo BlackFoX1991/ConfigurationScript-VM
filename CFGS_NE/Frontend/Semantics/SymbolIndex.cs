@@ -53,6 +53,8 @@ namespace CFGS_VM.Analytic.Semantics
                 }
                 else if (stmt is BlockStmt block && Compiler.TryGetNamespaceScopePath(block, out string namespacePath))
                 {
+                    RegisterNamespacePath(context, namespacePath);
+                    RegisterNamespaceMemberBindings(context, block, namespacePath);
                     RegisterNamespaceScopeClasses(context, block, namespacePath);
                     RegisterNamespaceScopeInterfaces(context, block, namespacePath);
                     RegisterNamespaceScopeEnums(context, block, namespacePath);
@@ -118,6 +120,27 @@ namespace CFGS_VM.Analytic.Semantics
             }
 
             context.InterfaceQualifiedPaths[decl] = qualifiedPath;
+        }
+
+        private static void RegisterNamespacePath(CompilationContext context, string namespacePath)
+        {
+            string[] parts = namespacePath.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 1; i <= parts.Length; i++)
+                context.NamespacePaths.Add(string.Join(".", parts, 0, i));
+        }
+
+        /// <summary>
+        /// Gives every member declaration of a namespace block its single global binding name. The block
+        /// opens no runtime scope, so the declarations are emitted straight into the global scope under
+        /// these names.
+        /// </summary>
+        private static void RegisterNamespaceMemberBindings(CompilationContext context, BlockStmt namespaceScope, string namespacePath)
+        {
+            foreach (Stmt stmt in namespaceScope.Statements)
+            {
+                if (TopLevelSymbolFacts.TryGetNamedTopLevel(stmt, out string? name) && !string.IsNullOrWhiteSpace(name))
+                    context.DeclarationBindingNames[stmt] = NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(namespacePath, name);
+            }
         }
 
         private static void RegisterNamespaceScopeClasses(CompilationContext context, BlockStmt namespaceScope, string namespacePath)

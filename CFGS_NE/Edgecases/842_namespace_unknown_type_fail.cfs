@@ -1,0 +1,9 @@
+# expect-error: CFGS2001 unknown member 'Ghost' in namespace 'Modules.Masterdata'
+namespace Modules.Masterdata {
+    class Person(name) {
+        var name = "";
+        func init(name) { this.name = name; }
+    }
+}
+
+var ghost = new Modules.Masterdata.Ghost();

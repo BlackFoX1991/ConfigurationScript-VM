@@ -29,7 +29,11 @@ namespace CFGS_VM.VMCore
         // instance fields are sealed by the appended SEAL_CONST_FIELDS opcode at the end of their
         // class's constructor. All three live in the emitted code, so an older artifact would keep the
         // old meaning silently.
-        public const int CurrentBytecodeVersion = 8;
+        // v9: script namespaces are compile-time only. Members live in one global binding each and are
+        // read and written through the appended LOAD_GLOBAL/STORE_GLOBAL opcodes; NEW_NAMESPACE and
+        // INDEX_GET_OPT, which built the old runtime namespace objects, are gone, so the opcode numbers
+        // after them moved.
+        public const int CurrentBytecodeVersion = 9;
 
         public string Name { get; }
 

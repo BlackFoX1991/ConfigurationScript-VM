@@ -1,0 +1,43 @@
+import "edge_assert.cfs";
+import "_imports/ns_merged_bare_mod.cfs";
+
+edge_begin("839_namespace_merged_bare_refs");
+
+# Members of a namespace are visible by their bare name in every block and every file that
+# declares the same namespace, and in nested namespaces.
+namespace Merged.Core {
+    func base() {
+        return 5;
+    }
+
+    const factor = 3;
+}
+
+namespace Merged.Core {
+    func twice() {
+        return base() * 2;
+    }
+
+    func scaled() {
+        return fromModule() * factor;
+    }
+}
+
+namespace Merged {
+    func rootHelper() {
+        return 100;
+    }
+}
+
+namespace Merged.Core.Deep {
+    func useEnclosing() {
+        return rootHelper() + base();
+    }
+}
+
+edge_eq("bare_ref_other_block", Merged.Core.twice(), 10);
+edge_eq("bare_ref_imported_file", Merged.Core.scaled(), 21);
+edge_eq("imported_file_uses_this_file", Merged.Core.fromModuleUsingBase(), 6);
+edge_eq("bare_ref_enclosing_namespaces", Merged.Core.Deep.useEnclosing(), 105);
+
+edge_finish("839_namespace_merged_bare_refs");

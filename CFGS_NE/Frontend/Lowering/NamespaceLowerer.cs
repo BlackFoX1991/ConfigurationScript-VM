@@ -1,270 +1,42 @@
 using CFGS_VM.Analytic.Tree;
-using CFGS_VM.Analytic.Tokens;
-using CFGS_VM.Analytic.Semantics;
 
 namespace CFGS_VM.Analytic.Lowering
 {
+    /// <summary>
+    /// Lowers namespace declarations. A namespace exists only at compile time, so a declaration becomes a
+    /// block that is marked as a namespace scope and carries the qualified path. The block opens no runtime
+    /// scope and builds no namespace object: the compiler declares every member in its own global binding
+    /// (see <c>NamespaceRuntimeBindingNames</c>), and the resolver has already bound every reference to a
+    /// member, qualified or not, to that binding.
+    /// </summary>
     internal sealed class NamespaceLowerer
     {
-        private int _namespaceScopeCounter;
-
         public List<Stmt> Lower(List<Stmt> statements)
         {
-            List<Stmt> lowered = new();
-            HashSet<string> knownTopLevelNames = new(StringComparer.Ordinal);
-
+            List<Stmt> lowered = new(statements.Count);
             foreach (Stmt stmt in statements)
-            {
-                List<Stmt> loweredChunk = LowerTopLevelStatement(stmt, knownTopLevelNames);
-                lowered.AddRange(loweredChunk);
-                TrackTopLevelNames(loweredChunk, knownTopLevelNames);
-            }
+                lowered.Add(LowerTopLevelStatement(stmt));
 
             return lowered;
         }
 
-        private List<Stmt> LowerTopLevelStatement(Stmt stmt, HashSet<string> knownTopLevelNames)
+        private static Stmt LowerTopLevelStatement(Stmt stmt)
         {
             return stmt switch
             {
-                NamespaceDeclStmt ns => LowerNamespaceDecl(ns, knownTopLevelNames),
-                UseNamespaceStmt => new List<Stmt> { stmt },
-                NamespaceImportAliasStmt nsAlias => BuildNamespaceAliasStmts(nsAlias.Alias, nsAlias.ImportedNames, nsAlias.Line, nsAlias.Col, nsAlias.OriginFile),
-                ImportAliasDeclStmt aliasDecl => new List<Stmt>
+                NamespaceDeclStmt ns => new BlockStmt(new List<Stmt>(ns.BodyStatements), ns.Line, ns.Col, ns.OriginFile)
                 {
-                    new VarDecl(aliasDecl.LocalName, new VarExpr(aliasDecl.ImportName, aliasDecl.Line, aliasDecl.Col, aliasDecl.OriginFile), aliasDecl.Line, aliasDecl.Col, aliasDecl.OriginFile)
+                    IsNamespaceScope = true,
+                    NamespacePath = string.Join(".", ns.Parts)
                 },
-                _ => new List<Stmt> { stmt }
+                ImportAliasDeclStmt aliasDecl => new VarDecl(
+                    aliasDecl.LocalName,
+                    new VarExpr(aliasDecl.ImportName, aliasDecl.Line, aliasDecl.Col, aliasDecl.OriginFile),
+                    aliasDecl.Line,
+                    aliasDecl.Col,
+                    aliasDecl.OriginFile),
+                _ => stmt
             };
-        }
-
-        private List<Stmt> LowerNamespaceDecl(NamespaceDeclStmt stmt, HashSet<string> knownTopLevelNames)
-        {
-            List<string> parts = stmt.Parts;
-            string namespacePath = string.Join(".", parts);
-            bool declareRoot = !knownTopLevelNames.Contains(parts[0]);
-            List<Stmt> namespaceStmts = BuildNamespaceEnsurePathStmts(parts, declareRoot, stmt.Line, stmt.Col, stmt.OriginFile);
-
-            foreach (Stmt bodyStmt in stmt.BodyStatements)
-            {
-                if (!TryGetSyntheticNamespaceBinding(bodyStmt, namespacePath, out string hiddenBindingName))
-                    continue;
-
-                namespaceStmts.Add(new VarDecl(
-                    hiddenBindingName,
-                    new NullExpr(bodyStmt.Line, bodyStmt.Col, bodyStmt.OriginFile),
-                    bodyStmt.Line,
-                    bodyStmt.Col,
-                    bodyStmt.OriginFile));
-            }
-
-            Expr namespaceExpr = BuildQualifiedAccessExpr(parts, stmt.Line, stmt.Col, stmt.OriginFile);
-            string namespaceTemp = $"__ns_scope_{_namespaceScopeCounter++}";
-            List<Stmt> scopedBody = new()
-            {
-                new VarDecl(namespaceTemp, namespaceExpr, stmt.Line, stmt.Col, stmt.OriginFile)
-            };
-
-            foreach (Stmt bodyStmt in stmt.BodyStatements)
-            {
-                scopedBody.Add(bodyStmt);
-
-                if (!TryGetNamedTopLevel(bodyStmt, out string? name) || string.IsNullOrWhiteSpace(name))
-                    continue;
-
-                if (TryGetSyntheticNamespaceBinding(bodyStmt, namespacePath, out string hiddenBindingName))
-                {
-                    scopedBody.Add(new AssignStmt(
-                        hiddenBindingName,
-                        new VarExpr(name, bodyStmt.Line, bodyStmt.Col, bodyStmt.OriginFile),
-                        bodyStmt.Line,
-                        bodyStmt.Col,
-                        bodyStmt.OriginFile));
-                    continue;
-                }
-
-                IndexExpr target = new(
-                    new VarExpr(namespaceTemp, bodyStmt.Line, bodyStmt.Col, bodyStmt.OriginFile),
-                    new StringExpr(name, bodyStmt.Line, bodyStmt.Col, bodyStmt.OriginFile),
-                    bodyStmt.Line,
-                    bodyStmt.Col,
-                    bodyStmt.OriginFile,
-                    isDotAccess: true);
-
-                scopedBody.Add(new AssignExprStmt(
-                    target,
-                    new VarExpr(name, bodyStmt.Line, bodyStmt.Col, bodyStmt.OriginFile),
-                    bodyStmt.Line,
-                    bodyStmt.Col,
-                    bodyStmt.OriginFile)
-                {
-                    IsSyntheticNamespacePath = true
-                });
-            }
-
-            BlockStmt scopeBlock = new(scopedBody, stmt.Line, stmt.Col, stmt.OriginFile)
-            {
-                IsNamespaceScope = true
-            };
-
-            namespaceStmts.Add(scopeBlock);
-            return namespaceStmts;
-        }
-
-        private static void TrackTopLevelNames(IEnumerable<Stmt> statements, HashSet<string> knownTopLevelNames)
-        {
-            foreach (Stmt stmt in statements)
-            {
-                if (TryGetNamedTopLevel(stmt, out string? name) && !string.IsNullOrWhiteSpace(name))
-                    knownTopLevelNames.Add(name);
-            }
-        }
-
-        private static bool TryGetNamedTopLevel(Stmt stmt, out string? name)
-        {
-            if (stmt is ExportStmt ex)
-                return TryGetNamedTopLevel(ex.Inner, out name);
-
-            switch (stmt)
-            {
-                case FuncDeclStmt f:
-                    name = f.Name;
-                    return true;
-                case ClassDeclStmt c:
-                    name = c.Name;
-                    return true;
-                case InterfaceDeclStmt i:
-                    name = i.Name;
-                    return true;
-                case EnumDeclStmt e:
-                    name = e.Name;
-                    return true;
-                case VarDecl v:
-                    name = v.Name;
-                    return true;
-                case ConstDecl cst:
-                    name = cst.Name;
-                    return true;
-                default:
-                    name = null;
-                    return false;
-            }
-        }
-
-        private static bool TryGetSyntheticNamespaceBinding(Stmt stmt, string namespacePath, out string bindingName)
-        {
-            bindingName = string.Empty;
-            if (!TryGetNamedTopLevel(stmt, out string? name) ||
-                string.IsNullOrWhiteSpace(name) ||
-                !NamespaceMemberVisibilityFacts.TryGet(stmt, out MemberVisibility visibility, out _) ||
-                !NamespaceRuntimeBindingNames.UsesSyntheticBinding(visibility))
-            {
-                return false;
-            }
-
-            bindingName = NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(namespacePath, name);
-            return true;
-        }
-
-        private static List<Stmt> BuildNamespaceAliasStmts(string alias, IEnumerable<string> names, int line, int col, string file)
-        {
-            List<Stmt> statements = new()
-            {
-                new VarDecl(alias, new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file)
-                {
-                    IsNamespaceContainer = true,
-                    NamespaceContainerName = alias
-                }, line, col, file)
-            };
-
-            foreach (string name in names.OrderBy(x => x, StringComparer.Ordinal))
-            {
-                IndexExpr target = new(
-                    new VarExpr(alias, line, col, file),
-                    new StringExpr(name, line, col, file),
-                    line,
-                    col,
-                    file,
-                    isDotAccess: true);
-
-                statements.Add(new AssignExprStmt(target, new VarExpr(name, line, col, file), line, col, file)
-                {
-                    IsSyntheticNamespacePath = true
-                });
-            }
-
-            return statements;
-        }
-
-        private static Expr BuildQualifiedAccessExpr(IReadOnlyList<string> parts, int line, int col, string file)
-        {
-            Expr expr = new VarExpr(parts[0], line, col, file);
-            for (int i = 1; i < parts.Count; i++)
-            {
-                expr = new IndexExpr(expr, new StringExpr(parts[i], line, col, file), line, col, file, isDotAccess: true);
-            }
-
-            return expr;
-        }
-
-        private static List<Stmt> BuildNamespaceEnsurePathStmts(
-            IReadOnlyList<string> parts,
-            bool declareRoot,
-            int line,
-            int col,
-            string file)
-        {
-            List<Stmt> statements = new();
-
-            if (declareRoot)
-            {
-                VarDecl rootDecl = new(
-                    parts[0],
-                    new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file)
-                    {
-                        IsNamespaceContainer = true,
-                        NamespaceContainerName = parts[0]
-                    },
-                    line,
-                    col,
-                    file)
-                {
-                    IsSyntheticNamespaceRoot = true
-                };
-                statements.Add(rootDecl);
-            }
-
-            Expr current = new VarExpr(parts[0], line, col, file);
-            for (int i = 1; i < parts.Count; i++)
-            {
-                // ns.part = ns.part ?? { new container }. The read on the right of '=' must tolerate a missing
-                // member (that is the whole point of the get-or-create), so it is flagged optional; the write
-                // target and the base carried into the next level are plain accesses.
-                Expr storeTarget = new IndexExpr(current, new StringExpr(parts[i], line, col, file), line, col, file, isDotAccess: true);
-                Expr optionalRead = new IndexExpr(current, new StringExpr(parts[i], line, col, file), line, col, file, isDotAccess: true)
-                {
-                    IsOptionalAccess = true
-                };
-                Expr ensureExpr = new BinaryExpr(
-                    optionalRead,
-                    TokenType.QQNull,
-                    new DictExpr(new List<(Expr Key, Expr Value)>(), line, col, file)
-                    {
-                        IsNamespaceContainer = true,
-                        NamespaceContainerName = string.Join(".", parts.Take(i + 1))
-                    },
-                    line,
-                    col,
-                    file);
-
-                statements.Add(new AssignExprStmt(storeTarget, ensureExpr, line, col, file)
-                {
-                    IsSyntheticNamespacePath = true
-                });
-                current = new IndexExpr(current, new StringExpr(parts[i], line, col, file), line, col, file, isDotAccess: true);
-            }
-
-            return statements;
         }
     }
 }

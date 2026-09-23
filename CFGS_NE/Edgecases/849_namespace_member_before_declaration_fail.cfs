@@ -1,0 +1,7 @@
+# expect-error: CFGS3001 undefined variable 'Late.answer'; a namespace member exists once its declaration has run
+# A namespace member exists from the point its declaration runs, like any other top-level binding.
+print(Late.answer());
+
+namespace Late {
+    func answer() { return 42; }
+}

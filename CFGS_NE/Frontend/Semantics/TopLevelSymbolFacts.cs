@@ -82,7 +82,7 @@ namespace CFGS_VM.Analytic.Semantics
                     return true;
                 case VarDecl v:
                     name = v.Name;
-                    kind = v.IsSyntheticNamespaceRoot ? "namespace" : "variable";
+                    kind = "variable";
                     return true;
                 case ConstDecl cst:
                     name = cst.Name;

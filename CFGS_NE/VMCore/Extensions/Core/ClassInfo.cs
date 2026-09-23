@@ -10,6 +10,12 @@ namespace CFGS_VM.VMCore.Extensions.Core
         public string Name { get; }
 
         /// <summary>
+        /// Gets the name of the binding that holds the class: its namespace member binding for a class
+        /// declared in a namespace, otherwise <see cref="Name"/>.
+        /// </summary>
+        public string RuntimeBindingName { get; init; }
+
+        /// <summary>
         /// Gets the BaseName
         /// </summary>
         public string? BaseName { get; }
@@ -58,6 +64,7 @@ namespace CFGS_VM.VMCore.Extensions.Core
         public ClassInfo(string name, string? baseName, bool isNested = false)
         {
             Name = name;
+            RuntimeBindingName = name;
             BaseName = baseName;
             IsNested = isNested;
         }

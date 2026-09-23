@@ -90,7 +90,10 @@ internal static class Program
             UnknownStringAndArrayMethodsReportClearErrors,
             ToStringProtocolIsConsistentAcrossTextPaths,
             OrPatternsFormatAndReportBindings,
-            LinterReportsUndeclaredDictionaryKeys
+            LinterReportsUndeclaredDictionaryKeys,
+            NamespaceMembersAreReachableThroughTheHostApi,
+            NamespaceAccessCompilesToASingleGlobalLoad,
+            NamespaceAndAliasMisuseReportPreciseDiagnostics
         ];
 
         List<string> failures = [];
@@ -2922,6 +2925,106 @@ var d = {helperName: 1};
         CfgsLintResult importingResult = CfgsLinter.LintFile(importing, new CfgsLintOptions(), global::Program.Version);
         AssertFalse(importingResult.Diagnostics.Any(static d => d.Code == "CFGS8023"),
             "CFGS8023 must not fire when a bare import can declare the name");
+    }
+
+    /// <summary>
+    /// A script namespace exists only at compile time, so a host reaches its members through their
+    /// qualified name instead of through a namespace object.
+    /// </summary>
+    private static void NamespaceMembersAreReachableThroughTheHostApi()
+    {
+        CfgsScript script = CompileProbe("<host-namespace-members>", """
+namespace App.Core {
+    var seed = 10;
+
+    func add(a, b) { return a + b + seed; }
+
+    class Box(v) {
+        var value = 0;
+        func init(v) { this.value = v; }
+        func get() { return this.value; }
+    }
+}
+
+func readSeed() { return App.Core.seed; }
+""");
+        script.RunAsync().GetAwaiter().GetResult();
+
+        AssertEqual(10, script.GetGlobal<int>("App.Core.seed"), "a namespace variable must be readable by its qualified name");
+        AssertTrue(script.TryGetGlobal("App.Core.seed", out object? seed) && Convert.ToInt32(seed) == 10, "TryGetGlobal must resolve a qualified namespace member");
+
+        // A host write reaches the member itself, so namespace code sees it.
+        script.SetGlobal("App.Core.seed", 25);
+        AssertEqual(25, Convert.ToInt32(script.InvokeAsync("readSeed").GetAwaiter().GetResult()), "a host write must be visible inside the namespace");
+        AssertEqual(28, Convert.ToInt32(script.InvokeAsync("App.Core.add", 1, 2).GetAwaiter().GetResult()), "a namespace function must be invokable by its qualified name");
+
+        object? box = script.NewAsync("App.Core.Box", 7).GetAwaiter().GetResult();
+        AssertEqual(7, Convert.ToInt32(script.InvokeMemberAsync(box!, "get").GetAwaiter().GetResult()), "a namespace class must be constructible by its qualified name");
+
+        IReadOnlyDictionary<string, object?> globals = script.GetGlobals();
+        AssertTrue(globals.ContainsKey("App.Core.seed"), "globals must list a namespace member under its qualified name");
+        AssertFalse(globals.Keys.Any(static key => key.StartsWith("__ns_member_", StringComparison.Ordinal)), "globals must not expose internal binding names");
+    }
+
+    /// <summary>
+    /// Namespace member access is resolved at compile time: one global load, no namespace object and no
+    /// member lookup chain.
+    /// </summary>
+    private static void NamespaceAccessCompilesToASingleGlobalLoad()
+    {
+        CompiledScript compiled = CfgsCompiler.CompileSource("<namespace-bytecode>", """
+namespace App.Core {
+    func add(a, b) { return a + b; }
+}
+
+var sum = App.Core.add(1, 2);
+""", compilerVersion: global::Program.Version);
+
+        AssertFalse(
+            compiled.Instructions.Any(static instruction => instruction.Code == OpCode.INDEX_GET),
+            "a namespace member access must not walk a member chain at runtime");
+
+        AssertTrue(
+            compiled.Instructions.Any(static instruction =>
+                instruction.Code == OpCode.LOAD_GLOBAL &&
+                instruction.Operand is string name &&
+                name.StartsWith("__ns_member_", StringComparison.Ordinal)),
+            "a namespace member access must compile to a single global load");
+    }
+
+    private static void NamespaceAndAliasMisuseReportPreciseDiagnostics()
+    {
+        AssertScriptError("""
+namespace App.Core {
+    func helper() { return 1; }
+}
+
+print(App.Core.missing());
+""", "CFGS2001", "unknown member 'missing' in namespace 'App.Core'");
+
+        AssertScriptError("""
+namespace App.Core {
+    func helper() { return 1; }
+}
+
+App.Core.helper = 5;
+""", "CFGS2007", "invalid assignment to namespace function 'App.Core.helper'");
+
+        AssertScriptError("""
+namespace App.Core {
+    const LIMIT = 1;
+}
+
+var ns = App.Core;
+""", "CFGS2016", "a namespace is not a value");
+
+        AssertScriptError("""
+namespace App.Core {
+    const LIMIT = 1;
+}
+
+print(App.Core["LIMIT"]);
+""", "CFGS2003", "namespace members require dot access");
     }
 
     private static CfgsScript CompileProbe(string name, string source)

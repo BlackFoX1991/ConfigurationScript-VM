@@ -1,0 +1,10 @@
+# expect-error: CFGS2001 unknown member 'Nonexistent' in namespace 'Modules'
+namespace Modules.Masterdata {
+    func helper() { return 42; }
+}
+
+func run() {
+    return Modules.Nonexistent.helper();
+}
+
+run();

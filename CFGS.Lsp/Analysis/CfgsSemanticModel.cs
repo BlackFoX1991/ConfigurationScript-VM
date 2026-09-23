@@ -69,6 +69,7 @@ internal sealed class CfgsSemanticModelBuilder
     private readonly Dictionary<string, HashSet<string>> _functionReturnCallTargetIdsBySymbolId = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _functionReturnAccessPathsBySymbolId = new(StringComparer.Ordinal);
     private readonly Dictionary<object, string> _accessPathsByNode = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<string, SemanticScope> _namespaceScopes = new(StringComparer.Ordinal);
     private readonly Stack<FunctionFlowContext> _functionContexts = new();
     private int _flowOnlyDepth;
     private int _nextSymbolId;
@@ -83,6 +84,7 @@ internal sealed class CfgsSemanticModelBuilder
     public CfgsSemanticModel Build(IEnumerable<Stmt> statements)
     {
         SemanticScope rootScope = new(null);
+        BuildNamespaceScopes(statements, rootScope);
         PredeclareStatements(statements, rootScope, null);
 
         foreach (Stmt stmt in statements)
@@ -93,18 +95,57 @@ internal sealed class CfgsSemanticModelBuilder
         return new CfgsSemanticModel(_symbols, _symbolsById, _occurrences, _callSites, _completionTargets);
     }
 
+    /// <summary>
+    /// Creates one scope per namespace path, shared by every block and file that declares it and nested
+    /// inside the scope of its enclosing namespace. That mirrors name resolution in the compiler, where a
+    /// bare member name sees the whole namespace and its enclosing namespaces.
+    /// </summary>
+    private void BuildNamespaceScopes(IEnumerable<Stmt> statements, SemanticScope rootScope)
+    {
+        List<string> paths = statements
+            .OfType<BlockStmt>()
+            .Where(static block => block.IsNamespaceScope && !string.IsNullOrWhiteSpace(block.NamespacePath))
+            .Select(static block => block.NamespacePath!)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static path => path.Count(static character => character == '.'))
+            .ThenBy(static path => path, StringComparer.Ordinal)
+            .ToList();
+
+        foreach (string path in paths)
+        {
+            SemanticScope parent = rootScope;
+            for (int cut = path.LastIndexOf('.'); cut > 0; cut = path.LastIndexOf('.', cut - 1))
+            {
+                if (_namespaceScopes.TryGetValue(path[..cut], out SemanticScope? enclosing))
+                {
+                    parent = enclosing;
+                    break;
+                }
+            }
+
+            _namespaceScopes[path] = new SemanticScope(parent);
+        }
+    }
+
+    private SemanticScope ResolveNamespaceScope(string namespacePath, SemanticScope fallbackParent)
+    {
+        if (_namespaceScopes.TryGetValue(namespacePath, out SemanticScope? scope))
+            return scope;
+
+        scope = new SemanticScope(fallbackParent);
+        _namespaceScopes[namespacePath] = scope;
+        return scope;
+    }
+
     private void PredeclareStatements(IEnumerable<Stmt> statements, SemanticScope scope, string? containerQualifiedName)
     {
         foreach (Stmt stmt in statements)
         {
             if (stmt is BlockStmt block && block.IsNamespaceScope)
             {
-                if (TryExtractNamespaceInfo(block, out string? namespacePath, out string? tempName))
-                {
-                    List<Stmt> bodyStatements = EnumerateNamespaceBodyStatements(block, tempName!).ToList();
-                    SemanticScope namespaceScope = new(scope);
-                    PredeclareStatements(bodyStatements, namespaceScope, namespacePath);
-                }
+                if (TryExtractNamespaceInfo(block, out string? namespacePath))
+                    PredeclareStatements(block.Statements, ResolveNamespaceScope(namespacePath!, scope), namespacePath);
+
                 continue;
             }
 
@@ -160,6 +201,10 @@ internal sealed class CfgsSemanticModelBuilder
             case YieldStmt:
                 return CompletionResult.Fallthrough();
 
+            case NamespaceImportAliasStmt alias:
+                VisitNamespaceImportAlias(alias, scope, containerQualifiedName);
+                return CompletionResult.Fallthrough();
+
             case BreakStmt:
                 return CompletionResult.WithBreak(CaptureCompletionScope(scope));
 
@@ -202,14 +247,14 @@ internal sealed class CfgsSemanticModelBuilder
             case AssignExprStmt assignExpr:
                 VisitExpr(assignExpr.Target, scope);
                 VisitExpr(assignExpr.Value, scope);
-                if (assignExpr.Target is VarExpr targetVar)
+                if (SourceOf(assignExpr.Target) is VarExpr targetVar)
                 {
                     scope.SetResolvedValueType(targetVar.Name, TryInferValueTypeQualifiedName(assignExpr.Value, scope));
                     scope.SetResolvedCallTargetIds(targetVar.Name, TryResolveCallableSymbols(assignExpr.Value, scope).Select(static symbol => symbol.Id!).Where(static id => !string.IsNullOrWhiteSpace(id)));
                     scope.SetResolvedAccessPaths(targetVar.Name, TryResolveContainerAccessPaths(assignExpr.Value, scope));
                 }
                 else
-                    TrackAssignedMemberBinding(assignExpr.Target, assignExpr.Value, scope);
+                    TrackAssignedMemberBinding(SourceOf(assignExpr.Target), assignExpr.Value, scope);
                 return CompletionResult.Fallthrough();
 
             case CompoundAssignStmt compoundAssign:
@@ -285,12 +330,11 @@ internal sealed class CfgsSemanticModelBuilder
 
     private void VisitNamespaceScope(BlockStmt block, SemanticScope parentScope)
     {
-        if (!TryExtractNamespaceInfo(block, out string? namespacePath, out string? tempName))
+        if (!TryExtractNamespaceInfo(block, out string? namespacePath))
             return;
 
-        List<Stmt> bodyStatements = EnumerateNamespaceBodyStatements(block, tempName!).ToList();
-        SemanticScope namespaceScope = new(parentScope);
-        PredeclareStatements(bodyStatements, namespaceScope, namespacePath);
+        List<Stmt> bodyStatements = block.Statements;
+        SemanticScope namespaceScope = ResolveNamespaceScope(namespacePath!, parentScope);
 
         foreach (Stmt bodyStmt in bodyStatements)
             VisitStatement(bodyStmt, namespaceScope, namespacePath);
@@ -1053,6 +1097,24 @@ internal sealed class CfgsSemanticModelBuilder
 
     private void VisitExpr(Expr expr, SemanticScope scope)
     {
+        // A reference the resolver bound to a namespace member names that member directly, whatever the
+        // reference looked like (qualified, bare inside the namespace, or shortened by `use`).
+        if (expr is VarExpr { NamespaceMember: { } qualifiedMember } boundMember &&
+            TryResolveByExactName(qualifiedMember, out CfgsSymbol? memberSymbol))
+        {
+            int separator = qualifiedMember.LastIndexOf('.');
+            string memberName = separator >= 0 ? qualifiedMember[(separator + 1)..] : qualifiedMember;
+            AddOccurrence(memberSymbol!, boundMember.Line, boundMember.Col, boundMember.OriginFile, memberName, isDeclaration: false);
+
+            // Keep visiting the namespace path the reference was written with, so its segments stay part
+            // of the analysis.
+            if (boundMember.SourceExpr is IndexExpr { Target: { } container })
+                VisitExpr(container, scope);
+
+            return;
+        }
+
+        expr = SourceOf(expr);
         switch (expr)
         {
             case NullExpr:
@@ -1326,6 +1388,7 @@ internal sealed class CfgsSemanticModelBuilder
 
     private bool ShouldPreferInstanceMembers(Expr expr, SemanticScope scope)
     {
+        expr = SourceOf(expr);
         if (expr is VarExpr varExpr && scope.ResolveContextualQualifier(varExpr.Name) is not null)
             return !string.Equals(varExpr.Name, "type", StringComparison.Ordinal);
 
@@ -1508,6 +1571,7 @@ internal sealed class CfgsSemanticModelBuilder
 
     private bool TryGetExpressionEnd(Expr expr, out PositionInfo end)
     {
+        expr = SourceOf(expr);
         string? sourceText = _sources.GetSourceText(expr.OriginFile);
         if (sourceText is null)
         {
@@ -1994,6 +2058,7 @@ internal sealed class CfgsSemanticModelBuilder
 
     private IReadOnlyList<CfgsSymbol> TryResolveExprSymbols(Expr expr, SemanticScope scope)
     {
+        expr = SourceOf(expr);
         switch (expr)
         {
             case VarExpr varExpr:
@@ -2027,6 +2092,7 @@ internal sealed class CfgsSemanticModelBuilder
 
     private IReadOnlyList<CfgsSymbol> TryResolveCallableSymbols(Expr? expr, SemanticScope scope)
     {
+        expr = SourceOfNullable(expr);
         if (expr is null)
             return [];
 
@@ -2145,6 +2211,7 @@ internal sealed class CfgsSemanticModelBuilder
 
     private static bool TryGetCallableOccurrenceAnchor(Expr expr, out int line, out int column, out string? originFile, out string? token)
     {
+        expr = SourceOf(expr);
         switch (expr)
         {
             case VarExpr varExpr:
@@ -2196,6 +2263,7 @@ internal sealed class CfgsSemanticModelBuilder
 
     private IReadOnlyList<string> TryResolveContainerAccessPaths(Expr? expr, SemanticScope scope)
     {
+        expr = SourceOfNullable(expr);
         switch (expr)
         {
             case null:
@@ -2280,6 +2348,7 @@ internal sealed class CfgsSemanticModelBuilder
 
     private string? TryGetExpressionPath(Expr? expr, SemanticScope scope)
     {
+        expr = SourceOfNullable(expr);
         switch (expr)
         {
             case VarExpr varExpr:
@@ -2514,6 +2583,7 @@ internal sealed class CfgsSemanticModelBuilder
 
     private string? TryInferValueTypeQualifiedName(Expr? expr, SemanticScope scope)
     {
+        expr = SourceOfNullable(expr);
         switch (expr)
         {
             case null:
@@ -3351,33 +3421,38 @@ internal sealed class CfgsSemanticModelBuilder
     private static bool IsSyntheticGeneratedName(string name)
         => name.StartsWith("__", StringComparison.Ordinal);
 
-    private static bool TryExtractNamespaceInfo(BlockStmt block, out string? namespacePath, out string? tempName)
+    private static bool TryExtractNamespaceInfo(BlockStmt block, out string? namespacePath)
     {
-        namespacePath = null;
-        tempName = null;
-
-        if (block.Statements.FirstOrDefault() is not VarDecl tempDecl)
-            return false;
-
-        tempName = tempDecl.Name;
-        namespacePath = TextLocator.TryExtractQualifiedPath(tempDecl.Value);
+        namespacePath = block.IsNamespaceScope ? block.NamespacePath : null;
         return !string.IsNullOrWhiteSpace(namespacePath);
     }
 
-    private static IEnumerable<Stmt> EnumerateNamespaceBodyStatements(BlockStmt block, string tempName)
-    {
-        foreach (Stmt stmt in block.Statements.Skip(1))
-        {
-            if (stmt is AssignExprStmt assign &&
-                assign.Target is IndexExpr target &&
-                target.Target is VarExpr varExpr &&
-                string.Equals(varExpr.Name, tempName, StringComparison.Ordinal) &&
-                assign.Value is VarExpr)
-            {
-                continue;
-            }
+    // The resolver binds namespace members and namespace import alias members to global bindings at compile
+    // time. The editor analyzes the expression each binding stood for (a qualified access, a bare member
+    // name, or Alias.member), so hover, references, and completion see the code as written.
+    private static Expr SourceOf(Expr expr)
+        => expr is VarExpr { SourceExpr: { } source } ? SourceOf(source) : expr;
 
-            yield return stmt;
+    private static Expr? SourceOfNullable(Expr? expr)
+        => expr is null ? null : SourceOf(expr);
+
+    // A namespace import alias behaves for the editor like a value whose members are the imported
+    // top-level symbols, which is what the alias looked like before aliases became compile-time only.
+    private void VisitNamespaceImportAlias(NamespaceImportAliasStmt alias, SemanticScope scope, string? containerQualifiedName)
+    {
+        VarDecl aliasDecl = new(alias.Alias, new DictExpr([], alias.Line, alias.Col, alias.OriginFile), alias.Line, alias.Col, alias.OriginFile);
+        VisitVarDecl(aliasDecl, scope, containerQualifiedName);
+
+        foreach (string name in alias.ImportedNames)
+        {
+            IndexExpr target = new(
+                new VarExpr(alias.Alias, alias.Line, alias.Col, alias.OriginFile),
+                new StringExpr(name, alias.Line, alias.Col, alias.OriginFile),
+                alias.Line,
+                alias.Col,
+                alias.OriginFile,
+                isDotAccess: true);
+            TrackAssignedMemberBinding(target, new VarExpr(name, alias.Line, alias.Col, alias.OriginFile), scope);
         }
     }
 

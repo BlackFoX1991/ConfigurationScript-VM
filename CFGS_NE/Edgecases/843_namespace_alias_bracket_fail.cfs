@@ -1,0 +1,8 @@
+# expect-error: CFGS2003 namespace members require dot access; bracket access is for indexable values
+import * as Lib from "_imports/mod_exports_ns.cfs";
+
+func read() {
+    return Lib["nanswer"];
+}
+
+read();

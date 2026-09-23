@@ -1,3 +1,4 @@
+using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.VMCore.Debugging;
 using CFGS_VM.VMCore.Extensions.Core;
 using System.Globalization;
@@ -45,6 +46,14 @@ namespace CFGS_VM.VMCore
             if (_scopes.Count > 0 && _scopes[^1].TryGetValue(name, out value))
                 return true;
 
+            // A namespace member is inspected by its qualified name (App.Core.seed).
+            if (_scopes.Count > 0 && ResolveGlobalBindingName(GlobalEnv(), name) is string bindingName &&
+                !string.Equals(bindingName, name, StringComparison.Ordinal) &&
+                GlobalEnv().TryGetValue(bindingName, out value))
+            {
+                return true;
+            }
+
             value = null;
             return false;
         }
@@ -62,6 +71,10 @@ namespace CFGS_VM.VMCore
 
         private string UndefinedVariableMessage(string name)
         {
+            // A namespace member binding is only missing while its namespace declaration has not run yet.
+            if (NamespaceRuntimeBindingNames.IsMemberBindingName(name))
+                return $"Runtime error: undefined variable '{NamespaceRuntimeBindingNames.ToDisplayName(name)}'; a namespace member exists once its declaration has run";
+
             string message = $"Runtime error: undefined variable '{name}'";
             return TryFindClosestRuntimeName(name, out string? closest)
                 ? $"{message}; did you mean '{closest}'?"
@@ -70,6 +83,9 @@ namespace CFGS_VM.VMCore
 
         private string UndefinedAssignmentMessage(string name)
         {
+            if (NamespaceRuntimeBindingNames.IsMemberBindingName(name))
+                return $"Runtime error: assignment to undeclared variable '{NamespaceRuntimeBindingNames.ToDisplayName(name)}'; a namespace member exists once its declaration has run";
+
             string message = $"Runtime error: assignment to undeclared variable '{name}'";
             return TryFindClosestRuntimeName(name, out string? closest)
                 ? $"{message}; did you mean '{closest}'?"
@@ -85,7 +101,11 @@ namespace CFGS_VM.VMCore
                 lock (scope.SyncRoot)
                 {
                     foreach (string candidate in scope.LocalNames)
-                        candidates.Add(candidate);
+                    {
+                        // Namespace member bindings are reached by their qualified name, never bare.
+                        if (!NamespaceRuntimeBindingNames.IsMemberBindingName(candidate))
+                            candidates.Add(candidate);
+                    }
                 }
             }
 
@@ -155,7 +175,7 @@ namespace CFGS_VM.VMCore
             {
                 return env.LocalBindings()
                     .OrderBy(static kv => kv.Key, StringComparer.Ordinal)
-                    .Select(kv => new VmDebugVariable(kv.Key, kv.Value.ToObject(), env.IsConstLocal(kv.Key)))
+                    .Select(kv => new VmDebugVariable(NamespaceRuntimeBindingNames.ToDisplayName(kv.Key), kv.Value.ToObject(), env.IsConstLocal(kv.Key)))
                     .ToList();
             }
         }

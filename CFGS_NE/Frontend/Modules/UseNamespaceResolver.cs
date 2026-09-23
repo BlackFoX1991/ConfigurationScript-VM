@@ -19,12 +19,15 @@ namespace CFGS_VM.Analytic.Modules
             Constant
         }
 
+        /// <param name="IsNative">True for members of a namespace registered by the standard library or a
+        /// plugin. Those stay runtime values and are reached through a member access chain.</param>
         private sealed record NamespaceMemberInfo(
             string Name,
             string QualifiedPath,
             NamespaceMemberKind Kind,
             MemberVisibility Visibility,
-            string DeclaringNamespacePath);
+            string DeclaringNamespacePath,
+            bool IsNative = false);
 
         private sealed class RewriteState
         {
@@ -56,10 +59,11 @@ namespace CFGS_VM.Analytic.Modules
 
         private static readonly HashSet<string> EmptyLocals = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Dictionary<string, NamespaceMemberInfo>> _namespaceMembersByPath = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, HashSet<string>> _namespaceDeclaredValueNamesByPath = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, HashSet<string>> _namespaceDeclaredTypeNamesByPath = new(StringComparer.Ordinal);
         private readonly HashSet<string> _globalTopLevelValueNames = new(StringComparer.Ordinal);
         private readonly HashSet<string> _globalTopLevelTypeNames = new(StringComparer.Ordinal);
+
+        // Namespace import aliases (`import * as Alias`) and the top-level names each one exposes.
+        private readonly Dictionary<string, HashSet<string>> _aliasExports = new(StringComparer.Ordinal);
         private readonly INamespaceRegistry? _namespaces;
 
         public UseNamespaceResolver(INamespaceRegistry? namespaces = null)
@@ -74,12 +78,15 @@ namespace CFGS_VM.Analytic.Modules
                 .ToList();
 
             bool hasNamespaceDeclarations = resolvedStatements.Any(static stmt => stmt is NamespaceDeclStmt);
-            if (useStatements.Count == 0 && !hasNamespaceDeclarations)
+            bool hasNamespaceAliases = resolvedStatements.Any(static stmt => stmt is NamespaceImportAliasStmt);
+            if (useStatements.Count == 0 && !hasNamespaceDeclarations && !hasNamespaceAliases)
                 return resolvedStatements;
 
             BuildNamespaceModel(resolvedStatements);
             RegisterNamespaceRegistryModel();
+            ValidateNativeRootConflicts(resolvedStatements);
             BuildGlobalTopLevelSurfaces(resolvedStatements);
+            BuildAliasModel(resolvedStatements);
 
             Dictionary<string, List<UseNamespaceStmt>> useStatementsByOrigin = useStatements
                 .GroupBy(static stmt => stmt.OriginFile, StringComparer.Ordinal)
@@ -125,6 +132,46 @@ namespace CFGS_VM.Analytic.Modules
                     continue;
 
                 RegisterNamespaceDecl(namespaceDecl);
+            }
+        }
+
+        private void BuildAliasModel(IEnumerable<Stmt> statements)
+        {
+            foreach (Stmt stmt in statements)
+            {
+                if (stmt is NamespaceImportAliasStmt alias)
+                    _aliasExports[alias.Alias] = new HashSet<string>(alias.ImportedNames, StringComparer.Ordinal);
+            }
+        }
+
+        /// <summary>
+        /// A script namespace must not share its root with a native namespace. Script namespace members are
+        /// compile-time bindings while native members are runtime values, so a shared root would make
+        /// <c>root.x</c> ambiguous.
+        /// </summary>
+        private void ValidateNativeRootConflicts(IEnumerable<Stmt> statements)
+        {
+            if (_namespaces is null)
+                return;
+
+            HashSet<string> nativeRoots = new(StringComparer.Ordinal);
+            foreach (NamespaceDescriptor descriptor in _namespaces.Snapshot())
+            {
+                string root = descriptor.Path.Split('.', StringSplitOptions.RemoveEmptyEntries)[0];
+                nativeRoots.Add(root);
+            }
+
+            foreach (Stmt raw in statements)
+            {
+                Stmt stmt = raw is ExportStmt exportStmt ? exportStmt.Inner : raw;
+                if (stmt is NamespaceDeclStmt namespaceDecl && namespaceDecl.Parts.Count > 0 && nativeRoots.Contains(namespaceDecl.Parts[0]))
+                {
+                    throw new ParserException(
+                        $"namespace root '{namespaceDecl.Parts[0]}' conflicts with native namespace '{namespaceDecl.Parts[0]}'",
+                        namespaceDecl.Line,
+                        namespaceDecl.Col,
+                        namespaceDecl.OriginFile);
+                }
             }
         }
 
@@ -187,11 +234,6 @@ namespace CFGS_VM.Analytic.Modules
                     continue;
 
                 AddNamespaceMember(fullPath, name, $"{fullPath}.{name}", kind, visibility, fullPath);
-
-                if (kind is NamespaceMemberKind.Class or NamespaceMemberKind.Interface)
-                    _namespaceDeclaredTypeNamesByPath[fullPath].Add(name);
-
-                _namespaceDeclaredValueNamesByPath[fullPath].Add(name);
             }
         }
 
@@ -244,12 +286,6 @@ namespace CFGS_VM.Analytic.Modules
         {
             if (!_namespaceMembersByPath.ContainsKey(path))
                 _namespaceMembersByPath[path] = new Dictionary<string, NamespaceMemberInfo>(StringComparer.Ordinal);
-
-            if (!_namespaceDeclaredValueNamesByPath.ContainsKey(path))
-                _namespaceDeclaredValueNamesByPath[path] = new HashSet<string>(StringComparer.Ordinal);
-
-            if (!_namespaceDeclaredTypeNamesByPath.ContainsKey(path))
-                _namespaceDeclaredTypeNamesByPath[path] = new HashSet<string>(StringComparer.Ordinal);
         }
 
         private void AddNamespaceMember(
@@ -258,10 +294,11 @@ namespace CFGS_VM.Analytic.Modules
             string qualifiedPath,
             NamespaceMemberKind kind,
             MemberVisibility visibility,
-            string declaringNamespacePath)
+            string declaringNamespacePath,
+            bool isNative = false)
         {
             EnsureNamespaceBuckets(namespacePath);
-            _namespaceMembersByPath[namespacePath].TryAdd(name, new NamespaceMemberInfo(name, qualifiedPath, kind, visibility, declaringNamespacePath));
+            _namespaceMembersByPath[namespacePath].TryAdd(name, new NamespaceMemberInfo(name, qualifiedPath, kind, visibility, declaringNamespacePath, isNative));
         }
 
         private void RegisterNamespaceRegistryModel()
@@ -283,12 +320,12 @@ namespace CFGS_VM.Analytic.Modules
             {
                 string parentPath = string.Join(".", parts.Take(i));
                 string childName = parts[i];
-                AddNamespaceMember(parentPath, childName, $"{parentPath}.{childName}", NamespaceMemberKind.Namespace, MemberVisibility.Public, parentPath);
+                AddNamespaceMember(parentPath, childName, $"{parentPath}.{childName}", NamespaceMemberKind.Namespace, MemberVisibility.Public, parentPath, isNative: true);
             }
 
             EnsureNamespaceBuckets(descriptor.Path);
             foreach (string member in descriptor.Members)
-                AddNamespaceMember(descriptor.Path, member, $"{descriptor.Path}.{member}", NamespaceMemberKind.Function, MemberVisibility.Public, descriptor.Path);
+                AddNamespaceMember(descriptor.Path, member, $"{descriptor.Path}.{member}", NamespaceMemberKind.Function, MemberVisibility.Public, descriptor.Path, isNative: true);
         }
 
         private Dictionary<string, List<NamespaceMemberInfo>> BuildUseLookup(IEnumerable<UseNamespaceStmt> useStatements)
@@ -333,10 +370,7 @@ namespace CFGS_VM.Analytic.Modules
             {
                 ExportStmt exportStmt => new ExportStmt(exportStmt.Name, RewriteStatement(exportStmt.Inner, state), exportStmt.Line, exportStmt.Col, exportStmt.OriginFile),
                 EmptyStmt => stmt,
-                VarDecl varDecl => CopyNamespaceVisibility(new VarDecl(varDecl.Name, RewriteNullableExpr(varDecl.Value, state), varDecl.Line, varDecl.Col, varDecl.OriginFile)
-                {
-                    IsSyntheticNamespaceRoot = varDecl.IsSyntheticNamespaceRoot
-                }, varDecl),
+                VarDecl varDecl => CopyNamespaceVisibility(new VarDecl(varDecl.Name, RewriteNullableExpr(varDecl.Value, state), varDecl.Line, varDecl.Col, varDecl.OriginFile), varDecl),
                 ConstDecl constDecl => CopyNamespaceVisibility(new ConstDecl(constDecl.Name, RewriteExpr(constDecl.Value, state), constDecl.Line, constDecl.Col, constDecl.OriginFile), constDecl),
                 DestructureDeclStmt destructureDecl => new DestructureDeclStmt(
                     RewritePattern(destructureDecl.Pattern, state),
@@ -346,7 +380,7 @@ namespace CFGS_VM.Analytic.Modules
                     destructureDecl.Col,
                     destructureDecl.OriginFile),
                 DestructureAssignStmt destructureAssign => new DestructureAssignStmt(
-                    RewritePattern(destructureAssign.Pattern, state),
+                    RewriteAssignmentPattern(RewritePattern(destructureAssign.Pattern, state), state),
                     RewriteExpr(destructureAssign.Value, state),
                     destructureAssign.Line,
                     destructureAssign.Col,
@@ -486,17 +520,38 @@ namespace CFGS_VM.Analytic.Modules
         private Stmt RewriteAssignStatement(AssignStmt assignStmt, RewriteState state)
         {
             Expr value = RewriteExpr(assignStmt.Value, state);
-            if (TryResolveUsedValueRoot(assignStmt.Name, assignStmt, state, out NamespaceMemberInfo? resolved))
-            {
-                return new AssignExprStmt(
-                    BuildResolvedNamespaceMemberExpr(resolved!, assignStmt, state.CurrentNamespacePath),
-                    value,
-                    assignStmt.Line,
-                    assignStmt.Col,
-                    assignStmt.OriginFile);
-            }
+            Expr target = RewriteVarExpr(new VarExpr(assignStmt.Name, assignStmt.Line, assignStmt.Col, assignStmt.OriginFile), state);
+            if (target is VarExpr { SourceExpr: null } plain && string.Equals(plain.Name, assignStmt.Name, StringComparison.Ordinal))
+                return new AssignStmt(assignStmt.Name, value, assignStmt.Line, assignStmt.Col, assignStmt.OriginFile);
 
-            return new AssignStmt(assignStmt.Name, value, assignStmt.Line, assignStmt.Col, assignStmt.OriginFile);
+            return new AssignExprStmt(target, value, assignStmt.Line, assignStmt.Col, assignStmt.OriginFile);
+        }
+
+        /// <summary>
+        /// Returns the global binding a bare assignment target such as a `foreach (x in ...)` variable or a
+        /// destructuring assignment binding stands for, when the name resolves to a namespace member.
+        /// </summary>
+        private bool TryResolveAssignedMemberBinding(string name, Node node, RewriteState state, out string bindingName)
+        {
+            bindingName = string.Empty;
+            Expr target = RewriteVarExpr(new VarExpr(name, node.Line, node.Col, node.OriginFile), state);
+            if (target is not VarExpr { NamespaceMember: not null } bound)
+                return false;
+
+            bindingName = bound.Name;
+            return true;
+        }
+
+        private MatchPattern RewriteAssignmentPattern(MatchPattern pattern, RewriteState state)
+        {
+            return pattern switch
+            {
+                BindingMatchPattern binding when TryResolveAssignedMemberBinding(binding.Name, binding, state, out string bindingName)
+                    => new BindingMatchPattern(bindingName, binding.Line, binding.Col, binding.OriginFile),
+                ArrayMatchPattern arrayPattern => new ArrayMatchPattern(arrayPattern.Elements.Select(element => RewriteAssignmentPattern(element, state)).ToList(), arrayPattern.Line, arrayPattern.Col, arrayPattern.OriginFile),
+                DictMatchPattern dictPattern => new DictMatchPattern(dictPattern.Entries.Select(entry => (entry.Key, RewriteAssignmentPattern(entry.Pattern, state))).ToList(), dictPattern.Line, dictPattern.Col, dictPattern.OriginFile),
+                _ => pattern
+            };
         }
 
         private ForStmt RewriteForStatement(ForStmt forStmt, RewriteState state)
@@ -529,9 +584,19 @@ namespace CFGS_VM.Analytic.Modules
                 }
             }
 
+            string varName = foreachStmt.VarName;
+            MatchPattern? targetPattern = foreachStmt.TargetPattern is null ? null : RewritePattern(foreachStmt.TargetPattern, state);
+            if (!foreachStmt.DeclareLocal)
+            {
+                if (TryResolveAssignedMemberBinding(varName, foreachStmt, state, out string bindingName))
+                    varName = bindingName;
+                if (targetPattern is not null)
+                    targetPattern = RewriteAssignmentPattern(targetPattern, state);
+            }
+
             return new ForeachStmt(
-                foreachStmt.VarName,
-                foreachStmt.TargetPattern is null ? null : RewritePattern(foreachStmt.TargetPattern, state),
+                varName,
+                targetPattern,
                 foreachStmt.DeclareLocal,
                 iterable,
                 foreachStmt.UseIndexValuePair,
@@ -979,11 +1044,7 @@ namespace CFGS_VM.Analytic.Modules
                         .ToList(),
                     dictExpr.Line,
                     dictExpr.Col,
-                    dictExpr.OriginFile)
-                {
-                    IsNamespaceContainer = dictExpr.IsNamespaceContainer,
-                    NamespaceContainerName = dictExpr.NamespaceContainerName
-                },
+                    dictExpr.OriginFile),
                 PrefixExpr prefixExpr => new PrefixExpr(RewriteNullableExpr(prefixExpr.Target, state), prefixExpr.Op, prefixExpr.Line, prefixExpr.Col, prefixExpr.OriginFile),
                 PostfixExpr postfixExpr => new PostfixExpr(RewriteNullableExpr(postfixExpr.Target, state), postfixExpr.Op, postfixExpr.Line, postfixExpr.Col, postfixExpr.OriginFile),
                 NewExpr newExpr => RewriteNewExpr(newExpr, state),
@@ -1012,28 +1073,61 @@ namespace CFGS_VM.Analytic.Modules
 
         private Expr RewriteIndexExpr(IndexExpr indexExpr, RewriteState state)
         {
-            Expr? rewrittenTarget = indexExpr.Target is null ? null : RewriteExpr(indexExpr.Target, state);
-            Expr? rewrittenIndex = indexExpr.Index is null ? null : RewriteExpr(indexExpr.Index, state);
-
-            if (rewrittenTarget is not null &&
-                rewrittenIndex is StringExpr memberExpr &&
-                TryResolveQualifiedNamespaceMember(rewrittenTarget, memberExpr.Value, state, out NamespaceMemberInfo? resolved) &&
-                CanUseSyntheticNamespaceBinding(resolved!, state.CurrentNamespacePath))
+            // Alias.member of a namespace import binds to the imported top-level binding itself. An unknown
+            // export or a bracket access stays as written and is reported by the compiler.
+            if (indexExpr.IsDotAccess &&
+                indexExpr.Target is VarExpr { SourceExpr: null } aliasVar &&
+                indexExpr.Index is StringExpr aliasMember &&
+                IsNamespaceAliasReference(aliasVar.Name, state) &&
+                _aliasExports[aliasVar.Name].Contains(aliasMember.Value))
             {
-                return new VarExpr(
-                    NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(resolved!.DeclaringNamespacePath, resolved.Name),
-                    indexExpr.Line,
-                    indexExpr.Col,
-                    indexExpr.OriginFile);
+                return new VarExpr(aliasMember.Value, indexExpr.Line, indexExpr.Col, indexExpr.OriginFile)
+                {
+                    SourceExpr = new IndexExpr(
+                        new VarExpr(aliasVar.Name, aliasVar.Line, aliasVar.Col, aliasVar.OriginFile),
+                        new StringExpr(aliasMember.Value, aliasMember.Line, aliasMember.Col, aliasMember.OriginFile),
+                        indexExpr.Line,
+                        indexExpr.Col,
+                        indexExpr.OriginFile,
+                        isDotAccess: true)
+                };
             }
 
-            return new IndexExpr(
+            Expr? rewrittenTarget = indexExpr.Target is null ? null : RewriteExpr(indexExpr.Target, state);
+            Expr? rewrittenIndex = indexExpr.Index is null ? null : RewriteExpr(indexExpr.Index, state);
+            IndexExpr rewritten = new(
                 rewrittenTarget,
                 rewrittenIndex,
                 indexExpr.Line,
                 indexExpr.Col,
                 indexExpr.OriginFile,
                 indexExpr.IsDotAccess);
+
+            // A statically known namespace member binds to its global binding. Bracket access and inaccessible
+            // or unknown members stay as written; the compiler reports them.
+            if (indexExpr.IsDotAccess &&
+                rewrittenTarget is not null &&
+                rewrittenIndex is StringExpr memberExpr &&
+                TryResolveQualifiedNamespaceMember(rewrittenTarget, memberExpr.Value, state, out NamespaceMemberInfo? resolved) &&
+                CanBindNamespaceMember(resolved!, state.CurrentNamespacePath))
+            {
+                return BindNamespaceMember(resolved!, indexExpr, rewritten);
+            }
+
+            return rewritten;
+        }
+
+        private bool IsNamespaceAliasReference(string name, RewriteState state)
+        {
+            if (!_aliasExports.ContainsKey(name) ||
+                IsSpecialIdentifier(name) ||
+                state.CurrentLocals.Contains(name) ||
+                state.ContainingClassMemberNames.Contains(name))
+            {
+                return false;
+            }
+
+            return !TryResolveNamespaceScopedValue(name, state, out _);
         }
 
         private FuncExpr RewriteFunctionExpr(FuncExpr funcExpr, RewriteState state)
@@ -1162,12 +1256,59 @@ namespace CFGS_VM.Analytic.Modules
             };
         }
 
+        /// <summary>
+        /// Resolves a bare name: locals, members of the enclosing class, members of the current namespace and
+        /// of its enclosing namespaces (in every block and file that declares them), global names, and
+        /// finally members of `use`d namespaces, in that order.
+        /// </summary>
         private Expr RewriteVarExpr(VarExpr varExpr, RewriteState state)
         {
-            if (!TryResolveUsedValueRoot(varExpr.Name, varExpr, state, out NamespaceMemberInfo? resolved))
-                return new VarExpr(varExpr.Name, varExpr.Line, varExpr.Col, varExpr.OriginFile);
+            // Already bound by an earlier pass: the resolver runs for every module and once more for the
+            // whole program.
+            if (varExpr.SourceExpr is not null)
+                return varExpr;
 
-            return BuildResolvedNamespaceMemberExpr(resolved!, varExpr, state.CurrentNamespacePath);
+            string name = varExpr.Name;
+            VarExpr copy = new(name, varExpr.Line, varExpr.Col, varExpr.OriginFile);
+            if (IsSpecialIdentifier(name) ||
+                state.CurrentLocals.Contains(name) ||
+                state.ContainingClassMemberNames.Contains(name))
+            {
+                return copy;
+            }
+
+            if (TryResolveNamespaceScopedValue(name, state, out NamespaceMemberInfo? scoped))
+                return BuildResolvedNamespaceMemberExpr(scoped!, varExpr, state.CurrentNamespacePath, copy);
+
+            if (!TryResolveUsedValueRoot(name, varExpr, state, out NamespaceMemberInfo? resolved))
+                return copy;
+
+            return BuildResolvedNamespaceMemberExpr(resolved!, varExpr, state.CurrentNamespacePath, source: null);
+        }
+
+        /// <summary>
+        /// Finds an accessible member named <paramref name="name"/> in the current namespace or one of its
+        /// enclosing namespaces, innermost first.
+        /// </summary>
+        private bool TryResolveNamespaceScopedValue(string name, RewriteState state, out NamespaceMemberInfo? resolved)
+        {
+            resolved = null;
+            if (string.IsNullOrWhiteSpace(state.CurrentNamespacePath))
+                return false;
+
+            foreach (string namespacePath in EnumerateNamespacePrefixes(state.CurrentNamespacePath))
+            {
+                if (_namespaceMembersByPath.TryGetValue(namespacePath, out Dictionary<string, NamespaceMemberInfo>? members) &&
+                    members.TryGetValue(name, out NamespaceMemberInfo? candidate) &&
+                    !candidate.IsNative &&
+                    IsNamespaceMemberAccessible(candidate, state.CurrentNamespacePath))
+                {
+                    resolved = candidate;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private Expr RewriteBinaryExpr(BinaryExpr binaryExpr, RewriteState state)
@@ -1227,14 +1368,24 @@ namespace CFGS_VM.Analytic.Modules
             if (expr is not VarExpr varExpr)
                 return RewriteExpr(expr, state);
 
-            if (IsNestedTypeRoot(varExpr.Name, state) || IsGlobalTypeRoot(varExpr.Name))
-                return new VarExpr(varExpr.Name, varExpr.Line, varExpr.Col, varExpr.OriginFile);
+            if (varExpr.SourceExpr is not null)
+                return varExpr;
+
+            VarExpr copy = new(varExpr.Name, varExpr.Line, varExpr.Col, varExpr.OriginFile);
+
+            // Same precedence as type names in declarations (RewriteTypeReference): nested types, then the
+            // current and enclosing namespaces, then global types, then `use`d namespaces.
+            if (IsNestedTypeRoot(varExpr.Name, state))
+                return copy;
 
             if (TryResolveCurrentNamespaceTypeRoot(varExpr.Name, state, out NamespaceMemberInfo? namespaceCandidate) &&
                 allowedRootKinds.Contains(namespaceCandidate!.Kind))
             {
-                return BuildResolvedNamespaceMemberExpr(namespaceCandidate!, varExpr, state.CurrentNamespacePath);
+                return BuildResolvedNamespaceMemberExpr(namespaceCandidate!, varExpr, state.CurrentNamespacePath, source: null);
             }
+
+            if (IsGlobalTypeRoot(varExpr.Name))
+                return copy;
 
             if (TryResolveUseMember(varExpr.Name, varExpr, state, out List<NamespaceMemberInfo>? candidates))
             {
@@ -1246,7 +1397,7 @@ namespace CFGS_VM.Analytic.Modules
                     throw CreateAmbiguousUseException(varExpr.Name, filtered, varExpr);
 
                 if (filtered.Count == 1)
-                    return BuildResolvedNamespaceMemberExpr(filtered[0], varExpr, state.CurrentNamespacePath);
+                    return BuildResolvedNamespaceMemberExpr(filtered[0], varExpr, state.CurrentNamespacePath, source: null);
             }
 
             return new VarExpr(varExpr.Name, varExpr.Line, varExpr.Col, varExpr.OriginFile);
@@ -1274,6 +1425,15 @@ namespace CFGS_VM.Analytic.Modules
                 allowedRootKinds.Contains(namespaceCandidate!.Kind))
             {
                 return namespaceCandidate.QualifiedPath + suffix;
+            }
+
+            // Alias.Type of a namespace import names the imported top-level type.
+            if (parts.Length > 1 &&
+                !state.CurrentLocals.Contains(root) &&
+                _aliasExports.TryGetValue(root, out HashSet<string>? aliasExports) &&
+                aliasExports.Contains(parts[1]))
+            {
+                return string.Join(".", parts.Skip(1));
             }
 
             if (IsGlobalTypeRoot(root))
@@ -1372,12 +1532,9 @@ namespace CFGS_VM.Analytic.Modules
             if (state.ContainingClassMemberNames.Contains(name))
                 return true;
 
-            if (!string.IsNullOrWhiteSpace(state.CurrentNamespacePath) &&
-                _namespaceDeclaredValueNamesByPath.TryGetValue(state.CurrentNamespacePath, out HashSet<string>? namespaceNames) &&
-                namespaceNames.Contains(name))
-            {
+            // Members of the current and enclosing namespaces win over `use`d members.
+            if (TryResolveNamespaceScopedValue(name, state, out _))
                 return true;
-            }
 
             return _globalTopLevelValueNames.Contains(name);
         }
@@ -1461,21 +1618,35 @@ namespace CFGS_VM.Analytic.Modules
             return expr;
         }
 
+        /// <summary>
+        /// Builds the reference to a resolved namespace member: its global binding for a script namespace
+        /// member, or the qualified member access chain for a namespace or a native namespace member.
+        /// <paramref name="source"/> is what editor tooling analyzes in place of the binding; without one,
+        /// the qualified access chain stands in for it.
+        /// </summary>
         private static Expr BuildResolvedNamespaceMemberExpr(
             NamespaceMemberInfo member,
             Node node,
-            string? currentNamespacePath)
+            string? currentNamespacePath,
+            Expr? source)
         {
-            if (CanUseSyntheticNamespaceBinding(member, currentNamespacePath))
-            {
-                return new VarExpr(
-                    NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(member.DeclaringNamespacePath, member.Name),
-                    node.Line,
-                    node.Col,
-                    node.OriginFile);
-            }
+            if (CanBindNamespaceMember(member, currentNamespacePath))
+                return BindNamespaceMember(member, node, source ?? BuildQualifiedAccessExpr(member.QualifiedPath, node));
 
             return BuildQualifiedAccessExpr(member.QualifiedPath, node);
+        }
+
+        private static VarExpr BindNamespaceMember(NamespaceMemberInfo member, Node node, Expr source)
+        {
+            return new VarExpr(
+                NamespaceRuntimeBindingNames.GetHiddenMemberBindingName(member.DeclaringNamespacePath, member.Name),
+                node.Line,
+                node.Col,
+                node.OriginFile)
+            {
+                NamespaceMember = member.QualifiedPath,
+                SourceExpr = source
+            };
         }
 
         private static void PushFunctionScope(RewriteState state, IEnumerable<string> parameters)
@@ -1546,7 +1717,7 @@ namespace CFGS_VM.Analytic.Modules
                     namespacePath = variableExpr.Name;
                     return !currentLocals.Contains(variableExpr.Name) && _namespaceMembersByPath.ContainsKey(namespacePath);
 
-                case IndexExpr { Target: not null, Index: StringExpr segment } indexExpr:
+                case IndexExpr { Target: not null, Index: StringExpr segment, IsDotAccess: true } indexExpr:
                     if (!TryResolveKnownNamespacePathFromExpr(indexExpr.Target, currentLocals, out string prefix))
                     {
                         namespacePath = string.Empty;
@@ -1562,9 +1733,9 @@ namespace CFGS_VM.Analytic.Modules
             }
         }
 
-        private static bool CanUseSyntheticNamespaceBinding(NamespaceMemberInfo member, string? currentNamespacePath)
+        private static bool CanBindNamespaceMember(NamespaceMemberInfo member, string? currentNamespacePath)
             => member.Kind != NamespaceMemberKind.Namespace &&
-                NamespaceRuntimeBindingNames.UsesSyntheticBinding(member.Visibility) &&
+                !member.IsNative &&
                 IsNamespaceMemberAccessible(member, currentNamespacePath);
 
         private static bool IsNamespaceMemberAccessible(NamespaceMemberInfo candidate, string? currentNamespacePath)

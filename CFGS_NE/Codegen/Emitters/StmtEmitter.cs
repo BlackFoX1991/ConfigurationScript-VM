@@ -104,7 +104,7 @@ namespace CFGS_VM.VMCore
                     else
                         _insns.Add(new Instruction(OpCode.PUSH_NULL, null, s.Line, s.Col, s.OriginFile));
 
-                    _insns.Add(new Instruction(OpCode.VAR_DECL, v.Name, s.Line, s.Col, s.OriginFile));
+                    _insns.Add(new Instruction(OpCode.VAR_DECL, GetDeclarationBindingName(v, v.Name), s.Line, s.Col, s.OriginFile));
 
                     if (_localVarsStack.Count > 0)
                         CurrentLocals.Add(v.Name);
@@ -113,7 +113,7 @@ namespace CFGS_VM.VMCore
 
                 case ConstDecl c:
                     CompileExpr(c.Value);
-                    _insns.Add(new Instruction(OpCode.CONST_DECL, c.Name, s.Line, s.Col, s.OriginFile));
+                    _insns.Add(new Instruction(OpCode.CONST_DECL, GetDeclarationBindingName(c, c.Name), s.Line, s.Col, s.OriginFile));
 
                     if (_localVarsStack.Count > 0)
                         CurrentLocals.Add(c.Name);
@@ -129,9 +129,7 @@ namespace CFGS_VM.VMCore
                         CompileExpr(a.Value);
 
                         if (!TryEmitImplicitMemberStore(a.Name, a))
-                        {
-                            _insns.Add(new Instruction(OpCode.STORE_VAR, a.Name, s.Line, s.Col, s.OriginFile));
-                        }
+                            EmitNameStore(a.Name, a);
                         break;
                     }
 
@@ -248,7 +246,12 @@ namespace CFGS_VM.VMCore
                             _insns.Add(new Instruction(OpCode.DUP, null, ids.Line, ids.Col, ids.OriginFile));
                             _insns.Add(new Instruction(OpCode.PUSH_STR, "__interfaces", ids.Line, ids.Col, ids.OriginFile));
                             foreach (string baseName in ids.BaseInterfaces)
-                                EmitLoadQualifiedRuntimeValue(baseName, ids);
+                            {
+                                Stmt? baseDecl = TryResolveBaseInterfaceDecl(ids, baseName, out InterfaceDeclStmt baseInterface)
+                                    ? baseInterface
+                                    : TryResolveClassDeclFromInterfaceBaseName(ids, baseName, out ClassDeclStmt baseClass) ? baseClass : null;
+                                EmitLoadDeclaredTypeReference(baseName, baseDecl, ids);
+                            }
                             _insns.Add(new Instruction(OpCode.NEW_ARRAY, ids.BaseInterfaces.Count, ids.Line, ids.Col, ids.OriginFile));
                             _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, ids.Line, ids.Col, ids.OriginFile));
                         }
@@ -257,7 +260,7 @@ namespace CFGS_VM.VMCore
                         EmitInterfacePropertyMetadata(ids);
                         EmitInterfaceIndexerMetadata(ids);
 
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, ids.Name, ids.Line, ids.Col, ids.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, GetDeclarationBindingName(ids, ids.Name), ids.Line, ids.Col, ids.OriginFile));
                         break;
                     }
 
@@ -273,7 +276,7 @@ namespace CFGS_VM.VMCore
                         _insns.Add(new Instruction(OpCode.PUSH_INT, eds.Members.Count, eds.Line, eds.Col, eds.OriginFile));
                         _insns.Add(new Instruction(OpCode.NEW_ENUM, eds.Name, eds.Line, eds.Col, eds.OriginFile));
 
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, eds.Name, eds.Line, eds.Col, eds.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, GetDeclarationBindingName(eds, eds.Name), eds.Line, eds.Col, eds.OriginFile));
                         break;
                     }
 
@@ -384,7 +387,7 @@ namespace CFGS_VM.VMCore
                         _insns[jmpOverFuncIdx] = new Instruction(OpCode.JMP, _insns.Count, fd.Line, fd.Col, s.OriginFile);
 
                         _insns.Add(new Instruction(OpCode.PUSH_CLOSURE, new object[] { funcStart, fd.Name }, fd.Line, fd.Col, s.OriginFile));
-                        _insns.Add(new Instruction(OpCode.VAR_DECL, fd.Name, fd.Line, fd.Col, s.OriginFile));
+                        _insns.Add(new Instruction(OpCode.VAR_DECL, GetDeclarationBindingName(fd, fd.Name), fd.Line, fd.Col, s.OriginFile));
 
                         if (_localVarsStack.Count > 0)
                             CurrentLocals.Add(fd.Name);
@@ -394,6 +397,10 @@ namespace CFGS_VM.VMCore
 
                 case ReturnStmt rs:
                     CompileReturnStatement(rs);
+                    break;
+
+                // Compile-time only: the resolver already bound every Alias.member reference.
+                case NamespaceImportAliasStmt:
                     break;
 
                 default:

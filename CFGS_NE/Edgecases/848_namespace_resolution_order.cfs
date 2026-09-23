@@ -1,0 +1,41 @@
+import "edge_assert.cfs";
+use Shared.Tools;
+
+edge_begin("848_namespace_resolution_order");
+
+# Bare names resolve in this order: local, class member, current namespace, enclosing namespaces,
+# global, `use`d namespace.
+func globalValue() { return "global"; }
+
+namespace Order {
+    func parentOnly() { return "parent"; }
+    func globalValue() { return "namespace"; }
+}
+
+namespace Order.Child {
+    const LIMIT = 10;
+
+    func localWins() { var LIMIT = 99; return LIMIT; }
+    func namespaceWins() { return LIMIT; }
+    func enclosingNamespace() { return parentOnly(); }
+    func namespaceBeatsGlobal() { return globalValue(); }
+
+    class Box() {
+        var LIMIT = 500;
+        func memberWins() { return LIMIT; }
+    }
+}
+
+namespace Shared.Tools {
+    func usedMember() { return "use"; }
+}
+
+edge_eq("local_wins", Order.Child.localWins(), 99);
+edge_eq("current_namespace_wins", Order.Child.namespaceWins(), 10);
+edge_eq("enclosing_namespace", Order.Child.enclosingNamespace(), "parent");
+edge_eq("namespace_beats_global", Order.Child.namespaceBeatsGlobal(), "namespace");
+edge_eq("class_member_wins", (new Order.Child.Box()).memberWins(), 500);
+edge_eq("use_member_at_top_level", usedMember(), "use");
+edge_eq("global_at_top_level", globalValue(), "global");
+
+edge_finish("848_namespace_resolution_order");

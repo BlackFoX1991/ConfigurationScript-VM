@@ -18,7 +18,6 @@ namespace CFGS_VM.Analytic.Semantics
         private ReceiverContextKind _receiverContext;
         private bool _insidePropertyAccessor;
         private bool _currentPropertyHasBackingField;
-        private bool _suppressNamespaceValueCheck;
 
         private ISet<string> CurrentLocals => _localVarsStack.Count > 0 ? _localVarsStack.Peek() : EmptyLocals;
         private string? CurrentNamespacePath => _namespacePathStack.Count > 0 ? _namespacePathStack.Peek() : null;
@@ -54,11 +53,7 @@ namespace CFGS_VM.Analytic.Semantics
 
                 case VarDecl varDecl:
                     if (varDecl.Value is not null)
-                    {
-                        bool suppress = varDecl.IsSyntheticNamespaceRoot ||
-                            varDecl.Name.StartsWith("__ns_scope_", StringComparison.Ordinal);
-                        WithNamespaceValueCheckSuppressed(suppress, () => ValidateExpr(varDecl.Value));
-                    }
+                        ValidateExpr(varDecl.Value);
                     AddLocal(varDecl.Name, varDecl);
                     return;
 
@@ -88,15 +83,21 @@ namespace CFGS_VM.Analytic.Semantics
 
                     ValidateReceiverAssignment(assignStmt.Name, assignStmt);
                     ValidateImplicitMemberReference(assignStmt.Name, assignStmt);
+                    if (_namespaceAccessRules.IsNamespacePathExpr(new VarExpr(assignStmt.Name, assignStmt.Line, assignStmt.Col, assignStmt.OriginFile), CurrentLocals))
+                    {
+                        throw new CompilerException(
+                            $"cannot assign to namespace '{assignStmt.Name}'; a namespace is not a value",
+                            assignStmt.Line,
+                            assignStmt.Col,
+                            assignStmt.OriginFile);
+                    }
+
                     ValidateExpr(assignStmt.Value);
                     return;
 
                 case AssignExprStmt assignExpr:
-                    WithNamespaceValueCheckSuppressed(assignExpr.IsSyntheticNamespacePath, () =>
-                    {
-                        ValidateStoreTarget(assignExpr.Target);
-                        ValidateExpr(assignExpr.Value);
-                    });
+                    ValidateStoreTarget(assignExpr.Target);
+                    ValidateExpr(assignExpr.Value);
                     return;
 
                 case CompoundAssignStmt compoundAssign:
@@ -501,7 +502,7 @@ namespace CFGS_VM.Analytic.Semantics
 
         private void ValidateExpr(Expr expr, bool asValue = true)
         {
-            if (asValue && !_suppressNamespaceValueCheck && _namespaceAccessRules.IsNamespacePathExpr(expr, CurrentLocals))
+            if (asValue && _namespaceAccessRules.IsNamespacePathExpr(expr, CurrentLocals))
             {
                 throw new CompilerException(
                     "a namespace is not a value; access a member with dot notation (for example App.Core.Member)",
@@ -525,6 +526,10 @@ namespace CFGS_VM.Analytic.Semantics
                         if (part is InterpolatedStringExprPart exprPart)
                             ValidateExpr(exprPart.Expression);
                     }
+                    return;
+
+                // A reference the resolver bound to a global binding is never a local or class member.
+                case VarExpr { SourceExpr: not null }:
                     return;
 
                 case VarExpr variableExpr:
@@ -755,11 +760,24 @@ namespace CFGS_VM.Analytic.Semantics
         {
             switch (target)
             {
+                case VarExpr { SourceExpr: not null } boundTarget:
+                    _namespaceAccessRules.ValidateMemberAssignment(boundTarget);
+                    return;
+
                 case VarExpr variableExpr:
                     if (_insidePropertyAccessor && IsPropertyBackingFieldIdentifier(variableExpr.Name))
                     {
                         ValidatePropertyBackingFieldUsage(variableExpr.Name, variableExpr);
                         return;
+                    }
+
+                    if (_namespaceAccessRules.IsNamespacePathExpr(variableExpr, CurrentLocals))
+                    {
+                        throw new CompilerException(
+                            $"cannot assign to namespace '{variableExpr.Name}'; a namespace is not a value",
+                            variableExpr.Line,
+                            variableExpr.Col,
+                            variableExpr.OriginFile);
                     }
 
                     ValidateReceiverAssignment(variableExpr.Name, variableExpr);
@@ -796,14 +814,14 @@ namespace CFGS_VM.Analytic.Semantics
 
         private void ValidateExplicitMemberAccess(IndexExpr indexExpr, bool isStore)
         {
+            _namespaceAccessRules.ValidateExplicitMemberAccess(indexExpr, CurrentLocals, CurrentNamespacePath);
+
             if (indexExpr.Index is not StringExpr memberExpr)
                 return;
 
             string memberName = memberExpr.Value;
             if (string.IsNullOrWhiteSpace(memberName))
                 return;
-
-            _namespaceAccessRules.ValidateExplicitMemberAccess(indexExpr, CurrentLocals, CurrentNamespacePath);
 
             if (!indexExpr.IsDotAccess)
             {
@@ -917,26 +935,6 @@ namespace CFGS_VM.Analytic.Semantics
                     _currentClassDecl,
                     indexExpr,
                     isStore ? MemberAccessRules.MemberAccessKind.Write : MemberAccessRules.MemberAccessKind.Read);
-            }
-        }
-
-        private void WithNamespaceValueCheckSuppressed(bool suppress, Action action)
-        {
-            if (!suppress)
-            {
-                action();
-                return;
-            }
-
-            bool previous = _suppressNamespaceValueCheck;
-            _suppressNamespaceValueCheck = true;
-            try
-            {
-                action();
-            }
-            finally
-            {
-                _suppressNamespaceValueCheck = previous;
             }
         }
 
