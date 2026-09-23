@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CFGS_VM.Analytic.Semantics;
 using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
 using CFGS_VM.VMCore.Codegen;
@@ -205,7 +206,19 @@ namespace CFGS_VM.VMCore
                         for (int i = cds.BaseCtorArgs.Count - 1; i >= 0; i--)
                             CompileExpr(cds.BaseCtorArgs[i]);
 
-                        _insns.Add(new Instruction(OpCode.CALL_INDIRECT, cds.BaseCtorArgs.Count, cds.Line, cds.Col, cds.OriginFile));
+                        // A nested base class takes the outer instance as its first constructor parameter,
+                        // which the derived class passes from its own; that is also how the semantic check
+                        // counts the arguments. Arguments are pushed in reverse, so it goes on top last.
+                        bool baseTakesOuterInstance = TryResolveBaseClassDecl(cds, out ClassDeclStmt baseCtorDecl) && baseCtorDecl.IsNested;
+                        if (baseTakesOuterInstance)
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, "__outer", cds.Line, cds.Col, cds.OriginFile));
+
+                        _insns.Add(new Instruction(
+                            OpCode.CALL_INDIRECT,
+                            cds.BaseCtorArgs.Count + (baseTakesOuterInstance ? 1 : 0),
+                            cds.Line,
+                            cds.Col,
+                            cds.OriginFile));
 
                         _insns.Add(new Instruction(OpCode.LOAD_VAR, SELF, cds.Line, cds.Col, cds.OriginFile));
                         _insns.Add(new Instruction(OpCode.PUSH_STR, "__base", cds.Line, cds.Col, cds.OriginFile));
@@ -494,20 +507,29 @@ namespace CFGS_VM.VMCore
                     _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, en.Line, en.Col, cds.OriginFile));
                 }
 
-                foreach (ClassDeclStmt inner in cds.NestedClasses)
+                if (cds.NestedClasses.Count > 0)
                 {
-                    EmitPushScope(inner);
+                    // All nested classes share one scope, so a nested class can name a sibling (for example
+                    // as its base class), and they are emitted in inheritance order so the base exists first.
+                    // The scope is popped afterwards; each constructor closure keeps the environment it
+                    // captured, so the nested classes stay reachable as members of this class.
+                    List<ClassDeclStmt> orderedNestedClasses = new ClassCatalog().OrderByInheritance(this, cds.NestedClasses);
+
+                    EmitPushScope(cds);
                     try
                     {
-                        CompileStmt(inner, insideFunction: false);
-                        _insns.Add(new Instruction(OpCode.DUP, null, inner.Line, inner.Col, cds.OriginFile));
-                        _insns.Add(new Instruction(OpCode.PUSH_STR, inner.Name, inner.Line, inner.Col, cds.OriginFile));
-                        _insns.Add(new Instruction(OpCode.LOAD_VAR, inner.Name, inner.Line, inner.Col, cds.OriginFile));
-                        _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, inner.Line, inner.Col, cds.OriginFile));
+                        foreach (ClassDeclStmt inner in orderedNestedClasses)
+                        {
+                            CompileStmt(inner, insideFunction: false);
+                            _insns.Add(new Instruction(OpCode.DUP, null, inner.Line, inner.Col, cds.OriginFile));
+                            _insns.Add(new Instruction(OpCode.PUSH_STR, inner.Name, inner.Line, inner.Col, cds.OriginFile));
+                            _insns.Add(new Instruction(OpCode.LOAD_VAR, inner.Name, inner.Line, inner.Col, cds.OriginFile));
+                            _insns.Add(new Instruction(OpCode.INDEX_SET_INTERNAL, null, inner.Line, inner.Col, cds.OriginFile));
+                        }
                     }
                     finally
                     {
-                        EmitPopScope(inner);
+                        EmitPopScope(cds);
                     }
                 }
 

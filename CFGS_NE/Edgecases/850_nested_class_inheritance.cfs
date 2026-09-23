@@ -1,0 +1,67 @@
+import "edge_assert.cfs";
+
+edge_begin("850_nested_class_inheritance");
+
+class TopBase() {
+    func tag() { return "top"; }
+}
+
+class Other() {
+    class Shared() {
+        func who() { return "shared"; }
+    }
+}
+
+class Host(label) {
+    var label = "";
+    func init(label) { this.label = label; }
+
+    # Declared before its base on purpose: nested classes are emitted in inheritance order.
+    class Derived(v) : Base(v) {
+        func describe() { return "derived:" + str(this.value) + ":" + this.kind() + ":" + outer.label; }
+    }
+
+    class Base(v) {
+        var value = 0;
+        func init(v) { this.value = v; }
+        func kind() { return "base"; }
+        static func make() { return "static-base"; }
+    }
+
+    class Deep(v) : Derived(v) {
+        func kind() { return "deep"; }
+    }
+
+    class FromTop() : TopBase() {
+        func describe() { return "fromtop:" + this.tag(); }
+    }
+
+    class UsesForeignNested() : Other.Shared() {
+        func run() { return "uses:" + this.who(); }
+    }
+
+    func build() { return new Derived(7); }
+    func buildDeep() { return new Deep(9); }
+    func buildFromTop() { return new FromTop(); }
+    func buildForeign() { return new UsesForeignNested(); }
+}
+
+var host = new Host("H");
+
+# A nested class can extend a sibling nested class, whatever the declaration order.
+edge_eq("sibling_base", host.build().describe(), "derived:7:base:H");
+edge_eq("three_levels", host.buildDeep().describe(), "derived:9:deep:H");
+edge_true("is_sibling_base", host.build() is Host.Base);
+edge_true("is_middle_layer", host.buildDeep() is Host.Derived);
+
+# The outer instance reaches through the inherited layers.
+edge_eq("outer_through_layers", host.buildDeep().describe().contains(":H"), true);
+
+# A nested class can still extend a top level class and a nested class of another class.
+edge_eq("top_level_base", host.buildFromTop().describe(), "fromtop:top");
+edge_eq("foreign_nested_base", host.buildForeign().run(), "uses:shared");
+
+# Static members of a nested class stay reachable through the enclosing class.
+edge_eq("static_on_nested_base", Host.Base.make(), "static-base");
+
+edge_finish("850_nested_class_inheritance");

@@ -320,6 +320,29 @@ class Outer(seed) {
 }
 ```
 
+A nested class may extend another nested class of the same enclosing class, in either declaration order,
+and the enclosing instance stays reachable as `outer` through the inherited layers. The base constructor
+receives the outer instance implicitly, so its header takes only the declared arguments.
+
+```cfs
+class Host(label) {
+    var label = "";
+    func init(label) { this.label = label; }
+
+    class Derived(v) : Base(v) {
+        func describe() { return this.kind() + ":" + str(this.value) + ":" + outer.label; }
+    }
+
+    class Base(v) {
+        var value = 0;
+        func init(v) { this.value = v; }
+        func kind() { return "base"; }
+    }
+
+    func build() { return new Derived(7); }
+}
+```
+
 ## Implicit Member Resolution
 
 Inside methods, you do not always have to write `this.` or `type.` explicitly. CFGS tries to resolve matching members implicitly.
