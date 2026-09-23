@@ -33,7 +33,8 @@ internal static class Program
             LiveLintPublishesStyleDiagnosticsWhenEnabled,
             LiveLintStaysSilentWhenDisabled,
             NamespaceMembersResolveThroughCompileTimeBindings,
-            NamespaceImportAliasMembersResolveToTheImportedSymbol
+            NamespaceImportAliasMembersResolveToTheImportedSymbol,
+            NestedClassBaseResolvesToSiblingClass
         ];
 
         List<string> failures = [];
@@ -713,6 +714,41 @@ func run(triple) {
             {
             }
         }
+    }
+
+    /// <summary>
+    /// A nested class may extend a sibling nested class, so the editor must resolve that base name to the
+    /// sibling symbol rather than leaving it unresolved.
+    /// </summary>
+    private static void NestedClassBaseResolvesToSiblingClass()
+    {
+        using LspTestClient client = LspTestClient.StartInitialized();
+        string source = """
+class Host() {
+    class Derived(v) : Base(v) {
+        func describe() { return this.kind(); }
+    }
+
+    class Base(v) {
+        var value = 0;
+        func init(v) { this.value = v; }
+        func kind() { return "base"; }
+    }
+}
+""";
+        string uri = CreateDocumentUri("nested-base.cfs");
+        client.DidOpen(uri, source);
+        JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+        AssertEqual(0, diagnostics.GetArrayLength(), "expected the nested inheritance sample to analyze cleanly");
+
+        JsonElement hover = client.SendRequest("textDocument/hover", new
+        {
+            textDocument = new { uri },
+            position = new { line = 1, character = 25 }
+        });
+
+        string value = hover.GetProperty("contents").GetProperty("value").GetString() ?? string.Empty;
+        AssertTrue(value.Contains("Symbol: `Host.Base`", StringComparison.Ordinal), $"the base name of a nested class should resolve to the sibling class, got: {value}");
     }
 
     private static string CreateDocumentUri(string fileName)

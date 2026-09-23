@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.11.1 - 2026-09-23
+
+### Changed
+- Updated the bundled CFGS language server and CLI to v20.0.1.
+
+### Fixed
+- A nested class that extends a sibling nested class (`class Host { class A {} class B : A {} }`) no longer fails at runtime with "undefined variable" or with a missing outer instance. The editor already resolved the base name; only the generated code was wrong, so scripts run through the lint and format commands are affected. Existing `.cfb` files still carry the old code and have to be recompiled to pick up the fix; the bytecode format itself is unchanged.
+
 ## 0.11.0 - 2026-09-23
 
 ### Changed
