@@ -1,5 +1,21 @@
 # Change Log
 
+## 0.11.0 - 2026-09-23
+
+### Changed
+- Updated the bundled CFGS language server and CLI to v20.0.0.
+- Namespaces are resolved entirely at compile time. Hover, go to definition, references, and completion now follow a namespace member through every form of reference: qualified, bare inside the namespace, shortened by `use`, and through a namespace import alias. References also find uses in other blocks and files of the same namespace.
+
+### Breaking
+- v20.0.0 makes a script namespace a compile-time construct. There is no namespace object at runtime, and every member has exactly one binding, which changes what scripts run through the lint and format commands report:
+  - A namespace variable is one storage location. A write through the qualified name is visible inside the namespace, and a write inside the namespace is visible through the qualified name. Previously the namespace object held a copy taken when the declaration ran.
+  - A member that the namespace does not declare is a compile error (`CFGS2001`) instead of a runtime error, in value positions and in type positions such as `new App.Core.Ghost()`.
+  - Only a namespace variable can be assigned. Assigning to a namespace function, class, interface, or enum is `CFGS2007`.
+  - A namespace import alias (`import * as X`) is a compile-time alias, not a value. `X` as a value is `CFGS2016`, `X["member"]` is `CFGS2003`, and an export the module does not have is `CFGS2001`. A local or class member of the same name no longer hides `X.member`.
+  - A bare name inside a namespace now resolves against the whole namespace, across all of its blocks and files, and then against the enclosing namespaces, before global names.
+  - A destructuring declaration in a namespace body, and a namespace root that collides with a native namespace root such as `math`, are rejected.
+- The bytecode version moved from 8 to 9. Existing `.cfb` files are rejected with a clear version error and have to be recompiled.
+
 ## 0.10.0 - 2026-09-22
 
 ### Changed
