@@ -165,7 +165,7 @@ namespace CFGS.Web.Http
                 int timeout = args.Count >= 3 ? Convert.ToInt32(args[2], CultureInfo.InvariantCulture) : 100000;
 
                 EnsureFileIo(instr);
-                return HttpDownloadAsync(url, path, timeout);
+                return HttpDownloadAsync(url, ResolvePath(path), timeout);
             }, NativeCallOptions.Awaitable));
 
             builtins.Register(new BuiltinDescriptor("urlencode", 1, 1, (args, instr) =>
@@ -255,7 +255,7 @@ namespace CFGS.Web.Http
 
             resp.EnsureSuccessStatusCode();
 
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".");
+            Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
 
             await using Stream input = await resp.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
             await using FileStream output = new(path, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
@@ -290,6 +290,15 @@ namespace CFGS.Web.Http
             // switch AND the running VM's permission, with no cross-plugin reflection.
             if (!AllowFileIO || !(VM.CurrentVm?.AllowFileIO ?? true))
                 throw new VMException("Runtime error: file I/O is disabled (AllowFileIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+        }
+
+        private static string ResolvePath(string path, VM? vm = null)
+            => (vm ?? VM.CurrentVm)?.ResolveWorkspacePath(path) ?? Path.GetFullPath(path);
+
+        private static void EnsureFileIo(VM? vm)
+        {
+            if (!AllowFileIO || !(vm?.AllowFileIO ?? true))
+                throw new UnauthorizedAccessException("file I/O is disabled (AllowFileIO=false)");
         }
 
         private static bool HasContentType(Dictionary<string, object> headers)
@@ -719,6 +728,7 @@ namespace CFGS.Web.Http
             private readonly string _host;
             private readonly string? _certificatePath;
             private readonly string? _certificatePassword;
+            private readonly VM? _vm;
             private readonly HttpProtocols _protocols;
             private volatile bool _running;
             private WebApplication? _app;
@@ -752,15 +762,17 @@ namespace CFGS.Web.Http
             public sealed class RequestBodyHandle
             {
                 private readonly Stream _stream;
+                private readonly VM? _vm;
                 private readonly CancellationToken _cancellationToken;
                 private readonly long _defaultMaxBytes;
                 private readonly SemaphoreSlim _gate = new(1, 1);
                 private long _bytesRead;
                 private bool _consumed;
 
-                internal RequestBodyHandle(Stream stream, long defaultMaxBytes, CancellationToken cancellationToken)
+                internal RequestBodyHandle(Stream stream, long defaultMaxBytes, CancellationToken cancellationToken, VM? vm)
                 {
                     _stream = stream;
+                    _vm = vm;
                     _defaultMaxBytes = defaultMaxBytes;
                     _cancellationToken = cancellationToken;
                 }
@@ -819,6 +831,9 @@ namespace CFGS.Web.Http
                     if (string.IsNullOrWhiteSpace(path))
                         throw NewVmException(instr, "Runtime error: copy_to(path) needs a non-empty path");
 
+                    EnsureFileIo(_vm);
+                    string fullPath = ResolvePath(path, _vm);
+
                     long limit = ResolveMaxBytes(maxBytes, instr);
 
                     await _gate.WaitAsync(_cancellationToken).ConfigureAwait(false);
@@ -827,7 +842,6 @@ namespace CFGS.Web.Http
                         if (_consumed)
                             return 0L;
 
-                        string fullPath = Path.GetFullPath(path);
                         Directory.CreateDirectory(Path.GetDirectoryName(fullPath) ?? ".");
 
                         long written = 0;
@@ -936,6 +950,7 @@ namespace CFGS.Web.Http
                 _host = options.Host;
                 _certificatePath = options.CertificatePath;
                 _certificatePassword = options.CertificatePassword;
+                _vm = VM.CurrentVm;
                 _protocols = options.ResolvedProtocols;
             }
 
@@ -1117,7 +1132,8 @@ namespace CFGS.Web.Http
 
             private X509Certificate2 LoadCertificate()
             {
-                string path = Path.GetFullPath(_certificatePath ?? "");
+                EnsureFileIo(_vm);
+                string path = ResolvePath(_certificatePath ?? "", _vm);
                 if (!File.Exists(path))
                     throw new FileNotFoundException("HTTPS certificate file was not found", path);
 
@@ -1171,7 +1187,7 @@ namespace CFGS.Web.Http
             {
                 string id = Guid.NewGuid().ToString("N");
                 Dictionary<string, object> request = _streamBodies
-                    ? BuildStreamingRequestDict(id, ctx.Request, ctx.Connection, _maxRequestBodySize, _cts.Token)
+                    ? BuildStreamingRequestDict(id, ctx.Request, ctx.Connection, _maxRequestBodySize, _cts.Token, _vm)
                     : await BuildRequestDictAsync(id, ctx.Request, ctx.Connection, _maxRequestBodySize, _cts.Token).ConfigureAwait(false);
                 PendingRequest pending = new(ctx, request);
                 _inflight[id] = pending;
@@ -1328,6 +1344,17 @@ namespace CFGS.Web.Http
 
             private async Task WriteFileBodyAsync(HttpResponse resp, string path)
             {
+                try
+                {
+                    EnsureFileIo(_vm);
+                    path = ResolvePath(path, _vm);
+                }
+                catch (Exception ex) when (ex is UnauthorizedAccessException or VMException)
+                {
+                    resp.StatusCode = StatusCodes.Status403Forbidden;
+                    resp.ContentLength = 0;
+                    return;
+                }
                 if (!File.Exists(path))
                 {
                     byte[] missing = Encoding.UTF8.GetBytes("Not Found");
@@ -1381,7 +1408,8 @@ namespace CFGS.Web.Http
                 HttpRequest req,
                 ConnectionInfo connection,
                 long maxBodySize,
-                CancellationToken cancellationToken)
+                CancellationToken cancellationToken,
+                VM? vm)
             {
                 Dictionary<string, object> headers = new(StringComparer.OrdinalIgnoreCase);
                 foreach (KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues> header in req.Headers)
@@ -1405,7 +1433,7 @@ namespace CFGS.Web.Http
                     ["body_too_large"] = false,
                     ["body_bytes_truncated"] = false,
                     ["body_limit"] = maxBodySize,
-                    ["body_stream"] = new RequestBodyHandle(req.Body, maxBodySize, cancellationToken),
+                    ["body_stream"] = new RequestBodyHandle(req.Body, maxBodySize, cancellationToken, vm),
                     ["body_streaming"] = true,
                     ["local"] = BuildLocal(connection),
                     ["remote"] = BuildRemote(connection)

@@ -64,7 +64,7 @@ public sealed class CFGS_XML : IVmPlugin
             try
             {
                 XmlDocument doc = NewDocument();
-                using XmlReader reader = XmlReader.Create(path, SecureReaderSettings());
+                using XmlReader reader = XmlReader.Create(ResolvePath(path), SecureReaderSettings());
                 doc.Load(reader);
                 return new XmlDocumentHandle(doc, path);
             }
@@ -127,12 +127,13 @@ public sealed class CFGS_XML : IVmPlugin
             bool omitDeclaration = BoolArg(args, 2, false);
             try
             {
-                string? dir = Path.GetDirectoryName(Path.GetFullPath(path));
+                string resolvedPath = ResolvePath(path);
+                string? dir = Path.GetDirectoryName(resolvedPath);
                 if (!string.IsNullOrWhiteSpace(dir))
                     Directory.CreateDirectory(dir);
 
                 XmlWriterSettings settings = WriterSettings(indented, omitDeclaration);
-                using XmlWriter writer = XmlWriter.Create(path, settings);
+                using XmlWriter writer = XmlWriter.Create(resolvedPath, settings);
                 handle.Document.Save(writer);
                 handle.Path = path;
                 return path;
@@ -621,6 +622,9 @@ public sealed class CFGS_XML : IVmPlugin
             return defaultValue;
         return Convert.ToBoolean(args[index], CultureInfo.InvariantCulture);
     }
+
+    private static string ResolvePath(string path)
+        => VM.CurrentVm?.ResolveWorkspacePath(path) ?? Path.GetFullPath(path);
 
     private static void EnsureFileIo(Instruction instr)
     {

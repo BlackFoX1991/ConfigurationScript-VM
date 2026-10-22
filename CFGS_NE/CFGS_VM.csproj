@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <ApplicationIcon>assets\cfgs_icon.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CFGS.Tooling.Tests" />
+  </ItemGroup>
 
 
   <PropertyGroup>
@@ -39,11 +42,11 @@
 
   <ItemGroup>
     <!-- Required by the built-in standard library's encoding namespace (CodePagesEncodingProvider). -->
-    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.8" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.13" />
     <!-- Windows service hosting (-as_service) and Windows Event Log access (eventlog namespace).
          Windows-only; all usages are guarded with OperatingSystem.IsWindows(). -->
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
-    <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.13" />
+    <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.13" />
   </ItemGroup>
 
 </Project>

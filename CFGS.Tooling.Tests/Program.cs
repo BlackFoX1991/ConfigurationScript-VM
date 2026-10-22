@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json;
 using CFGS_VM.Hosting;
+using CFGS_VM.Packaging;
 using CFGS_VM.VMCore;
 using CFGS_VM.VMCore.Command;
 using CFGS_VM.VMCore.Extensions;
@@ -50,6 +53,8 @@ internal static class Program
             HostingDefaultsDenyFileIo,
             RunAsyncRunsTopLevelOnceAndNeverAutoInvokesMain,
             WorkspaceJailRejectsEscapingPaths,
+            PluginFileOperationsRespectWorkspaceJail,
+            HttpServerFileOperationsRespectWorkspaceJail,
             WorkspaceJailRejectsSymlinkEscape,
             HostingSerializesConcurrentInvocations,
             AsyncHotStartInheritsVmPolicy,
@@ -57,6 +62,8 @@ internal static class Program
             HostCanConstructClassesAndAccessMembers,
             WorkspaceIsVmScoped,
             PluginLoadRejectsMismatchedPackageLockHash,
+            PackageLockCoversDependenciesAndRejectsUnexpectedFiles,
+            PackageRestoredPluginLoadsSuccessfully,
             HostingPreservesStructuredDiagnosticCode,
             CfbLoaderRejectsCorruptElementCounts,
             CfbLoaderReducesPluginReferencesToFileNames,
@@ -1173,6 +1180,169 @@ func resolve(path) {
         AssertTrue(rejected, "a path escaping the workspace must be rejected when RestrictFileIoToWorkspace is enabled");
     }
 
+    private static void PluginFileOperationsRespectWorkspaceJail()
+    {
+        string testRoot = Path.Combine(Path.GetTempPath(), "cfgs-plugin-jail", Guid.NewGuid().ToString("N"));
+        string workspace = Path.Combine(testRoot, "workspace");
+        Directory.CreateDirectory(workspace);
+        try
+        {
+            CfgsScriptEngine engine = new()
+            {
+                WorkingDirectory = workspace,
+                CompilerVersion = global::Program.Version
+            };
+            engine.Permissions.AllowFileIO = true;
+            engine.Permissions.RestrictFileIoToWorkspace = true;
+            engine.Permissions.AllowPluginLoading = true;
+            engine.LoadPlugin(Path.Combine(AppContext.BaseDirectory, "CFGS.Pdf.dll"));
+            engine.LoadPlugin(Path.Combine(AppContext.BaseDirectory, "CFGS.Xml.dll"));
+            engine.LoadPlugin(Path.Combine(AppContext.BaseDirectory, "CFGS.Web.Http.dll"));
+            CfgsScript script = engine.CompileSource("<plugin-jail>", """
+func savePdf(path) {
+    var doc = pdf.new("Workspace test");
+    doc.add_page();
+    doc.save(path);
+    return 1;
+}
+func loadPdf(path) { return pdf.load(path).page_count(); }
+func createProtectedPdf(path) {
+    var doc = pdf.new("Protected");
+    var page = doc.add_page(595, 842);
+    page.draw_text("Hello", 72, 96, 12, "Arial");
+    page.draw_line(72, 110, 180, 110);
+    doc.set_info({"author": "CFGS"});
+    doc.attach_bytes("payload.txt", "payload", "text/plain");
+    doc.encrypt("user", "owner");
+    doc.save(path);
+    return 1;
+}
+func inspectProtectedPdf(path) {
+    var doc = pdf.load(path, "owner");
+    var count = 0;
+    foreach (var attachment in doc.attachments()) { count = count + 1; }
+    doc.extract_attachment("payload.txt", "extracted.txt");
+    return count;
+}
+func concatPdf(path) { return pdf.concat(["inside.pdf", "inside.pdf"], path); }
+func saveXml(path) {
+    var doc = xml.new("root");
+    doc.save(path);
+    return 1;
+}
+func loadXml(path) { return xml.load(path).root().name(); }
+func download(path) { return http.download("http://127.0.0.1:1/", path); }
+""");
+            script.RunAsync().GetAwaiter().GetResult();
+
+            AssertEqual(1, script.InvokeAsync<int>("savePdf", "inside.pdf").GetAwaiter().GetResult(), "PDF create/save failed inside workspace");
+            AssertEqual(1, script.InvokeAsync<int>("loadPdf", "inside.pdf").GetAwaiter().GetResult(), "PDF reload failed inside workspace");
+            AssertEqual(1, script.InvokeAsync<int>("createProtectedPdf", "protected.pdf").GetAwaiter().GetResult(), "encrypted PDF creation failed");
+            AssertEqual(1, script.InvokeAsync<int>("inspectProtectedPdf", "protected.pdf").GetAwaiter().GetResult(), "encrypted PDF attachment roundtrip failed");
+            AssertEqual("payload", File.ReadAllText(Path.Combine(workspace, "extracted.txt")), "PDF attachment content changed");
+            script.InvokeAsync("concatPdf", "combined.pdf").GetAwaiter().GetResult();
+            AssertEqual(2, script.InvokeAsync<int>("loadPdf", "combined.pdf").GetAwaiter().GetResult(), "PDF concat changed page count");
+            AssertEqual(1, script.InvokeAsync<int>("saveXml", "inside.xml").GetAwaiter().GetResult(), "XML save failed inside workspace");
+            AssertTrue(File.Exists(Path.Combine(workspace, "inside.xml")), "XML save used the wrong directory");
+
+            string outside = Path.Combine(testRoot, "outside.pdf");
+            AssertPluginPathRejected(() => script.InvokeAsync("savePdf", outside).GetAwaiter().GetResult(), "PDF save");
+            AssertPluginPathRejected(() => script.InvokeAsync("loadPdf", outside).GetAwaiter().GetResult(), "PDF load");
+            AssertPluginPathRejected(() => script.InvokeAsync("saveXml", "../outside.xml").GetAwaiter().GetResult(), "XML save");
+            AssertPluginPathRejected(() => script.InvokeAsync("loadXml", "../outside.xml").GetAwaiter().GetResult(), "XML load");
+            AssertPluginPathRejected(() => script.InvokeAsync("download", "../outside.bin").GetAwaiter().GetResult(), "HTTP download");
+            AssertTrue(!File.Exists(outside), "PDF wrote outside the workspace");
+        }
+        finally
+        {
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
+
+    private static void AssertPluginPathRejected(Action action, string scenario)
+    {
+        try
+        {
+            action();
+            throw new InvalidOperationException($"{scenario} accepted a path outside the workspace");
+        }
+        catch (Exception ex) when (ex.ToString().Contains("escapes the workspace", StringComparison.OrdinalIgnoreCase))
+        {
+        }
+    }
+
+    private static void HttpServerFileOperationsRespectWorkspaceJail()
+    {
+        string testRoot = Path.Combine(Path.GetTempPath(), "cfgs-http-jail", Guid.NewGuid().ToString("N"));
+        string workspace = Path.Combine(testRoot, "workspace");
+        Directory.CreateDirectory(workspace);
+        string outside = Path.Combine(testRoot, "secret.txt");
+        File.WriteAllText(outside, "TOP_SECRET");
+
+        using TcpListener reservation = new(IPAddress.Loopback, 0);
+        reservation.Start();
+        int port = ((IPEndPoint)reservation.LocalEndpoint).Port;
+        reservation.Stop();
+
+        dynamic? server = null;
+        try
+        {
+            CfgsScriptEngine engine = new()
+            {
+                WorkingDirectory = workspace,
+                CompilerVersion = global::Program.Version
+            };
+            engine.Permissions.AllowFileIO = true;
+            engine.Permissions.AllowPluginLoading = true;
+            engine.Permissions.RestrictFileIoToWorkspace = true;
+            engine.LoadPlugin(Path.Combine(AppContext.BaseDirectory, "CFGS.Web.Http.dll"));
+            CfgsScript script = engine.CompileSource("<http-jail>", """
+func createServer(port) { return http.server(port, {"streamBodies": true}); }
+""");
+            script.RunAsync().GetAwaiter().GetResult();
+            object? serverValue = script.InvokeAsync("createServer", port).GetAwaiter().GetResult();
+            server = serverValue ?? throw new InvalidOperationException("HTTP server was not created");
+            server.StartAsync().GetAwaiter().GetResult();
+
+            using HttpClient client = new() { Timeout = TimeSpan.FromSeconds(10) };
+            Task<HttpResponseMessage> upload = client.PostAsync(server.Url, new StringContent("data"));
+            Dictionary<string, object> request = (Dictionary<string, object>)(server.PollAsync(5000).GetAwaiter().GetResult()
+                ?? throw new InvalidOperationException("HTTP upload was not queued"));
+            dynamic body = request["body_stream"];
+            AssertEqual(4L, Convert.ToInt64(body.CopyToAsync("upload.bin", null, new Instruction(default)).GetAwaiter().GetResult()),
+                "HTTP upload copy inside workspace failed");
+            server.Respond((string)request["id"], 200, "ok", null);
+            using (HttpResponseMessage response = upload.GetAwaiter().GetResult())
+                AssertEqual(HttpStatusCode.OK, response.StatusCode, "HTTP upload response failed");
+            AssertEqual("data", File.ReadAllText(Path.Combine(workspace, "upload.bin")), "HTTP upload used the wrong path");
+
+            Task<HttpResponseMessage> escapedUpload = client.PostAsync(server.Url, new StringContent("data"));
+            request = (Dictionary<string, object>)(server.PollAsync(5000).GetAwaiter().GetResult()
+                ?? throw new InvalidOperationException("second HTTP upload was not queued"));
+            body = request["body_stream"];
+            AssertPluginPathRejected(() => body.CopyToAsync("../escaped.bin", null, new Instruction(default)).GetAwaiter().GetResult(),
+                "HTTP upload copy");
+            server.Respond((string)request["id"], 200, "ok", null);
+            using (HttpResponseMessage response = escapedUpload.GetAwaiter().GetResult())
+                AssertEqual(HttpStatusCode.OK, response.StatusCode, "second HTTP upload response failed");
+            AssertTrue(!File.Exists(Path.Combine(testRoot, "escaped.bin")), "HTTP upload wrote outside the workspace");
+
+            Task<HttpResponseMessage> download = client.GetAsync(server.Url);
+            request = (Dictionary<string, object>)(server.PollAsync(5000).GetAwaiter().GetResult()
+                ?? throw new InvalidOperationException("HTTP file response was not queued"));
+            server.Respond((string)request["id"], 200,
+                new Dictionary<string, object> { ["__cfgs_http_body"] = "file", ["path"] = outside }, null);
+            using HttpResponseMessage fileResponse = download.GetAwaiter().GetResult();
+            AssertEqual(HttpStatusCode.Forbidden, fileResponse.StatusCode, "HTTP file response escaped the workspace");
+        }
+        finally
+        {
+            if (server is not null)
+                server.CloseAsync().GetAwaiter().GetResult();
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
+
     private static void WorkspaceJailRejectsSymlinkEscape()
     {
         // A purely lexical containment check passes a symlink that lives inside the workspace but points
@@ -1507,7 +1677,7 @@ func writeInWorkspace(path) {
         File.Copy(sourceDll, pluginDll);
         File.WriteAllText(Path.Combine(root, "cfgs.lock.json"), $$"""
 {
-  "lockfileVersion": 1,
+  "lockfileVersion": 2,
   "generatedAtUtc": "2026-06-19T00:00:00.0000000+00:00",
   "plugins": [
     {
@@ -1518,6 +1688,12 @@ func writeInWorkspace(path) {
       "installedPath": ".cfgs/plugins/{{Path.GetFileName(sourceDll)}}",
       "sha256": "0000",
       "includeDependencies": true
+    }
+  ],
+  "artifacts": [
+    {
+      "path": ".cfgs/plugins/{{Path.GetFileName(sourceDll)}}",
+      "sha256": "0000"
     }
   ]
 }
@@ -1531,6 +1707,104 @@ func writeInWorkspace(path) {
         catch (InvalidDataException ex) when (ex.Message.Contains("lockfile hash mismatch", StringComparison.OrdinalIgnoreCase))
         {
             // Expected.
+        }
+    }
+
+    private static void PackageLockCoversDependenciesAndRejectsUnexpectedFiles()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-package-lock-test", Guid.NewGuid().ToString("N"));
+        string sourceDirectory = Path.Combine(root, "source");
+        string nativeDirectory = Path.Combine(sourceDirectory, "runtimes", "win-x64", "native");
+        Directory.CreateDirectory(nativeDirectory);
+        string sourceDll = Path.Combine(sourceDirectory, "TestPlugin.dll");
+        File.Copy(typeof(global::Program).Assembly.Location, sourceDll);
+        File.WriteAllBytes(Path.Combine(sourceDirectory, "Helper.dll"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(nativeDirectory, "native.dll"), [4, 5, 6]);
+
+        try
+        {
+            CfgsPackageManager.Init(root);
+            CfgsPackageManager.InstallPlugin(sourceDll, root, includeDependencies: true);
+            string installedDirectory = Path.Combine(root, ".cfgs", "plugins");
+            string installedPlugin = Path.Combine(installedDirectory, "TestPlugin.dll");
+            string installedHelper = Path.Combine(installedDirectory, "Helper.dll");
+            string installedNative = Path.Combine(installedDirectory, "runtimes", "win-x64", "native", "native.dll");
+
+            using (JsonDocument lockFile = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "cfgs.lock.json"))))
+            {
+                AssertEqual(2, lockFile.RootElement.GetProperty("lockfileVersion").GetInt32(), "restore must write lockfile version 2");
+                AssertEqual(3, lockFile.RootElement.GetProperty("artifacts").GetArrayLength(), "all copied artifacts must be locked");
+            }
+
+            CfgsPackageManager.VerifyLockedPluginArtifact(installedPlugin);
+            File.WriteAllBytes(installedHelper, [9, 9, 9]);
+            AssertPackageLockRejected(installedPlugin, "tampered managed dependency");
+
+            CfgsPackageManager.Restore(root);
+            File.WriteAllBytes(installedNative, [9, 9, 9]);
+            AssertPackageLockRejected(installedPlugin, "tampered native dependency");
+
+            CfgsPackageManager.Restore(root);
+            File.WriteAllBytes(Path.Combine(installedDirectory, "Extra.dll"), [7]);
+            AssertPackageLockRejected(installedPlugin, "extra plugin file");
+
+            CfgsPackageManager.Restore(root);
+            AssertTrue(!File.Exists(Path.Combine(installedDirectory, "Extra.dll")), "restore must remove stale files");
+            File.Delete(Path.Combine(root, "cfgs.lock.json"));
+            AssertPackageLockRejected(installedPlugin, "missing lockfile");
+            CfgsPackageManager.Restore(root);
+            string lockPath = Path.Combine(root, "cfgs.lock.json");
+            File.WriteAllText(lockPath, File.ReadAllText(lockPath).Replace("\"lockfileVersion\": 2", "\"lockfileVersion\": 1", StringComparison.Ordinal));
+            AssertPackageLockRejected(installedPlugin, "outdated lockfile");
+            CfgsPackageManager.VerifyLockedPluginArtifact(sourceDll);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void AssertPackageLockRejected(string pluginPath, string scenario)
+    {
+        try
+        {
+            CfgsPackageManager.VerifyLockedPluginArtifact(pluginPath);
+            throw new InvalidOperationException($"package lock did not reject {scenario}");
+        }
+        catch (InvalidDataException)
+        {
+        }
+    }
+
+    private static void PackageRestoredPluginLoadsSuccessfully()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-package-load-test", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            CfgsPackageManager.Init(root);
+            string sourceDll = Path.Combine(AppContext.BaseDirectory, "CFGS.Xml.dll");
+            CfgsPackageManager.InstallPlugin(sourceDll, root, includeDependencies: false);
+            string scriptPath = Path.Combine(root, "load.cfs");
+            File.WriteAllText(scriptPath, "import \"CFGS.Xml.dll\";\nvar doc = xml.new(\"root\");\nprint(doc.root().name());\n");
+            using Process process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                ArgumentList = { Path.Combine(AppContext.BaseDirectory, "CFGS_VM.dll"), scriptPath },
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }) ?? throw new InvalidOperationException("failed to start packaged plugin smoke test");
+            AssertTrue(process.WaitForExit(10000), "packaged plugin smoke test timed out");
+            string output = process.StandardOutput.ReadToEnd();
+            string error = process.StandardError.ReadToEnd();
+            AssertEqual(0, process.ExitCode, $"restored plugin failed to load: {error}");
+            AssertTrue(output.Contains("root", StringComparison.Ordinal), "restored XML plugin produced no output");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
         }
     }
 

@@ -12,6 +12,7 @@ internal static class Program
         TestCase[] tests =
         [
             InitializeAdvertisesCoreCapabilities,
+            RejectsOversizedAndMalformedFrames,
             DidOpenPublishesDiagnostics,
             DidChangePublishesLatestDiagnosticsAfterDebounce,
             DidChangeAppliesIncrementalRangeEdits,
@@ -72,6 +73,28 @@ internal static class Program
         JsonElement semanticTokens = capabilities.GetProperty("semanticTokensProvider");
         AssertEqual(JsonValueKind.Object, semanticTokens.ValueKind, "semantic tokens provider is missing");
         AssertTrue(semanticTokens.GetProperty("range").GetBoolean(), "semantic token range support is not advertised");
+    }
+
+    private static void RejectsOversizedAndMalformedFrames()
+    {
+        string[] headers =
+        [
+            "Content-Length: 16777217\r\n\r\n",
+            "Content-Length: invalid\r\n\r\n",
+            "Content-Length: 0\r\n\r\n",
+            "Content-Length 1\r\nContent-Length: 1\r\n\r\n",
+            "Content-Length: 1\r\nContent-Length: 1\r\n\r\n",
+            "X-Other: value\r\n\r\n",
+            "X-Other: " + new string('a', 8192) + "\r\n\r\n",
+            string.Concat(Enumerable.Repeat("X-Other: " + new string('a', 7000) + "\r\n", 5)) + "\r\n"
+        ];
+
+        foreach (string header in headers)
+        {
+            using LspTestClient client = LspTestClient.Start();
+            client.SendRaw(header);
+            AssertTrue(client.WaitForExit(5000), "LSP accepted a malformed or oversized frame");
+        }
     }
 
     private static void DidOpenPublishesDiagnostics()
@@ -1016,6 +1039,15 @@ internal sealed class LspTestClient : IDisposable
 
         throw new FormatException("LSP message header did not contain Content-Length.");
     }
+
+    public void SendRaw(string header)
+    {
+        byte[] bytes = Encoding.ASCII.GetBytes(header);
+        _stdin.Write(bytes);
+        _stdin.Flush();
+    }
+
+    public bool WaitForExit(int milliseconds) => _process.WaitForExit(milliseconds);
 
     public void Dispose()
     {

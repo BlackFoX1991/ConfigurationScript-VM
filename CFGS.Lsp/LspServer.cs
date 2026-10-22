@@ -9,6 +9,9 @@ namespace CFGS.Lsp;
 
 internal sealed class LspServer
 {
+    private const int MaxMessageBytes = 16 * 1024 * 1024;
+    private const int MaxHeaderLineBytes = 8 * 1024;
+    private const int MaxHeaderBytes = 32 * 1024;
     private static readonly Regex MissingImportPathRegex = new("^import path not found '(?<path>[^']+)'", RegexOptions.Compiled);
     private static readonly Regex MissingExportRegex = new("^Could not find export '(?<name>[^']+)' in import '(?<path>[^']+)'$", RegexOptions.Compiled);
     // Erfasst den Pfad-String eines Import-Statements (bare/named/default), damit bei einer Aenderung an
@@ -1807,52 +1810,64 @@ internal sealed class LspServer
     private async Task<string?> ReadMessageAsync(CancellationToken cancellationToken)
     {
         int contentLength = -1;
+        int headerBytes = 0;
 
         while (true)
         {
-            string? line = await ReadHeaderLineAsync(cancellationToken);
+            (string? line, int bytesRead) = await ReadHeaderLineAsync(cancellationToken);
             if (line is null)
                 return null;
+
+            headerBytes += bytesRead;
+            if (headerBytes > MaxHeaderBytes)
+                throw new InvalidDataException("LSP header exceeds the size limit.");
 
             if (line.Length == 0)
                 break;
 
             int separator = line.IndexOf(':');
-            if (separator < 0)
-                continue;
+            if (separator <= 0)
+                throw new InvalidDataException("Invalid LSP header line.");
 
             string name = line[..separator];
             string value = line[(separator + 1)..].Trim();
-            if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedLength))
+            if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
             {
+                if (contentLength >= 0 || !int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int parsedLength) || parsedLength == 0)
+                    throw new InvalidDataException("Invalid or duplicate LSP Content-Length header.");
+                if (parsedLength > MaxMessageBytes)
+                    throw new InvalidDataException("LSP message exceeds the size limit.");
                 contentLength = parsedLength;
             }
         }
 
         if (contentLength < 0)
-            return null;
+            throw new InvalidDataException("Missing LSP Content-Length header.");
 
         byte[] content = new byte[contentLength];
         await ReadExactlyAsync(content, cancellationToken);
         return Encoding.UTF8.GetString(content);
     }
 
-    private async Task<string?> ReadHeaderLineAsync(CancellationToken cancellationToken)
+    private async Task<(string? Line, int BytesRead)> ReadHeaderLineAsync(CancellationToken cancellationToken)
     {
         List<byte> bytes = [];
+        int bytesRead = 0;
+        byte[] buffer = new byte[1];
 
         while (true)
         {
-            byte[] buffer = new byte[1];
             int read = await _input.ReadAsync(buffer.AsMemory(0, 1), cancellationToken);
             if (read == 0)
             {
                 if (bytes.Count == 0)
-                    return null;
-                break;
+                    return (null, bytesRead);
+                throw new EndOfStreamException("Unexpected end of LSP header line.");
             }
 
+            bytesRead++;
+            if (bytesRead > MaxHeaderLineBytes)
+                throw new InvalidDataException("LSP header line exceeds the size limit.");
             byte current = buffer[0];
             if (current == (byte)'\n')
                 break;
@@ -1861,7 +1876,7 @@ internal sealed class LspServer
                 bytes.Add(current);
         }
 
-        return Encoding.ASCII.GetString(bytes.ToArray());
+        return (Encoding.ASCII.GetString(bytes.ToArray()), bytesRead);
     }
 
     private async Task ReadExactlyAsync(byte[] buffer, CancellationToken cancellationToken)

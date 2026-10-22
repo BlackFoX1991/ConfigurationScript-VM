@@ -10,6 +10,8 @@ namespace CFGS_VM.Packaging
         public const string LockFileName = "cfgs.lock.json";
         public const string PackageDirectoryName = ".cfgs";
         public const string PluginDirectoryName = "plugins";
+        private const int CurrentLockfileVersion = 2;
+        private static readonly StringComparer PathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -113,37 +115,88 @@ namespace CFGS_VM.Packaging
             CfgsManifest manifest = ReadManifest(root);
             List<CfgsPluginDependency> plugins = NormalizePlugins(manifest);
 
-            string pluginInstallDirectory = Path.Combine(root, PackageDirectoryName, PluginDirectoryName);
-            Directory.CreateDirectory(pluginInstallDirectory);
+            string packageDirectory = Path.Combine(root, PackageDirectoryName);
+            string pluginInstallDirectory = Path.Combine(packageDirectory, PluginDirectoryName);
+            if (Directory.Exists(packageDirectory) && new DirectoryInfo(packageDirectory).LinkTarget is not null)
+                throw new InvalidDataException("Refusing to restore into a linked package directory.");
+            Directory.CreateDirectory(packageDirectory);
+            string stagedDirectory = Path.Combine(packageDirectory, "plugins.stage-" + Guid.NewGuid().ToString("N"));
+            string backupDirectory = Path.Combine(packageDirectory, "plugins.backup-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(stagedDirectory);
 
             List<CfgsLockedPlugin> lockedPlugins = new();
-            foreach (CfgsPluginDependency plugin in plugins)
+            try
             {
-                string sourcePath = ResolvePluginSource(root, plugin.Path);
-                string installedPath = Path.Combine(pluginInstallDirectory, Path.GetFileName(sourcePath));
-                CopyPluginArtifacts(sourcePath, pluginInstallDirectory, plugin.IncludeDependencies);
-
-                lockedPlugins.Add(new CfgsLockedPlugin
+                foreach (CfgsPluginDependency plugin in plugins)
                 {
-                    Name = string.IsNullOrWhiteSpace(plugin.Name) ? Path.GetFileNameWithoutExtension(sourcePath) : plugin.Name,
-                    Version = string.IsNullOrWhiteSpace(plugin.Version) ? "0.0.0" : plugin.Version,
-                    Type = "plugin",
-                    Source = ToPortableRelativePath(root, sourcePath),
-                    InstalledPath = ToPortableRelativePath(root, installedPath),
-                    Sha256 = ComputeSha256(sourcePath),
-                    IncludeDependencies = plugin.IncludeDependencies
-                });
+                    string sourcePath = ResolvePluginSource(root, plugin.Path);
+                    string installedPath = Path.Combine(pluginInstallDirectory, Path.GetFileName(sourcePath));
+                    CopyPluginArtifacts(sourcePath, stagedDirectory, plugin.IncludeDependencies);
+
+                    lockedPlugins.Add(new CfgsLockedPlugin
+                    {
+                        Name = string.IsNullOrWhiteSpace(plugin.Name) ? Path.GetFileNameWithoutExtension(sourcePath) : plugin.Name,
+                        Version = string.IsNullOrWhiteSpace(plugin.Version) ? "0.0.0" : plugin.Version,
+                        Type = "plugin",
+                        Source = ToPortableRelativePath(root, sourcePath),
+                        InstalledPath = ToPortableRelativePath(root, installedPath),
+                        Sha256 = ComputeSha256(sourcePath),
+                        IncludeDependencies = plugin.IncludeDependencies
+                    });
+                }
+
+                foreach (CfgsLockedPlugin plugin in lockedPlugins)
+                {
+                    string stagedPlugin = Path.Combine(stagedDirectory, Path.GetFileName(plugin.InstalledPath));
+                    if (!PathComparer.Equals(ComputeSha256(stagedPlugin), plugin.Sha256))
+                        throw new InvalidDataException($"plugin artifact collision for '{plugin.InstalledPath}'");
+                }
+
+                CfgsLockFile lockFile = new()
+                {
+                    LockfileVersion = CurrentLockfileVersion,
+                    GeneratedAtUtc = DateTimeOffset.UtcNow.ToString("O"),
+                    Plugins = lockedPlugins,
+                    Artifacts = Directory.EnumerateFiles(stagedDirectory, "*", SearchOption.AllDirectories)
+                        .Select(file => new CfgsLockedArtifact
+                        {
+                            Path = ToPortableRelativePath(root, Path.Combine(pluginInstallDirectory, Path.GetRelativePath(stagedDirectory, file))),
+                            Sha256 = ComputeSha256(file)
+                        })
+                        .OrderBy(artifact => artifact.Path, StringComparer.Ordinal)
+                        .ToList()
+                };
+
+                bool hadPreviousInstall = Directory.Exists(pluginInstallDirectory);
+                if (hadPreviousInstall && new DirectoryInfo(pluginInstallDirectory).LinkTarget is not null)
+                    throw new InvalidDataException("Refusing to replace a linked plugin directory.");
+                if (hadPreviousInstall)
+                    EnsureNoLinkedDirectories(pluginInstallDirectory);
+                if (hadPreviousInstall)
+                    Directory.Move(pluginInstallDirectory, backupDirectory);
+                try
+                {
+                    Directory.Move(stagedDirectory, pluginInstallDirectory);
+                    WriteLockFile(root, lockFile);
+                }
+                catch
+                {
+                    if (Directory.Exists(pluginInstallDirectory))
+                        DeleteTemporaryPackageDirectory(pluginInstallDirectory, packageDirectory);
+                    if (hadPreviousInstall && Directory.Exists(backupDirectory))
+                        Directory.Move(backupDirectory, pluginInstallDirectory);
+                    throw;
+                }
+
+                if (hadPreviousInstall)
+                    DeleteTemporaryPackageDirectory(backupDirectory, packageDirectory);
+                return lockFile;
             }
-
-            CfgsLockFile lockFile = new()
+            finally
             {
-                LockfileVersion = 1,
-                GeneratedAtUtc = DateTimeOffset.UtcNow.ToString("O"),
-                Plugins = lockedPlugins
-            };
-
-            WriteLockFile(root, lockFile);
-            return lockFile;
+                if (Directory.Exists(stagedDirectory))
+                    DeleteTemporaryPackageDirectory(stagedDirectory, packageDirectory);
+            }
         }
 
         public static CfgsManifest ReadManifest(string projectDirectory)
@@ -178,25 +231,78 @@ namespace CFGS_VM.Packaging
                 return;
 
             CfgsLockFile? lockFile = TryReadLockFile(root);
-            if (lockFile is null)
-                return;
+            if (lockFile is null || lockFile.LockfileVersion != CurrentLockfileVersion)
+                throw new InvalidDataException("plugin lockfile is missing or outdated. Run restore before loading package plugins.");
 
-            CfgsLockedPlugin? locked = lockFile.Plugins.FirstOrDefault(plugin =>
-                !string.IsNullOrWhiteSpace(plugin.InstalledPath) &&
-                string.Equals(
-                    Path.GetFullPath(Path.Combine(root, plugin.InstalledPath.Replace('/', Path.DirectorySeparatorChar))),
-                    fullPath,
-                    StringComparison.OrdinalIgnoreCase));
-
-            if (locked is null)
-                return;
-
-            string actualHash = ComputeSha256(fullPath);
-            if (!string.Equals(actualHash, locked.Sha256, StringComparison.OrdinalIgnoreCase))
+            string pluginDirectory = Path.GetFullPath(Path.Combine(root, PackageDirectoryName, PluginDirectoryName));
+            string packageDirectory = Path.GetDirectoryName(pluginDirectory)!;
+            if (lockFile.Artifacts is null || new DirectoryInfo(packageDirectory).LinkTarget is not null ||
+                new DirectoryInfo(pluginDirectory).LinkTarget is not null)
+                throw new InvalidDataException("plugin directory or lockfile is invalid. Run restore again.");
+            EnsureNoLinkedDirectories(pluginDirectory);
+            Dictionary<string, string> expected = new(PathComparer);
+            foreach (CfgsLockedArtifact artifact in lockFile.Artifacts)
             {
-                throw new InvalidDataException(
-                    $"plugin lockfile hash mismatch for '{fullPath}'. Expected {locked.Sha256}, got {actualHash}. Run restore again before loading this plugin.");
+                if (artifact is null || string.IsNullOrWhiteSpace(artifact.Path) || string.IsNullOrWhiteSpace(artifact.Sha256))
+                    throw new InvalidDataException("plugin lockfile contains an incomplete artifact. Run restore again.");
+                string artifactPath = Path.GetFullPath(Path.Combine(root, artifact.Path.Replace('/', Path.DirectorySeparatorChar)));
+                if (!IsWithinDirectory(artifactPath, pluginDirectory) || !expected.TryAdd(artifactPath, artifact.Sha256))
+                    throw new InvalidDataException("plugin lockfile contains an invalid or duplicate artifact path. Run restore again.");
             }
+
+            if (!expected.ContainsKey(fullPath))
+                throw new InvalidDataException($"plugin artifact '{fullPath}' is not in the lockfile. Run restore again.");
+
+            foreach (string file in Directory.EnumerateFiles(pluginDirectory, "*", SearchOption.AllDirectories))
+            {
+                string actualPath = Path.GetFullPath(file);
+                if (!expected.TryGetValue(actualPath, out string? expectedHash))
+                    throw new InvalidDataException($"plugin artifact '{actualPath}' is not in the lockfile. Run restore again.");
+                if (new FileInfo(actualPath).LinkTarget is not null)
+                    throw new InvalidDataException($"plugin artifact '{actualPath}' is a symbolic link. Run restore again.");
+                string actualHash = ComputeSha256(actualPath);
+                if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException($"plugin lockfile hash mismatch for '{actualPath}'. Run restore again.");
+                expected.Remove(actualPath);
+            }
+
+            if (expected.Count != 0)
+                throw new InvalidDataException("plugin lockfile lists missing artifacts. Run restore again.");
+        }
+
+        internal static string? GetManagedPluginDirectory(string path)
+            => TryGetPackageRootForPlugin(Path.GetFullPath(path), out string root)
+                ? Path.GetFullPath(Path.Combine(root, PackageDirectoryName, PluginDirectoryName))
+                : null;
+
+        private static bool IsWithinDirectory(string path, string directory)
+            => path.StartsWith(directory + Path.DirectorySeparatorChar,
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+        private static void EnsureNoLinkedDirectories(string root)
+        {
+            Stack<string> pending = new();
+            pending.Push(root);
+            while (pending.TryPop(out string? parent))
+            {
+                foreach (string directory in Directory.EnumerateDirectories(parent, "*", SearchOption.TopDirectoryOnly))
+                {
+                    if (new DirectoryInfo(directory).LinkTarget is not null)
+                        throw new InvalidDataException($"plugin directory '{directory}' is a symbolic link. Run restore again.");
+                    pending.Push(directory);
+                }
+            }
+        }
+
+        private static void DeleteTemporaryPackageDirectory(string path, string packageDirectory)
+        {
+            string fullPath = Path.GetFullPath(path);
+            if (!PathComparer.Equals(Path.GetDirectoryName(fullPath), Path.GetFullPath(packageDirectory)))
+                throw new InvalidOperationException("Refusing to delete a directory outside the package directory.");
+            if (new DirectoryInfo(fullPath).LinkTarget is not null)
+                throw new InvalidDataException("Refusing to delete a linked package directory.");
+            EnsureNoLinkedDirectories(fullPath);
+            Directory.Delete(fullPath, recursive: true);
         }
 
         private static void WriteManifest(string root, CfgsManifest manifest)
@@ -230,8 +336,18 @@ namespace CFGS_VM.Packaging
         private static void WriteLockFile(string root, CfgsLockFile lockFile)
         {
             string lockPath = Path.Combine(root, LockFileName);
-            using FileStream stream = File.Create(lockPath);
-            JsonSerializer.Serialize(stream, lockFile, JsonOptions);
+            string temporaryPath = lockPath + ".tmp-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                using (FileStream stream = File.Create(temporaryPath))
+                    JsonSerializer.Serialize(stream, lockFile, JsonOptions);
+                File.Move(temporaryPath, lockPath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                    File.Delete(temporaryPath);
+            }
         }
 
         private static List<CfgsPluginDependency> NormalizePlugins(CfgsManifest manifest)
@@ -397,6 +513,18 @@ namespace CFGS_VM.Packaging
 
         [JsonPropertyName("plugins")]
         public List<CfgsLockedPlugin> Plugins { get; set; } = [];
+
+        [JsonPropertyName("artifacts")]
+        public List<CfgsLockedArtifact> Artifacts { get; set; } = [];
+    }
+
+    internal sealed class CfgsLockedArtifact
+    {
+        [JsonPropertyName("path")]
+        public string Path { get; set; } = string.Empty;
+
+        [JsonPropertyName("sha256")]
+        public string Sha256 { get; set; } = string.Empty;
     }
 
     internal sealed class CfgsLockedPlugin

@@ -63,9 +63,10 @@ public sealed class CFGS_PDF : IVmPlugin
             string? password = args.Count >= 2 ? args[1]?.ToString() : null;
             try
             {
+                string resolvedPath = ResolvePath(path);
                 PdfDocument doc = string.IsNullOrEmpty(password)
-                    ? PdfReader.Open(path, PdfDocumentOpenMode.Modify)
-                    : PdfReader.Open(path, password, PdfDocumentOpenMode.Modify);
+                    ? PdfReader.Open(resolvedPath, PdfDocumentOpenMode.Modify)
+                    : PdfReader.Open(resolvedPath, password, PdfDocumentOpenMode.Modify);
                 return new PdfDocumentHandle(doc, path);
             }
             catch (Exception ex)
@@ -196,7 +197,7 @@ public sealed class CFGS_PDF : IVmPlugin
             string path = args[0]?.ToString() ?? "";
             try
             {
-                using PdfDocument source = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+                using PdfDocument source = PdfReader.Open(ResolvePath(path), PdfDocumentOpenMode.Import);
                 int index = NormalizePageIndex(source, args[1], instr);
                 PdfPage imported = target.AddPage(source.Pages[index]);
                 return new PdfPageHandle(target, imported);
@@ -224,7 +225,7 @@ public sealed class CFGS_PDF : IVmPlugin
             string mime = args.Count >= 3 ? args[2]?.ToString() ?? "application/octet-stream" : "application/octet-stream";
             string relationship = args.Count >= 4 ? args[3]?.ToString() ?? "Data" : "Data";
             string description = args.Count >= 5 ? args[4]?.ToString() ?? "" : "";
-            byte[] bytes = File.ReadAllBytes(path);
+            byte[] bytes = File.ReadAllBytes(ResolvePath(path));
             AddAttachment(((PdfDocumentHandle)recv).Document, fileName, bytes, mime, relationship, description, instr);
             return recv;
         }));
@@ -251,10 +252,11 @@ public sealed class CFGS_PDF : IVmPlugin
             byte[]? bytes = FindAttachmentBytes(((PdfDocumentHandle)recv).Document, name);
             if (bytes == null)
                 return 0;
-            string? dir = Path.GetDirectoryName(Path.GetFullPath(path));
+            string resolvedPath = ResolvePath(path);
+            string? dir = Path.GetDirectoryName(resolvedPath);
             if (!string.IsNullOrWhiteSpace(dir))
                 Directory.CreateDirectory(dir);
-            File.WriteAllBytes(path, bytes);
+            File.WriteAllBytes(resolvedPath, bytes);
             return bytes.Length;
         }));
 
@@ -360,7 +362,7 @@ public sealed class CFGS_PDF : IVmPlugin
             PdfPage page = ((PdfPageHandle)recv).Page;
             string path = args[0]?.ToString() ?? "";
             using XGraphics gfx = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
-            using XImage img = XImage.FromFile(path);
+            using XImage img = XImage.FromFile(ResolvePath(path));
             double x = ToDouble(args[1]);
             double y = ToDouble(args[2]);
             if (args.Count >= 5)
@@ -381,10 +383,11 @@ public sealed class CFGS_PDF : IVmPlugin
     {
         try
         {
-            string? dir = Path.GetDirectoryName(Path.GetFullPath(path));
+            string resolvedPath = ResolvePath(path);
+            string? dir = Path.GetDirectoryName(resolvedPath);
             if (!string.IsNullOrWhiteSpace(dir))
                 Directory.CreateDirectory(dir);
-            doc.Save(path);
+            doc.Save(resolvedPath);
         }
         catch (Exception ex)
         {
@@ -396,7 +399,7 @@ public sealed class CFGS_PDF : IVmPlugin
     {
         try
         {
-            using PdfDocument input = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+            using PdfDocument input = PdfReader.Open(ResolvePath(path), PdfDocumentOpenMode.Import);
             for (int i = 0; i < input.PageCount; i++)
                 output.AddPage(input.Pages[i]);
         }
@@ -717,6 +720,9 @@ public sealed class CFGS_PDF : IVmPlugin
         value = false;
         return false;
     }
+
+    private static string ResolvePath(string path)
+        => VM.CurrentVm?.ResolveWorkspacePath(path) ?? Path.GetFullPath(path);
 
     private static void EnsureFileIo(Instruction instr)
     {

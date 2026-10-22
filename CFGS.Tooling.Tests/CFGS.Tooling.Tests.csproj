@@ -9,6 +9,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CFGS_NE\CFGS_VM.csproj" />
+    <ProjectReference Include="..\CFGS.Pdf\CFGS.Pdf.csproj" />
+    <ProjectReference Include="..\CFGS.Xml\CFGS.Xml.csproj" />
+    <ProjectReference Include="..\CFGS.Web.Http\CFGS.Web.Http.csproj" />
   </ItemGroup>
 
 </Project>
