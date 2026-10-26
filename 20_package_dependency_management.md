@@ -54,6 +54,10 @@ dotnet run --project CFGS_NE -- install .\plugins\MyPlugin.dll --name my-plugin 
 ```
 
 By default, install also runs restore. Use `--no-restore` to only edit the manifest.
+An invalid or missing plugin DLL is rejected before a new manifest is created, including with
+`--no-restore`. A failed install preserves an existing manifest byte for byte.
+If automatic restore rejects an artifact collision, install restores the previous manifest (or
+removes a newly created manifest). The existing lockfile and installed plugin directory remain in place.
 
 ```powershell
 dotnet run --project CFGS_NE -- install .\plugins\MyPlugin.dll --no-restore
@@ -64,6 +68,9 @@ Use `--no-dependencies` when only the declared DLL should be copied.
 ## Restore
 
 Restore reads `cfgs.json`, copies plugin artifacts into `.cfgs/plugins`, and writes `cfgs.lock.json`.
+If two plugins stage the same relative artifact path with different SHA-256 contents, restore fails
+with both source paths identified. Byte-identical artifacts at the same path are shared. A collision
+is detected before restore replaces the installed plugin directory or lockfile.
 
 ```powershell
 dotnet run --project CFGS_NE -- restore

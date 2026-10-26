@@ -12,6 +12,7 @@ using System.Numerics;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Text.Unicode;
 using static CFGS_VM.VMCore.VM;
@@ -27,6 +28,17 @@ namespace CFGS_VM.StandardLibrary
         static CoreStandardLibrary()
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            Options.Converters.Add(new BigIntegerJsonConverter());
+            CompactOptions.Converters.Add(new BigIntegerJsonConverter());
+        }
+
+        private sealed class BigIntegerJsonConverter : JsonConverter<BigInteger>
+        {
+            public override BigInteger Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+                => throw new NotSupportedException("JSON parsing is handled by JsonToVmValue.");
+
+            public override void Write(Utf8JsonWriter writer, BigInteger value, JsonSerializerOptions options)
+                => writer.WriteRawValue(value.ToString(CultureInfo.InvariantCulture));
         }
 
         private static readonly JsonSerializerOptions Options = new JsonSerializerOptions
@@ -392,10 +404,11 @@ namespace CFGS_VM.StandardLibrary
         /// Serializes to JSON. Indented by default, because the common use is a human reading the
         /// output; pass false for a single-line payload to write to a file or send over the wire.
         /// </summary>
-        private static object JsonStringifyVm(List<object> args)
+        private static object JsonStringifyVm(List<object> args, Instruction instr)
         {
             bool pretty = args.Count < 2 || VM.ToBool(args[1]);
-            return JsonSerializer.Serialize(NormalizeForJson(args[0]), pretty ? Options : CompactOptions);
+            HashSet<object> active = new(ReferenceEqualityComparer.Instance);
+            return JsonSerializer.Serialize(NormalizeForJson(args[0], active, 0, instr), pretty ? Options : CompactOptions);
         }
 
         private static void RegisterJsonNamespace(IIntrinsicRegistry intrinsics)
@@ -404,8 +417,8 @@ namespace CFGS_VM.StandardLibrary
 
             intrinsics.Register(T, new IntrinsicDescriptor("parse", 1, 1, (recv, a, instr) => JsonParseVm(a)));
             intrinsics.Register(T, new IntrinsicDescriptor("from", 1, 1, (recv, a, instr) => JsonParseVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("stringify", 1, 2, (recv, a, instr) => JsonStringifyVm(a)));
-            intrinsics.Register(T, new IntrinsicDescriptor("to", 1, 2, (recv, a, instr) => JsonStringifyVm(a)));
+            intrinsics.Register(T, new IntrinsicDescriptor("stringify", 1, 2, (recv, a, instr) => JsonStringifyVm(a, instr)));
+            intrinsics.Register(T, new IntrinsicDescriptor("to", 1, 2, (recv, a, instr) => JsonStringifyVm(a, instr)));
         }
 
         private static object MathAbsVm(List<object> args) => args[0] switch
@@ -1985,9 +1998,13 @@ namespace CFGS_VM.StandardLibrary
                     {
                         if (elem.TryGetInt32(out int i32)) return i32;
                         if (elem.TryGetInt64(out long i64)) return i64;
+                        string raw = elem.GetRawText();
+                        if (raw.IndexOfAny(['.', 'e', 'E']) < 0 &&
+                            BigInteger.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out BigInteger big))
+                            return big;
                         if (elem.TryGetDecimal(out decimal dec)) return dec;
                         if (elem.TryGetDouble(out double dbl)) return dbl;
-                        return elem.GetRawText();
+                        return raw;
                     }
 
                 case JsonValueKind.True:
@@ -2020,61 +2037,80 @@ namespace CFGS_VM.StandardLibrary
             }
             return 0;
         }
-        private static object? NormalizeForJson(object? value)
+        private static object? NormalizeForJson(object? value, HashSet<object> active, int depth, Instruction instr)
         {
             if (value is null) return null;
             if (value is string or bool or int or long or double or float or decimal or char) return value;
-            if (value is BigInteger bi) return bi.ToString();
+            if (value is BigInteger bi) return bi;
 
-            if (value is ClassInstance inst)
+            bool composite = value is ClassInstance or List<object> or Dictionary<string, object>;
+            if (composite)
             {
-                Dictionary<string, object>? visMap = null;
-                if (LockMutableRuntime(inst, () => inst.Fields.TryGetValue("__type", out Value innerType) ? innerType.ToObject() : null) is StaticInstance st
-                    && LockMutableRuntime(st, () => st.Fields.TryGetValue("__vis_inst", out Value innerVis) ? innerVis.ToObject() : null) is Dictionary<string, object> vm)
-                {
-                    visMap = vm;
-                }
+                if (depth >= 64)
+                    throw new VMException("Runtime error: JSON nesting exceeds 64 levels", instr.Line, instr.Col,
+                        instr.OriginFile, VM.IsDebugging, VM.DebugStream!, diagnosticCode: "CFGS3000");
+                if (!active.Add(value))
+                    throw new VMException("Runtime error: cyclic value cannot be serialized to JSON", instr.Line, instr.Col,
+                        instr.OriginFile, VM.IsDebugging, VM.DebugStream!, diagnosticCode: "CFGS3000");
+            }
 
-                var result = new Dictionary<string, object>();
-                foreach (var kvp in LockMutableRuntime(inst, () => inst.EnumerateFields()
-                    .Select(static kv => new KeyValuePair<string, object?>(kv.Key, kv.Value.ToObject()))
-                    .ToList()))
+            try
+            {
+                if (value is ClassInstance inst)
                 {
-                    object? fieldValue = kvp.Value;
-                    if (kvp.Key.StartsWith("__")) continue;
-                    if (fieldValue is Closure) continue;
-                    if (fieldValue is StaticInstance) continue;
-
-                    if (visMap != null && LockMutableRuntime(visMap, () => visMap.TryGetValue(kvp.Key, out object? rawVis) ? rawVis : null) is object rawVis)
+                    Dictionary<string, object>? visMap = null;
+                    if (LockMutableRuntime(inst, () => inst.Fields.TryGetValue("__type", out Value innerType) ? innerType.ToObject() : null) is StaticInstance st
+                        && LockMutableRuntime(st, () => st.Fields.TryGetValue("__vis_inst", out Value innerVis) ? innerVis.ToObject() : null) is Dictionary<string, object> vm)
                     {
-                        int vis = rawVis is int i ? i : 0;
-                        if (vis != 0) continue;
+                        visMap = vm;
                     }
 
-                    result[kvp.Key] = NormalizeForJson(fieldValue)!;
+                    var result = new Dictionary<string, object>();
+                    foreach (var kvp in LockMutableRuntime(inst, () => inst.EnumerateFields()
+                        .Select(static kv => new KeyValuePair<string, object?>(kv.Key, kv.Value.ToObject()))
+                        .ToList()))
+                    {
+                        object? fieldValue = kvp.Value;
+                        if (kvp.Key.StartsWith("__")) continue;
+                        if (fieldValue is Closure) continue;
+                        if (fieldValue is StaticInstance) continue;
+
+                        if (visMap != null && LockMutableRuntime(visMap, () => visMap.TryGetValue(kvp.Key, out object? rawVis) ? rawVis : null) is object rawVis)
+                        {
+                            int vis = rawVis is int i ? i : 0;
+                            if (vis != 0) continue;
+                        }
+
+                        result[kvp.Key] = NormalizeForJson(fieldValue, active, depth + 1, instr)!;
+                    }
+                    return result;
                 }
-                return result;
-            }
 
-            if (value is List<object> list)
+                if (value is List<object> list)
+                {
+                    List<object> snapshot = SnapshotMutableList(list);
+                    var result = new List<object>(snapshot.Count);
+                    foreach (var item in snapshot)
+                        result.Add(NormalizeForJson(item, active, depth + 1, instr)!);
+                    return result;
+                }
+
+                if (value is Dictionary<string, object> dict)
+                {
+                    List<KeyValuePair<string, object>> snapshot = SnapshotMutableDictionaryEntries(dict);
+                    var result = new Dictionary<string, object>(snapshot.Count);
+                    foreach (var kvp in snapshot)
+                        result[kvp.Key] = NormalizeForJson(kvp.Value, active, depth + 1, instr)!;
+                    return result;
+                }
+
+                return value.ToString();
+            }
+            finally
             {
-                List<object> snapshot = SnapshotMutableList(list);
-                var result = new List<object>(snapshot.Count);
-                foreach (var item in snapshot)
-                    result.Add(NormalizeForJson(item)!);
-                return result;
+                if (composite)
+                    active.Remove(value);
             }
-
-            if (value is Dictionary<string, object> dict)
-            {
-                List<KeyValuePair<string, object>> snapshot = SnapshotMutableDictionaryEntries(dict);
-                var result = new Dictionary<string, object>(snapshot.Count);
-                foreach (var kvp in snapshot)
-                    result[kvp.Key] = NormalizeForJson(kvp.Value)!;
-                return result;
-            }
-
-            return value.ToString();
         }
 
         private static List<object> FlattenList(List<object> list, int depth)

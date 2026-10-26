@@ -16,6 +16,11 @@ internal static class Program
             DidOpenPublishesDiagnostics,
             DidChangePublishesLatestDiagnosticsAfterDebounce,
             DidChangeAppliesIncrementalRangeEdits,
+            ClosingOneImporterPreservesSharedDiagnostics,
+            ChangingOpenModuleRefreshesImporter,
+            SearchRootSaveRefreshesImporter,
+            TransitiveModuleChangeRefreshesImporter,
+            CreatedAndDeletedModuleRefreshesImporter,
             CompletionReturnsLanguageItems,
             CompletionReflectsStandardLibraryNamespacePolicy,
             FormattingReturnsDocumentEdit,
@@ -225,6 +230,169 @@ internal static class Program
         client.DidChangeRange(uri, 2, 0, 12, 0, 12, "1");
         JsonElement nextDiagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
         AssertEqual(0, nextDiagnostics.GetArrayLength(), "expected diagnostics to clear after incremental range edit");
+    }
+
+    private static void ClosingOneImporterPreservesSharedDiagnostics()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-lsp-shared-diagnostics", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string libUri = new Uri(Path.Combine(root, "lib.cfs")).AbsoluteUri;
+            string firstUri = new Uri(Path.Combine(root, "first.cfs")).AbsoluteUri;
+            string secondUri = new Uri(Path.Combine(root, "second.cfs")).AbsoluteUri;
+            File.WriteAllText(Path.Combine(root, "lib.cfs"), "export const broken = ;");
+
+            using LspTestClient client = LspTestClient.StartInitialized();
+            client.DidOpen(firstUri, "import * as Lib from \"lib.cfs\";");
+            _ = client.WaitForDiagnostics(firstUri);
+            AssertEqual(1, client.WaitForDiagnostics(libUri).GetProperty("diagnostics").GetArrayLength(),
+                "first importer should publish the imported syntax error");
+
+            client.DidOpen(secondUri, "import * as Lib from \"lib.cfs\";");
+            AssertEqual(1, client.WaitForDiagnostics(libUri).GetProperty("diagnostics").GetArrayLength(),
+                "shared diagnostic should be deduplicated");
+            _ = client.WaitForDiagnostics(secondUri);
+
+            client.SendNotification("textDocument/didClose", new { textDocument = new { uri = firstUri } });
+            AssertEqual(1, client.WaitForDiagnostics(libUri).GetProperty("diagnostics").GetArrayLength(),
+                "closing one importer must preserve the other's imported diagnostic");
+
+            client.SendNotification("textDocument/didClose", new { textDocument = new { uri = secondUri } });
+            AssertEqual(0, client.WaitForDiagnostics(libUri).GetProperty("diagnostics").GetArrayLength(),
+                "closing the last importer should clear the imported diagnostic");
+        }
+        finally
+        {
+            string fullRoot = Path.GetFullPath(root);
+            string tempRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            AssertTrue(fullRoot.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase),
+                "refusing to delete a test directory outside the temp root");
+            if (Directory.Exists(fullRoot))
+                Directory.Delete(fullRoot, recursive: true);
+        }
+    }
+
+    private static void ChangingOpenModuleRefreshesImporter()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-lsp-open-import", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string libPath = Path.Combine(root, "lib.cfs");
+            string libUri = new Uri(libPath).AbsoluteUri;
+            string importerUri = new Uri(Path.Combine(root, "importer.cfs")).AbsoluteUri;
+            File.WriteAllText(libPath, "export const value = ;");
+            using LspTestClient client = LspTestClient.StartInitialized();
+            client.DidOpen(importerUri, "import * as Lib from \"lib.cfs\";");
+            AssertEqual(1, client.WaitForDiagnosticsCount(libUri, 1).GetProperty("diagnostics").GetArrayLength(),
+                "importer should report the original module error");
+            client.DidOpen(libUri, "export const value = ;");
+            client.DidChange(libUri, 2, "export const value = 1;");
+            _ = client.WaitForDiagnosticsCount(libUri, 0);
+            client.DidChange(libUri, 3, "export const value = ;");
+            _ = client.WaitForDiagnosticsCount(libUri, 1);
+        }
+        finally
+        {
+            DeleteTestDirectory(root);
+        }
+    }
+
+    private static void SearchRootSaveRefreshesImporter()
+    {
+        string pluginDirectory = Path.Combine(AppContext.BaseDirectory, "plugins");
+        Directory.CreateDirectory(pluginDirectory);
+        string modulePath = Path.Combine(pluginDirectory, $"cfgs_lsp_refresh_{Guid.NewGuid():N}.cfs");
+        File.WriteAllText(modulePath, "export const value = ;");
+        try
+        {
+            string moduleUri = new Uri(modulePath).AbsoluteUri;
+            using LspTestClient client = LspTestClient.StartInitialized();
+            string importerUri = CreateDocumentUri("search-root-refresh.cfs");
+            client.DidOpen(importerUri, $"import * as Mod from \"{Path.GetFileName(modulePath)}\";");
+            _ = client.WaitForDiagnosticsCount(moduleUri, 1);
+            client.DidOpen(moduleUri, "export const value = ;");
+            File.WriteAllText(modulePath, "export const value = 1;");
+            client.DidChange(moduleUri, 2, "export const value = 1;");
+            client.SendNotification("textDocument/didSave", new { textDocument = new { uri = moduleUri } });
+            _ = client.WaitForDiagnosticsCount(moduleUri, 0);
+        }
+        finally
+        {
+            File.Delete(modulePath);
+        }
+    }
+
+    private static void TransitiveModuleChangeRefreshesImporter()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-lsp-transitive", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string intermediate = Path.Combine(root, "middle.cfs");
+            string leaf = Path.Combine(root, "leaf.cfs");
+            File.WriteAllText(intermediate, "import * as Leaf from \"leaf.cfs\"; export const value = 1;");
+            File.WriteAllText(leaf, "export const value = ;");
+            string leafUri = new Uri(leaf).AbsoluteUri;
+            string importerUri = new Uri(Path.Combine(root, "entry.cfs")).AbsoluteUri;
+            using LspTestClient client = LspTestClient.StartInitialized();
+            client.DidOpen(importerUri, "import * as Middle from \"middle.cfs\";");
+            _ = client.WaitForDiagnosticsCount(leafUri, 1);
+            File.WriteAllText(leaf, "export const value = 1;");
+            client.SendNotification("workspace/didChangeWatchedFiles", new
+            {
+                changes = new[] { new { uri = leafUri, type = 2 } }
+            });
+            _ = client.WaitForDiagnosticsCount(leafUri, 0);
+        }
+        finally
+        {
+            DeleteTestDirectory(root);
+        }
+    }
+
+    private static void CreatedAndDeletedModuleRefreshesImporter()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-lsp-missing-import", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string modulePath = Path.Combine(root, "later.cfs");
+            string moduleUri = new Uri(modulePath).AbsoluteUri;
+            string importerUri = new Uri(Path.Combine(root, "entry.cfs")).AbsoluteUri;
+            using LspTestClient client = LspTestClient.StartInitialized();
+            client.DidOpen(importerUri, "import * as Later from \"later.cfs\";");
+            _ = client.WaitForDiagnosticsCount(importerUri, 1);
+            File.WriteAllText(modulePath, "export const value = 1;");
+            client.SendNotification("workspace/didChangeWatchedFiles", new
+            {
+                changes = new[] { new { uri = moduleUri, type = 1 } }
+            });
+            _ = client.WaitForDiagnosticsCount(importerUri, 0);
+            File.Delete(modulePath);
+            client.SendNotification("workspace/didChangeWatchedFiles", new
+            {
+                changes = new[] { new { uri = moduleUri, type = 3 } }
+            });
+            _ = client.WaitForDiagnosticsCount(importerUri, 1);
+        }
+        finally
+        {
+            DeleteTestDirectory(root);
+        }
+    }
+
+    private static void DeleteTestDirectory(string root)
+    {
+        string fullRoot = Path.GetFullPath(root);
+        string tempRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        AssertTrue(fullRoot.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase),
+            "refusing to delete a test directory outside the temp root");
+        if (Directory.Exists(fullRoot))
+            Directory.Delete(fullRoot, recursive: true);
     }
 
     private static void FormattingReturnsDocumentEdit()
@@ -931,6 +1099,19 @@ internal sealed class LspTestClient : IDisposable
         }
 
         throw new TimeoutException($"timed out waiting for diagnostics for {uri}");
+    }
+
+    public JsonElement WaitForDiagnosticsCount(string uri, int expectedCount)
+    {
+        return Task.Run(() =>
+        {
+            while (true)
+            {
+                JsonElement diagnostics = WaitForDiagnostics(uri);
+                if (diagnostics.GetProperty("diagnostics").GetArrayLength() == expectedCount)
+                    return diagnostics;
+            }
+        }).WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
     }
 
     public JsonElement SendRequest(string method, object parameters)

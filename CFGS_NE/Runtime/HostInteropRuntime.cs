@@ -11,6 +11,37 @@ namespace CFGS_VM.VMCore
 {
     public partial class VM
     {
+        // Host member access can run script getters/setters. Keep the shared execution gate until
+        // their bytecode actually stops; racing a detached Task against cancellation would allow
+        // the canceled operation to keep mutating the VM.
+        internal async Task<T> ExecuteHostMemberAsync<T>(Func<T> operation, CancellationToken ct)
+        {
+            await _executionGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                return await Task.Run(() =>
+                {
+                    CancellationToken previous = _activeCancellationToken;
+                    _activeCancellationToken = ct;
+                    try
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        T result = operation();
+                        ct.ThrowIfCancellationRequested();
+                        return result;
+                    }
+                    finally
+                    {
+                        _activeCancellationToken = previous;
+                    }
+                }).ConfigureAwait(false);
+            }
+            finally
+            {
+                _executionGate.Release();
+            }
+        }
+
         /// <summary>
         /// Builds a language-native runtime error for a failed native .NET interop operation.
         /// The inner fault is unwrapped (past reflection/aggregate wrappers) and rendered in CFGS
@@ -182,8 +213,8 @@ namespace CFGS_VM.VMCore
             Instruction instr,
             CancellationToken ct = default)
         {
-            if (TryStartHotAsyncCall(closure, args, receiver, accessType, instr, out Task<object?> startedTask))
-                return await AwaitTaskAsync(startedTask).WaitAsync(ct).ConfigureAwait(false);
+            if (TryStartHotAsyncCall(closure, args, receiver, accessType, instr, ct, out Task<object?> startedTask))
+                return await AwaitTaskAsync(startedTask).ConfigureAwait(false);
 
             return InvokeClosureSync(closure, args, instr, receiver, accessType, ct);
         }

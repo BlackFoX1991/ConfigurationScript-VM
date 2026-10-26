@@ -25,6 +25,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CFGS.IO", "CFGS.IO\CFGS.IO.
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "CFGS_NE", "CFGS_NE", "{49D3381E-D598-4B83-DF46-5F0793DC5CEF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CFGS.Unit.Tests", "CFGS.Unit.Tests\CFGS.Unit.Tests.csproj", "{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -155,6 +157,18 @@ Global
 		{DF74DF3E-8351-4ACD-B42A-5F49FFBAE572}.Release|x64.Build.0 = Release|Any CPU
 		{DF74DF3E-8351-4ACD-B42A-5F49FFBAE572}.Release|x86.ActiveCfg = Release|Any CPU
 		{DF74DF3E-8351-4ACD-B42A-5F49FFBAE572}.Release|x86.Build.0 = Release|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Debug|x64.Build.0 = Debug|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Debug|x86.Build.0 = Debug|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Release|x64.ActiveCfg = Release|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Release|x64.Build.0 = Release|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Release|x86.ActiveCfg = Release|Any CPU
+		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -74,39 +74,51 @@ namespace CFGS_VM.Packaging
                 throw new InvalidDataException("missing plugin path");
 
             string root = ResolveProjectRoot(projectDirectory);
-            if (!File.Exists(Path.Combine(root, ManifestFileName)))
-                Init(root);
-
-            CfgsManifest manifest = ReadManifest(root);
+            string manifestPath = Path.Combine(root, ManifestFileName);
+            byte[]? previousManifest = File.Exists(manifestPath) ? File.ReadAllBytes(manifestPath) : null;
+            // Resolve before Init: a missing source must not leave a new cfgs.json behind.
             string resolvedPluginPath = ResolvePluginSource(root, pluginPath);
-            string pluginName = string.IsNullOrWhiteSpace(name)
-                ? Path.GetFileNameWithoutExtension(resolvedPluginPath)
-                : name.Trim();
-
-            CfgsPluginDependency dependency = new()
+            try
             {
-                Name = pluginName,
-                Version = string.IsNullOrWhiteSpace(version) ? "0.0.0" : version.Trim(),
-                Path = ToPortableRelativePath(root, resolvedPluginPath),
-                IncludeDependencies = includeDependencies
-            };
+                if (previousManifest is null)
+                    Init(root);
 
-            manifest.Plugins ??= [];
-            int existingIndex = manifest.Plugins.FindIndex(p =>
-                string.Equals(p.Name, dependency.Name, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(Path.GetFileName(p.Path), Path.GetFileName(dependency.Path), StringComparison.OrdinalIgnoreCase));
+                CfgsManifest manifest = ReadManifest(root);
+                string pluginName = string.IsNullOrWhiteSpace(name)
+                    ? Path.GetFileNameWithoutExtension(resolvedPluginPath)
+                    : name.Trim();
 
-            if (existingIndex >= 0)
-                manifest.Plugins[existingIndex] = dependency;
-            else
-                manifest.Plugins.Add(dependency);
+                CfgsPluginDependency dependency = new()
+                {
+                    Name = pluginName,
+                    Version = string.IsNullOrWhiteSpace(version) ? "0.0.0" : version.Trim(),
+                    Path = ToPortableRelativePath(root, resolvedPluginPath),
+                    IncludeDependencies = includeDependencies
+                };
 
-            WriteManifest(root, manifest);
+                manifest.Plugins ??= [];
+                int existingIndex = manifest.Plugins.FindIndex(p =>
+                    string.Equals(p.Name, dependency.Name, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(Path.GetFileName(p.Path), Path.GetFileName(dependency.Path), StringComparison.OrdinalIgnoreCase));
 
-            if (restore)
-                Restore(root);
+                if (existingIndex >= 0)
+                    manifest.Plugins[existingIndex] = dependency;
+                else
+                    manifest.Plugins.Add(dependency);
 
-            return dependency;
+                WriteManifest(root, manifest);
+                if (restore)
+                    Restore(root);
+                return dependency;
+            }
+            catch
+            {
+                if (previousManifest is null)
+                    File.Delete(manifestPath);
+                else
+                    WriteBytesAtomically(manifestPath, previousManifest);
+                throw;
+            }
         }
 
         public static CfgsLockFile Restore(string? projectDirectory = null)
@@ -125,13 +137,14 @@ namespace CFGS_VM.Packaging
             Directory.CreateDirectory(stagedDirectory);
 
             List<CfgsLockedPlugin> lockedPlugins = new();
+            Dictionary<string, (string Hash, string Source)> stagedArtifacts = new(PathComparer);
             try
             {
                 foreach (CfgsPluginDependency plugin in plugins)
                 {
                     string sourcePath = ResolvePluginSource(root, plugin.Path);
                     string installedPath = Path.Combine(pluginInstallDirectory, Path.GetFileName(sourcePath));
-                    CopyPluginArtifacts(sourcePath, stagedDirectory, plugin.IncludeDependencies);
+                    CopyPluginArtifacts(sourcePath, stagedDirectory, plugin.IncludeDependencies, stagedArtifacts);
 
                     lockedPlugins.Add(new CfgsLockedPlugin
                     {
@@ -308,8 +321,33 @@ namespace CFGS_VM.Packaging
         private static void WriteManifest(string root, CfgsManifest manifest)
         {
             string manifestPath = Path.Combine(root, ManifestFileName);
-            using FileStream stream = File.Create(manifestPath);
-            JsonSerializer.Serialize(stream, manifest, JsonOptions);
+            string temporaryPath = manifestPath + ".tmp-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                using (FileStream stream = File.Create(temporaryPath))
+                    JsonSerializer.Serialize(stream, manifest, JsonOptions);
+                File.Move(temporaryPath, manifestPath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                    File.Delete(temporaryPath);
+            }
+        }
+
+        private static void WriteBytesAtomically(string path, byte[] contents)
+        {
+            string temporaryPath = path + ".tmp-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                File.WriteAllBytes(temporaryPath, contents);
+                File.Move(temporaryPath, path, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                    File.Delete(temporaryPath);
+            }
         }
 
         private static bool TryGetPackageRootForPlugin(string pluginPath, out string root)
@@ -396,13 +434,17 @@ namespace CFGS_VM.Packaging
             return fullPath;
         }
 
-        private static void CopyPluginArtifacts(string sourcePath, string targetDirectory, bool includeDependencies)
+        private static void CopyPluginArtifacts(
+            string sourcePath,
+            string targetDirectory,
+            bool includeDependencies,
+            Dictionary<string, (string Hash, string Source)> stagedArtifacts)
         {
             string sourceDirectory = Path.GetDirectoryName(sourcePath) ?? Directory.GetCurrentDirectory();
 
             if (!includeDependencies)
             {
-                File.Copy(sourcePath, Path.Combine(targetDirectory, Path.GetFileName(sourcePath)), overwrite: true);
+                CopyArtifact(sourcePath, Path.Combine(targetDirectory, Path.GetFileName(sourcePath)), targetDirectory, stagedArtifacts);
                 return;
             }
 
@@ -412,12 +454,36 @@ namespace CFGS_VM.Packaging
                 if (!IsPluginArtifactExtension(extension))
                     continue;
 
-                File.Copy(file, Path.Combine(targetDirectory, Path.GetFileName(file)), overwrite: true);
+                CopyArtifact(file, Path.Combine(targetDirectory, Path.GetFileName(file)), targetDirectory, stagedArtifacts);
             }
 
             string runtimes = Path.Combine(sourceDirectory, "runtimes");
             if (Directory.Exists(runtimes))
-                CopyDirectory(runtimes, Path.Combine(targetDirectory, "runtimes"));
+                CopyDirectory(runtimes, Path.Combine(targetDirectory, "runtimes"), targetDirectory, stagedArtifacts);
+        }
+
+        private static void CopyArtifact(
+            string source,
+            string destination,
+            string stagingRoot,
+            Dictionary<string, (string Hash, string Source)> stagedArtifacts)
+        {
+            string fullDestination = Path.GetFullPath(destination);
+            string hash = ComputeSha256(source);
+            if (stagedArtifacts.TryGetValue(fullDestination, out (string Hash, string Source) existing))
+            {
+                if (!string.Equals(hash, existing.Hash, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException(
+                        $"plugin artifact collision for '{Path.GetRelativePath(stagingRoot, fullDestination)}': " +
+                        $"'{existing.Source}' and '{source}' have different contents");
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(fullDestination)!);
+            File.Copy(source, fullDestination, overwrite: false);
+            if (!string.Equals(ComputeSha256(fullDestination), hash, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"plugin artifact changed while copying '{source}'");
+            stagedArtifacts.Add(fullDestination, (hash, source));
         }
 
         private static bool IsPluginArtifactExtension(string extension)
@@ -425,7 +491,11 @@ namespace CFGS_VM.Packaging
                string.Equals(extension, ".json", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(extension, ".pdb", StringComparison.OrdinalIgnoreCase);
 
-        private static void CopyDirectory(string sourceDirectory, string targetDirectory)
+        private static void CopyDirectory(
+            string sourceDirectory,
+            string targetDirectory,
+            string stagingRoot,
+            Dictionary<string, (string Hash, string Source)> stagedArtifacts)
         {
             Directory.CreateDirectory(targetDirectory);
             foreach (string directory in Directory.EnumerateDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
@@ -437,7 +507,7 @@ namespace CFGS_VM.Packaging
             foreach (string file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
             {
                 string relative = Path.GetRelativePath(sourceDirectory, file);
-                File.Copy(file, Path.Combine(targetDirectory, relative), overwrite: true);
+                CopyArtifact(file, Path.Combine(targetDirectory, relative), stagingRoot, stagedArtifacts);
             }
         }
 

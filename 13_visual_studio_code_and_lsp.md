@@ -23,6 +23,7 @@ This repository now contains a CFGS language server and a matching Visual Studio
 - Prepare rename support so Visual Studio Code can validate rename targets before applying edits
 - Workspace-wide references and rename for stable imported symbols across `.cfs` files inside the current workspace root
 - Cross-file definition and hover stay aligned with open unsaved imported files by using in-memory document overlays during analysis
+- Import diagnostics refresh after unsaved module edits and local file changes, including modules found in normal CFGS search directories and transitive imports
 - Completion and signature help keep working during broken intermediate edits by falling back to the last successful analysis for the current document
 - Semantic tokens for CFGS namespaces, native namespace roots, classes, enums, enum members, functions, methods, parameters, variables, and readonly constants
 - Quick fixes for common local import diagnostics such as missing `from` strings, missing local module files, and missing exports in local imported files

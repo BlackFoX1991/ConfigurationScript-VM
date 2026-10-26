@@ -215,17 +215,20 @@ internal sealed class CfgsAnalyzer
         Dictionary<string, List<CfgsDiagnostic>> diagnosticsByUri = CreateUriMap<List<CfgsDiagnostic>>();
         IReadOnlyList<CfgsSymbol> documentSymbols = [];
         IReadOnlyList<CfgsSymbol> allSymbols = [];
+        IReadOnlyList<LocalImportRequest> localImportRequests = [];
         CfgsSemanticModel semanticModel = new([], new Dictionary<string, CfgsSymbol>(), [], [], []);
 
         try
         {
+            (string? workingDirectory, IReadOnlyList<string> searchRoots) = GetImportResolutionContext(origin, workspaceRoot);
             FrontendPipeline frontendPipeline = new(
                 loadPluginDll: _ => { },
                 loadImportSource: sources.GetOverlaySourceText,
-                workingDirectory: ResolveAnalysisWorkingDirectory(workspaceRoot, origin),
-                additionalSearchRoots: BuildImportSearchRoots(origin, workspaceRoot),
+                workingDirectory: workingDirectory,
+                additionalSearchRoots: searchRoots,
                 syntaxCache: _moduleSyntaxCache);
             FrontendTolerantBuildResult frontendBuild = frontendPipeline.BuildLoweredAstTolerant(origin, sourceText);
+            localImportRequests = CollectLocalImportRequests(frontendBuild, origin);
             cancellationToken.ThrowIfCancellationRequested();
 
             foreach (ParserException diagnostic in frontendBuild.Diagnostics)
@@ -316,7 +319,34 @@ internal sealed class CfgsAnalyzer
         }
 
         EnsureDocumentEntry(diagnosticsByUri, documentUri);
-        return new CfgsAnalysisResult(documentUri, origin, sourceText, diagnosticsByUri, documentSymbols, allSymbols, semanticModel);
+        return new CfgsAnalysisResult(documentUri, origin, sourceText, diagnosticsByUri, documentSymbols, allSymbols, semanticModel)
+        {
+            LocalImportRequests = localImportRequests
+        };
+    }
+
+    private static IReadOnlyList<LocalImportRequest> CollectLocalImportRequests(FrontendTolerantBuildResult build, string origin)
+    {
+        List<LocalImportRequest> requests = build.LocalImportRequests.ToList();
+        // Tolerant import resolution can stop at the first malformed/missing module. Keep the
+        // remaining parsed direct imports so a later file creation still refreshes this document.
+        foreach (Stmt statement in build.SyntaxAst)
+        {
+            string? path = statement switch
+            {
+                BareImportSyntaxStmt bare => bare.Path,
+                NamespaceImportSyntaxStmt ns => ns.Path,
+                NamedImportSyntaxStmt named => named.Path,
+                DefaultImportSyntaxStmt def => def.Path,
+                NativeImportSyntaxStmt native => native.Path,
+                _ => null
+            };
+            if (path is not null && !requests.Any(request =>
+                    string.Equals(request.RawPath, path, StringComparison.Ordinal) &&
+                    string.Equals(request.SourceFileName, origin, StringComparison.OrdinalIgnoreCase)))
+                requests.Add(new LocalImportRequest(path, origin, null));
+        }
+        return requests;
     }
 
     public IReadOnlyList<CfgsCompletionItem> GetCompletions(CfgsAnalysisResult result)
@@ -2205,6 +2235,10 @@ internal sealed class CfgsAnalyzer
         // FrontendPipeline). Der Workspace-Root dient als Rand; ohne ihn greift die cfgs.json-Erkennung.
         => FrontendPipeline.BuildImportSearchRoots(origin, workspaceRoot);
 
+    internal static (string? WorkingDirectory, IReadOnlyList<string> SearchRoots) GetImportResolutionContext(
+        string origin, string? workspaceRoot)
+        => (ResolveAnalysisWorkingDirectory(workspaceRoot, origin), BuildImportSearchRoots(origin, workspaceRoot));
+
     private static string? ResolveAnalysisWorkingDirectory(string? workspaceRoot, string origin)
     {
         // Der Compiler leitet sein Arbeitsverzeichnis aus der EINSTIEGS-Datei ab und benutzt es
@@ -3022,7 +3056,10 @@ internal sealed record CfgsAnalysisResult(
     IReadOnlyDictionary<string, List<CfgsDiagnostic>> DiagnosticsByUri,
     IReadOnlyList<CfgsSymbol> DocumentSymbols,
     IReadOnlyList<CfgsSymbol> AllSymbols,
-    CfgsSemanticModel SemanticModel);
+    CfgsSemanticModel SemanticModel)
+{
+    internal IReadOnlyList<LocalImportRequest> LocalImportRequests { get; init; } = [];
+}
 
 internal sealed record CfgsDiagnostic(
     RangeInfo Range,

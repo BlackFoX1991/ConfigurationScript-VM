@@ -71,7 +71,14 @@ function Initialize-Fixtures {
 
     Set-Content -LiteralPath (Join-Path $fixturesDir "_invalid_plugin.dll") -Value "not a real managed assembly" -NoNewline
 
-    $buildOutput = & dotnet build $partialPluginProject -c Release --nologo -v q -o $fixturesDir "-p:CfgsVmAssembly=$vmDll" 2>&1
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $buildOutput = & dotnet build $partialPluginProject -c Release --nologo -v q -o $fixturesDir "-p:CfgsVmAssembly=$vmDll" 2>&1
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($LASTEXITCODE -ne 0) {
         # No throw: the fixture's test then fails with a precise expectation mismatch.
         Write-Host "WARNING: building the CFGS.EdgePartial fixture failed:"
@@ -194,8 +201,15 @@ try {
         }
 
         $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-        $output = & dotnet $vmDll $test.FullName 2>&1
-        $exitCode = $LASTEXITCODE
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $output = & dotnet $vmDll $test.FullName 2>&1
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
         $stopwatch.Stop()
 
         $text = ($output | Out-String)

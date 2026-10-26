@@ -3,6 +3,8 @@ using System.Net.Http;
 
 namespace CFGS_VM.Analytic.Modules
 {
+    internal readonly record struct LocalImportRequest(string RawPath, string SourceFileName, string? ResolvedPath);
+
     internal sealed class SourceResolver
     {
         private static readonly HttpClient Http = CreateImportHttpClient();
@@ -11,6 +13,9 @@ namespace CFGS_VM.Analytic.Modules
         internal const string LocalImportSearchDescription = "searched script dir, package plugin dirs, working dir, app dir, and app plugins dir";
         private readonly string? _workingDirectory;
         private readonly IReadOnlyList<string> _additionalSearchRoots;
+        private readonly List<LocalImportRequest> _localImportRequests = [];
+
+        internal IReadOnlyList<LocalImportRequest> LocalImportRequests => _localImportRequests;
 
         public SourceResolver(string? workingDirectory = null, IReadOnlyList<string>? additionalSearchRoots = null)
         {
@@ -70,6 +75,13 @@ namespace CFGS_VM.Analytic.Modules
         }
 
         public string? ResolveImportPath(string rawPath, string sourceFileName)
+        {
+            string? resolved = ResolveImportPathCore(rawPath, sourceFileName);
+            _localImportRequests.Add(new LocalImportRequest(rawPath, sourceFileName, resolved));
+            return resolved;
+        }
+
+        private string? ResolveImportPathCore(string rawPath, string sourceFileName)
         {
             if (string.IsNullOrWhiteSpace(rawPath))
                 return null;

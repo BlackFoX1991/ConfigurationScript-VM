@@ -31,7 +31,7 @@ pwsh CFGS_NE/Samples/run_all_samples.ps1
 The runner executes each sample rather than only compiling it, since some mistakes
 surface only at runtime, and it fails when a sample exits non-zero, prints a diagnostic,
 or does not reach its end-of-run marker. It is also wired into
-`scripts/run-all-tests.ps1` as a fourth suite. Files that other samples import are
+`scripts/run-all-tests.ps1` as one of five suites. Files that other samples import are
 detected automatically and only checked for clean initialization.
 
 ## Folders

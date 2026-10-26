@@ -12,6 +12,7 @@ namespace CFGS_VM.Hosting
         private readonly CfgsScriptPermissions _permissions;
         private readonly SemaphoreSlim _operationGate = new(1, 1);
         private bool _topLevelRan;
+        private bool _topLevelCanceled;
 
         internal CfgsScript(VM vm, CompiledScript compiledScript, string originFile, CfgsScriptPermissions permissions)
         {
@@ -52,11 +53,21 @@ namespace CFGS_VM.Hosting
         // its main() to run must call it explicitly (or invoke it from the host via InvokeAsync).
         private async Task RunCoreAsync(CancellationToken effectiveToken)
         {
+            EnsureCanExecute();
             if (_topLevelRan)
                 return;
 
-            await _vm.RunAsync(ct: effectiveToken).ConfigureAwait(false);
-            _topLevelRan = true;
+            try
+            {
+                await _vm.RunAsync(ct: effectiveToken).ConfigureAwait(false);
+                effectiveToken.ThrowIfCancellationRequested();
+                _topLevelRan = true;
+            }
+            catch (OperationCanceledException)
+            {
+                _topLevelCanceled = true;
+                throw;
+            }
         }
 
         public Task<object?> InvokeAsync(string functionName, params object[] args)
@@ -85,10 +96,10 @@ namespace CFGS_VM.Hosting
 
         private async Task<object?> InvokeCoreAsync(string functionName, IEnumerable<object?>? args, CancellationToken effectiveToken)
         {
+            EnsureCanExecute();
             effectiveToken.ThrowIfCancellationRequested();
             List<Value> runtimeArgs = args?.Select(static arg => Value.FromObject(VM.NormalizeHostValue(arg))).ToList() ?? [];
-            Task<object?> call = _vm.InvokeGlobalFunctionAsyncValue(functionName, runtimeArgs, OriginFile, effectiveToken);
-            return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
+            return await _vm.InvokeGlobalFunctionAsyncValue(functionName, runtimeArgs, OriginFile, effectiveToken).ConfigureAwait(false);
         }
 
         public async Task<T?> InvokeAsync<T>(string functionName, params object[] args)
@@ -108,8 +119,8 @@ namespace CFGS_VM.Hosting
                 await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
                 try
                 {
-                    Task<object?> call = _vm.NewAsync(className, args, OriginFile, effectiveToken);
-                    return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
+                    EnsureCanExecute();
+                    return await _vm.NewAsync(className, args, OriginFile, effectiveToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -129,6 +140,7 @@ namespace CFGS_VM.Hosting
                 _operationGate.Wait();
                 try
                 {
+                    EnsureCanExecute();
                     return _vm.GetMember(target, memberName, OriginFile);
                 }
                 finally
@@ -145,6 +157,32 @@ namespace CFGS_VM.Hosting
         public T? GetMember<T>(object target, string memberName)
             => VM.ConvertToHostValue<T>(GetMember(target, memberName));
 
+        public async Task<object?> GetMemberAsync(object target, string memberName, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using CancellationTokenSource? timeoutCts = CreateTimeoutTokenSource(cancellationToken, out CancellationToken effectiveToken);
+                await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
+                try
+                {
+                    EnsureCanExecute();
+                    return await _vm.ExecuteHostMemberAsync(
+                        () => _vm.GetMember(target, memberName, OriginFile), effectiveToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw CfgsScriptException.From(ex, OriginFile);
+            }
+        }
+
+        public async Task<T?> GetMemberAsync<T>(object target, string memberName, CancellationToken cancellationToken = default)
+            => VM.ConvertToHostValue<T>(await GetMemberAsync(target, memberName, cancellationToken).ConfigureAwait(false));
+
         public void SetMember(object target, string memberName, object? value)
         {
             try
@@ -152,7 +190,34 @@ namespace CFGS_VM.Hosting
                 _operationGate.Wait();
                 try
                 {
+                    EnsureCanExecute();
                     _vm.SetMember(target, memberName, value, OriginFile);
+                }
+                finally
+                {
+                    _operationGate.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw CfgsScriptException.From(ex, OriginFile);
+            }
+        }
+
+        public async Task SetMemberAsync(object target, string memberName, object? value, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using CancellationTokenSource? timeoutCts = CreateTimeoutTokenSource(cancellationToken, out CancellationToken effectiveToken);
+                await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
+                try
+                {
+                    EnsureCanExecute();
+                    await _vm.ExecuteHostMemberAsync(() =>
+                    {
+                        _vm.SetMember(target, memberName, value, OriginFile);
+                        return true;
+                    }, effectiveToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -176,8 +241,10 @@ namespace CFGS_VM.Hosting
                 await _operationGate.WaitAsync(effectiveToken).ConfigureAwait(false);
                 try
                 {
-                    Task<object?> call = _vm.InvokeMemberAsync(target, memberName, args, OriginFile, effectiveToken);
-                    return await WaitWithCancellation(call, effectiveToken).ConfigureAwait(false);
+                    EnsureCanExecute();
+                    object? member = await _vm.ExecuteHostMemberAsync(
+                        () => _vm.GetMember(target, memberName, OriginFile), effectiveToken).ConfigureAwait(false);
+                    return await _vm.InvokeValueAsync(member, args, OriginFile, effectiveToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -312,6 +379,12 @@ namespace CFGS_VM.Hosting
         public void SaveCfb(string path)
             => CfbFile.Save(CompiledScript, path);
 
+        private void EnsureCanExecute()
+        {
+            if (_topLevelCanceled)
+                throw new OperationCanceledException("The top-level run was canceled; compile a new script instance before executing again.");
+        }
+
         private CancellationTokenSource? CreateTimeoutTokenSource(CancellationToken cancellationToken, out CancellationToken effectiveToken)
         {
             if (_permissions.MaxExecutionTime is not TimeSpan timeout)
@@ -326,23 +399,5 @@ namespace CFGS_VM.Hosting
             return cts;
         }
 
-        /// <summary>
-        /// Awaits <paramref name="task"/>, giving up as soon as <paramref name="cancellationToken"/> fires.
-        /// <para>
-        /// This used to race the task against <c>Task.Delay(Timeout.InfiniteTimeSpan, token)</c>. When the
-        /// real task won, that delay was never cancelled, so its registration stayed alive on the token's
-        /// source. With no <c>MaxExecutionTime</c> configured the token is the caller's own, often
-        /// process-lifetime, token, so every <c>RunAsync</c> / <c>InvokeAsync</c> / <c>NewAsync</c> left a
-        /// registration behind and the list grew without bound. <c>WaitAsync</c> does the same job and
-        /// cleans up after itself.
-        /// </para>
-        /// </summary>
-        private static async Task<T> WaitWithCancellation<T>(Task<T> task, CancellationToken cancellationToken)
-        {
-            if (!cancellationToken.CanBeCanceled)
-                return await task.ConfigureAwait(false);
-
-            return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
     }
 }

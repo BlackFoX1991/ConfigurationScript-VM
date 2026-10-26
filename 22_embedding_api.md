@@ -87,7 +87,7 @@ Important members:
 - `NewAsync(...)`
 - `GetGlobal(...)`, `TryGetGlobal(...)`, `GetGlobals()`
 - `SetGlobal(...)`, `TrySetGlobal(...)`
-- `GetMember(...)`, `SetMember(...)`, `InvokeMemberAsync(...)`
+- `GetMember(...)`, `SetMember(...)`, `GetMemberAsync(...)`, `SetMemberAsync(...)`, `InvokeMemberAsync(...)`
 - `SaveCfb(path)`
 - `Runtime`: direct access to the underlying VM when advanced host customization is needed
 
@@ -376,8 +376,8 @@ Host-created instance:
 ```csharp
 object? person = await script.NewAsync("Person", "Ada");
 
-string? name = script.GetMember<string>(person!, "name");
-script.SetMember(person!, "name", "Grace");
+string? name = await script.GetMemberAsync<string>(person!, "name");
+await script.SetMemberAsync(person!, "name", "Grace");
 
 string? greeting = await script.InvokeMemberAsync<string>(person!, "greet", "Hi");
 ```
@@ -391,6 +391,10 @@ Member access goes through the same CFGS runtime rules as normal script executio
 
 This makes the host API a real language-level bridge instead of a parallel object model.
 
+`GetMemberAsync`, `GetMemberAsync<T>` and `SetMemberAsync` accept an optional `CancellationToken` and
+apply `MaxExecutionTime` to script getters and setters. The existing synchronous `GetMember` and
+`SetMember` methods remain available, but do not apply that timeout.
+
 ## Concurrency Model
 
 One `CfgsScript` instance owns one VM and one mutable script state.
@@ -402,6 +406,8 @@ Public host operations are serialized per script instance:
 - `NewAsync`
 - `GetMember`
 - `SetMember`
+- `GetMemberAsync`
+- `SetMemberAsync`
 - `InvokeMemberAsync`
 - global access helpers
 
@@ -429,7 +435,7 @@ engine.Permissions.MaxExecutionTime = TimeSpan.FromSeconds(5);
 | `AllowNativeInterop` | `false` | Allows `import native` and native CLR member access |
 | `AllowFileIO` | `false` | Allows file-system operations exposed through runtime/plugin APIs |
 | `RestrictFileIoToWorkspace` | `false` | Jails resolved file paths to the VM working directory, including paths that leave it through a symlink or junction |
-| `MaxExecutionTime` | unset | Cancels host-run and host-invoked script execution after the configured timeout |
+| `MaxExecutionTime` | unset | Cancels `RunAsync`, async invocations and async member access after the configured timeout |
 
 ### Important notes
 
@@ -437,7 +443,10 @@ engine.Permissions.MaxExecutionTime = TimeSpan.FromSeconds(5);
 - File-system APIs live in the `CFGS.IO` plugin, so hosts that need file I/O must also enable plugin loading
 - When `RestrictFileIoToWorkspace` is enabled, paths escaping the workspace are rejected, whether through an absolute path, `..` traversal, or a symlink or junction that points out of the workspace
 - Async host invocations inherit the same security policy, including workspace jailing
-- `MaxExecutionTime` is cooperative: it can stop VM execution, but it cannot forcibly break a blocking native/plugin CLR call
+- `MaxExecutionTime` also applies while async script calls run in child VMs, while the VM awaits a task,
+  and during synchronous script callbacks reached from a timed operation.
+  A canceled top-level `CfgsScript` instance cannot be executed again; compile a new instance before retrying.
+  Cancellation is cooperative and cannot forcibly break a blocking native/plugin CLR call.
 
 ### Recommended secure baseline
 

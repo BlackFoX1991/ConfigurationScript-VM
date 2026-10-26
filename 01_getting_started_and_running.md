@@ -21,17 +21,18 @@ If you want the codebase-level structure behind that implementation, continue wi
 
 ## Running the Test Suites
 
-The repository has four suites, and `dotnet test` covers none of them: both test projects
-are console runners rather than test-SDK projects, so that command discovers nothing and
-exits successfully. Use the entry point instead.
+The repository has five suites. `dotnet test CFGS_VM.sln` runs the xUnit tests
+for hosting, JSON and formatting and invokes the existing Tooling, LSP,
+Edgecases and Samples runners through xUnit integration tests. The following
+entry point runs the same suites and prints a separate summary for each:
 
 ```powershell
 pwsh scripts/run-all-tests.ps1
 ```
 
-It builds the solution and then runs the tooling tests, the LSP tests, the edge case
-programs, and the documentation samples, failing if any suite reports a failure or fails
-to report at all. Individual suites can be skipped with `-SkipEdgecases` and
+It builds the solution and then runs the xUnit tests, tooling tests, LSP tests,
+edge case programs and documentation samples, failing if any suite reports a failure
+or fails to report at all. Individual suites can be skipped with `-SkipEdgecases` and
 `-SkipSamples`, and an existing build reused with `-SkipBuild`.
 
 The sample suite executes every script under `CFGS_NE/Samples` rather than only compiling

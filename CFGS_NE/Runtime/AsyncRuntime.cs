@@ -37,6 +37,9 @@ namespace CFGS_VM.VMCore
 
             if (task.IsCompleted)
             {
+                // A child VM can finish as canceled before the parent reaches AWAIT. Preserve the
+                // host operation's cancellation instead of turning it into a script AwaitCanceled.
+                _activeCancellationToken.ThrowIfCancellationRequested();
                 if (task.IsFaulted)
                 {
                     Exception ex = task.Exception?.InnerException ?? task.Exception ?? new Exception("await faulted");
@@ -130,11 +133,12 @@ namespace CFGS_VM.VMCore
                 {
                     ct.ThrowIfCancellationRequested();
 
-                    RunStopReason reason = RunUntilAwaitOrHalt(false, ip);
+                    RunStopReason reason = RunUntilAwaitOrHalt(false, ip, ct: ct);
                     if (reason == RunStopReason.Halted)
                     {
+                        ct.ThrowIfCancellationRequested();
                         object? finalValue = ConsumeHotStartResult();
-                        return await FinalizeAsyncResult(finalValue).ConfigureAwait(false);
+                        return await FinalizeAsyncResult(finalValue).WaitAsync(ct).ConfigureAwait(false);
                     }
 
                     Task<object?> task = _awaitTask!;
@@ -151,10 +155,12 @@ namespace CFGS_VM.VMCore
                     object? res;
                     try
                     {
-                        res = await AwaitTaskAsync(task).ConfigureAwait(false);
+                        res = await AwaitTaskAsync(task).WaitAsync(ct).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
+                        if (ex is OperationCanceledException or OutOfMemoryException)
+                            throw;
                         // Fehler-Routing mutiert VM-Kontrollzustand (Try-Handler, Scopes), also erst die
                         // Gate wieder uebernehmen. Ein bereits abgebrochenes ct laesst WaitAsync sofort mit
                         // OperationCanceledException durchschlagen, was hier korrekt propagiert.

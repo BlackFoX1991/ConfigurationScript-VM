@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using CFGS_VM.Analytic.Modules;
 using CFGS_VM.Tooling;
 
 namespace CFGS.Lsp;
@@ -14,14 +15,12 @@ internal sealed class LspServer
     private const int MaxHeaderBytes = 32 * 1024;
     private static readonly Regex MissingImportPathRegex = new("^import path not found '(?<path>[^']+)'", RegexOptions.Compiled);
     private static readonly Regex MissingExportRegex = new("^Could not find export '(?<name>[^']+)' in import '(?<path>[^']+)'$", RegexOptions.Compiled);
-    // Erfasst den Pfad-String eines Import-Statements (bare/named/default), damit bei einer Aenderung an
-    // einer importierten Datei genau die offenen Dateien neu analysiert werden, die sie importieren.
-    private static readonly Regex ImportPathLineRegex = new(@"^\s*import\b[^""]*""(?<path>[^""]+)""", RegexOptions.Compiled);
     private readonly CfgsAnalyzer _analyzer;
     private readonly Stream _input;
     private readonly Stream _output;
     private readonly JsonSerializerOptions _jsonOptions = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly SemaphoreSlim _diagnosticPublishGate = new(1, 1);
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _pendingAnalysisByUri = OperatingSystem.IsWindows()
         ? new(StringComparer.OrdinalIgnoreCase)
         : new(StringComparer.Ordinal);
@@ -741,8 +740,22 @@ internal sealed class LspServer
         string text = textDocument.TryGetProperty("text", out JsonElement textEl) ? textEl.GetString() ?? string.Empty : string.Empty;
 
         DocumentState state = new(uri, text, version);
-        _documents[uri] = state;
         CancelAllPendingAnalysis(uri);
+        await _diagnosticPublishGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _documents.TryGetValue(uri, out DocumentState? previous);
+            _documents[uri] = state;
+            if (previous is not null)
+            {
+                foreach (string affectedUri in previous.DiagnosticContributions.Keys.OrderBy(static item => item, GetUriOrderComparer()))
+                    await PublishAggregatedDiagnosticsAsync(affectedUri, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _diagnosticPublishGate.Release();
+        }
         // Initial diagnostics for a freshly opened file are the full set (including the compile pass).
         await AnalyzeAndPublishAsync(state, cancellationToken, runCompilePass: true);
 
@@ -769,6 +782,9 @@ internal sealed class LspServer
         // Fast diagnostics right away; the deeper compile check runs once typing pauses.
         ScheduleFastAnalysis(state, cancellationToken);
         ScheduleFullAnalysis(state, cancellationToken, FullAnalysisIdleDebounce);
+        string? changedPath = TryGetLocalPath(uri);
+        if (changedPath is not null)
+            ReanalyzeImportersOf(changedPath, uri, cancellationToken, FullAnalysisIdleDebounce);
     }
 
     private void HandleDidSave(JsonElement parameters, CancellationToken cancellationToken)
@@ -792,14 +808,18 @@ internal sealed class LspServer
     {
         string uri = GetTextDocumentUri(parameters);
         CancelAllPendingAnalysis(uri);
-        if (_documents.TryRemove(uri, out DocumentState? state))
+        await _diagnosticPublishGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            foreach (string publishedUri in state.PublishedDiagnosticUris)
-                await PublishDiagnosticsAsync(publishedUri, [], cancellationToken);
+            HashSet<string> affectedUris = new(GetUriComparer()) { uri };
+            if (_documents.TryRemove(uri, out DocumentState? state))
+                affectedUris.UnionWith(state.DiagnosticContributions.Keys);
+            foreach (string affectedUri in affectedUris.OrderBy(static item => item, GetUriOrderComparer()))
+                await PublishAggregatedDiagnosticsAsync(affectedUri, cancellationToken).ConfigureAwait(false);
         }
-        else
+        finally
         {
-            await PublishDiagnosticsAsync(uri, [], cancellationToken);
+            _diagnosticPublishGate.Release();
         }
 
         // Closing a file drops its buffer overlay; open importers now resolve it from disk instead, which
@@ -830,7 +850,8 @@ internal sealed class LspServer
     // Wenn sich eine Datei aendert (Save, externe Aenderung, oeffnen/schliessen), stimmen die Diagnosen der
     // offenen Dateien, die sie importieren, nicht mehr - der LSP-Analyzer bekommt Aenderungen an anderen
     // Dateien sonst nicht mit. Hier werden genau diese Importeure erneut (voll) analysiert.
-    private void ReanalyzeImportersOf(string changedFullPath, string? excludeUri, CancellationToken cancellationToken)
+    private void ReanalyzeImportersOf(
+        string changedFullPath, string? excludeUri, CancellationToken cancellationToken, TimeSpan? delay = null)
     {
         foreach (DocumentState importer in GetOpenDocumentsImporting(changedFullPath, excludeUri))
         {
@@ -838,7 +859,7 @@ internal sealed class LspServer
             // Text-Kurzschluss in AnalyzeAndPublishAsync invalidieren, damit die volle Analyse wirklich neu
             // laeuft und die (Compile-)Diagnosen neu veroeffentlicht werden.
             InvalidateAnalysisCache(importer);
-            ScheduleFullAnalysis(importer, cancellationToken, TimeSpan.FromMilliseconds(50));
+            ScheduleFullAnalysis(importer, cancellationToken, delay ?? TimeSpan.FromMilliseconds(50));
         }
     }
 
@@ -864,50 +885,34 @@ internal sealed class LspServer
         }
     }
 
-    private static bool DocumentImportsPath(DocumentState state, string changedFullPath)
+    private bool DocumentImportsPath(DocumentState state, string changedFullPath)
     {
-        string? importerPath = TryGetLocalPath(state.Uri);
-        if (importerPath is null)
+        if (state.Analysis.LocalImportRequests.Count == 0)
             return false;
 
-        string? importerDirectory = Path.GetDirectoryName(importerPath);
-        if (string.IsNullOrEmpty(importerDirectory))
-            return false;
-
+        (string? workingDirectory, IReadOnlyList<string> searchRoots) =
+            CfgsAnalyzer.GetImportResolutionContext(state.Analysis.Origin, _workspaceRootPath);
+        SourceResolver resolver = new(workingDirectory, searchRoots);
         StringComparison pathComparison = OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
 
-        foreach (string line in state.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        foreach (LocalImportRequest request in state.Analysis.LocalImportRequests)
         {
-            Match match = ImportPathLineRegex.Match(line);
-            if (!match.Success)
-                continue;
-
-            string rawPath = match.Groups["path"].Value;
-            if (string.IsNullOrWhiteSpace(rawPath) ||
-                rawPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
-                rawPath.Contains("://", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            string candidate = Path.IsPathFullyQualified(rawPath)
-                ? rawPath
-                : Path.Combine(importerDirectory, rawPath.Replace('/', Path.DirectorySeparatorChar));
-
-            string resolved;
+            // Keep the old path for deletions and also resolve again: a newly created file may
+            // satisfy a missing import or take precedence over an older search-root result.
+            if (request.ResolvedPath is not null &&
+                string.Equals(request.ResolvedPath, changedFullPath, pathComparison))
+                return true;
             try
             {
-                resolved = Path.GetFullPath(candidate);
+                string? currentPath = resolver.ResolveImportPath(request.RawPath, request.SourceFileName);
+                if (currentPath is not null && string.Equals(currentPath, changedFullPath, pathComparison))
+                    return true;
             }
-            catch
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
             {
-                continue;
             }
-
-            if (string.Equals(resolved, changedFullPath, pathComparison))
-                return true;
         }
 
         return false;
@@ -970,7 +975,6 @@ internal sealed class LspServer
             {
                 Analysis = _analyzer.Analyze(u, text, GetOpenDocumentSources(), _workspaceRootPath)
             };
-            created.PublishedDiagnosticUris = created.Analysis.DiagnosticsByUri.Keys.ToHashSet(GetUriComparer());
             return created;
         });
     }
@@ -1007,42 +1011,44 @@ internal sealed class LspServer
 
             CfgsAnalysisResult analysis = _analyzer.Analyze(
                 state.Uri, text, GetOpenDocumentSources(), _workspaceRootPath, runCompilePass, cancellationToken);
-            state.AnalyzedText = text;
-            if (runCompilePass)
-                state.AnalyzedTextWithCompile = text;
-            state.Analysis = analysis;
-            if (IsSuccessfulInteractiveAnalysis(analysis))
-                state.LastSuccessfulAnalysis = analysis;
 
             // Live-Lint (Style + AST-Regeln) fuer die editierte Datei: laeuft im selben debounced Analyse-Pfad
             // wie die Semantik-Diagnosen, also erscheinen Lint-Hinweise schon beim Tippen. Der Compile-Pass des
             // Linters wird ausgelassen, weil die Analyse (im vollen Lauf) diese Diagnosen bereits liefert.
             IReadOnlyList<CfgsDiagnostic> lintDiagnostics = ComputeLintDiagnostics(state.Uri, text);
 
-            HashSet<string> nextUris = analysis.DiagnosticsByUri.Keys.ToHashSet(GetUriComparer());
-            nextUris.Add(state.Uri);
-
-            bool publishedOwnUri = false;
+            Dictionary<string, List<CfgsDiagnostic>> nextContributions = new(GetUriComparer());
             foreach ((string uri, List<CfgsDiagnostic> diagnostics) in analysis.DiagnosticsByUri)
+                nextContributions[uri] = diagnostics.ToList();
+            nextContributions[state.Uri] = MergeDiagnostics(
+                nextContributions.TryGetValue(state.Uri, out List<CfgsDiagnostic>? own) ? own : [], lintDiagnostics);
+
+            await _diagnosticPublishGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                if (GetUriComparer().Equals(uri, state.Uri))
-                {
-                    await PublishDiagnosticsAsync(uri, MergeDiagnostics(diagnostics, lintDiagnostics), cancellationToken);
-                    publishedOwnUri = true;
-                }
-                else
-                {
-                    await PublishDiagnosticsAsync(uri, diagnostics, cancellationToken);
-                }
+                if (!_documents.TryGetValue(state.Uri, out DocumentState? current) ||
+                    !ReferenceEquals(current, state) || !string.Equals(state.Text, text, StringComparison.Ordinal))
+                    return;
+
+                cancellationToken.ThrowIfCancellationRequested();
+                HashSet<string> affectedUris = state.DiagnosticContributions.Keys.ToHashSet(GetUriComparer());
+                affectedUris.UnionWith(nextContributions.Keys);
+                foreach (string affectedUri in affectedUris.OrderBy(static item => item, GetUriOrderComparer()))
+                    await PublishAggregatedDiagnosticsAsync(affectedUri, cancellationToken, state, nextContributions)
+                        .ConfigureAwait(false);
+
+                state.DiagnosticContributions = nextContributions;
+                state.AnalyzedText = text;
+                if (runCompilePass)
+                    state.AnalyzedTextWithCompile = text;
+                state.Analysis = analysis;
+                if (IsSuccessfulInteractiveAnalysis(analysis))
+                    state.LastSuccessfulAnalysis = analysis;
             }
-
-            if (!publishedOwnUri)
-                await PublishDiagnosticsAsync(state.Uri, lintDiagnostics, cancellationToken);
-
-            foreach (string staleUri in state.PublishedDiagnosticUris.Except(nextUris, GetUriComparer()))
-                await PublishDiagnosticsAsync(staleUri, [], cancellationToken);
-
-            state.PublishedDiagnosticUris = nextUris;
+            finally
+            {
+                _diagnosticPublishGate.Release();
+            }
         }
         finally
         {
@@ -1798,6 +1804,32 @@ internal sealed class LspServer
            || name.Equals("node_modules", StringComparison.OrdinalIgnoreCase)
            || name.Equals("dist", StringComparison.OrdinalIgnoreCase);
 
+    // Called while _diagnosticPublishGate is held. A diagnostic URI can be contributed by several
+    // open importers; closing or reanalyzing one of them must preserve the remaining contributions.
+    private async Task PublishAggregatedDiagnosticsAsync(
+        string uri,
+        CancellationToken cancellationToken,
+        DocumentState? replacementOwner = null,
+        IReadOnlyDictionary<string, List<CfgsDiagnostic>>? replacement = null)
+    {
+        List<CfgsDiagnostic> merged = [];
+        HashSet<CfgsDiagnostic> seen = [];
+        foreach (DocumentState owner in _documents.Values.OrderBy(static state => state.Uri, GetUriOrderComparer()))
+        {
+            IReadOnlyDictionary<string, List<CfgsDiagnostic>> contributions =
+                ReferenceEquals(owner, replacementOwner) ? replacement! : owner.DiagnosticContributions;
+            if (!contributions.TryGetValue(uri, out List<CfgsDiagnostic>? diagnostics))
+                continue;
+            foreach (CfgsDiagnostic diagnostic in diagnostics)
+            {
+                if (seen.Add(diagnostic))
+                    merged.Add(diagnostic);
+            }
+        }
+
+        await PublishDiagnosticsAsync(uri, merged, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task PublishDiagnosticsAsync(string uri, IReadOnlyList<CfgsDiagnostic> diagnostics, CancellationToken cancellationToken)
     {
         await SendNotificationAsync("textDocument/publishDiagnostics", new
@@ -1939,9 +1971,11 @@ internal sealed class LspServer
         await _sendLock.WaitAsync(cancellationToken);
         try
         {
-            await _output.WriteAsync(headerBytes, cancellationToken);
-            await _output.WriteAsync(jsonBytes, cancellationToken);
-            await _output.FlushAsync(cancellationToken);
+            // Once a frame starts, cancellation must not leave a header without
+            // its complete body on the shared LSP output stream.
+            await _output.WriteAsync(headerBytes, CancellationToken.None);
+            await _output.WriteAsync(jsonBytes, CancellationToken.None);
+            await _output.FlushAsync(CancellationToken.None);
         }
         finally
         {
@@ -2311,7 +2345,7 @@ internal sealed class LspServer
             Version = version;
             Analysis = new CfgsAnalysisResult(uri, uri, text, new Dictionary<string, List<CfgsDiagnostic>>(), [], [], new CfgsSemanticModel([], new Dictionary<string, CfgsSymbol>(), [], [], []));
             LastSuccessfulAnalysis = null;
-            PublishedDiagnosticUris = new HashSet<string>(GetUriComparer());
+            DiagnosticContributions = new Dictionary<string, List<CfgsDiagnostic>>(GetUriComparer());
         }
 
         public string Uri { get; }
@@ -2324,7 +2358,7 @@ internal sealed class LspServer
 
         public CfgsAnalysisResult? LastSuccessfulAnalysis { get; set; }
 
-        public HashSet<string> PublishedDiagnosticUris { get; set; }
+        public Dictionary<string, List<CfgsDiagnostic>> DiagnosticContributions { get; set; }
 
         // Text, der zur zuletzt veroeffentlichten Analyse gefuehrt hat. Aendert sich der Text zwischen
         // zwei Analyse-Laeufen nicht (z.B. Save ohne Aenderung, redundante didChange-Sequenzen), wird der

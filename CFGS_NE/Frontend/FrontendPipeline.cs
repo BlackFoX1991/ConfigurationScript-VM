@@ -9,7 +9,10 @@ using CFGS_VM.VMCore.Plugin;
 namespace CFGS_VM.Analytic
 {
     public sealed record FrontendBuildResult(List<Stmt> SyntaxAst, List<Stmt> LoweredAst);
-    public sealed record FrontendTolerantBuildResult(List<Stmt> SyntaxAst, List<Stmt> LoweredAst, IReadOnlyList<ParserException> Diagnostics);
+    public sealed record FrontendTolerantBuildResult(List<Stmt> SyntaxAst, List<Stmt> LoweredAst, IReadOnlyList<ParserException> Diagnostics)
+    {
+        internal IReadOnlyList<LocalImportRequest> LocalImportRequests { get; init; } = [];
+    }
 
     public sealed class FrontendPipeline
     {
@@ -124,7 +127,10 @@ namespace CFGS_VM.Analytic
                 diagnostics.Add(NormalizeDiagnostic(ex));
             }
 
-            return new FrontendTolerantBuildResult(syntaxAst, loweredAst, diagnostics);
+            return new FrontendTolerantBuildResult(syntaxAst, loweredAst, diagnostics)
+            {
+                LocalImportRequests = sourceResolver.LocalImportRequests.ToArray()
+            };
         }
 
         /// <summary>

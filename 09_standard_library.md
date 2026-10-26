@@ -194,6 +194,10 @@ print(regex.replace("foo bar baz", "\\s+", "-"));
 - `json.stringify(value, pretty = true)` serializes a CFGS value into JSON text. The default is
   indented for reading; pass `false` for a single-line payload to store or transmit.
 - `json.from(text)` and `json.to(value, pretty = true)` are short aliases for parse and stringify inside the JSON namespace.
+- Integer JSON tokens outside the signed 64-bit range become CFGS `BigInt` values. `json.stringify`
+  writes `BigInt` values as JSON numbers, preserving exact integer round trips.
+- Cyclic lists, maps, or class instances cannot be represented in JSON. `json.stringify` raises a
+  catchable runtime error (`CFGS3000`) for a cycle or nesting beyond the supported depth of 64.
 
 ```cfs
 var cfg = {"host": "localhost", "port": 80};

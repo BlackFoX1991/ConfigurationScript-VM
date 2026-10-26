@@ -113,7 +113,7 @@ namespace CFGS_VM.VMCore
                 func.isAsync);
 
             Instruction syntheticCall = new(OpCode.CALL, name, -1, -1, originFile ?? string.Empty);
-            if (TryStartHotAsyncCall(closure, args, receiver: null, accessType: null, syntheticCall, out Task<object?> startedTask))
+            if (TryStartHotAsyncCall(closure, args, receiver: null, accessType: null, syntheticCall, ct, out Task<object?> startedTask))
                 return await startedTask.ConfigureAwait(false);
 
             return InvokeClosureSync(closure, args, syntheticCall, ct: ct);
@@ -154,6 +154,11 @@ namespace CFGS_VM.VMCore
         /// </summary>
         public Value InvokeClosureSyncValue(Closure closure, List<Value> args, Instruction instr, object? receiver, StaticInstance? accessType, CancellationToken ct = default)
         {
+            // Intrinsics, property accessors and native callbacks commonly omit ct. When they run
+            // inside bytecode, inherit that operation's deadline instead of masking it with None.
+            if (!ct.CanBeCanceled)
+                ct = _activeCancellationToken;
+
             if (_program is null || _program.Count == 0)
                 throw new VMException("Cannot invoke closure: no program loaded.", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
 
@@ -252,6 +257,7 @@ namespace CFGS_VM.VMCore
             object? receiver,
             StaticInstance? accessType,
             Instruction instr,
+            CancellationToken ct,
             out Task<object?> startedTask)
         {
             if (!f.IsAsync)
@@ -263,7 +269,7 @@ namespace CFGS_VM.VMCore
             Env callEnv = BuildCallEnv(f, args, instr);
             VM child = CreateHotStartChildVm();
             child.PrepareHotStartEntry(callEnv, receiver, accessType);
-            startedTask = child.RunHotStartEntryAsync(f.Address);
+            startedTask = child.RunHotStartEntryAsync(f.Address, ct);
             return true;
         }
 
@@ -790,7 +796,7 @@ namespace CFGS_VM.VMCore
                     throw new VMException($"Runtime error: attempt to call non-function value ({instr.Code})", instr.Line, instr.Col, instr.OriginFile, IsDebugging, DebugStream!);
                 }
 
-                if (TryStartHotAsyncCall(f, argsList, receiver, accessType, instr, out Task<object?> hotTask))
+                if (TryStartHotAsyncCall(f, argsList, receiver, accessType, instr, _activeCancellationToken, out Task<object?> hotTask))
                 {
                     PushRuntimeObject(hotTask);
                     return StepResult.Continue;

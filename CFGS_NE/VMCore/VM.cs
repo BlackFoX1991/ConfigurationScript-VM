@@ -71,6 +71,9 @@ namespace CFGS_VM.VMCore
         /// (zugewiesen im jeweiligen Konstruktor; Child-VMs erhalten die Instanz der Wurzel-VM).
         /// </summary>
         private readonly SemaphoreSlim _executionGate;
+        // Set only while this VM executes a bytecode segment under the shared gate. Nested calls
+        // restore the previous token when they return, so hot-started children inherit the operation.
+        private CancellationToken _activeCancellationToken;
 
         private void PopScopesToBase(int baseDepth)
         {

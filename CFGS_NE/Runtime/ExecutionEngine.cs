@@ -33,8 +33,10 @@ namespace CFGS_VM.VMCore
 
             VM? prevVm = CurrentVm;
             int previousMinRouteCallDepth = _minRouteCallDepth;
+            CancellationToken previousCancellationToken = _activeCancellationToken;
             CurrentVm = this;
             _minRouteCallDepth = Math.Max(_minRouteCallDepth, minRouteCallDepth);
+            _activeCancellationToken = ct;
             try
             {
                 bool routed = false;
@@ -252,6 +254,7 @@ namespace CFGS_VM.VMCore
             finally
             {
                 _minRouteCallDepth = previousMinRouteCallDepth;
+                _activeCancellationToken = previousCancellationToken;
                 CurrentVm = prevVm;
             }
         }
@@ -282,7 +285,10 @@ namespace CFGS_VM.VMCore
 
                     RunStopReason reason = RunUntilAwaitOrHalt(debugging, startIp, ct: ct);
                     if (reason == RunStopReason.Halted)
+                    {
+                        ct.ThrowIfCancellationRequested();
                         return;
+                    }
 
                     Task<object?> task = _awaitTask!;
 
@@ -292,7 +298,7 @@ namespace CFGS_VM.VMCore
 
                     try
                     {
-                        object? res = await AwaitTaskAsync(task).ConfigureAwait(false);
+                        object? res = await AwaitTaskAsync(task).WaitAsync(ct).ConfigureAwait(false);
                         await _executionGate.WaitAsync(ct).ConfigureAwait(false);
                         ownsGate = true;
                         _valueStack.Push(ToRuntimeValue(res));
@@ -344,6 +350,7 @@ namespace CFGS_VM.VMCore
             }
             finally
             {
+                _awaitTask = null;
                 if (ownsGate)
                     _executionGate.Release();
             }

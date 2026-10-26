@@ -52,6 +52,9 @@ internal static class Program
             HostingFileIoPermissionIsPerVm,
             HostingDefaultsDenyFileIo,
             RunAsyncRunsTopLevelOnceAndNeverAutoInvokesMain,
+            HostingTimeoutStopsAsyncBytecodeAndAwait,
+            HostingTimeoutFlowsIntoSynchronousCallbacks,
+            AsyncHostMemberAccessHonorsTimeout,
             WorkspaceJailRejectsEscapingPaths,
             PluginFileOperationsRespectWorkspaceJail,
             HttpServerFileOperationsRespectWorkspaceJail,
@@ -63,6 +66,8 @@ internal static class Program
             WorkspaceIsVmScoped,
             PluginLoadRejectsMismatchedPackageLockHash,
             PackageLockCoversDependenciesAndRejectsUnexpectedFiles,
+            PackageRestoreRejectsConflictingDependenciesAtomically,
+            PackageInstallMissingSourceLeavesManifestUntouched,
             PackageRestoredPluginLoadsSuccessfully,
             HostingPreservesStructuredDiagnosticCode,
             CfbLoaderRejectsCorruptElementCounts,
@@ -78,6 +83,8 @@ internal static class Program
             CfbRoundTripsSurrogateCharOperand,
             CfbRejectsCorruptDecimalOperand,
             JsonSerializesBigIntegerAsNumber,
+            JsonNamespaceRejectsCyclesAndExcessiveDepth,
+            JsonNamespaceRoundTripsBigIntegers,
             LoopClosureCaptureIsPerIteration,
             ForeachDestructuringAndBreakContinueStillWork,
             CompoundAndIncrementEvaluateLValueOnce,
@@ -1132,6 +1139,163 @@ func main() {
         AssertEqual(2, script.GetGlobal<int>("counter"), "explicit InvokeAsync(main) must run main each time");
     }
 
+    private static void HostingTimeoutStopsAsyncBytecodeAndAwait()
+    {
+        CfgsScriptEngine engine = new();
+        engine.Permissions.MaxExecutionTime = TimeSpan.FromMilliseconds(50);
+
+        CfgsScript spin = engine.CompileSource("<timeout-spin>", """
+async func spin(n) { var x = 0; while (x < n) { x = x + 1; } return x; }
+""");
+        Task<object?> invocation = Task.Run(() => spin.InvokeAsync("spin", new object[] { 5_000_000 }));
+        AssertTrue(ReferenceEquals(invocation, Task.WhenAny(invocation, Task.Delay(2000)).GetAwaiter().GetResult()),
+            "async bytecode must observe the host deadline");
+        try
+        {
+            invocation.GetAwaiter().GetResult();
+            throw new InvalidOperationException("async bytecode returned successfully after its deadline");
+        }
+        catch (CfgsScriptException ex)
+        {
+            AssertEqual("CFGS9100", ex.Code, "async bytecode timeout must keep the cancellation code");
+        }
+
+        CfgsScript topLevelChild = engine.CompileSource("<timeout-top-level-child>", """
+async func spin(n) { var x = 0; while (x < n) { x = x + 1; } return x; }
+await spin(5000000);
+""");
+        Task topLevelChildRun = Task.Run(() => topLevelChild.RunAsync());
+        AssertTrue(ReferenceEquals(topLevelChildRun, Task.WhenAny(topLevelChildRun, Task.Delay(2000)).GetAwaiter().GetResult()),
+            "async child started by top-level bytecode must inherit the deadline");
+        try
+        {
+            topLevelChildRun.GetAwaiter().GetResult();
+            throw new InvalidOperationException("top-level async child returned successfully after its deadline");
+        }
+        catch (CfgsScriptException ex)
+        {
+            AssertEqual("CFGS9100", ex.Code, $"top-level async child timeout must keep the cancellation code: {ex.Message}");
+        }
+
+        CfgsScript awaited = engine.CompileSource("<timeout-await>",
+            "func later() { return 1; } await sleep(3000);");
+        Task run = awaited.RunAsync();
+        AssertTrue(ReferenceEquals(run, Task.WhenAny(run, Task.Delay(1000)).GetAwaiter().GetResult()),
+            "top-level await must stop promptly when the host deadline expires");
+        try
+        {
+            run.GetAwaiter().GetResult();
+            throw new InvalidOperationException("top-level await returned successfully after its deadline");
+        }
+        catch (CfgsScriptException ex)
+        {
+            AssertEqual("CFGS9100", ex.Code, "top-level timeout must keep the cancellation code");
+        }
+
+        foreach (Func<Task> retry in new Func<Task>[]
+        {
+            () => awaited.RunAsync(),
+            async () => { await awaited.InvokeAsync("later"); }
+        })
+        {
+            try
+            {
+                retry().GetAwaiter().GetResult();
+                throw new InvalidOperationException("a canceled top-level script must require a new instance");
+            }
+            catch (CfgsScriptException ex)
+            {
+                AssertEqual("CFGS9100", ex.Code, "canceled top-level instance must report CFGS9100");
+            }
+        }
+    }
+
+    private static void HostingTimeoutFlowsIntoSynchronousCallbacks()
+    {
+        CfgsScriptEngine engine = new();
+        engine.Permissions.MaxExecutionTime = TimeSpan.FromMilliseconds(50);
+        CfgsScript script = engine.CompileSource("<timeout-callback>", """
+var mapped = [1].map(func(value) {
+    var i = 0;
+    while (i < 20000000) { i = i + 1; }
+    return value;
+});
+""");
+        Task run = Task.Run(() => script.RunAsync());
+        AssertTrue(ReferenceEquals(run, Task.WhenAny(run, Task.Delay(1000)).GetAwaiter().GetResult()),
+            "synchronous callbacks must stop within the host deadline");
+        try
+        {
+            run.GetAwaiter().GetResult();
+            throw new InvalidOperationException("callback completed after its deadline");
+        }
+        catch (CfgsScriptException ex)
+        {
+            AssertEqual("CFGS9100", ex.Code, "callback timeout must keep the host cancellation code");
+        }
+    }
+
+    private static void AsyncHostMemberAccessHonorsTimeout()
+    {
+        CfgsScriptEngine engine = new();
+        engine.Permissions.MaxExecutionTime = TimeSpan.FromMilliseconds(50);
+        CfgsScript script = engine.CompileSource("<timeout-members>", """
+class Worker() {
+    var _value = 0;
+    property slow {
+        get {
+            var i = 0;
+            while (i < 5000000) { i = i + 1; }
+            return i;
+        }
+    }
+    property slowCall {
+        get {
+            var i = 0;
+            while (i < 5000000) { i = i + 1; }
+            return func() { return 1; };
+        }
+    }
+    property value {
+        get { return this._value; }
+        set(next) {
+            var i = 0;
+            while (i < 5000000) { i = i + 1; }
+            this._value = next;
+        }
+    }
+    property fast { get; set; } = 0;
+}
+""");
+        script.RunAsync().GetAwaiter().GetResult();
+        object worker = script.NewAsync("Worker").GetAwaiter().GetResult()!;
+
+        ExpectCanceled(() => script.GetMemberAsync(worker, "slow"), "async getter");
+        ExpectCanceled(() => script.SetMemberAsync(worker, "value", 9), "async setter");
+        AssertEqual(0, script.GetMember<int>(worker, "value"), "canceled setter must not reach its final assignment");
+        ExpectCanceled(() => script.InvokeMemberAsync(worker, "slowCall"), "member invocation getter");
+
+        script.SetMemberAsync(worker, "fast", 7).GetAwaiter().GetResult();
+        AssertEqual(7, script.GetMemberAsync<int>(worker, "fast").GetAwaiter().GetResult(),
+            "new async member API must also work without a timeout");
+
+        static void ExpectCanceled(Func<Task> operation, string label)
+        {
+            Task task = Task.Run(operation);
+            AssertTrue(ReferenceEquals(task, Task.WhenAny(task, Task.Delay(1500)).GetAwaiter().GetResult()),
+                $"{label} did not stop promptly");
+            try
+            {
+                task.GetAwaiter().GetResult();
+                throw new InvalidOperationException($"{label} completed after its deadline");
+            }
+            catch (CfgsScriptException ex)
+            {
+                AssertEqual("CFGS9100", ex.Code, $"{label} must report host cancellation");
+            }
+        }
+    }
+
     private static void WorkspaceJailRejectsEscapingPaths()
     {
         string workspace = Path.Combine(Path.GetTempPath(), "cfgs-jail-test", Guid.NewGuid().ToString("N"));
@@ -1764,6 +1928,82 @@ func writeInWorkspace(path) {
         }
     }
 
+    private static void PackageRestoreRejectsConflictingDependenciesAtomically()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-collision-test", Guid.NewGuid().ToString("N"));
+        string first = Path.Combine(root, "first");
+        string second = Path.Combine(root, "second");
+        string firstNative = Path.Combine(first, "runtimes", "win-x64", "native");
+        string secondNative = Path.Combine(second, "runtimes", "win-x64", "native");
+        Directory.CreateDirectory(firstNative);
+        Directory.CreateDirectory(secondNative);
+        string pluginA = Path.Combine(first, "PluginA.dll");
+        string pluginB = Path.Combine(second, "PluginB.dll");
+        File.WriteAllBytes(pluginA, [1]);
+        File.WriteAllBytes(pluginB, [2]);
+        File.WriteAllBytes(Path.Combine(first, "Shared.dll"), [11]);
+        File.WriteAllBytes(Path.Combine(second, "Shared.dll"), [22]);
+        File.WriteAllBytes(Path.Combine(firstNative, "native.dll"), [33]);
+        File.WriteAllBytes(Path.Combine(secondNative, "native.dll"), [33]);
+
+        try
+        {
+            CfgsPackageManager.InstallPlugin(pluginA, root);
+            string manifestPath = Path.Combine(root, "cfgs.json");
+            string lockPath = Path.Combine(root, "cfgs.lock.json");
+            string installed = Path.Combine(root, ".cfgs", "plugins");
+            byte[] originalManifest = File.ReadAllBytes(manifestPath);
+            byte[] originalLock = File.ReadAllBytes(lockPath);
+            try
+            {
+                CfgsPackageManager.InstallPlugin(pluginB, root);
+                throw new InvalidOperationException("different managed dependencies must fail restore");
+            }
+            catch (InvalidDataException ex)
+            {
+                AssertTrue(ex.Message.Contains("Shared.dll", StringComparison.Ordinal) &&
+                    ex.Message.Contains(first, StringComparison.OrdinalIgnoreCase) &&
+                    ex.Message.Contains(second, StringComparison.OrdinalIgnoreCase),
+                    "collision diagnostic must name both dependency sources");
+            }
+
+            AssertTrue(File.ReadAllBytes(manifestPath).SequenceEqual(originalManifest), "failed install changed the manifest");
+            AssertTrue(File.ReadAllBytes(lockPath).SequenceEqual(originalLock), "failed install changed the lockfile");
+            AssertTrue(!File.Exists(Path.Combine(installed, "PluginB.dll")), "failed install changed installed plugins");
+            AssertTrue(File.ReadAllBytes(Path.Combine(installed, "Shared.dll")).SequenceEqual(new byte[] { 11 }),
+                "failed install replaced the existing dependency");
+
+            File.WriteAllBytes(Path.Combine(second, "Shared.dll"), [11]);
+            CfgsPackageManager.InstallPlugin(pluginB, root);
+            AssertTrue(File.Exists(Path.Combine(installed, "PluginB.dll")), "identical shared dependency should install");
+            byte[] goodLock = File.ReadAllBytes(lockPath);
+            File.WriteAllBytes(Path.Combine(secondNative, "native.dll"), [44]);
+            try
+            {
+                CfgsPackageManager.Restore(root);
+                throw new InvalidOperationException("different native dependencies must fail restore");
+            }
+            catch (InvalidDataException ex)
+            {
+                AssertTrue(ex.Message.Contains("native.dll", StringComparison.Ordinal),
+                    "native collision diagnostic must name the file");
+            }
+            AssertTrue(File.ReadAllBytes(lockPath).SequenceEqual(goodLock), "failed restore changed the lockfile");
+            AssertTrue(File.ReadAllBytes(Path.Combine(installed, "runtimes", "win-x64", "native", "native.dll"))
+                .SequenceEqual(new byte[] { 33 }), "failed restore replaced the native dependency");
+        }
+        finally
+        {
+            string fullRoot = Path.GetFullPath(root);
+            string tempRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            AssertTrue(fullRoot.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase),
+                "refusing to delete a test directory outside the temp root");
+            if (Directory.Exists(fullRoot))
+                Directory.Delete(fullRoot, recursive: true);
+        }
+    }
+
     private static void AssertPackageLockRejected(string pluginPath, string scenario)
     {
         try
@@ -1773,6 +2013,59 @@ func writeInWorkspace(path) {
         }
         catch (InvalidDataException)
         {
+        }
+    }
+
+    private static void PackageInstallMissingSourceLeavesManifestUntouched()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-missing-plugin-test", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string missing = Path.Combine(root, "missing.dll");
+            string manifestPath = Path.Combine(root, "cfgs.json");
+            foreach (bool restore in new[] { true, false })
+            {
+                try
+                {
+                    CfgsPackageManager.InstallPlugin(missing, root, restore: restore);
+                    throw new InvalidOperationException("missing plugin must fail installation");
+                }
+                catch (FileNotFoundException ex)
+                {
+                    AssertTrue(ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase),
+                        "missing plugin must report its source path");
+                }
+                AssertTrue(!File.Exists(manifestPath), "failed first install must not create a manifest");
+            }
+
+            CfgsPackageManager.Init(root);
+            byte[] original = File.ReadAllBytes(manifestPath);
+            foreach (bool restore in new[] { true, false })
+            {
+                try
+                {
+                    CfgsPackageManager.InstallPlugin(missing, root, restore: restore);
+                    throw new InvalidOperationException("missing plugin must fail installation");
+                }
+                catch (FileNotFoundException) { }
+                AssertTrue(File.ReadAllBytes(manifestPath).SequenceEqual(original),
+                    "failed install must preserve an existing manifest byte for byte");
+            }
+            AssertTrue(!File.Exists(Path.Combine(root, "cfgs.lock.json")),
+                "failed preflight must not create a lockfile");
+            AssertTrue(!Directory.Exists(Path.Combine(root, ".cfgs", "plugins")),
+                "failed preflight must not create an install directory");
+        }
+        finally
+        {
+            string fullRoot = Path.GetFullPath(root);
+            string tempRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            AssertTrue(fullRoot.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase),
+                "refusing to delete a test directory outside the temp root");
+            if (Directory.Exists(fullRoot))
+                Directory.Delete(fullRoot, recursive: true);
         }
     }
 
@@ -2490,6 +2783,59 @@ func probe() {
         System.Numerics.BigInteger big = System.Numerics.BigInteger.Pow(2, 100);
         string json = VM.JsonStringify(Value.FromObject(big));
         AssertEqual("1267650600228229401496703205376", json, "BigInteger must serialize as a bare JSON number (J1)");
+    }
+
+    private static void JsonNamespaceRejectsCyclesAndExcessiveDepth()
+    {
+        CfgsScriptEngine engine = new();
+        foreach (string source in new[]
+        {
+            "var a = []; a[] = a; json.stringify(a, false);",
+            "var d = {}; d[\"self\"] = d; json.stringify(d, false);",
+            "var n = 0; var v = []; while (n < 65) { v = [v]; n = n + 1; } json.stringify(v, false);"
+        })
+        {
+            try
+            {
+                engine.CompileSource("<json-cycle>", source).RunAsync().GetAwaiter().GetResult();
+                throw new InvalidOperationException("JSON cycle or depth limit should have failed");
+            }
+            catch (CfgsScriptException ex)
+            {
+                AssertEqual("CFGS3000", ex.Code, "JSON cycle/depth error must be a catchable runtime diagnostic");
+            }
+        }
+
+        CfgsScript shared = engine.CompileSource("<json-shared>",
+            "var leaf = [1]; var text = json.stringify([leaf, leaf], false);");
+        shared.RunAsync().GetAwaiter().GetResult();
+        AssertEqual("[[1],[1]]", shared.GetGlobal<string>("text"), "shared acyclic values must serialize twice");
+    }
+
+    private static void JsonNamespaceRoundTripsBigIntegers()
+    {
+        CfgsScriptEngine engine = new();
+        CfgsScript script = engine.CompileSource("<json-bigint>", """
+var big = bigint("1267650600228229401496703205377");
+var compact = json.stringify({"positive": big, "negative": -big}, false);
+var pretty = json.stringify(big);
+var decoded = json.parse(compact);
+var positive = decoded["positive"];
+var negative = decoded["negative"];
+var positiveKind = typeof(positive);
+var negativeKind = typeof(negative);
+var decimalKind = typeof(json.parse("1.5"));
+var exponentKind = typeof(json.parse("1e30"));
+""");
+        script.RunAsync().GetAwaiter().GetResult();
+        AssertEqual("{\"positive\":1267650600228229401496703205377,\"negative\":-1267650600228229401496703205377}",
+            script.GetGlobal<string>("compact"), "BigInteger values must be JSON numbers in nested compact output");
+        AssertEqual("1267650600228229401496703205377", script.GetGlobal<string>("pretty"),
+            "BigInteger must be a JSON number in default output");
+        AssertEqual("BigInt", script.GetGlobal<string>("positiveKind"), "parsed positive integer must remain BigInt");
+        AssertEqual("BigInt", script.GetGlobal<string>("negativeKind"), "parsed negative integer must remain BigInt");
+        AssertEqual("Decimal", script.GetGlobal<string>("decimalKind"), "decimal JSON numbers retain their type");
+        AssertEqual("Double", script.GetGlobal<string>("exponentKind"), "exponential JSON numbers retain their type");
     }
 
     private static void LoopClosureCaptureIsPerIteration()
