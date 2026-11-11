@@ -254,6 +254,12 @@ namespace CFGS_VM.VMCore
 
         public bool AllowPluginLoading { get; set; } = true;
 
+        /// <summary>Allows network operations in socket and HTTP plugins; embedding hosts default to deny.</summary>
+        public bool AllowNetworkIO { get; set; } = true;
+
+        /// <summary>The cancellation token of the currently executing VM call, or the default token outside a call.</summary>
+        public CancellationToken ActiveCancellationToken => _activeCancellationToken;
+
         /// <summary>
         /// When enabled, <see cref="ResolveWorkspacePath"/> rejects any path that resolves outside
         /// <see cref="WorkingDirectory"/> (whether via an absolute path, <c>..</c> traversal, or a

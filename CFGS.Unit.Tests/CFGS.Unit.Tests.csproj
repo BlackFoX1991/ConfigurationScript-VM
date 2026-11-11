@@ -19,6 +19,7 @@
     <ProjectReference Include="..\CFGS.Pdf\CFGS.Pdf.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\CFGS.Security.Crypto\CFGS.Security.Crypto.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\CFGS.Web.Http\CFGS.Web.Http.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\CFGS.Net.Sockets\CFGS.Net.Sockets.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\CFGS.Xml\CFGS.Xml.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

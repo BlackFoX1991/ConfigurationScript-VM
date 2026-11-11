@@ -143,6 +143,7 @@ namespace CFGS_VM.Hosting
                 AllowFileIO = Permissions.AllowFileIO,
                 AllowNativeInterop = Permissions.AllowNativeInterop,
                 AllowPluginLoading = Permissions.AllowPluginLoading,
+                AllowNetworkIO = Permissions.AllowNetworkIO,
                 RestrictFileIoToWorkspace = Permissions.RestrictFileIoToWorkspace
             };
 

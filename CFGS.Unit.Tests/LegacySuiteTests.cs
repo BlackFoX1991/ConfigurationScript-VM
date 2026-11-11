@@ -34,7 +34,7 @@ public sealed class LegacySuiteTests
     public async Task EdgecaseSuite()
     {
         string script = Path.Combine(RepoRoot, "CFGS_NE", "Edgecases", "run_all_edgecases.ps1");
-        RunResult run = await RunAsync(PowerShell(), ["-NoProfile", "-File", script]);
+        RunResult run = await RunAsync(PowerShell(), ["-NoProfile", "-File", script, "-SkipBuild"]);
         AssertSummary(run, "EDGECASE_SUMMARY", 341);
     }
 
@@ -44,7 +44,7 @@ public sealed class LegacySuiteTests
         string script = Path.Combine(RepoRoot, "CFGS_NE", "Samples", "run_all_samples.ps1");
         RunResult run = await RunAsync(PowerShell(),
             ["-NoProfile", "-File", script, "-Configuration", Configuration, "-SkipBuild"]);
-        AssertSummary(run, "SAMPLES_SUMMARY", 19);
+        AssertSummary(run, "SAMPLES_SUMMARY", 20);
     }
 
     private static string PowerShell()

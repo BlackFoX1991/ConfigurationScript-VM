@@ -27,6 +27,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "CFGS_NE", "CFGS_NE", "{49D3
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CFGS.Unit.Tests", "CFGS.Unit.Tests\CFGS.Unit.Tests.csproj", "{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CFGS.Net.Sockets", "CFGS.Net.Sockets\CFGS.Net.Sockets.csproj", "{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -169,6 +171,18 @@ Global
 		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Release|x64.Build.0 = Release|Any CPU
 		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Release|x86.ActiveCfg = Release|Any CPU
 		{94886FD3-E2C9-43B0-B1B6-2FA9C0CF7EFC}.Release|x86.Build.0 = Release|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Debug|x64.Build.0 = Debug|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Debug|x86.Build.0 = Debug|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Release|Any CPU.Build.0 = Release|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Release|x64.ActiveCfg = Release|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Release|x64.Build.0 = Release|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Release|x86.ActiveCfg = Release|Any CPU
+		{80C2676B-5CE5-4D2A-AC61-27D6FB9ABE99}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

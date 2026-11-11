@@ -219,6 +219,7 @@ namespace CFGS_VM.VMCore
                 AllowFileIO = AllowFileIO,
                 AllowNativeInterop = AllowNativeInterop,
                 AllowPluginLoading = AllowPluginLoading,
+                AllowNetworkIO = AllowNetworkIO,
                 EntryScriptPath = EntryScriptPath,
                 WorkingDirectory = WorkingDirectory,
                 NativeAssemblyBaseDirectory = NativeAssemblyBaseDirectory,

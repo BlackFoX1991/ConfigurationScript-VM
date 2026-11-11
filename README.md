@@ -33,7 +33,8 @@ If you are opening CFGS for the first time, this is the best reading order.
 20. [Package and Dependency Management](20_package_dependency_management.md)
 21. [Native .NET Interop](21_native_dotnet_interop.md)
 22. [Embedding CFGS in .NET Applications](22_embedding_api.md)
-23. [Practical Feature Samples](CFGS_NE/Samples/README.md)
+23. [TCP and UDP Socket Plugin](23_socket_plugin.md)
+24. [Practical Feature Samples](CFGS_NE/Samples/README.md)
 
 ## Complete Feature Index
 
@@ -54,7 +55,7 @@ The following topics are covered completely across the English documentation set
 - Modules. `export`. Bare imports. Named imports. Alias imports. Namespace imports. Single symbol imports. File imports. URL imports. DLL imports. Header rules. Import resolution. Cycles.
 - Async model. `async func`. `await`. `yield`. Top level await inside expressions. Hot start behavior. Await on lists and dictionaries. Await on Task and ValueTask values returned by plugins.
 - Standard library. All builtins. Native namespace roots such as `encoding`, `regex`, `json`, `math`, `console`, `fs`, `file`, and `eventlog`. All string, array, dictionary, DateTime, DirectoryInfo, FileHandle, BinaryFileHandle, exception, and task intrinsics.
-- Official repository plugins. Standard library. HTTP. SQL. XML with DOM editing, XPath, namespaces, serialization, PDF with document creation, page editing, metadata, attachments, and Crypto with hashing, HMAC, PBKDF2, AES GCM, RSA, ECDSA, Ed25519, X25519, JWT, HOTP and TOTP, and X509.
+- Official repository plugins. Standard library. HTTP. TCP and UDP sockets. SQL. XML with DOM editing, XPath, namespaces, serialization, PDF with document creation, page editing, metadata, attachments, and Crypto with hashing, HMAC, PBKDF2, AES GCM, RSA, ECDSA, Ed25519, X25519, JWT, HOTP and TOTP, and X509.
 - Plugin development. `IVmPlugin`. `INamespaceRegistry`. `NamespaceDescriptor`. `NativeCallOptions`. `BuiltinDescriptor`. `IntrinsicDescriptor`. Attribute based registration. `BuiltinAttribute`. `IntrinsicAttribute`. Packaging and importing.
 - Package management. `cfgs.json`. `cfgs.lock.json`. Local plugin install. Restore into `.cfgs/plugins`. Reproducible plugin hashes.
 - Native .NET interop. `import native`. Namespace and type access. Constructors through `.new`. Static and instance member access. CFB-safe assembly references.
@@ -80,3 +81,4 @@ If you want to jump straight into the plugin topics, use these three pages.
 - [Crypto Plugin](12_crypto_plugin.md)
 - [XML Plugin](15_xml_plugin.md)
 - [PDF Plugin](16_pdf_plugin.md)
+- [TCP and UDP Socket Plugin](23_socket_plugin.md)

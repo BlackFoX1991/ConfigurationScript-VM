@@ -43,5 +43,5 @@ detected automatically and only checked for clean initialization.
 - `05_namespaces_modules`: imports, exports, namespaces, and `use`.
 - `06_async`: `async`, `await`, `yield`, tasks, `defer`, `using`.
 - `07_standard_library`: standard namespaces, files, binary I/O, encoding.
-- `08_plugins_interop`: official plugin namespaces.
+- `08_plugins_interop`: official plugin namespaces, including UDP loopback.
 - `09_embedding_tooling`: embedding-friendly scripts plus CLI, CFB, REPL notes.

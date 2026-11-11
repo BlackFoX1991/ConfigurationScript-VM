@@ -13,6 +13,7 @@ If you want the codebase-level structure behind that implementation, continue wi
 - `CFGS_NE` contains the language frontend, compiler, runtime, CLI, and the built-in standard library (non-IO builtins and intrinsics, auto-registered so scripts need no import).
 - `CFGS.IO` contains the file-system plugin (`fs`/`file` namespace and file handles), loaded via `import "CFGS.IO.dll"`.
 - `CFGS.Web.Http` contains the `http` namespace and the built in HTTP server handle.
+- `CFGS.Net.Sockets` contains `net.tcp` and `net.udp` for socket communication.
 - `CFGS.Microsoft.SQL` contains SQL support.
 - The root `*.md` files contain the current English documentation set.
 - `CFGS_NE/Edgecases` is the executable regression companion for real language usage.

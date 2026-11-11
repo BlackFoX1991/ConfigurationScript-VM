@@ -1362,6 +1362,7 @@ func resolve(path) {
             engine.LoadPlugin(Path.Combine(AppContext.BaseDirectory, "CFGS.Pdf.dll"));
             engine.LoadPlugin(Path.Combine(AppContext.BaseDirectory, "CFGS.Xml.dll"));
             engine.LoadPlugin(Path.Combine(AppContext.BaseDirectory, "CFGS.Web.Http.dll"));
+            engine.Permissions.AllowNetworkIO = true;
             CfgsScript script = engine.CompileSource("<plugin-jail>", """
 func savePdf(path) {
     var doc = pdf.new("Workspace test");
@@ -1460,6 +1461,7 @@ func download(path) { return http.download("http://127.0.0.1:1/", path); }
             engine.Permissions.AllowPluginLoading = true;
             engine.Permissions.RestrictFileIoToWorkspace = true;
             engine.LoadPlugin(Path.Combine(AppContext.BaseDirectory, "CFGS.Web.Http.dll"));
+            engine.Permissions.AllowNetworkIO = true;
             CfgsScript script = engine.CompileSource("<http-jail>", """
 func createServer(port) { return http.server(port, {"streamBodies": true}); }
 """);

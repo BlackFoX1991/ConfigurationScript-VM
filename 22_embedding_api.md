@@ -423,6 +423,7 @@ The embedding API is fail-closed. Every sensitive capability defaults to disable
 engine.Permissions.AllowPluginLoading = true;
 engine.Permissions.AllowNativeInterop = true;
 engine.Permissions.AllowFileIO = true;
+engine.Permissions.AllowNetworkIO = true;
 engine.Permissions.RestrictFileIoToWorkspace = true;
 engine.Permissions.MaxExecutionTime = TimeSpan.FromSeconds(5);
 ```
@@ -434,6 +435,7 @@ engine.Permissions.MaxExecutionTime = TimeSpan.FromSeconds(5);
 | `AllowPluginLoading` | `false` | Allows plugin DLL loading through host and script plugin paths |
 | `AllowNativeInterop` | `false` | Allows `import native` and native CLR member access |
 | `AllowFileIO` | `false` | Allows file-system operations exposed through runtime/plugin APIs |
+| `AllowNetworkIO` | `false` | Allows network operations in the HTTP and socket plugins |
 | `RestrictFileIoToWorkspace` | `false` | Jails resolved file paths to the VM working directory, including paths that leave it through a symlink or junction |
 | `MaxExecutionTime` | unset | Cancels `RunAsync`, async invocations and async member access after the configured timeout |
 
@@ -441,6 +443,7 @@ engine.Permissions.MaxExecutionTime = TimeSpan.FromSeconds(5);
 
 - The non-I/O standard library is built into the runtime
 - File-system APIs live in the `CFGS.IO` plugin, so hosts that need file I/O must also enable plugin loading
+- HTTP and socket plugin operations require `AllowNetworkIO`; enabling native interop separately also gives scripts direct access to .NET networking APIs
 - When `RestrictFileIoToWorkspace` is enabled, paths escaping the workspace are rejected, whether through an absolute path, `..` traversal, or a symlink or junction that points out of the workspace
 - Async host invocations inherit the same security policy, including workspace jailing
 - `MaxExecutionTime` also applies while async script calls run in child VMs, while the VM awaits a task,
@@ -461,6 +464,7 @@ CfgsScriptEngine engine = new()
 engine.Permissions.AllowPluginLoading = false;
 engine.Permissions.AllowNativeInterop = false;
 engine.Permissions.AllowFileIO = false;
+engine.Permissions.AllowNetworkIO = false;
 engine.Permissions.RestrictFileIoToWorkspace = true;
 engine.Permissions.MaxExecutionTime = TimeSpan.FromSeconds(5);
 ```

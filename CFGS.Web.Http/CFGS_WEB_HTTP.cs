@@ -73,14 +73,14 @@ namespace CFGS.Web.Http
 
             (string MemberName, BuiltinDescriptor Descriptor)[] members =
             [
-                ("server", descriptors["http_server"]),
-                ("get", descriptors["http_get"]),
-                ("post", descriptors["http_post"]),
-                ("put", descriptors["http_put"]),
-                ("delete", descriptors["http_delete"]),
-                ("patch", descriptors["http_patch"]),
-                ("head", descriptors["http_head"]),
-                ("download", descriptors["http_download"]),
+                ("server", RequireNetwork(descriptors["http_server"])),
+                ("get", RequireNetwork(descriptors["http_get"])),
+                ("post", RequireNetwork(descriptors["http_post"])),
+                ("put", RequireNetwork(descriptors["http_put"])),
+                ("delete", RequireNetwork(descriptors["http_delete"])),
+                ("patch", RequireNetwork(descriptors["http_patch"])),
+                ("head", RequireNetwork(descriptors["http_head"])),
+                ("download", RequireNetwork(descriptors["http_download"])),
                 ("urlencode", descriptors["urlencode"]),
                 ("urldecode", descriptors["urldecode"])
             ];
@@ -88,6 +88,13 @@ namespace CFGS.Web.Http
             namespaces.Register(NamespaceDescriptor.FromDescriptors("http", members));
             namespaces.Register(NamespaceDescriptor.FromDescriptors("std.http", members));
         }
+
+        private static BuiltinDescriptor RequireNetwork(BuiltinDescriptor descriptor)
+            => new(descriptor.Name, descriptor.ArityMin, descriptor.ArityMax, (args, instr) =>
+            {
+                EnsureNetworkIo(VM.CurrentVm, instr);
+                return descriptor.Invoke(args, instr);
+            }, descriptor.Options);
 
         private static void RegisterBuiltins(IBuiltinRegistry builtins)
         {
@@ -280,6 +287,18 @@ namespace CFGS.Web.Http
         /// Combined with the running VM's own <see cref="VM.AllowFileIO"/>; both must allow it.
         /// </summary>
         public static bool AllowFileIO { get; set; } = true;
+
+        private static void EnsureNetworkIo(VM? vm, Instruction instr)
+        {
+            if (!(vm?.AllowNetworkIO ?? true))
+                throw new VMException("Runtime error: network I/O is disabled (AllowNetworkIO=false)", instr.Line, instr.Col, instr.OriginFile, VM.IsDebugging, VM.DebugStream!);
+        }
+
+        private static void EnsureNetworkIo(VM? vm)
+        {
+            if (!(vm?.AllowNetworkIO ?? true))
+                throw new UnauthorizedAccessException("network I/O is disabled (AllowNetworkIO=false)");
+        }
 
         private static void EnsureFileIo(Instruction instr)
         {
@@ -782,6 +801,7 @@ namespace CFGS.Web.Http
 
                 public async Task<object?> ReadBytesVmAsync(int count, Instruction instr)
                 {
+                    EnsureNetworkIo(_vm, instr);
                     if (count < 0)
                         throw NewVmException(instr, "Runtime error: read_bytes(count) needs count >= 0");
 
@@ -828,6 +848,7 @@ namespace CFGS.Web.Http
 
                 public async Task<object?> CopyToAsync(string path, long? maxBytes, Instruction instr)
                 {
+                    EnsureNetworkIo(_vm, instr);
                     if (string.IsNullOrWhiteSpace(path))
                         throw NewVmException(instr, "Runtime error: copy_to(path) needs a non-empty path");
 
@@ -877,6 +898,7 @@ namespace CFGS.Web.Http
 
                 private async Task<byte[]> ReadAllBytesInternalAsync(long limit, Instruction instr)
                 {
+                    EnsureNetworkIo(_vm, instr);
                     await _gate.WaitAsync(_cancellationToken).ConfigureAwait(false);
                     try
                     {
@@ -972,6 +994,7 @@ namespace CFGS.Web.Http
 
             public async Task<object?> StartAsync()
             {
+                EnsureNetworkIo(_vm);
                 if (_running) return this;
 
                 if (ActiveByPort.TryGetValue(_port, out ServerHandle? prev) && !ReferenceEquals(prev, this))
@@ -1061,6 +1084,7 @@ namespace CFGS.Web.Http
 
             public async Task<object?> PollAsync(int? timeoutMs = null)
             {
+                EnsureNetworkIo(_vm);
                 if (_queue.TryDequeue(out string? id))
                     return TryBuildRequestDict(id);
 
@@ -1089,6 +1113,7 @@ namespace CFGS.Web.Http
 
             public async Task<object?> RespondAsync(string id, int status, object? body, Dictionary<string, object>? headers)
             {
+                EnsureNetworkIo(_vm);
                 if (!_inflight.TryGetValue(id, out PendingRequest? pending))
                     return 0;
 

@@ -1,0 +1,22 @@
+# Send one UDP datagram to a local socket and verify its bytes and sender.
+import "CFGS.Net.Sockets.dll";
+
+func ensure(label, condition) {
+    if (!condition) {
+        throw "sample failed: " + label;
+    }
+}
+
+var sender = net.udp.bind("127.0.0.1", 0);
+var receiver = std.net.udp.bind("127.0.0.1", 0);
+var sent = await sender.send_to([0, 65, 255], "127.0.0.1", receiver.port());
+var packet = await receiver.receive();
+
+ensure("UDP send count", sent == 3);
+ensure("UDP datagram length", packet["length"] == 3);
+ensure("UDP bytes", packet["data"][0] == 0 && packet["data"][1] == 65 && packet["data"][2] == 255);
+ensure("UDP sender", packet["host"] == "127.0.0.1" && packet["port"] == sender.port());
+
+sender.close();
+receiver.close();
+print("UDP_LOOPBACK_OK:3");

@@ -9,7 +9,7 @@
       CFGS.Tooling.Tests   hosting, VM, .cfb, native interop, tooling
       CFGS.Lsp.Tests       language server analysis, hover, diagnostics
       Edgecases            the .cfs programs under CFGS_NE/Edgecases, run against the built VM
-      Samples              the 19 documented example scripts, executed end to end
+      Samples              the 20 documented example scripts, executed end to end
 
     "dotnet test CFGS_VM.sln" runs all five suites through xUnit. This script
     runs the xUnit unit tests and the four existing runners directly, preserving

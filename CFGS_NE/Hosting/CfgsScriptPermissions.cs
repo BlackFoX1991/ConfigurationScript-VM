@@ -21,6 +21,9 @@ namespace CFGS_VM.Hosting
         /// <summary>Allows loading plugin DLLs (including the standard library). Disabled by default.</summary>
         public bool AllowPluginLoading { get; set; } = false;
 
+        /// <summary>Allows HTTP, TCP, and UDP plugin network operations. Disabled by default.</summary>
+        public bool AllowNetworkIO { get; set; } = false;
+
         /// <summary>
         /// When enabled, standard-library file operations are jailed to the VM working directory:
         /// any path that resolves outside it (via an absolute path or <c>..</c> traversal) is
@@ -37,6 +40,7 @@ namespace CFGS_VM.Hosting
                 AllowFileIO = AllowFileIO,
                 AllowNativeInterop = AllowNativeInterop,
                 AllowPluginLoading = AllowPluginLoading,
+                AllowNetworkIO = AllowNetworkIO,
                 RestrictFileIoToWorkspace = RestrictFileIoToWorkspace,
                 MaxExecutionTime = MaxExecutionTime
             };
