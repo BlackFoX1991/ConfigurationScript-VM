@@ -29,6 +29,9 @@ function activate(context) {
   context.subscriptions.push(output, lspDiagnostics, lintDiagnostics, client);
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('cfgs.lint.live') || event.affectsConfiguration('cfgs.lint.onSave')) {
+        lintDiagnostics.clear();
+      }
       // cfgs.lint.live wird als initializationOption beim Start uebergeben, greift also erst nach einem
       // Server-Neustart; daher hier ebenfalls neu starten.
       if (!event.affectsConfiguration('cfgs.server') && !event.affectsConfiguration('cfgs.lint.live')) {
@@ -55,26 +58,29 @@ function activate(context) {
         await vscode.commands.executeCommand('editor.action.formatDocument');
       }
     }),
-    vscode.workspace.onDidSaveTextDocument(async (document) => {
-      if (!isCfgsDocument(document)) {
-        return;
-      }
-
-      // Diagnose-Linting laeuft jetzt live ueber den Language-Server (auch beim Speichern), daher kein
-      // separater CLI-Lint-Durchlauf mehr, der die gleichen Eintraege doppeln wuerde. fixOnSave bleibt,
-      // weil --fix den Quelltext veraendert (Formatierung/Style) und keine reine Diagnose ist; nach der
-      // Aenderung linted der Server ohnehin erneut live. Manuell bleiben cfgs.lintFile/lintWorkspace.
-      const config = vscode.workspace.getConfiguration('cfgs');
-      if (config.get('lint.fixOnSave', false)) {
-        await runCfgsCli(['-lint', document.uri.fsPath, '--fix', '--json'], output);
-      }
-    })
+    vscode.workspace.onDidSaveTextDocument((document) => handleSavedDocument(document, output))
   );
 
   client.start().catch((error) => {
     output.appendLine(`Failed to start CFGS language server: ${error.message}`);
     vscode.window.showErrorMessage(`Failed to start CFGS language server: ${error.message}`);
   });
+}
+
+async function handleSavedDocument(document, output) {
+  if (!isCfgsDocument(document) || document.uri.scheme !== 'file') {
+    return;
+  }
+
+  const config = vscode.workspace.getConfiguration('cfgs');
+  if (config.get('lint.fixOnSave', false)) {
+    await runCfgsCli(['-lint', document.uri.fsPath, '--fix', '--json'], output);
+  }
+  // Live lint already republishes diagnostics after a save. The CLI path is useful when live lint
+  // is disabled; it also reads the file after an optional --fix pass has completed.
+  if (config.get('lint.onSave', false) && !config.get('lint.live', true)) {
+    await lintFile(document.uri, output);
+  }
 }
 
 function deactivate() {
@@ -600,9 +606,8 @@ function applyLintDiagnostics(stdout, output, fallbackUri) {
     grouped.get(key).diagnostics.push(toToolDiagnostic(item));
   }
 
-  if (fallbackUri && grouped.size === 0) {
+  if (fallbackUri) {
     lintDiagnostics.set(fallbackUri, []);
-    return;
   }
 
   for (const group of grouped.values()) {

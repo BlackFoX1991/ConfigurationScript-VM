@@ -92,9 +92,10 @@ By default the extension resolves the server in this order:
 
 ## Build a VSIX Package
 
-After building the language server once, create an installable `.vsix` package with:
+Build the current Release binaries, then create an installable `.vsix` package with:
 
 ```powershell
+dotnet build CFGS_VM.sln -c Release
 cd vscode-cfgs
 npm run package
 ```
@@ -102,10 +103,10 @@ npm run package
 The package is written to:
 
 ```text
-vscode-cfgs/cfgs-vscode-0.8.3.vsix
+vscode-cfgs/cfgs-vscode-0.12.0.vsix
 ```
 
-The packaged extension includes the built CFGS language server under `extension/server` when `dist/Debug/net10.0/CFGS.Lsp.dll` exists before packaging. It can then start directly after installation as long as `dotnet` is available on the machine.
+The packaged extension includes the selected Release language server and CLI under `extension/server`, together with their runtime dependencies. It can start after installation when the .NET 10 runtime is available on the machine. The packager checks that the selected CFGS binary contains the current source version; set `CFGS_BUILD_CONFIGURATION=Debug` only for a deliberate Debug package.
 
 ## Optional VS Code Settings
 

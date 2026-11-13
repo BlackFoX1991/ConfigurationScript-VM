@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.12.0 - 2026-11-13
+
+### Changed
+- Bundled CFGS language server and CLI v21.0.0 from an explicit Release build, including their runtime dependencies.
+- Packaging now rejects a CFGS binary whose version does not match the current source.
+
+### Fixed
+- `cfgs.lint.onSave` runs the CLI linter after a save when live lint is disabled. It follows an optional `lint.fixOnSave` pass and clears stale diagnostics for the saved file.
+
 ## 0.11.1 - 2026-09-23
 
 ### Changed

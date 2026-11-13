@@ -5,11 +5,11 @@ const zlib = require('zlib');
 const root = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(root, '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const serverOutputCandidates = [
-  path.join(repoRoot, 'dist', 'Debug', 'net10.0'),
-  path.join(repoRoot, 'dist', 'Release', 'net10.0'),
-  path.join(repoRoot, 'dist', 'net10.0')
-];
+const configuration = process.env.CFGS_BUILD_CONFIGURATION || 'Release';
+if (configuration !== 'Release' && configuration !== 'Debug') {
+  throw new Error(`Unsupported CFGS_BUILD_CONFIGURATION '${configuration}'. Use Release or Debug.`);
+}
+const serverOutput = path.join(repoRoot, 'dist', configuration, 'net10.0');
 const installTargetVersion = String(packageJson.engines && packageJson.engines.vscode ? packageJson.engines.vscode : '1.90.0').replace(/^[^0-9]+/, '');
 const outFile = path.join(root, `${packageJson.name}-${packageJson.version}.vsix`);
 const files = [
@@ -29,20 +29,9 @@ function escapeXml(value) {
     .replace(/'/g, '&apos;');
 }
 
-function findServerOutput() {
-  for (const candidate of serverOutputCandidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return '';
-}
-
 function collectServerFiles() {
-  const serverOutput = findServerOutput();
-  if (!serverOutput) {
-    throw new Error('Could not find built CFGS binaries under dist/Debug/net10.0, dist/Release/net10.0, or dist/net10.0.');
+  if (!fs.existsSync(serverOutput)) {
+    throw new Error(`Could not find CFGS ${configuration} binaries under ${serverOutput}. Build that configuration first.`);
   }
 
   const serverFiles = [
@@ -58,7 +47,38 @@ function collectServerFiles() {
     throw new Error(`Missing packaged CFGS binaries: ${missingFiles.join(', ')}`);
   }
 
-  return serverFiles.map((file) => ({
+  const source = fs.readFileSync(path.join(repoRoot, 'CFGS_NE', 'Program.cs'), 'utf8');
+  const version = /public const string Version\s*=\s*"([^"]+)"/.exec(source)?.[1];
+  if (!version || !fs.readFileSync(path.join(serverOutput, 'CFGS_VM.dll')).includes(Buffer.from(version, 'utf16le'))) {
+    throw new Error(`The ${configuration} CFGS_VM.dll does not contain the current CFGS version ${version || '(unknown)'}. Rebuild before packaging.`);
+  }
+
+  // The .deps.json files name package assemblies that a clean VS Code installation does not have
+  // next to the extension. Include the runtime assets copied into the selected build output.
+  const runtimeFiles = new Set();
+  for (const depsFile of ['CFGS.Lsp.deps.json', 'CFGS_VM.deps.json']) {
+    const deps = JSON.parse(fs.readFileSync(path.join(serverOutput, depsFile), 'utf8'));
+    const target = deps.targets[deps.runtimeTarget.name];
+    for (const library of Object.values(target)) {
+      for (const asset of Object.keys(library.runtime || {})) {
+        const file = path.basename(asset);
+        if (file.endsWith('.dll') && !serverFiles.includes(file)) {
+          if (!fs.existsSync(path.join(serverOutput, file))) {
+            throw new Error(`Missing runtime dependency in ${configuration} output: ${file}`);
+          }
+          runtimeFiles.add(file);
+        }
+      }
+      for (const asset of Object.keys(library.runtimeTargets || {})) {
+        const file = path.basename(asset);
+        if (file.endsWith('.dll') && fs.existsSync(path.join(serverOutput, file))) {
+          runtimeFiles.add(file);
+        }
+      }
+    }
+  }
+
+  return [...serverFiles, ...runtimeFiles].map((file) => ({
     name: `extension/server/${file}`,
     content: fs.readFileSync(path.join(serverOutput, file))
   }));

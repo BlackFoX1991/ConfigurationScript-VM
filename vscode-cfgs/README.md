@@ -12,7 +12,7 @@ Features:
 - full and range semantic tokens wired to the CFGS LSP server
 - completion for import paths, named `.cfs` exports, native .NET interop aliases, plugin namespace metadata, and object/class/namespace members
 - commands for `CFGS: Lint Current File`, `CFGS: Lint Workspace`, `CFGS: Format Current File`, and `CFGS: Restart Language Server`
-- optional `cfgs.lint.onSave` and `cfgs.lint.fixOnSave`
+- optional `cfgs.lint.onSave` when live lint is disabled, and `cfgs.lint.fixOnSave`
 - auto-detected server and CLI binaries from workspace builds under `dist/Debug/net10.0`, `dist/Release/net10.0`, `dist/net10.0`, or the bundled `server` payload in the packaged extension
 
 The extension auto-detects the CFGS language server and CLI in this order:
@@ -22,10 +22,11 @@ The extension auto-detects the CFGS language server and CLI in this order:
 - workspace project fallback via `dotnet run` when the CFGS repo is open
 - bundled binaries inside the packaged extension
 
-Build an installable package from this folder with:
+Build CFGS in Release mode, then create an installable package from this folder:
 
 ```powershell
+dotnet build ..\CFGS_VM.sln -c Release
 npm run package
 ```
 
-The generated package is `cfgs-vscode-0.11.1.vsix`.
+The generated package is `cfgs-vscode-0.12.0.vsix` and requires the .NET 10 runtime. Set `CFGS_BUILD_CONFIGURATION=Debug` only when you deliberately want a Debug package.
