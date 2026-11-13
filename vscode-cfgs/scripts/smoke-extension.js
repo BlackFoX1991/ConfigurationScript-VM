@@ -61,6 +61,7 @@ assert(properties && properties['cfgs.server.command'], 'cfgs.server.command set
 assert(properties && properties['cfgs.cli.command'], 'cfgs.cli.command setting missing');
 assert(properties && properties['cfgs.lint.onSave'], 'cfgs.lint.onSave setting missing');
 assert(properties && properties['cfgs.lint.fixOnSave'], 'cfgs.lint.fixOnSave setting missing');
+assert(properties && properties['cfgs.lint.allowTabs'], 'cfgs.lint.allowTabs setting missing');
 
 assertFile('language-configuration.json');
 const grammar = readJson('syntaxes/cfgs.tmGrammar.json');

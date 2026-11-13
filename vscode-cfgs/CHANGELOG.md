@@ -1,5 +1,11 @@
 # Change Log
 
+## 0.12.1 - 2026-11-13
+
+### Fixed
+- `CFGS8002` now explains that tab indentation requires the linter's `allowTabs` option; formatting with `--tabs` alone does not suppress the warning.
+- Added `cfgs.lint.allowTabs` for live linting, on-save linting, and manual lint commands so tab-indented files can be linted consistently.
+
 ## 0.12.0 - 2026-11-13
 
 ### Changed

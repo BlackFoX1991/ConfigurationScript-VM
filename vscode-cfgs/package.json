@@ -2,7 +2,7 @@
   "name": "cfgs-vscode",
   "displayName": "CFGS Language Tools",
   "description": "Visual Studio Code support for ConfigurationScript with CFGS LSP, formatter, and linter integration.",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "publisher": "blackfox1991",
   "engines": {
     "vscode": "^1.90.0"
@@ -132,6 +132,11 @@
           "type": "boolean",
           "default": false,
           "description": "Run CFGS lint --fix on save to auto-apply safe style fixes."
+        },
+        "cfgs.lint.allowTabs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow tab indentation in live lint, on-save lint, and manual lint commands. Changing this restarts the language server."
         }
       }
     }

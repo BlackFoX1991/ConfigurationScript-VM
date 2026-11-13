@@ -29,12 +29,12 @@ function activate(context) {
   context.subscriptions.push(output, lspDiagnostics, lintDiagnostics, client);
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration('cfgs.lint.live') || event.affectsConfiguration('cfgs.lint.onSave')) {
+      if (event.affectsConfiguration('cfgs.lint.live') || event.affectsConfiguration('cfgs.lint.onSave') || event.affectsConfiguration('cfgs.lint.allowTabs')) {
         lintDiagnostics.clear();
       }
       // cfgs.lint.live wird als initializationOption beim Start uebergeben, greift also erst nach einem
       // Server-Neustart; daher hier ebenfalls neu starten.
-      if (!event.affectsConfiguration('cfgs.server') && !event.affectsConfiguration('cfgs.lint.live')) {
+      if (!event.affectsConfiguration('cfgs.server') && !event.affectsConfiguration('cfgs.lint.live') && !event.affectsConfiguration('cfgs.lint.allowTabs')) {
         return;
       }
 
@@ -74,7 +74,7 @@ async function handleSavedDocument(document, output) {
 
   const config = vscode.workspace.getConfiguration('cfgs');
   if (config.get('lint.fixOnSave', false)) {
-    await runCfgsCli(['-lint', document.uri.fsPath, '--fix', '--json'], output);
+    await runCfgsCli(createLintArgs(document.uri.fsPath, true), output);
   }
   // Live lint already republishes diagnostics after a save. The CLI path is useful when live lint
   // is disabled; it also reads the file after an optional --fix pass has completed.
@@ -128,7 +128,8 @@ class CfgsLanguageClient {
       capabilities: {},
       initializationOptions: {
         // Live-Linting (Style + AST-Regeln beim Tippen) standardmaessig an; ueber cfgs.lint.live abschaltbar.
-        liveLint: vscode.workspace.getConfiguration('cfgs').get('lint.live', true)
+        liveLint: vscode.workspace.getConfiguration('cfgs').get('lint.live', true),
+        allowTabs: vscode.workspace.getConfiguration('cfgs').get('lint.allowTabs', false)
       }
     });
     this.sendNotification('initialized', {});
@@ -568,7 +569,7 @@ async function lintWorkspace(output) {
     vscode.window.showWarningMessage('Open a workspace first.');
     return;
   }
-  const result = await runCfgsCli(['-lint', workspaceFolder, '--json'], output);
+  const result = await runCfgsCli(createLintArgs(workspaceFolder), output);
   if (lintDiagnostics) {
     lintDiagnostics.clear();
   }
@@ -576,8 +577,20 @@ async function lintWorkspace(output) {
 }
 
 async function lintFile(uri, output) {
-  const result = await runCfgsCli(['-lint', uri.fsPath, '--json'], output);
+  const result = await runCfgsCli(createLintArgs(uri.fsPath), output);
   applyLintDiagnostics(result.stdout, output, uri);
+}
+
+function createLintArgs(input, fix = false) {
+  const args = ['-lint', input];
+  if (fix) {
+    args.push('--fix');
+  }
+  if (vscode.workspace.getConfiguration('cfgs').get('lint.allowTabs', false)) {
+    args.push('--allow-tabs');
+  }
+  args.push('--json');
+  return args;
 }
 
 function applyLintDiagnostics(stdout, output, fallbackUri) {

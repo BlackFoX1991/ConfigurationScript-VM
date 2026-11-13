@@ -103,7 +103,7 @@ npm run package
 The package is written to:
 
 ```text
-vscode-cfgs/cfgs-vscode-0.12.0.vsix
+vscode-cfgs/cfgs-vscode-0.12.1.vsix
 ```
 
 The packaged extension includes the selected Release language server and CLI under `extension/server`, together with their runtime dependencies. It can start after installation when the .NET 10 runtime is available on the machine. The packager checks that the selected CFGS binary contains the current source version; set `CFGS_BUILD_CONFIGURATION=Debug` only for a deliberate Debug package.
@@ -120,6 +120,7 @@ The extension exposes these settings if you want to launch the server differentl
 - `cfgs.lint.live`
 - `cfgs.lint.onSave`
 - `cfgs.lint.fixOnSave`
+- `cfgs.lint.allowTabs` (set to `true` when the formatter uses tabs)
 
 ## Notes
 

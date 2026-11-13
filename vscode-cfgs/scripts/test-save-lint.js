@@ -56,6 +56,15 @@ async function main() {
     ['fix:-lint sample.cfs --fix --json', 'lint:sample.cfs']
   );
   await checkSave(
+    { 'lint.fixOnSave': true, 'lint.allowTabs': true },
+    document,
+    ['fix:-lint sample.cfs --fix --allow-tabs --json']
+  );
+  settings = { 'lint.allowTabs': true };
+  assert.deepEqual(Array.from(sandbox.createLintArgs('sample.cfs')), ['-lint', 'sample.cfs', '--allow-tabs', '--json']);
+  settings = {};
+  assert.deepEqual(Array.from(sandbox.createLintArgs('sample.cfs')), ['-lint', 'sample.cfs', '--json']);
+  await checkSave(
     { 'lint.fixOnSave': true },
     { ...document, uri: { scheme: 'untitled', fsPath: 'sample.cfs' } },
     []

@@ -134,7 +134,7 @@ internal static class CfgsLinter
                 AddRuleDiagnostic(diagnostics, rules, "CFGS8001", "trailing whitespace", path, lineNumber, line.Length);
 
             if (!options.AllowTabs && line.StartsWith('\t'))
-                AddRuleDiagnostic(diagnostics, rules, "CFGS8002", "indentation uses tabs; prefer spaces or run the formatter with --tabs intentionally", path, lineNumber, 1);
+                AddRuleDiagnostic(diagnostics, rules, "CFGS8002", "indentation uses tabs; prefer spaces or enable the linter's allowTabs option", path, lineNumber, 1);
 
             if (line.Length > options.MaxLineLength)
             {

@@ -53,6 +53,7 @@ internal sealed class LspServer
     // damit Tools/Tests, die die Option nicht senden, nur Compile-/Semantik-Diagnosen sehen. Die VS-Code-
     // Extension setzt initializationOptions.liveLint (Default an, ueber cfgs.lint.live abschaltbar).
     private bool _liveLintEnabled;
+    private bool _allowTabsInLint;
 
     public LspServer(CfgsAnalyzer analyzer)
     {
@@ -202,6 +203,7 @@ internal sealed class LspServer
                 case "initialize":
                     _workspaceRootPath = TryGetWorkspaceRootPath(parameters);
                     _liveLintEnabled = TryGetLiveLintOption(parameters);
+                    _allowTabsInLint = TryGetAllowTabsOption(parameters);
                     _supportsDynamicWatchedFiles = TryGetDynamicWatchedFilesSupport(parameters);
                     if (hasId)
                     {
@@ -1082,7 +1084,7 @@ internal sealed class LspServer
 
         try
         {
-            CfgsLintResult result = CfgsLinter.LintSource(localPath, text, new CfgsLintOptions());
+            CfgsLintResult result = CfgsLinter.LintSource(localPath, text, new CfgsLintOptions(AllowTabs: _allowTabsInLint));
             List<CfgsDiagnostic> mapped = new(result.Diagnostics.Count);
             foreach (CfgsToolDiagnostic diagnostic in result.Diagnostics)
                 mapped.Add(ToLintDiagnostic(diagnostic));
@@ -2272,6 +2274,19 @@ internal sealed class LspServer
             options.TryGetProperty("liveLint", out JsonElement liveLint))
         {
             return liveLint.ValueKind == JsonValueKind.True;
+        }
+
+        return false;
+    }
+
+    private static bool TryGetAllowTabsOption(JsonElement parameters)
+    {
+        if (parameters.ValueKind == JsonValueKind.Object &&
+            parameters.TryGetProperty("initializationOptions", out JsonElement options) &&
+            options.ValueKind == JsonValueKind.Object &&
+            options.TryGetProperty("allowTabs", out JsonElement allowTabs))
+        {
+            return allowTabs.ValueKind == JsonValueKind.True;
         }
 
         return false;

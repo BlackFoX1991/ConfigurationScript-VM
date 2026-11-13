@@ -38,6 +38,7 @@ internal static class Program
             ReferencesUseLastGoodAnalysisAfterCatastrophicLexerFailure,
             LiveLintPublishesStyleDiagnosticsWhenEnabled,
             LiveLintStaysSilentWhenDisabled,
+            LiveLintAllowsTabsWhenConfigured,
             NamespaceMembersResolveThroughCompileTimeBindings,
             NamespaceImportAliasMembersResolveToTheImportedSymbol,
             NestedClassBaseResolvesToSiblingClass
@@ -133,6 +134,22 @@ internal static class Program
 
         JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
         AssertEqual(0, CountLintDiagnostics(diagnostics), "expected no cfgs-lint diagnostics when live lint is disabled");
+    }
+
+    private static void LiveLintAllowsTabsWhenConfigured()
+    {
+        const string source = "if (true) {\n\tprint(\"hi\");\n}\n";
+        foreach (bool allowTabs in new[] { false, true })
+        {
+            using LspTestClient client = LspTestClient.StartInitialized(liveLint: true, allowTabs: allowTabs);
+            string uri = CreateDocumentUri(allowTabs ? "tabs_allowed.cfs" : "tabs_disallowed.cfs");
+            client.DidOpen(uri, source);
+
+            JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
+            bool hasTabWarning = diagnostics.EnumerateArray().Any(diagnostic =>
+                diagnostic.TryGetProperty("code", out JsonElement code) && code.GetString() == "CFGS8002");
+            AssertEqual(!allowTabs, hasTabWarning, "CFGS8002 must follow the allowTabs initialization option");
+        }
     }
 
     private static int CountLintDiagnostics(JsonElement diagnostics)
@@ -1003,15 +1020,15 @@ internal sealed class LspTestClient : IDisposable
         return new LspTestClient(process);
     }
 
-    public static LspTestClient StartInitialized(bool liveLint = false)
+    public static LspTestClient StartInitialized(bool liveLint = false, bool allowTabs = false)
     {
         LspTestClient client = Start();
-        client.Initialize(liveLint);
+        client.Initialize(liveLint, allowTabs);
         client.SendNotification("initialized", new { });
         return client;
     }
 
-    public JsonElement Initialize(bool liveLint = false)
+    public JsonElement Initialize(bool liveLint = false, bool allowTabs = false)
     {
         string root = Path.Combine(Path.GetTempPath(), "cfgs-lsp-tests-root");
         Directory.CreateDirectory(root);
@@ -1020,7 +1037,7 @@ internal sealed class LspTestClient : IDisposable
             processId = Environment.ProcessId,
             rootUri = new Uri(root).AbsoluteUri,
             capabilities = new { },
-            initializationOptions = new { liveLint }
+            initializationOptions = new { liveLint, allowTabs }
         });
     }
 
