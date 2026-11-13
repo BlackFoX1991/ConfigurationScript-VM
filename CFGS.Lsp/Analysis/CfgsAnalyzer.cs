@@ -3454,7 +3454,7 @@ internal readonly record struct CfgsSymbolIdentity(
     public bool Matches(CfgsSymbol symbol)
         => Kind == symbol.Kind &&
            string.Equals(QualifiedName, symbol.QualifiedName, StringComparison.Ordinal) &&
-           string.Equals(Uri, symbol.Uri, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) &&
+           CfgsDocumentUriComparer.Instance.Equals(Uri, symbol.Uri) &&
            SelectionRange.Equals(symbol.SelectionRange);
 }
 

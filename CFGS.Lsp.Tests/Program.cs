@@ -42,6 +42,7 @@ internal static class Program
             LiveLintAllowsTabsWhenConfigured,
             NamespaceMembersResolveThroughCompileTimeBindings,
             NamespaceImportAliasMembersResolveToTheImportedSymbol,
+            ImportedClassCodeLensCountsWorkspaceReferences,
             NestedClassBaseResolvesToSiblingClass
         ];
 
@@ -960,6 +961,93 @@ func run(triple) {
             {
             }
         }
+    }
+
+    /// <summary>
+    /// Imported classes must have one workspace reference in the consuming app, even when VS Code
+    /// percent-encodes the Windows drive colon in the opened document URIs.
+    /// </summary>
+    private static void ImportedClassCodeLensCountsWorkspaceReferences()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"cfgs-lsp-class-references-{Guid.NewGuid():N}");
+        string models = Path.Combine(root, "Models");
+        string app = Path.Combine(root, "App");
+        Directory.CreateDirectory(models);
+        Directory.CreateDirectory(app);
+
+        string adressePath = Path.Combine(models, "Adresse.cfs");
+        string klientPath = Path.Combine(models, "Klient.cfs");
+        string appPath = Path.Combine(app, "App.cfs");
+        string adresseSource = "namespace STicketer.Models {\n    public class Adresse(id) { }\n}\n";
+        string klientSource = "namespace STicketer.Models {\n    public class Klient(adresse) { }\n}\n";
+        string appSource = """
+import "../Models/Adresse.cfs";
+import "../Models/Klient.cfs";
+use STicketer.Models;
+namespace STicketer.App {
+    public class TicketApp {
+        public func Entry() {
+            var adresse = new Adresse(1);
+            var klient = new Klient(adresse);
+        }
+    }
+}
+""";
+
+        File.WriteAllText(adressePath, adresseSource);
+        File.WriteAllText(klientPath, klientSource);
+        File.WriteAllText(appPath, appSource);
+
+        try
+        {
+            using LspTestClient client = LspTestClient.StartInitialized(rootUri: new Uri(root).AbsoluteUri);
+            string appUri = EncodeWindowsDriveUri(new Uri(appPath).AbsoluteUri);
+            client.DidOpen(appUri, appSource);
+            JsonElement diagnostics = client.WaitForDiagnostics(appUri).GetProperty("diagnostics");
+            AssertEqual(0, diagnostics.GetArrayLength(), "class reference fixture must analyze cleanly");
+
+            foreach ((string path, string source, string name) in new[]
+                     {
+                         (adressePath, adresseSource, "Adresse"),
+                         (klientPath, klientSource, "Klient")
+                     })
+            {
+                string uri = EncodeWindowsDriveUri(new Uri(path).AbsoluteUri);
+                client.DidOpen(uri, source);
+                client.WaitForDiagnostics(uri);
+                JsonElement lenses = client.SendRequest("textDocument/codeLens", new { textDocument = new { uri } });
+                JsonElement lens = lenses.EnumerateArray().First(item =>
+                    item.GetProperty("range").GetProperty("start").GetProperty("line").GetInt32() == 1 &&
+                    item.GetProperty("range").GetProperty("start").GetProperty("character").GetInt32() == 17);
+                JsonElement resolved = client.SendRequest("codeLens/resolve", lens);
+                string title = resolved.GetProperty("command").GetProperty("title").GetString() ?? string.Empty;
+                AssertEqual("1 reference", title, $"{name} CodeLens should count its use in App.cfs");
+
+                JsonElement references = client.SendRequest("textDocument/references", new
+                {
+                    textDocument = new { uri },
+                    position = new { line = 1, character = 18 },
+                    context = new { includeDeclaration = false }
+                });
+                AssertEqual(JsonValueKind.Array, references.ValueKind, $"{name} references must be an array");
+                AssertEqual(1, references.GetArrayLength(), $"{name} should have one workspace reference");
+                AssertTrue((references[0].GetProperty("uri").GetString() ?? string.Empty).EndsWith("/App.cfs", StringComparison.OrdinalIgnoreCase),
+                    $"{name} reference should point to App.cfs");
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string EncodeWindowsDriveUri(string uri)
+    {
+        if (!OperatingSystem.IsWindows() || !uri.StartsWith("file:///", StringComparison.Ordinal))
+            return uri;
+
+        int colon = uri.IndexOf(":/", "file:///".Length, StringComparison.Ordinal);
+        return colon == 9 ? uri[..8] + char.ToLowerInvariant(uri[8]) + "%3A" + uri[10..] : uri;
     }
 
     /// <summary>

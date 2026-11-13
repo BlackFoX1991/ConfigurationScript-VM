@@ -1718,7 +1718,7 @@ internal sealed class LspServer
 
     private IEnumerable<DocumentState> EnumerateWorkspaceStates(string anchorUri)
     {
-        HashSet<string> seen = new(GetUriComparer());
+        HashSet<string> seen = new(CfgsDocumentUriComparer.Instance);
 
         foreach (DocumentState openState in _documents.Values)
         {
@@ -2397,13 +2397,10 @@ internal sealed class LspServer
         public static readonly ReferenceKeyComparer Instance = new();
 
         public bool Equals(ReferenceKey x, ReferenceKey y)
-            => string.Equals(x.Uri, y.Uri, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+            => CfgsDocumentUriComparer.Instance.Equals(x.Uri, y.Uri)
                && x.Range.Equals(y.Range);
 
         public int GetHashCode(ReferenceKey obj)
-        {
-            StringComparer comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-            return HashCode.Combine(comparer.GetHashCode(obj.Uri), obj.Range);
-        }
+            => HashCode.Combine(CfgsDocumentUriComparer.Instance.GetHashCode(obj.Uri), obj.Range);
     }
 }

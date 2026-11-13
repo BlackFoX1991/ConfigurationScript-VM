@@ -30,4 +30,4 @@ dotnet build ..\CFGS_VM.sln -c Release
 npm run package
 ```
 
-The generated package is `cfgs-vscode-0.12.2.vsix` and requires the .NET 10 runtime. Set `CFGS_BUILD_CONFIGURATION=Debug` only when you deliberately want a Debug package.
+The generated package is `cfgs-vscode-0.12.3.vsix` and requires the .NET 10 runtime. Set `CFGS_BUILD_CONFIGURATION=Debug` only when you deliberately want a Debug package.
