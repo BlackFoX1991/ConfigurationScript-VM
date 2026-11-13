@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
+using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
@@ -571,6 +572,7 @@ namespace CFGS.Web.Http
         {
             public long MaxRequestBodySize { get; set; } = DefaultMaxRequestBodySize;
             public bool StreamBodies { get; set; }
+            public bool SuppressRequestLogging { get; set; }
             public bool UseHttps { get; set; }
             public string Host { get; set; } = "localhost";
             public string? CertificatePath { get; set; }
@@ -664,6 +666,9 @@ namespace CFGS.Web.Http
                     case "streambody":
                         options.StreamBodies = ToBool(value, instr, kv.Key);
                         break;
+                    case "suppressrequestlogging":
+                        options.SuppressRequestLogging = ToBool(value, instr, kv.Key);
+                        break;
                     case "maxrequestbodysize":
                     case "maxbodysize":
                     case "maxbodybytes":
@@ -743,6 +748,7 @@ namespace CFGS.Web.Http
             private readonly int _port;
             private readonly long _maxRequestBodySize;
             private readonly bool _streamBodies;
+            private readonly bool _suppressRequestLogging;
             private readonly bool _useHttps;
             private readonly string _host;
             private readonly string? _certificatePath;
@@ -968,6 +974,7 @@ namespace CFGS.Web.Http
                 _port = port;
                 _maxRequestBodySize = options.MaxRequestBodySize;
                 _streamBodies = options.StreamBodies;
+                _suppressRequestLogging = options.SuppressRequestLogging;
                 _useHttps = options.UseHttps;
                 _host = options.Host;
                 _certificatePath = options.CertificatePath;
@@ -1196,6 +1203,8 @@ namespace CFGS.Web.Http
             private WebApplication BuildApplication()
             {
                 WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
+                if (_suppressRequestLogging)
+                    builder.Logging.ClearProviders();
                 builder.WebHost.UseKestrelCore();
                 builder.WebHost.ConfigureKestrel(options =>
                 {
