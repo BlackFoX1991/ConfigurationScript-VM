@@ -88,7 +88,7 @@ namespace CFGS_VM.Analytic.Modules
 
             if (Uri.TryCreate(rawPath, UriKind.Absolute, out Uri? absoluteImportUri) && absoluteImportUri.IsFile)
             {
-                string fullAbsolutePath = Path.GetFullPath(absoluteImportUri.LocalPath);
+                string fullAbsolutePath = FileUriPath.GetLocalPath(absoluteImportUri);
                 return File.Exists(fullAbsolutePath) ? fullAbsolutePath : null;
             }
 

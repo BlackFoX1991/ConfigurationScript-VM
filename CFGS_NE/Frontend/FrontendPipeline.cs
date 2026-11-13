@@ -269,7 +269,7 @@ namespace CFGS_VM.Analytic
             if (Uri.TryCreate(origin, UriKind.Absolute, out Uri? parsed))
             {
                 if (parsed.IsFile)
-                    return Path.GetFullPath(parsed.LocalPath);
+                    return FileUriPath.GetLocalPath(parsed);
 
                 return null;
             }

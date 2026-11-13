@@ -14,6 +14,7 @@ internal static class Program
             InitializeAdvertisesCoreCapabilities,
             RejectsOversizedAndMalformedFrames,
             DidOpenPublishesDiagnostics,
+            EncodedWindowsDriveUriResolvesRelativeImport,
             DidChangePublishesLatestDiagnosticsAfterDebounce,
             DidChangeAppliesIncrementalRangeEdits,
             ClosingOneImporterPreservesSharedDiagnostics,
@@ -112,6 +113,43 @@ internal static class Program
         JsonElement diagnostics = client.WaitForDiagnostics(uri).GetProperty("diagnostics");
         AssertTrue(diagnostics.GetArrayLength() > 0, "expected diagnostics for broken source");
         AssertFalse(string.IsNullOrWhiteSpace(diagnostics[0].GetProperty("message").GetString()), "diagnostic message is empty");
+    }
+
+    private static void EncodedWindowsDriveUriResolvesRelativeImport()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        string root = Path.Combine(Path.GetTempPath(), "cfgs-lsp-encoded-drive", Guid.NewGuid().ToString("N"));
+        string appDirectory = Path.Combine(root, "App");
+        string modelsDirectory = Path.Combine(root, "Models");
+        Directory.CreateDirectory(appDirectory);
+        Directory.CreateDirectory(modelsDirectory);
+        string appPath = Path.Combine(appDirectory, "App.cfs");
+        File.WriteAllText(appPath, "import \"../Models/Klient.cfs\";\n");
+        File.WriteAllText(Path.Combine(modelsDirectory, "Klient.cfs"), "var value = 1;\n");
+
+        try
+        {
+            string rootUri = EncodeWindowsDrive(new Uri(root).AbsoluteUri);
+            string appUri = EncodeWindowsDrive(new Uri(appPath).AbsoluteUri);
+            using LspTestClient client = LspTestClient.StartInitialized(rootUri: rootUri);
+            client.DidOpen(appUri, File.ReadAllText(appPath));
+
+            JsonElement diagnostics = client.WaitForDiagnostics(appUri).GetProperty("diagnostics");
+            AssertEqual(0, diagnostics.GetArrayLength(), $"encoded Windows drive URI must resolve a relative import from the script directory: {diagnostics.GetRawText()}");
+        }
+        finally
+        {
+            DeleteTestDirectory(root);
+        }
+    }
+
+    private static string EncodeWindowsDrive(string uri)
+    {
+        AssertTrue(uri.StartsWith("file:///", StringComparison.OrdinalIgnoreCase) && uri.Length > 9 && uri[9] == ':',
+            "expected a Windows file URI with a drive letter");
+        return uri[..9] + "%3A" + uri[10..];
     }
 
     private static void LiveLintPublishesStyleDiagnosticsWhenEnabled()
@@ -1020,22 +1058,22 @@ internal sealed class LspTestClient : IDisposable
         return new LspTestClient(process);
     }
 
-    public static LspTestClient StartInitialized(bool liveLint = false, bool allowTabs = false)
+    public static LspTestClient StartInitialized(bool liveLint = false, bool allowTabs = false, string? rootUri = null)
     {
         LspTestClient client = Start();
-        client.Initialize(liveLint, allowTabs);
+        client.Initialize(liveLint, allowTabs, rootUri);
         client.SendNotification("initialized", new { });
         return client;
     }
 
-    public JsonElement Initialize(bool liveLint = false, bool allowTabs = false)
+    public JsonElement Initialize(bool liveLint = false, bool allowTabs = false, string? rootUri = null)
     {
         string root = Path.Combine(Path.GetTempPath(), "cfgs-lsp-tests-root");
         Directory.CreateDirectory(root);
         return SendRequest("initialize", new
         {
             processId = Environment.ProcessId,
-            rootUri = new Uri(root).AbsoluteUri,
+            rootUri = rootUri ?? new Uri(root).AbsoluteUri,
             capabilities = new { },
             initializationOptions = new { liveLint, allowTabs }
         });

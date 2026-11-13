@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.12.2 - 2026-11-13
+
+### Fixed
+- Resolved false `CFGS4001` import errors on Windows when VS Code sends file URIs with an encoded drive colon (`c%3A`). The language server now maps these URIs to the correct local files before resolving relative imports.
+
 ## 0.12.1 - 2026-11-13
 
 ### Fixed

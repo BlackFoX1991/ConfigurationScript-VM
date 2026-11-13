@@ -1765,7 +1765,7 @@ internal sealed class CfgsAnalyzer
             if (!absoluteImportUri.IsFile)
                 return absoluteImportUri.AbsoluteUri;
 
-            string absoluteImportPath = Path.GetFullPath(absoluteImportUri.LocalPath);
+            string absoluteImportPath = FileUriPath.GetLocalPath(absoluteImportUri);
             return File.Exists(absoluteImportPath) ? new Uri(absoluteImportPath).AbsoluteUri : null;
         }
 
@@ -2266,7 +2266,10 @@ internal sealed class CfgsAnalyzer
             return null;
 
         if (Uri.TryCreate(rawPath, UriKind.Absolute, out Uri? uri) && uri.IsFile)
-            return File.Exists(uri.LocalPath) ? Path.GetFullPath(uri.LocalPath) : null;
+        {
+            string absolutePath = FileUriPath.GetLocalPath(uri);
+            return File.Exists(absolutePath) ? absolutePath : null;
+        }
 
         if (Path.IsPathFullyQualified(rawPath))
         {
@@ -2924,7 +2927,7 @@ internal sealed class CfgsAnalyzer
         private static string NormalizeOrigin(string origin)
         {
             if (Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri) && uri.IsFile)
-                return Path.GetFullPath(uri.LocalPath);
+                return FileUriPath.GetLocalPath(uri);
 
             if (Path.IsPathFullyQualified(origin))
                 return Path.GetFullPath(origin);
@@ -2994,7 +2997,7 @@ internal sealed class CfgsAnalyzer
                 return _documentUri;
 
             if (Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri))
-                return uri.IsFile ? new Uri(Path.GetFullPath(uri.LocalPath)).AbsoluteUri : uri.AbsoluteUri;
+                return uri.IsFile ? new Uri(FileUriPath.GetLocalPath(uri)).AbsoluteUri : uri.AbsoluteUri;
 
             if (Path.IsPathFullyQualified(origin) || File.Exists(origin))
                 return new Uri(Path.GetFullPath(origin)).AbsoluteUri;
@@ -3007,7 +3010,7 @@ internal sealed class CfgsAnalyzer
             if (Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed))
             {
                 if (parsed.IsFile)
-                    return Path.GetFullPath(parsed.LocalPath);
+                    return FileUriPath.GetLocalPath(parsed);
 
                 return null;
             }
@@ -3021,7 +3024,7 @@ internal sealed class CfgsAnalyzer
         private static string NormalizeOrigin(string origin)
         {
             if (Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri) && uri.IsFile)
-                return Path.GetFullPath(uri.LocalPath);
+                return FileUriPath.GetLocalPath(uri);
 
             if (Path.IsPathFullyQualified(origin))
                 return Path.GetFullPath(origin);

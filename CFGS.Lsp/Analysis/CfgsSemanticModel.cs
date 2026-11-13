@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using CFGS_VM.Analytic.Tokens;
 using CFGS_VM.Analytic.Tree;
+using CFGS_VM.Analytic.Modules;
 
 namespace CFGS.Lsp;
 
@@ -3855,7 +3856,7 @@ internal sealed class CfgsSemanticModelBuilder
                 return _documentUri;
 
             if (Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri))
-                return uri.IsFile ? new Uri(Path.GetFullPath(uri.LocalPath)).AbsoluteUri : uri.AbsoluteUri;
+                return uri.IsFile ? new Uri(FileUriPath.GetLocalPath(uri)).AbsoluteUri : uri.AbsoluteUri;
 
             if (Path.IsPathFullyQualified(origin) || File.Exists(origin))
                 return new Uri(Path.GetFullPath(origin)).AbsoluteUri;
@@ -3866,7 +3867,7 @@ internal sealed class CfgsSemanticModelBuilder
         private static string NormalizeOrigin(string origin)
         {
             if (Uri.TryCreate(origin, UriKind.Absolute, out Uri? uri) && uri.IsFile)
-                return Path.GetFullPath(uri.LocalPath);
+                return FileUriPath.GetLocalPath(uri);
 
             if (Path.IsPathFullyQualified(origin))
                 return Path.GetFullPath(origin);

@@ -2261,7 +2261,7 @@ internal sealed class LspServer
     private static string? TryGetLocalPath(string uri)
     {
         if (Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed) && parsed.IsFile)
-            return Path.GetFullPath(parsed.LocalPath);
+            return FileUriPath.GetLocalPath(parsed);
 
         return Path.IsPathFullyQualified(uri) ? Path.GetFullPath(uri) : null;
     }
