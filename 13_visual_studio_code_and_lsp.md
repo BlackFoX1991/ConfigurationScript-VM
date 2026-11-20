@@ -2,6 +2,8 @@
 
 This repository now contains a CFGS language server and a matching Visual Studio Code extension.
 
+If you are creating your first script, follow [Your First CFGS Project](00_first_project.md) first. The extension edits `.cfs` files; the CFGS CLI runs them.
+
 ## Included Components
 
 - `CFGS.Lsp`
@@ -48,6 +50,38 @@ The LSP does not keep a second parser or semantic fork. The productive analysis 
 
 For the broader codebase split behind this path, see [Internal Architecture](14_internal_architecture.md).
 
+## Install the Extension for a Normal Project
+
+The packaged `cfgs-vscode-<version>.vsix` contains the language server and CLI tooling used by the editor. You do not need to point the extension at this source repository when editing a separate CFGS project.
+
+If a matching VSIX is already available, in VS Code open **Extensions**, choose **Install from VSIX…** from the Extensions view menu, and select the file. Alternatively, use the locally installed VS Code CLI:
+
+```powershell
+code --install-extension .\vscode-cfgs\cfgs-vscode-0.12.3.vsix
+```
+
+Run that command from this repository root with the current package file. To build a fresh VSIX from source, see [Build a VSIX Package](#build-a-vsix-package) below. Packaging requires Node.js; using an existing VSIX does not.
+
+Open **the CFGS project folder** in VS Code, then open `main.cfs`. The extension starts its bundled language server when a CFGS file is opened. The language mode should be **CFGS** in the status bar. In the Command Palette, try `CFGS: Lint Current File` or `CFGS: Format Current File`. The extension does not create a project or add a `cfgs` executable to your shell PATH; use the CFGS CLI to run scripts.
+
+For a comfortable starting configuration, put this in the project's `.vscode/settings.json`:
+
+```json
+{
+  "[cfgs]": {
+    "editor.defaultFormatter": "blackfox1991.cfgs-vscode",
+    "editor.formatOnSave": true,
+    "editor.insertSpaces": true,
+    "editor.tabSize": 4
+  },
+  "cfgs.lint.live": true
+}
+```
+
+The extension already supplies the default formatter and enables live linting; this file makes the preferred indentation and format-on-save behavior explicit for everyone who opens the project. If the project intentionally uses tabs, set `editor.insertSpaces` to `false` and `cfgs.lint.allowTabs` to `true` instead. This prevents the `CFGS8002` warning.
+
+If the editor still shows an old import diagnostic after files change, run `CFGS: Restart Language Server` from the Command Palette. Check that the imported path is relative to the importing script and that you opened the intended project folder.
+
 ## Build the Server
 
 From the repository root:
@@ -77,18 +111,18 @@ dotnet build CFGS_VM.sln -c Release
 .\dist\Release\net10.0\CFGS_VM.exe -lsp
 ```
 
-## Use the VS Code Extension
+## Develop the VS Code Extension from Source
 
 1. Open this repository in Visual Studio Code.
 2. Open the `vscode-cfgs` folder as an extension project or package it later as a normal VS Code extension.
 3. Make sure the language server has been built once.
 4. Start the extension host.
 
-By default the extension resolves the server in this order:
+With no explicit `cfgs.server.command`, the extension resolves the server in this order:
 
-1. Bundled `server/CFGS.Lsp.dll` inside the installed extension
-2. `dist/Debug/net10.0/CFGS.Lsp.dll`
-3. `dotnet run --project CFGS.Lsp/CFGS.Lsp.csproj`
+1. A build under the open workspace's `dist/Debug/net10.0`, `dist/Release/net10.0`, or `dist/net10.0` folder.
+2. `dotnet run --project CFGS.Lsp/CFGS.Lsp.csproj` when the open workspace is this source repository.
+3. Bundled `server/CFGS.Lsp.dll` inside the installed extension.
 
 ## Build a VSIX Package
 
@@ -103,7 +137,7 @@ npm run package
 The package is written to:
 
 ```text
-vscode-cfgs/cfgs-vscode-0.12.2.vsix
+vscode-cfgs/cfgs-vscode-0.12.3.vsix
 ```
 
 The packaged extension includes the selected Release language server and CLI under `extension/server`, together with their runtime dependencies. It can start after installation when the .NET 10 runtime is available on the machine. The packager checks that the selected CFGS binary contains the current source version; set `CFGS_BUILD_CONFIGURATION=Debug` only for a deliberate Debug package.

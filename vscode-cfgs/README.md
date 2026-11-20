@@ -2,6 +2,8 @@
 
 Visual Studio Code support for ConfigurationScript.
 
+New to CFGS? Follow [Your First CFGS Project](../00_first_project.md) to build the CLI, create `cfgs.json` and `main.cfs`, run the script, and then open its folder in VS Code. The extension supplies editor support; project creation and script execution use the CFGS CLI.
+
 Features:
 
 - `.cfs` language registration and syntax highlighting
@@ -30,4 +32,4 @@ dotnet build ..\CFGS_VM.sln -c Release
 npm run package
 ```
 
-The generated package is `cfgs-vscode-0.12.3.vsix` and requires the .NET 10 runtime. Set `CFGS_BUILD_CONFIGURATION=Debug` only when you deliberately want a Debug package.
+The generated package is `cfgs-vscode-0.12.3.vsix` and requires the .NET 10 runtime. Install it with VS Code's **Extensions → Install from VSIX…** command or `code --install-extension .\cfgs-vscode-0.12.3.vsix` from this folder. Set `CFGS_BUILD_CONFIGURATION=Debug` only when you deliberately want a Debug package.

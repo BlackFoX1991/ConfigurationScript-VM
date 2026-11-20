@@ -33,7 +33,7 @@ A minimal manifest looks like this.
 
 ## Init
 
-Create a manifest in the current directory.
+Create a manifest in the current directory. `init` does not generate `main.cfs`, a project template, or a VS Code workspace; create source files separately. For a complete first project, follow [Your First CFGS Project](00_first_project.md).
 
 ```powershell
 dotnet run --project CFGS_NE -- init

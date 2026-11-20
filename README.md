@@ -1,44 +1,44 @@
 
 
-<p align="center" width="100%">
-    <img 
-    src="https://github.com/BlackFoX1991/ConfigurationScript-VM/blob/6d30f41810a68139612ebfdc4ce92304b04ac800/CFGS_NE/assets/CFGS_LOGO.png"
-    alt="CFGS Logo"
-    style="width: 640px; height: auto;">
-</p>
+<p align="center"><img src="CFGS_NE/assets/CFGS_LOGO.png" alt="CFGS logo" width="640"></p>
 
 # ConfigurationScript Documentation
 
-If you are opening CFGS for the first time, this is the best reading order.
+**New to CFGS?** Start with [Your First CFGS Project](00_first_project.md). It walks through building the CLI, creating `cfgs.json` and `main.cfs`, running the script, and opening the folder in VS Code. The guide also explains what the VS Code extension does and how to add a second source file.
 
-1. [Getting Started and Running Scripts](01_getting_started_and_running.md)
-2. [Language and Data](02_language_and_data.md)
-3. [Control Flow and Errors](03_control_flow_and_errors.md)
-4. [Functions and Calls](04_functions_and_calls.md)
-5. [Match and Destructuring](05_match_and_destructuring.md)
-6. [Classes, Enums, Namespaces, and Inheritance](06_classes_enums_namespaces_and_inheritance.md)
-7. [Modules, Imports, and Exports](07_modules_imports_and_exports.md)
-8. [Async, Await, and Yield](08_async_await_and_yield.md)
-9. [Standard Library](09_standard_library.md)
-10. [Using the HTTP and SQL Plugins](10_using_http_and_sql_plugins.md)
-11. [Creating Plugins](11_creating_plugins.md)
-12. [Crypto Plugin](12_crypto_plugin.md)
-13. [Visual Studio Code and LSP](13_visual_studio_code_and_lsp.md)
-14. [Internal Architecture](14_internal_architecture.md)
-15. [XML Plugin](15_xml_plugin.md)
-16. [PDF Plugin](16_pdf_plugin.md)
-17. [Debugging CFGS Scripts](17_debugging.md)
-18. [CFGS Language Specification](18_language_specification.md)
-19. [Diagnostics and Error Codes](19_diagnostics.md)
-20. [Package and Dependency Management](20_package_dependency_management.md)
-21. [Native .NET Interop](21_native_dotnet_interop.md)
-22. [Embedding CFGS in .NET Applications](22_embedding_api.md)
-23. [TCP and UDP Socket Plugin](23_socket_plugin.md)
-24. [Practical Feature Samples](CFGS_NE/Samples/README.md)
+`cfgs init` creates a project manifest; it does not create source code or a GUI project wizard. The first-project guide shows both steps explicitly.
 
-## Complete Feature Index
+After the first project, use this reading order:
 
-The following topics are covered completely across the English documentation set.
+1. [Your First CFGS Project](00_first_project.md)
+2. [Getting Started and Running Scripts](01_getting_started_and_running.md)
+3. [Language and Data](02_language_and_data.md)
+4. [Control Flow and Errors](03_control_flow_and_errors.md)
+5. [Functions and Calls](04_functions_and_calls.md)
+6. [Match and Destructuring](05_match_and_destructuring.md)
+7. [Classes, Enums, Namespaces, and Inheritance](06_classes_enums_namespaces_and_inheritance.md)
+8. [Modules, Imports, and Exports](07_modules_imports_and_exports.md)
+9. [Async, Await, and Yield](08_async_await_and_yield.md)
+10. [Standard Library](09_standard_library.md)
+11. [Using the HTTP and SQL Plugins](10_using_http_and_sql_plugins.md)
+12. [Creating Plugins](11_creating_plugins.md)
+13. [Crypto Plugin](12_crypto_plugin.md)
+14. [Visual Studio Code and LSP](13_visual_studio_code_and_lsp.md)
+15. [Internal Architecture](14_internal_architecture.md)
+16. [XML Plugin](15_xml_plugin.md)
+17. [PDF Plugin](16_pdf_plugin.md)
+18. [Debugging CFGS Scripts](17_debugging.md)
+19. [CFGS Language Specification](18_language_specification.md)
+20. [Diagnostics and Error Codes](19_diagnostics.md)
+21. [Package and Dependency Management](20_package_dependency_management.md)
+22. [Native .NET Interop](21_native_dotnet_interop.md)
+23. [Embedding CFGS in .NET Applications](22_embedding_api.md)
+24. [TCP and UDP Socket Plugin](23_socket_plugin.md)
+25. [Practical Feature Samples](CFGS_NE/Samples/README.md)
+
+## Feature Index
+
+The English documentation set covers these topics:
 
 - Language basics. Comments. Literals. Number formats. Strings. Chars. Booleans. `null`.
 - Variables and constants. `var`. `const`. Multiple declarators. Scopes. Shadowing. Top level rules.

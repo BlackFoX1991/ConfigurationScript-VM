@@ -1,10 +1,12 @@
 # Getting Started and Running Scripts
 
+For a copyable first-run walkthrough, including project creation and VS Code, start with [Your First CFGS Project](00_first_project.md). This page covers the wider CLI and repository development workflow.
+
 ## What This Project Is
 
 ConfigurationScript, or CFGS, is implemented in this repository as a bytecode VM with its own lexer, parser, compiler, and runtime. Scripts are not executed directly from the AST. They are parsed first, compiled next, and then executed inside the VM.
 
-In practice this means two things. First, the language is clearly formalized. Second, the documentation should be aligned with the current implementation instead of historical material. That is exactly what this folder does.
+Scripts are parsed, compiled, and executed by the VM. The examples here use the current source repository and its built CLI.
 
 If you want the codebase-level structure behind that implementation, continue with [Internal Architecture](14_internal_architecture.md). If you want the normative language rules, use [CFGS Language Specification](18_language_specification.md).
 
@@ -19,45 +21,6 @@ If you want the codebase-level structure behind that implementation, continue wi
 - `CFGS_NE/Edgecases` is the executable regression companion for real language usage.
 - `CFGS_NE/Samples` contains the runnable example scripts referenced by this documentation set.
 - `14_internal_architecture.md` documents the productive parser, compiler, VM, and LSP architecture.
-
-## Running the Test Suites
-
-The repository has five suites. `dotnet test CFGS_VM.sln` runs the xUnit tests
-for hosting, JSON and formatting and invokes the existing Tooling, LSP,
-Edgecases and Samples runners through xUnit integration tests. The following
-entry point runs the same suites and prints a separate summary for each:
-
-```powershell
-pwsh scripts/run-all-tests.ps1
-```
-
-It builds the solution and then runs the xUnit tests, tooling tests, LSP tests,
-edge case programs and documentation samples, failing if any suite reports a failure
-or fails to report at all. Individual suites can be skipped with `-SkipEdgecases` and
-`-SkipSamples`, and an existing build reused with `-SkipBuild`.
-
-The sample suite executes every script under `CFGS_NE/Samples` rather than only compiling
-it, because some mistakes (bracket access on a namespace alias, a renamed builtin) surface
-only at runtime.
-
-The edge case runner (`CFGS_NE/Edgecases/run_all_edgecases.ps1`) knows three kinds of test:
-
-- An expected-failure test (`*_fail.cfs`, or any file with the header below) states the
-  diagnostic it must produce in its first line. The run must exit with an error, and the
-  first `CFGS` diagnostic must carry exactly that code and contain the message fragment.
-  A test without the header fails, so a test cannot pass by failing for the wrong reason.
-
-  ```cfs
-  # expect-error: CFGS1000 break can only be used in loops
-  ```
-
-- An assertion test imports `edge_assert.cfs` and calls `edge_begin` and `edge_finish` with
-  its own file name. It must exit cleanly, run at least one case, and report no failure.
-- Any other test must exit cleanly without printing an error.
-
-Test fixtures that should not live in the repository as binaries, such as a plugin whose
-registration fails, are built by the runner into `CFGS_NE/Edgecases/_fixtures` from the
-projects under `CFGS_NE/Edgecases/Fixtures` and removed after the run.
 
 ## Building the Project
 
@@ -267,3 +230,42 @@ Imported `.cfs` modules and namespace bodies are declaration-oriented: imports a
 There is no auto-main. A script runs its top-level statements once; to run a `main` function, call it explicitly with `main();` (or `await main();` for an async `main`). Defining `main` without calling it does nothing.
 
 For the exact rules, continue with [Language and Data](02_language_and_data.md) and [Control Flow and Errors](03_control_flow_and_errors.md).
+
+## Running the Test Suites
+
+The repository has five suites. `dotnet test CFGS_VM.sln` runs the xUnit tests
+for hosting, JSON and formatting and invokes the existing Tooling, LSP,
+Edgecases and Samples runners through xUnit integration tests. The following
+entry point runs the same suites and prints a separate summary for each:
+
+```powershell
+pwsh scripts/run-all-tests.ps1
+```
+
+It builds the solution and then runs the xUnit tests, tooling tests, LSP tests,
+edge case programs and documentation samples, failing if any suite reports a failure
+or fails to report at all. Individual suites can be skipped with `-SkipEdgecases` and
+`-SkipSamples`, and an existing build reused with `-SkipBuild`.
+
+The sample suite executes every script under `CFGS_NE/Samples` rather than only compiling
+it, because some mistakes (bracket access on a namespace alias, a renamed builtin) surface
+only at runtime.
+
+The edge case runner (`CFGS_NE/Edgecases/run_all_edgecases.ps1`) knows three kinds of test:
+
+- An expected-failure test (`*_fail.cfs`, or any file with the header below) states the
+  diagnostic it must produce in its first line. The run must exit with an error, and the
+  first `CFGS` diagnostic must carry exactly that code and contain the message fragment.
+  A test without the header fails, so a test cannot pass by failing for the wrong reason.
+
+  ```cfs
+  # expect-error: CFGS1000 break can only be used in loops
+  ```
+
+- An assertion test imports `edge_assert.cfs` and calls `edge_begin` and `edge_finish` with
+  its own file name. It must exit cleanly, run at least one case, and report no failure.
+- Any other test must exit cleanly without printing an error.
+
+Test fixtures that should not live in the repository as binaries, such as a plugin whose
+registration fails, are built by the runner into `CFGS_NE/Edgecases/_fixtures` from the
+projects under `CFGS_NE/Edgecases/Fixtures` and removed after the run.
