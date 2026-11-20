@@ -1,49 +1,23 @@
 # Getting Started and Running Scripts
 
-For a copyable first-run walkthrough, including project creation and VS Code, start with [Your First CFGS Project](00_first_project.md). This page covers the wider CLI and repository development workflow.
+For a first project, including file creation and VS Code, start with [Your First CFGS Project](00_first_project.md). This page explains how to use a ready-to-run `CFGS_VM.exe`.
 
-## What This Project Is
+## Before You Start
 
-ConfigurationScript, or CFGS, is implemented in this repository as a bytecode VM with its own lexer, parser, compiler, and runtime. Scripts are not executed directly from the AST. They are parsed first, compiled next, and then executed inside the VM.
-
-Scripts are parsed, compiled, and executed by the VM. The examples here use the current source repository and its built CLI.
-
-If you want the codebase-level structure behind that implementation, continue with [Internal Architecture](14_internal_architecture.md). If you want the normative language rules, use [CFGS Language Specification](18_language_specification.md).
-
-## Important Project Folders
-
-- `CFGS_NE` contains the language frontend, compiler, runtime, CLI, and the built-in standard library (non-IO builtins and intrinsics, auto-registered so scripts need no import).
-- `CFGS.IO` contains the file-system plugin (`fs`/`file` namespace and file handles), loaded via `import "CFGS.IO.dll"`.
-- `CFGS.Web.Http` contains the `http` namespace and the built in HTTP server handle.
-- `CFGS.Net.Sockets` contains `net.tcp` and `net.udp` for socket communication.
-- `CFGS.Microsoft.SQL` contains SQL support.
-- The root `*.md` files contain the current English documentation set.
-- `CFGS_NE/Edgecases` is the executable regression companion for real language usage.
-- `CFGS_NE/Samples` contains the runnable example scripts referenced by this documentation set.
-- `14_internal_architecture.md` documents the productive parser, compiler, VM, and LSP architecture.
-
-## Building the Project
-
-You can build the full repository through the solution.
-
-```powershell
-dotnet build CFGS_VM.sln
-```
-
-The standard library is compiled into `CFGS_VM` itself, so there is no separate assembly to import. The plugins are built as normal .NET assemblies, and the sample scripts typically import their DLLs from `dist/Debug/net10.0`.
+CFGS runs `.cfs` scripts with its command-line application. The examples assume `CFGS_VM.exe` is available as a command. If it is not on your PATH, use the full path to the installed executable. Open a terminal in the folder containing your script before running these examples.
 
 ## Running a Script
 
 A CFGS script normally uses the `.cfs` extension.
 
-```powershell
-dotnet run --project CFGS_NE -- .\my_script.cfs
+```text
+CFGS_VM.exe my_script.cfs
 ```
 
 If you need script arguments, pass them after `-p` or `-params`.
 
-```powershell
-dotnet run --project CFGS_NE -- .\my_script.cfs -p alpha beta gamma
+```text
+CFGS_VM.exe my_script.cfs -p alpha beta gamma
 ```
 
 Inside the script you can access them through `cmdArgs()`.
@@ -52,8 +26,8 @@ Inside the script you can access them through `cmdArgs()`.
 
 If you start the CLI without a script file, it opens the interactive mode.
 
-```powershell
-dotnet run --project CFGS_NE
+```text
+CFGS_VM.exe
 ```
 
 On startup, the REPL can automatically load plugins listed in `repl_plugins.json` next to the application. Bare DLL names are loaded from the application `plugins` directory, relative paths are resolved from the application directory, and invalid entries are skipped with a warning. This autoload behavior is only active in REPL mode.
@@ -112,10 +86,10 @@ These options are Windows only. Install and uninstall need an elevated (administ
 Service lifecycle events and unhandled script errors are written to the Windows Event Log under the source `CFGS`, because a service has no console.
 
 ```text
-cfgs.exe -install_service MyJob -script C:\jobs\job.cfs
+CFGS_VM.exe -install_service MyJob -script C:\jobs\job.cfs
 sc start MyJob
 sc stop MyJob
-cfgs.exe -uninstall_service MyJob
+CFGS_VM.exe -uninstall_service MyJob
 ```
 
 In debug mode the CLI writes a `log_file.log` into the current working directory after execution.
@@ -127,10 +101,10 @@ For `cfgs.json`, lockfiles, and restore/install workflows, see [Package and Depe
 
 Use the linter to validate source files without executing them and to catch common style issues.
 
-```powershell
-dotnet run --project CFGS_NE -- -lint .\script.cfs
-dotnet run --project CFGS_NE -- -lint .\src --json
-dotnet run --project CFGS_NE -- -lint .\src --fix
+```text
+CFGS_VM.exe -lint script.cfs
+CFGS_VM.exe -lint src --json
+CFGS_VM.exe -lint src --fix
 ```
 
 The linter checks compiler diagnostics, trailing whitespace, tab indentation, excessive blank lines, missing final newlines, long lines, unused locals and parameters, unreachable statements, top-level functions that are never called in the same file, async functions that do not await anything, shadowing, unused imports, empty blocks, suspicious equality comparisons, and broader guaranteed-termination unreachable cases. The `strict` preset additionally enables constant-condition and magic-number diagnostics. Warnings produce a non-zero exit code so the command can be used in CI. `--warnings-as-errors` promotes warning diagnostics to errors in the payload.
@@ -139,10 +113,10 @@ The linter checks compiler diagnostics, trailing whitespace, tab indentation, ex
 
 Use the formatter to normalize indentation.
 
-```powershell
-dotnet run --project CFGS_NE -- -format .\script.cfs
-dotnet run --project CFGS_NE -- -format .\script.cfs --write
-dotnet run --project CFGS_NE -- -format .\src --check
+```text
+CFGS_VM.exe -format script.cfs
+CFGS_VM.exe -format script.cfs --write
+CFGS_VM.exe -format src --check
 ```
 
 Without `--write` or `--check`, formatting a single file prints the formatted source to stdout. Formatting a folder requires `--write` or `--check`. `--check` returns a non-zero exit code when at least one file would change. Use `--indent <n>` to choose the space width and `--tabs` to indent with tabs.
@@ -191,14 +165,14 @@ Import resolution then searches in this order.
 
 You can compile a script like this.
 
-```powershell
-dotnet run --project CFGS_NE -- -c .\my_script.cfs -o .\my_script.cfb
+```text
+CFGS_VM.exe -c my_script.cfs -o my_script.cfb
 ```
 
 Then run the compiled artifact directly.
 
-```powershell
-dotnet run --project CFGS_NE -- .\my_script.cfb
+```text
+CFGS_VM.exe my_script.cfb
 ```
 
 The `.cfb` format stores bytecode, function metadata, source hash, compiler version, and plugin DLL names discovered during compilation. It does not store local source or plugin file paths.
@@ -230,42 +204,3 @@ Imported `.cfs` modules and namespace bodies are declaration-oriented: imports a
 There is no auto-main. A script runs its top-level statements once; to run a `main` function, call it explicitly with `main();` (or `await main();` for an async `main`). Defining `main` without calling it does nothing.
 
 For the exact rules, continue with [Language and Data](02_language_and_data.md) and [Control Flow and Errors](03_control_flow_and_errors.md).
-
-## Running the Test Suites
-
-The repository has five suites. `dotnet test CFGS_VM.sln` runs the xUnit tests
-for hosting, JSON and formatting and invokes the existing Tooling, LSP,
-Edgecases and Samples runners through xUnit integration tests. The following
-entry point runs the same suites and prints a separate summary for each:
-
-```powershell
-pwsh scripts/run-all-tests.ps1
-```
-
-It builds the solution and then runs the xUnit tests, tooling tests, LSP tests,
-edge case programs and documentation samples, failing if any suite reports a failure
-or fails to report at all. Individual suites can be skipped with `-SkipEdgecases` and
-`-SkipSamples`, and an existing build reused with `-SkipBuild`.
-
-The sample suite executes every script under `CFGS_NE/Samples` rather than only compiling
-it, because some mistakes (bracket access on a namespace alias, a renamed builtin) surface
-only at runtime.
-
-The edge case runner (`CFGS_NE/Edgecases/run_all_edgecases.ps1`) knows three kinds of test:
-
-- An expected-failure test (`*_fail.cfs`, or any file with the header below) states the
-  diagnostic it must produce in its first line. The run must exit with an error, and the
-  first `CFGS` diagnostic must carry exactly that code and contain the message fragment.
-  A test without the header fails, so a test cannot pass by failing for the wrong reason.
-
-  ```cfs
-  # expect-error: CFGS1000 break can only be used in loops
-  ```
-
-- An assertion test imports `edge_assert.cfs` and calls `edge_begin` and `edge_finish` with
-  its own file name. It must exit cleanly, run at least one case, and report no failure.
-- Any other test must exit cleanly without printing an error.
-
-Test fixtures that should not live in the repository as binaries, such as a plugin whose
-registration fails, are built by the runner into `CFGS_NE/Edgecases/_fixtures` from the
-projects under `CFGS_NE/Edgecases/Fixtures` and removed after the run.

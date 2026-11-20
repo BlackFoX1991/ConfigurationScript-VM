@@ -5,7 +5,7 @@
   <rect x="18" y="18" width="330" height="404" rx="12" fill="#142030" stroke="#35506a"/>
   <rect x="364" y="18" width="738" height="404" rx="12" fill="#101a28" stroke="#35506a"/>
   <text x="42" y="55" fill="#82e9cd" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="2">PROJECT FILES</text>
-  <text x="390" y="55" fill="#82e9cd" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="2">POWERSHELL · EXAMPLE OUTPUT</text>
+  <text x="390" y="55" fill="#82e9cd" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="2">TERMINAL · EXAMPLE OUTPUT</text>
   <line x1="18" y1="73" x2="348" y2="73" stroke="#35506a"/>
   <line x1="364" y1="73" x2="1102" y2="73" stroke="#35506a"/>
   <g font-family="Consolas, Cascadia Code, monospace" font-size="19" fill="#e8eef5">
@@ -17,11 +17,11 @@
   </g>
   <rect x="386" y="95" width="692" height="304" rx="8" fill="#0a1420"/>
   <g font-family="Consolas, Cascadia Code, monospace" font-size="18">
-    <text x="408" y="130" fill="#c6d5e4">PS&gt; dotnet $cfgsVm init --project $projectDir</text>
+    <text x="408" y="130" fill="#c6d5e4">&gt; CFGS_VM.exe init</text>
     <text x="408" y="165" fill="#82e9cd">[CFGS] initialized cfgs.json</text>
-    <text x="408" y="200" fill="#c6d5e4">PS&gt; dotnet $cfgsVm -check .\main.cfs</text>
+    <text x="408" y="200" fill="#c6d5e4">&gt; CFGS_VM.exe -check main.cfs</text>
     <text x="408" y="235" fill="#82e9cd">[CHECK] ok: main.cfs</text>
-    <text x="408" y="270" fill="#c6d5e4">PS&gt; dotnet $cfgsVm .\main.cfs</text>
+    <text x="408" y="270" fill="#c6d5e4">&gt; CFGS_VM.exe main.cfs</text>
     <text x="408" y="305" fill="#f5cc82">Hello, CFGS!</text>
     <text x="408" y="361" fill="#89a4b9" font-size="14">Paths shortened for clarity · Output verified with the CLI</text>
   </g>

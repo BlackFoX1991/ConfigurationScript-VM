@@ -4,11 +4,13 @@
 
 # ConfigurationScript Documentation
 
-**New to CFGS?** Start with [Your First CFGS Project](00_first_project.md). It walks through building the CLI, creating `cfgs.json` and `main.cfs`, running the script, and opening the folder in VS Code. The guide also explains what the VS Code extension does and how to add a second source file.
+**New to CFGS?** Start with [Your First CFGS Project](00_first_project.md). It assumes the CFGS executable is ready and walks through creating `cfgs.json` and `main.cfs`, running the script, and opening the folder in VS Code. The guide also explains the editor extension and a second source file.
 
-`cfgs init` creates a project manifest; it does not create source code or a GUI project wizard. The first-project guide shows both steps explicitly.
+`CFGS_VM.exe init` creates a project manifest; it does not create source code or a GUI project wizard. The first-project guide shows both steps explicitly.
 
-After the first project, use this reading order:
+## User Guides
+
+After the first project, choose a topic that matches what you want to do:
 
 1. [Your First CFGS Project](00_first_project.md)
 2. [Getting Started and Running Scripts](01_getting_started_and_running.md)
@@ -21,20 +23,23 @@ After the first project, use this reading order:
 9. [Async, Await, and Yield](08_async_await_and_yield.md)
 10. [Standard Library](09_standard_library.md)
 11. [Using the HTTP and SQL Plugins](10_using_http_and_sql_plugins.md)
-12. [Creating Plugins](11_creating_plugins.md)
-13. [Crypto Plugin](12_crypto_plugin.md)
-14. [Visual Studio Code and LSP](13_visual_studio_code_and_lsp.md)
-15. [Internal Architecture](14_internal_architecture.md)
-16. [XML Plugin](15_xml_plugin.md)
-17. [PDF Plugin](16_pdf_plugin.md)
-18. [Debugging CFGS Scripts](17_debugging.md)
-19. [CFGS Language Specification](18_language_specification.md)
-20. [Diagnostics and Error Codes](19_diagnostics.md)
-21. [Package and Dependency Management](20_package_dependency_management.md)
-22. [Native .NET Interop](21_native_dotnet_interop.md)
-23. [Embedding CFGS in .NET Applications](22_embedding_api.md)
-24. [TCP and UDP Socket Plugin](23_socket_plugin.md)
-25. [Practical Feature Samples](CFGS_NE/Samples/README.md)
+12. [Crypto Plugin](12_crypto_plugin.md)
+13. [Visual Studio Code and LSP](13_visual_studio_code_and_lsp.md)
+14. [XML Plugin](15_xml_plugin.md)
+15. [PDF Plugin](16_pdf_plugin.md)
+16. [Debugging CFGS Scripts](17_debugging.md)
+17. [Diagnostics and Error Codes](19_diagnostics.md)
+18. [Package and Dependency Management](20_package_dependency_management.md)
+19. [Native .NET Interop](21_native_dotnet_interop.md)
+20. [TCP and UDP Socket Plugin](23_socket_plugin.md)
+21. [Practical Feature Samples](CFGS_NE/Samples/README.md)
+
+## Developer References
+
+- [Creating Plugins](11_creating_plugins.md)
+- [Internal Architecture](14_internal_architecture.md)
+- [CFGS Language Specification](18_language_specification.md)
+- [Embedding CFGS in .NET Applications](22_embedding_api.md)
 
 ## Feature Index
 

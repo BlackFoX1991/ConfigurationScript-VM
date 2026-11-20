@@ -2,7 +2,7 @@
 
 Visual Studio Code support for ConfigurationScript.
 
-New to CFGS? Follow [Your First CFGS Project](../00_first_project.md) to build the CLI, create `cfgs.json` and `main.cfs`, run the script, and then open its folder in VS Code. The extension supplies editor support; project creation and script execution use the CFGS CLI.
+New to CFGS? Follow [Your First CFGS Project](../00_first_project.md) with an already compiled `CFGS_VM.exe`. It shows how to create `cfgs.json` and `main.cfs`, run the script, and use this extension in VS Code. The extension supplies editor support; project creation and script execution use the CFGS CLI.
 
 Features:
 
@@ -16,20 +16,12 @@ Features:
 - commands for `CFGS: Lint Current File`, `CFGS: Lint Workspace`, `CFGS: Format Current File`, and `CFGS: Restart Language Server`
 - optional `cfgs.lint.onSave` when live lint is disabled, and `cfgs.lint.fixOnSave`
 - `cfgs.lint.allowTabs` for projects that intentionally use tab indentation; set it to `true` alongside `editor.insertSpaces: false` to keep the formatter and linter consistent
-- auto-detected server and CLI binaries from workspace builds under `dist/Debug/net10.0`, `dist/Release/net10.0`, `dist/net10.0`, or the bundled `server` payload in the packaged extension
+- bundled language server and CLI tooling in the installable extension package
 
-The extension auto-detects the CFGS language server and CLI in this order:
+## Install and use
 
-- explicit `cfgs.server.command` or `cfgs.cli.command`
-- workspace builds in `dist/Debug/net10.0`, `dist/Release/net10.0`, or `dist/net10.0`
-- workspace project fallback via `dotnet run` when the CFGS repo is open
-- bundled binaries inside the packaged extension
+Install `cfgs-vscode-0.12.3.vsix` through VS Code's **Extensions → Install from VSIX…** menu. The extension package includes the language server and CLI tooling and needs the .NET 10 runtime. Open your CFGS project folder, then open a `.cfs` file. The language mode should be **CFGS** in the status bar.
 
-Build CFGS in Release mode, then create an installable package from this folder:
+Use **View → Command Palette** for `CFGS: Lint Current File`, `CFGS: Format Current File`, and `CFGS: Restart Language Server`. To run a script, use the already installed `CFGS_VM.exe` as shown in [Your First CFGS Project](../00_first_project.md).
 
-```powershell
-dotnet build ..\CFGS_VM.sln -c Release
-npm run package
-```
-
-The generated package is `cfgs-vscode-0.12.3.vsix` and requires the .NET 10 runtime. Install it with VS Code's **Extensions → Install from VSIX…** command or `code --install-extension .\cfgs-vscode-0.12.3.vsix` from this folder. Set `CFGS_BUILD_CONFIGURATION=Debug` only when you deliberately want a Debug package.
+For editor settings and troubleshooting, see [Visual Studio Code and LSP](../13_visual_studio_code_and_lsp.md).

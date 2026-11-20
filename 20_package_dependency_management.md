@@ -1,8 +1,6 @@
 # Package and Dependency Management
 
-CFGS supports a project-local dependency workflow for plugin DLLs.
-
-The first implementation is intentionally local. It does not download from a remote registry. It gives projects an official manifest, lockfile, restore folder, and CLI workflow that a registry can build on later.
+CFGS manages local plugin DLLs through a project manifest. The examples assume that `CFGS_VM.exe` is already available as a command. Open a terminal in your project folder before running the commands. Use the full path to the executable if it is not on your PATH. Plugin packages are loaded from local files; there is no package download service.
 
 ## Files
 
@@ -20,73 +18,63 @@ A minimal manifest looks like this.
   "version": "0.1.0",
   "plugins": [
     {
-      "name": "io",
-      "version": "5.3.4",
-      "path": "dist/Debug/net10.0/CFGS.IO.dll",
+      "name": "my-plugin",
+      "version": "1.0.0",
+      "path": "plugins/MyPlugin.dll",
       "includeDependencies": true
     }
   ]
 }
 ```
 
-`path` may be absolute or relative to the manifest directory. `includeDependencies` copies adjacent plugin artifacts, including DLLs, JSON runtime metadata, PDBs, and a `runtimes` folder when present.
+`path` may be absolute or relative to the folder containing `cfgs.json`. `includeDependencies` also copies files the plugin needs from beside its DLL.
 
 ## Init
 
 Create a manifest in the current directory. `init` does not generate `main.cfs`, a project template, or a VS Code workspace; create source files separately. For a complete first project, follow [Your First CFGS Project](00_first_project.md).
 
-```powershell
-dotnet run --project CFGS_NE -- init
+```text
+CFGS_VM.exe init
 ```
 
-Use `--project <dir>` to target a specific project directory.
+Use `--project <dir>` to target a specific directory. Run this from a folder outside an existing CFGS project: if a parent contains `cfgs.json`, `init` uses that project instead.
 
-```powershell
-dotnet run --project CFGS_NE -- init --project .\my-project
+```text
+CFGS_VM.exe init --project my-project
 ```
 
 ## Install
 
 Install adds or updates a local plugin dependency in `cfgs.json`.
 
-```powershell
-dotnet run --project CFGS_NE -- install .\plugins\MyPlugin.dll --name my-plugin --version 1.0.0
+```text
+CFGS_VM.exe install plugins/MyPlugin.dll --name my-plugin --version 1.0.0
 ```
 
-By default, install also runs restore. Use `--no-restore` to only edit the manifest.
-An invalid or missing plugin DLL is rejected before a new manifest is created, including with
-`--no-restore`. A failed install preserves an existing manifest byte for byte.
-If automatic restore rejects an artifact collision, install restores the previous manifest (or
-removes a newly created manifest). The existing lockfile and installed plugin directory remain in place.
+By default, install also runs restore. Use `--no-restore` to update the manifest without restoring yet. CFGS rejects a missing or invalid DLL and leaves the existing manifest in place if installation fails.
 
-```powershell
-dotnet run --project CFGS_NE -- install .\plugins\MyPlugin.dll --no-restore
+```text
+CFGS_VM.exe install plugins/MyPlugin.dll --no-restore
 ```
 
 Use `--no-dependencies` when only the declared DLL should be copied.
 
 ## Restore
 
-Restore reads `cfgs.json`, copies plugin artifacts into `.cfgs/plugins`, and writes `cfgs.lock.json`.
-If two plugins stage the same relative artifact path with different SHA-256 contents, restore fails
-with both source paths identified. Byte-identical artifacts at the same path are shared. A collision
-is detected before restore replaces the installed plugin directory or lockfile.
+Restore reads `cfgs.json`, copies plugin files into `.cfgs/plugins`, and writes `cfgs.lock.json`. If two plugins provide different files with the same name and path, restore reports the conflict and leaves the installed files in place.
 
-```powershell
-dotnet run --project CFGS_NE -- restore
+```text
+CFGS_VM.exe restore
 ```
 
-Lockfile version 2 records plugin name, version, source, installed path, and dependency-copy mode. Its `artifacts` list records the relative path and SHA-256 hash of every installed file, including managed and native dependencies.
-Before loading a DLL from `.cfgs/plugins`, CFGS checks the complete installed artifact set. It rejects missing, additional, or modified files. Plugin-private dependencies are checked again when loaded. This applies to plugin imports and to `import native` alike. Run `restore` after changing a dependency or when upgrading a version 1 lockfile; package plugins cannot load without a version 2 lockfile.
-
-DLL references stored in a `.cfb` artifact are reduced to bare file names, both when the artifact is written and when it is read back. A compiled artifact can therefore name which DLL it needs, but it cannot direct the loader at a path of its own choosing.
+CFGS checks restored plugin files before loading them. If you change a plugin DLL or its dependencies, run `CFGS_VM.exe restore` again instead of editing `.cfgs/plugins` by hand. Run restore after upgrading an older project lockfile as well.
 
 ## Listing
 
 Use `deps list` to inspect manifest dependencies and lock status.
 
-```powershell
-dotnet run --project CFGS_NE -- deps list
+```text
+CFGS_VM.exe deps list
 ```
 
 ## Importing Restored Plugins
